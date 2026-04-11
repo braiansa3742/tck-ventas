@@ -4162,32 +4162,26 @@ async function cargarPedidos(silencioso) {
     // Detectar duplicados — solo dentro del MISMO DÍA
     var mapTotal = {}, mapCliente = {};
     pedidos.forEach(function(p) {
-      // Usar fecha del pedidoId (siempre presente) en vez de fechaHora (puede estar vacío)
+      // No considerar cancelados como duplicados
+      if (p.estado === 'Cancelado') return;
       var mFecha = (p.pedidoId || '').match(/TCK-(\d{8})/);
       var fechaDia = mFecha ? mFecha[1] : (p.fechaHora || '').substring(0, 10).replace(/-/g,'');
-      if (!fechaDia) return; // si no hay fecha, no comparar
-      var kT = (fechaDia + p.cliente + p.total).toLowerCase().replace(/\s/g,'');
-      var kC = (fechaDia + p.cliente).toLowerCase().trim();
+      if (!fechaDia) return;
+      // Duplicado exacto: mismo día + mismo cliente + mismo total + mismo vendedor
+      var kT = (fechaDia + p.cliente + p.total + p.vendedor).toLowerCase().replace(/\s/g,'');
       if (!mapTotal[kT]) mapTotal[kT] = [];
-      if (!mapCliente[kC]) mapCliente[kC] = [];
       mapTotal[kT].push(p);
-      mapCliente[kC].push(p);
     });
     pedidos.forEach(function(p) {
+      if (p.estado === 'Cancelado') { p.esDuplicado = false; p.tipoDuplicado = null; p.duplicadoCon = ''; return; }
       var mFecha = (p.pedidoId || '').match(/TCK-(\d{8})/);
       var fechaDia = mFecha ? mFecha[1] : (p.fechaHora || '').substring(0, 10).replace(/-/g,'');
       if (!fechaDia) { p.esDuplicado = false; p.tipoDuplicado = null; p.duplicadoCon = ''; return; }
-      var kT = (fechaDia + p.cliente + p.total).toLowerCase().replace(/\s/g,'');
-      var kC = (fechaDia + p.cliente).toLowerCase().trim();
-      var gT = mapTotal[kT], gC = mapCliente[kC];
-      if (gT.length > 1) {
+      var kT = (fechaDia + p.cliente + p.total + p.vendedor).toLowerCase().replace(/\s/g,'');
+      var gT = mapTotal[kT];
+      if (gT && gT.length > 1) {
         p.esDuplicado = true; p.tipoDuplicado = 'exacto';
         p.duplicadoCon = gT.filter(function(x){return x.pedidoId!==p.pedidoId;})
-          .map(function(x){return x.vendedor||'otro vendedor';})
-          .filter(function(v,i,a){return a.indexOf(v)===i;}).join(', ');
-      } else if (gC.length > 1) {
-        p.esDuplicado = true; p.tipoDuplicado = 'parcial';
-        p.duplicadoCon = gC.filter(function(x){return x.pedidoId!==p.pedidoId;})
           .map(function(x){return x.vendedor||'otro vendedor';})
           .filter(function(v,i,a){return a.indexOf(v)===i;}).join(', ');
       } else {
@@ -8102,8 +8096,12 @@ async function tomadorConfirmarFinal() {
 
   // Registrar pedido en el Sheet (igual que el catálogo)
   try {
-    var pedidoId = 'TCK-' + hoy.toISOString().slice(0,10).replace(/-/g,'') + '-'
-      + hoy.toLocaleTimeString('es-AR',{hour:'2-digit',minute:'2-digit'}).replace(':','')
+    var hh = hoy.getHours().toString().padStart(2,'0');
+    var mm = hoy.getMinutes().toString().padStart(2,'0');
+    var yyyymmdd = hoy.getFullYear().toString()
+      + (hoy.getMonth()+1).toString().padStart(2,'0')
+      + hoy.getDate().toString().padStart(2,'0');
+    var pedidoId = 'TCK-' + yyyymmdd + '-' + hh + mm
       + '-' + (vendedor === 'ADMIN' ? 'ADM' : vendedor.substring(0,3).toUpperCase())
       + '-C' + Math.random().toString(36).substring(2,6).toUpperCase();
 
