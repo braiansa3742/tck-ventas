@@ -3508,22 +3508,79 @@ input[type="date"] {
     </div><!-- /vendedor-gps-wrap -->
   </div>
 
-  <!-- ══ VIEW: REPORTES ══ -->\
+  <!-- ══ VIEW: REPORTES ══ -->
   <div class="view" id="view-reportes">
     <div class="rep-view-inner">
 
-      <!-- ── Objetivos (solo Admin) ── -->
-      <div class="rep-card" id="objetivos-section" style="margin-top:4px;display:none">
+      <!-- ════ SECCIÓN 1: HOY ════ -->
+      <div style="padding:10px 14px 4px;font-family:'Barlow Condensed',sans-serif;font-size:10px;font-weight:900;color:#9C7050;text-transform:uppercase;letter-spacing:1px;">📅 Hoy</div>
+
+      <!-- Resumen ejecutivo del día -->
+      <div class="rep-card" style="margin-top:0">
         <div class="rep-card-hdr">
-          <div class="rep-card-titulo">🎯 Objetivos</div>
+          <div class="rep-card-titulo" id="rep-hoy-titulo">📊 Resumen del día</div>
+          <div id="rep-hoy-fecha" style="font-family:'Barlow Condensed',sans-serif;font-size:12px;color:var(--text3);"></div>
+        </div>
+        <div class="rep-card-body">
+          <div class="rep-stats" style="grid-template-columns:repeat(4,1fr);">
+            <div class="rep-stat">
+              <div class="rep-stat-num" id="rep-hoy-monto">—</div>
+              <div class="rep-stat-lbl">Facturado</div>
+            </div>
+            <div class="rep-stat">
+              <div class="rep-stat-num verde" id="rep-hoy-pedidos">—</div>
+              <div class="rep-stat-lbl">Pedidos</div>
+            </div>
+            <div class="rep-stat">
+              <div class="rep-stat-num orange" id="rep-hoy-ticket">—</div>
+              <div class="rep-stat-lbl">Ticket</div>
+            </div>
+            <div class="rep-stat">
+              <div class="rep-stat-num" id="rep-hoy-pend" style="color:var(--red);">—</div>
+              <div class="rep-stat-lbl">Pendientes</div>
+            </div>
+          </div>
+          <!-- Semáforo general del negocio (solo Admin) -->
+          <div id="rep-hoy-semaforo" style="display:none;margin-top:8px;padding:10px 12px;border-radius:10px;font-family:'Barlow Condensed',sans-serif;font-size:14px;font-weight:700;"></div>
+          <!-- Comparativa vs ayer -->
+          <div class="rep-comparativa" id="rep-hoy-comparativa" style="margin-top:8px;"></div>
+        </div>
+      </div>
+
+      <!-- Objetivos del día (solo Admin) -->
+      <div class="rep-card" id="objetivos-section" style="display:none">
+        <div class="rep-card-hdr">
+          <div class="rep-card-titulo">🎯 Objetivos del día</div>
         </div>
         <div id="objetivos-wrap">
           <div style="text-align:center;color:var(--text3);padding:16px;font-size:13px">Cargando...</div>
         </div>
       </div>
 
-      <!-- ── Resumen + filtros ── -->
-      <div class="rep-card" style="margin-top:4px;">
+      <!-- Comparativo vendedores hoy (solo Admin) -->
+      <div class="rep-card" id="rep-hoy-vend-card" style="display:none;">
+        <div class="rep-card-hdr">
+          <div class="rep-card-titulo">👤 Vendedores hoy</div>
+        </div>
+        <div class="rep-card-body" id="rep-hoy-vend-body"></div>
+      </div>
+
+      <!-- Precios competencia del día (solo Admin) -->
+      <div class="rep-card" id="rep-comp-card" style="display:none;">
+        <div class="rep-card-hdr">
+          <div class="rep-card-titulo">🏪 Precios competencia</div>
+          <div style="font-family:'Barlow Condensed',sans-serif;font-size:11px;color:var(--text3);">registrados hoy</div>
+        </div>
+        <div class="rep-card-body" id="rep-comp-body">
+          <div style="text-align:center;color:var(--text3);font-size:13px;">Sin registros hoy</div>
+        </div>
+      </div>
+
+      <!-- ════ SECCIÓN 2: PERÍODO ════ -->
+      <div style="padding:14px 14px 4px;font-family:'Barlow Condensed',sans-serif;font-size:10px;font-weight:900;color:#9C7050;text-transform:uppercase;letter-spacing:1px;">📈 Período</div>
+
+      <!-- Filtros período -->
+      <div class="rep-card" style="margin-top:0">
         <div class="rep-card-hdr">
           <div class="rep-card-titulo">📈 Resumen</div>
           <div style="display:flex;gap:6px;align-items:center;">
@@ -3575,23 +3632,11 @@ input[type="date"] {
               <div class="rep-stat-lbl">Ticket prom.</div>
             </div>
           </div>
-          <!-- Comparativas vs período anterior -->
           <div class="rep-comparativa" id="rep-comparativa"></div>
         </div>
       </div>
 
-      <!-- ── Alertas inteligentes ── -->
-      <div class="rep-card" id="rep-alertas-card">
-        <div class="rep-card-hdr">
-          <div class="rep-card-titulo">🔔 Alertas</div>
-          <div class="rep-stat-num" id="rep-alertas-count" style="font-size:14px;color:var(--red);"></div>
-        </div>
-        <div class="rep-card-body" id="rep-alertas-body">
-          <div class="rep-alertas-empty">Calculando...</div>
-        </div>
-      </div>
-
-      <!-- ── Evolución diaria ── -->
+      <!-- Evolución diaria -->
       <div class="rep-card">
         <div class="rep-card-hdr">
           <div class="rep-card-titulo">📅 Evolución de ventas</div>
@@ -3604,7 +3649,7 @@ input[type="date"] {
         </div>
       </div>
 
-      <!-- ── Comparativo vendedores (solo Admin) ── -->
+      <!-- Comparativo vendedores período (solo Admin) -->
       <div class="rep-card" id="rep-vend-card" style="display:none;">
         <div class="rep-card-hdr">
           <div class="rep-card-titulo">👤 Por vendedor</div>
@@ -3612,7 +3657,37 @@ input[type="date"] {
         <div class="rep-card-body" id="rep-vend-body"></div>
       </div>
 
-      <!-- ── Análisis de clientes ── -->
+      <!-- Productos más pedidos -->
+      <div class="rep-card">
+        <div class="rep-card-hdr">
+          <div class="rep-card-titulo">📦 Productos más pedidos</div>
+        </div>
+        <div class="rep-card-body" id="rep-prod-body"></div>
+      </div>
+
+      <!-- Por localidad -->
+      <div class="rep-card">
+        <div class="rep-card-hdr">
+          <div class="rep-card-titulo">📍 Por localidad</div>
+        </div>
+        <div class="rep-card-body" id="rep-loc-body"></div>
+      </div>
+
+      <!-- ════ SECCIÓN 3: INTELIGENCIA ════ -->
+      <div style="padding:14px 14px 4px;font-family:'Barlow Condensed',sans-serif;font-size:10px;font-weight:900;color:#9C7050;text-transform:uppercase;letter-spacing:1px;">🧠 Inteligencia</div>
+
+      <!-- Alertas -->
+      <div class="rep-card" id="rep-alertas-card" style="margin-top:0">
+        <div class="rep-card-hdr">
+          <div class="rep-card-titulo">🔔 Alertas</div>
+          <div class="rep-stat-num" id="rep-alertas-count" style="font-size:14px;color:var(--red);"></div>
+        </div>
+        <div class="rep-card-body" id="rep-alertas-body">
+          <div class="rep-alertas-empty">Calculando...</div>
+        </div>
+      </div>
+
+      <!-- Top clientes -->
       <div class="rep-card">
         <div class="rep-card-hdr">
           <div class="rep-card-titulo">⭐ Top clientes</div>
@@ -3624,29 +3699,13 @@ input[type="date"] {
         <div class="rep-card-body" id="rep-cli-body"></div>
       </div>
 
-      <!-- ── Clientes inactivos ── -->
+      <!-- Clientes inactivos -->
       <div class="rep-card">
         <div class="rep-card-hdr">
           <div class="rep-card-titulo">💤 Clientes inactivos</div>
           <div style="font-family:'Barlow Condensed',sans-serif;font-size:12px;color:var(--text3);">+7 días sin comprar</div>
         </div>
         <div class="rep-card-body" id="rep-inact-body"></div>
-      </div>
-
-      <!-- ── Productos más vendidos ── -->
-      <div class="rep-card">
-        <div class="rep-card-hdr">
-          <div class="rep-card-titulo">📦 Productos más pedidos</div>
-        </div>
-        <div class="rep-card-body" id="rep-prod-body"></div>
-      </div>
-
-      <!-- ── Por localidad ── -->
-      <div class="rep-card">
-        <div class="rep-card-hdr">
-          <div class="rep-card-titulo">📍 Por localidad</div>
-        </div>
-        <div class="rep-card-body" id="rep-loc-body"></div>
       </div>
 
     </div>
@@ -5062,7 +5121,8 @@ function cambiarTab(tab) {
 }
 
 function mostrarTabs() {
-  var nav = document.getElementById('tab-nav');\n  if (nav) nav.classList.add('visible');
+  var nav = document.getElementById('tab-nav');
+  if (nav) nav.classList.add('visible');
   var esAdmin = vendedorActual === 'ADMIN';
   var esCampo = vendedorActual === 'Juan' || vendedorActual === 'Lisandro';
 
@@ -5215,9 +5275,89 @@ function getRepDatos(periodo) {
 function renderReportes() {
   if (!vendedorActual || !todosLosPedidos.length) return;
 
-  var datos   = getRepDatosFiltrados();
+  var datos    = getRepDatosFiltrados();
   var anterior = getDatosAnteriores();
-  var esAdmin = vendedorActual === 'ADMIN';
+  var esAdmin  = vendedorActual === 'ADMIN';
+  var fmt = function(n) {
+    if (n >= 1000000) return '$' + (n/1000000).toFixed(1) + 'M';
+    if (n >= 1000)    return '$' + Math.round(n/1000) + 'k';
+    return '$' + n.toLocaleString('es-AR');
+  };
+
+  // ── SECCIÓN HOY ───────────────────────────────────────────────
+  var hoy = new Date(); hoy.setHours(0,0,0,0);
+  var pedidosHoy = todosLosPedidos.filter(function(p) {
+    var f = fechaPedido(p); f.setHours(0,0,0,0);
+    var misVend = !esAdmin ? (p.vendedor && p.vendedor.toLowerCase().includes(vendedorActual.toLowerCase())) : true;
+    var vendFilt = esAdmin && _repVendedor !== 'todos' ? (p.vendedor && p.vendedor.toLowerCase().includes(_repVendedor.toLowerCase())) : true;
+    return f.getTime() === hoy.getTime() && p.estado !== 'Cancelado' && misVend && vendFilt;
+  });
+  var pedidosAyer = todosLosPedidos.filter(function(p) {
+    var f = fechaPedido(p); f.setHours(0,0,0,0);
+    var ayer = new Date(hoy); ayer.setDate(ayer.getDate()-1);
+    var misVend = !esAdmin ? (p.vendedor && p.vendedor.toLowerCase().includes(vendedorActual.toLowerCase())) : true;
+    return f.getTime() === ayer.getTime() && p.estado !== 'Cancelado' && misVend;
+  });
+
+  var montoHoy  = pedidosHoy.reduce(function(a,p){ return a+(parseInt((p.total||'').replace(/[^\d]/g,''))||0); },0);
+  var montoAyer = pedidosAyer.reduce(function(a,p){ return a+(parseInt((p.total||'').replace(/[^\d]/g,''))||0); },0);
+  var pendHoy   = pedidosHoy.filter(function(p){ return p.estado==='Pendiente'; }).length;
+  var ticketHoy = pedidosHoy.length ? Math.round(montoHoy/pedidosHoy.length) : 0;
+
+  var el;
+  el = document.getElementById('rep-hoy-monto');   if (el) el.textContent = fmt(montoHoy);
+  el = document.getElementById('rep-hoy-pedidos'); if (el) el.textContent = pedidosHoy.length;
+  el = document.getElementById('rep-hoy-ticket');  if (el) el.textContent = ticketHoy ? fmt(ticketHoy) : '—';
+  el = document.getElementById('rep-hoy-pend');    if (el) el.textContent = pendHoy || '0';
+
+  // Fecha del día
+  el = document.getElementById('rep-hoy-fecha');
+  if (el) el.textContent = hoy.toLocaleDateString('es-AR', {weekday:'long', day:'numeric', month:'long'});
+
+  // Comparativa vs ayer
+  var compEl = document.getElementById('rep-hoy-comparativa');
+  if (compEl && montoAyer > 0) {
+    var pct = Math.round(((montoHoy - montoAyer) / montoAyer) * 100);
+    var cls = pct > 5 ? 'up' : pct < -5 ? 'down' : 'flat';
+    var arr = pct > 5 ? '↑' : pct < -5 ? '↓' : '→';
+    var sign = pct > 0 ? '+' : '';
+    compEl.innerHTML = '<div class="rep-comp-item ' + cls + '"><span class="rep-comp-arrow">' + arr + '</span><span class="rep-comp-pct">' + sign + pct + '%</span><span class="rep-comp-lbl">vs ayer (' + fmt(montoAyer) + ')</span></div>';
+  } else if (compEl) {
+    compEl.innerHTML = '';
+  }
+
+  // Semáforo general del negocio (solo Admin)
+  var semEl = document.getElementById('rep-hoy-semaforo');
+  if (semEl && esAdmin && _repVendedor === 'todos') {
+    semEl.style.display = 'block';
+    var objMonto = 0;
+    if (_objetivos) {
+      ['Miguel','Juan','Lisandro'].forEach(function(v) {
+        if (_objetivos[v] && _objetivos[v].monto_dia) objMonto += Number(_objetivos[v].monto_dia);
+      });
+    }
+    if (!objMonto) objMonto = 1500000;
+    var pctObj = Math.round((montoHoy / objMonto) * 100);
+    var sem, semBg, semColor;
+    if (pctObj >= 90)      { sem='🟢'; semBg='#E8F5E9'; semColor='#2E7D32'; }
+    else if (pctObj >= 60) { sem='🟡'; semBg='#FFFDE7'; semColor='#F57F17'; }
+    else                   { sem='🔴'; semBg='#FFEBEE'; semColor='#C62828'; }
+    semEl.style.background = semBg;
+    semEl.style.color = semColor;
+    semEl.innerHTML = sem + ' ' + pctObj + '% del objetivo del día · ' + fmt(montoHoy) + ' de ' + fmt(objMonto);
+  } else if (semEl) {
+    semEl.style.display = 'none';
+  }
+
+  // Vendedores hoy (solo Admin)
+  var hovCard = document.getElementById('rep-hoy-vend-card');
+  if (hovCard) hovCard.style.display = (esAdmin && _repVendedor === 'todos') ? 'block' : 'none';
+  if (esAdmin && _repVendedor === 'todos') renderVendedoresHoy(pedidosHoy);
+
+  // Precios competencia (solo Admin)
+  var compCard = document.getElementById('rep-comp-card');
+  if (compCard) compCard.style.display = esAdmin ? 'block' : 'none';
+  if (esAdmin) renderPreciosCompetencia(pedidosHoy);
 
   // ── Objetivos (solo Admin) ────────────────────────────────────
   var objSection = document.getElementById('objetivos-section');
@@ -5226,61 +5366,38 @@ function renderReportes() {
     if (esAdmin) renderObjetivos();
   }
 
-  // ── Mostrar/ocultar filtro de vendedor ───────────────────────
+  // ── SECCIÓN PERÍODO ───────────────────────────────────────────
   var filtroEl = document.getElementById('rep-vend-filtro');
   if (filtroEl) filtroEl.style.display = esAdmin ? 'flex' : 'none';
 
-  // ── Título dinámico según filtro ─────────────────────────────
   var titulo = document.querySelector('#view-reportes .rep-card-titulo');
   if (titulo && esAdmin) {
-    var tituloTxt = _repVendedor === 'todos' ? '📈 Todos los vendedores' : '📈 ' + _repVendedor;
-    titulo.innerHTML = tituloTxt;
+    titulo.innerHTML = _repVendedor === 'todos' ? '📈 Todos los vendedores' : '📈 ' + _repVendedor;
   }
 
-  // ── Mini stats ──────────────────────────────────────────────
-  var totalMonto   = datos.reduce(function(a,p){ return a + (parseInt((p.total||'').replace(/[^\d]/g,''))||0); }, 0);
+  var totalMonto   = datos.reduce(function(a,p){ return a+(parseInt((p.total||'').replace(/[^\d]/g,''))||0); },0);
   var totalPedidos = datos.length;
-  var ticket       = totalPedidos ? Math.round(totalMonto / totalPedidos) : 0;
+  var ticket       = totalPedidos ? Math.round(totalMonto/totalPedidos) : 0;
 
-  var fmt = function(n) {
-    if (n >= 1000000) return '$' + (n/1000000).toFixed(1) + 'M';
-    if (n >= 1000)    return '$' + Math.round(n/1000) + 'k';
-    return '$' + n.toLocaleString('es-AR');
-  };
+  el = document.getElementById('rep-stat-monto');   if (el) el.textContent = fmt(totalMonto);
+  el = document.getElementById('rep-stat-pedidos'); if (el) el.textContent = totalPedidos;
+  el = document.getElementById('rep-stat-ticket');  if (el) el.textContent = ticket ? fmt(ticket) : '—';
 
-  var el = document.getElementById('rep-stat-monto');
-  if (el) el.textContent = fmt(totalMonto);
-  el = document.getElementById('rep-stat-pedidos');
-  if (el) el.textContent = totalPedidos;
-  el = document.getElementById('rep-stat-ticket');
-  if (el) el.textContent = ticket ? fmt(ticket) : '—';
-
-  // ── Gráfico evolución diaria ─────────────────────────────────
   renderGrafico(datos);
-
-  // ── Comparativa vs período anterior ────────────────────────────
   renderComparativa(datos, anterior);
 
-  // ── Alertas ──────────────────────────────────────────────────
-  renderAlertas(datos, anterior);
-
-  // ── Comparativo vendedores (solo Admin, solo cuando filtra 'todos') ─────
   var vendCard = document.getElementById('rep-vend-card');
   var showVendCard = esAdmin && _repVendedor === 'todos';
   if (vendCard) vendCard.style.display = showVendCard ? 'block' : 'none';
   if (showVendCard) renderVendedores(datos);
 
-  // ── Top clientes ─────────────────────────────────────────────
-  renderClientes_rep(datos);
-
-  // ── Clientes inactivos ────────────────────────────────────────
-  renderInactivos_rep();
-
-  // ── Productos más pedidos ────────────────────────────────────
   renderProductos(datos);
-
-  // ── Por localidad ─────────────────────────────────────────────
   renderLocalidades(datos);
+
+  // ── SECCIÓN INTELIGENCIA ─────────────────────────────────────
+  renderAlertas(datos, anterior);
+  renderClientes_rep(datos);
+  renderInactivos_rep();
 }
 
 // ── GRÁFICO DE BARRAS SVG ────────────────────────────────────────
@@ -5375,6 +5492,91 @@ function renderGrafico(datos) {
 
   svgParts.push('</svg>');
   wrap.innerHTML = svgParts.join('');
+}
+
+// ── VENDEDORES HOY ────────────────────────────────────────────────
+function renderVendedoresHoy(pedidosHoy) {
+  var body = document.getElementById('rep-hoy-vend-body');
+  if (!body) return;
+  var fmt = function(n) { return '$' + Math.round(n).toLocaleString('es-AR'); };
+
+  var vendMap = {};
+  pedidosHoy.forEach(function(p) {
+    var v = p.vendedor || 'Sin asignar';
+    if (!vendMap[v]) vendMap[v] = { monto:0, pedidos:0, pendientes:0 };
+    vendMap[v].monto   += parseInt((p.total||'').replace(/[^\d]/g,''))||0;
+    vendMap[v].pedidos += 1;
+    if (p.estado === 'Pendiente') vendMap[v].pendientes++;
+  });
+
+  var vends = Object.values(vendMap).map(function(v,i) {
+    return Object.assign(v, { nombre: Object.keys(vendMap)[i] });
+  }).sort(function(a,b){ return b.monto-a.monto; });
+
+  if (!vends.length) {
+    body.innerHTML = '<div style="text-align:center;padding:16px;color:var(--text3);font-size:13px;">Sin pedidos hoy</div>';
+    return;
+  }
+
+  var maxM = vends[0].monto || 1;
+  body.innerHTML = vends.map(function(v) {
+    var pct    = Math.round((v.monto/maxM)*100);
+    var ticket = v.pedidos ? Math.round(v.monto/v.pedidos) : 0;
+    var objM   = _objetivos && _objetivos[v.nombre] && _objetivos[v.nombre].monto_dia ? Number(_objetivos[v.nombre].monto_dia) : 0;
+    var objPct = objM ? Math.min(100, Math.round((v.monto/objM)*100)) : null;
+    var objHtml = objPct !== null
+      ? '<div style="font-size:10px;color:#999;margin-top:2px;">Objetivo: <b style="color:' + (objPct>=100?'#2E7D32':objPct>=60?'#F57F17':'#C62828') + '">' + objPct + '%</b></div>'
+      : '';
+    return '<div class="rep-vend-row">'
+      + '<div class="rep-vend-av">' + v.nombre[0].toUpperCase() + '</div>'
+      + '<div class="rep-vend-info">'
+      +   '<div class="rep-vend-nombre">' + v.nombre + '</div>'
+      +   '<div class="rep-vend-sub">' + v.pedidos + ' pedidos · ticket ' + fmt(ticket) + (v.pendientes?' · <span style="color:var(--orange)">'+v.pendientes+' pend.</span>':'') + '</div>'
+      +   '<div class="rep-vend-bar-wrap"><div class="rep-vend-bar" style="width:'+pct+'%"></div></div>'
+      +   objHtml
+      + '</div>'
+      + '<div class="rep-vend-monto">' + fmt(v.monto) + '</div>'
+      + '</div>';
+  }).join('');
+}
+
+// ── PRECIOS COMPETENCIA ───────────────────────────────────────────
+function renderPreciosCompetencia(pedidosHoy) {
+  var body = document.getElementById('rep-comp-body');
+  if (!body) return;
+
+  var registros = [];
+  pedidosHoy.forEach(function(p) {
+    if (!p.nota || !p.nota.includes('PRECIOS COMP:')) return;
+    var parte = p.nota.replace('PRECIOS COMP: ', '');
+    parte.split(' | ').forEach(function(item) {
+      // formato: "Producto: $precio (Competidor)"
+      var m = item.match(/^(.+):\s*\$?([\d.,]+)\s*(?:\((.+)\))?/);
+      if (m) {
+        registros.push({
+          producto:    m[1].trim(),
+          precio:      parseFloat(m[2].replace(/\./g,'').replace(',','.')),
+          competidor:  m[3] || '—',
+          vendedor:    p.vendedor || '—'
+        });
+      }
+    });
+  });
+
+  if (!registros.length) {
+    body.innerHTML = '<div style="text-align:center;color:var(--text3);font-size:13px;padding:8px 0;">Sin registros hoy</div>';
+    return;
+  }
+
+  body.innerHTML = registros.map(function(r) {
+    return '<div style="display:flex;align-items:center;gap:10px;padding:8px 0;border-bottom:1px solid #f5f0e8;">'
+      + '<div style="flex:1;min-width:0;">'
+      +   '<div style="font-family:\'Barlow Condensed\',sans-serif;font-size:14px;font-weight:700;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">' + r.producto + '</div>'
+      +   '<div style="font-size:11px;color:#999;">' + r.competidor + ' · ' + r.vendedor + '</div>'
+      + '</div>'
+      + '<div style="font-family:\'Barlow Condensed\',sans-serif;font-size:16px;font-weight:900;color:#C62828;white-space:nowrap;">$' + Math.round(r.precio).toLocaleString('es-AR') + '</div>'
+      + '</div>';
+  }).join('');
 }
 
 // ── COMPARATIVO VENDEDORES (Admin) ───────────────────────────────
