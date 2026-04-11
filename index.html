@@ -2,7 +2,7 @@
 <html lang="es">
 <head>
 <meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no, viewport-fit=cover">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
 <title>TCK Ventas</title>
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
@@ -3889,6 +3889,13 @@ function actualizarFecha() {
     dias[d.getDay()] + ' ' + d.getDate() + ' de ' + meses[d.getMonth()] + '<br>' + h + ':' + m;
 }
 actualizarFecha();
+
+// Bloquear zoom en toda la app (iOS Safari ignora user-scalable=no del viewport)
+document.addEventListener('gesturestart', function(e) { e.preventDefault(); });
+document.addEventListener('gesturechange', function(e) { e.preventDefault(); });
+document.addEventListener('touchmove', function(e) {
+  if (e.touches && e.touches.length > 1) e.preventDefault();
+}, { passive: false });
 setInterval(actualizarFecha, 60000);
 
 // Detectar modo campo: tckcatalogo.com/pedidos.html?modo=campo
@@ -5043,8 +5050,11 @@ function ocultarTabs() {
 function actualizarBadgePendientes() {
   var badge = document.getElementById('tab-badge-pend');
   if (!badge) return;
+  var hoy = new Date(); hoy.setHours(0,0,0,0);
   var pend = todosLosPedidos.filter(function(p) {
+    var f = fechaPedido(p); f.setHours(0,0,0,0);
     return p.estado === 'Pendiente' &&
+      f.getTime() === hoy.getTime() &&
       (vendedorActual === 'ADMIN' || p.vendedor.toLowerCase().includes(vendedorActual.toLowerCase()));
   }).length;
   badge.textContent = pend > 0 ? (pend > 99 ? '99+' : pend) : '';
@@ -8048,7 +8058,7 @@ async function tomadorConfirmarFinal() {
       + '-' + (vendedor === 'ADMIN' ? 'ADM' : vendedor.substring(0,3).toUpperCase())
       + '-C' + Math.random().toString(36).substring(2,6).toUpperCase();
 
-    var detalleSheet = lineas.map(function(l) { return l; }).join('\n');
+    var detalleSheet = lineas.join(' | ');
 
     var params = new URLSearchParams({
       accion:        'guardarPedido',
