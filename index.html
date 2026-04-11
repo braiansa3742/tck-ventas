@@ -3,10 +3,10 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
-<title>TCK Admin</title>
+<title>TCK Ventas</title>
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
-<meta name="apple-mobile-web-app-title" content="TCK Admin">
+<meta name="apple-mobile-web-app-title" content="TCK Ventas">
 <meta name="theme-color" content="#8B0000">
 <link rel="apple-touch-icon" href="https://tckcatalogo.com/img/logo-tck.png">
 <link rel="manifest" href="/manifest.json">
@@ -3422,7 +3422,36 @@ input[type="date"] {
 
   <!-- ══ VIEW: VISITAS / GPS ══ -->
   <div class="view" id="view-gps">
-    <div class="gps-wrap">
+    <!-- ══ VISTA ADMIN: VISITAS ══ -->
+    <div id="admin-visitas-wrap" style="display:none">
+      <!-- Header con filtros -->
+      <div style="background:linear-gradient(135deg,#4A0000,#8B0000);padding:14px 16px 10px;">
+        <div style="font-family:'Barlow Condensed',sans-serif;font-size:16px;font-weight:900;color:#fff;letter-spacing:.5px;margin-bottom:10px;">📋 VISITAS DE VENDEDORES</div>
+        <div style="display:flex;gap:8px;flex-wrap:wrap;">
+          <select id="av-fecha" onchange="adminVisitasCargar()" style="flex:1;min-width:130px;padding:8px 10px;border-radius:10px;border:none;font-family:'Barlow Condensed',sans-serif;font-size:13px;font-weight:700;background:#fff;color:#333;">
+            <option value="hoy">Hoy</option>
+            <option value="ayer">Ayer</option>
+            <option value="hace2">Hace 2 días</option>
+            <option value="hace3">Hace 3 días</option>
+            <option value="hace7">Hace 7 días</option>
+          </select>
+          <select id="av-vendedor" onchange="adminVisitasCargar()" style="flex:1;min-width:130px;padding:8px 10px;border-radius:10px;border:none;font-family:'Barlow Condensed',sans-serif;font-size:13px;font-weight:700;background:#fff;color:#333;">
+            <option value="todos">👥 Todos</option>
+            <option value="Juan">Juan</option>
+            <option value="Lisandro">Lisandro</option>
+          </select>
+        </div>
+      </div>
+
+      <!-- Contenido dinámico -->
+      <div id="admin-visitas-body" style="padding:12px 14px;">
+        <div style="text-align:center;padding:30px;color:#999;font-size:13px;">Cargando...</div>
+      </div>
+    </div>
+
+    <!-- ══ VISTA VENDEDOR: GPS/CHECK-IN ══ -->
+    <div id="vendedor-gps-wrap">
+      <div class="gps-wrap">
 
       <!-- Estado card (header) -->
       <div id="gps-estado-card" class="gps-estado-card sin-checkin">
@@ -3476,6 +3505,7 @@ input[type="date"] {
 
       </div>
     </div>
+    </div><!-- /vendedor-gps-wrap -->
   </div>
 
   <!-- ══ VIEW: REPORTES ══ -->\
@@ -4105,7 +4135,7 @@ function salir() {
   // Resetear UI del tab Visitas
   gpsActualizarEstado(null);
   limpiarSesion();
-  document.title = 'TCK Admin';
+  document.title = 'TCK Ventas';
   vendedorActual = null; pinActual = ''; pinVendedorTemp = null; todosLosPedidos = [];
   document.getElementById('login-wrap').style.display = 'flex';
   document.getElementById('panel').classList.remove('on');
@@ -4226,9 +4256,9 @@ function actualizarTitle() {
     return p.estado === 'Pendiente' && (vendedorActual === 'ADMIN' || p.vendedor.toLowerCase().includes(vendedorActual.toLowerCase()));
   }).length;
   if (pend > 0) {
-    document.title = '⏳ ' + pend + ' — TCK Admin';
+    document.title = '⏳ ' + pend + ' — TCK Ventas';
   } else {
-    document.title = '✅ TCK Admin';
+    document.title = '✅ TCK Ventas';
   }
 }
 
@@ -5001,7 +5031,16 @@ function cambiarTab(tab) {
     var v = document.getElementById('view-mapa'); if (v) v.scrollTop = 0;
   }
   if (tab === 'gps') {
-    gpsCargarHistorial();
+    var esAdmin = vendedorActual === 'ADMIN';
+    var adminWrap = document.getElementById('admin-visitas-wrap');
+    var vendedorWrap = document.getElementById('vendedor-gps-wrap');
+    if (adminWrap) adminWrap.style.display = esAdmin ? 'block' : 'none';
+    if (vendedorWrap) vendedorWrap.style.display = esAdmin ? 'none' : 'block';
+    if (esAdmin) {
+      adminVisitasCargar();
+    } else {
+      gpsCargarHistorial();
+    }
     var v = document.getElementById('view-gps'); if (v) v.scrollTop = 0;
   }
   if (tab === 'reportes') {
@@ -5023,23 +5062,26 @@ function cambiarTab(tab) {
 }
 
 function mostrarTabs() {
-  var nav = document.getElementById('tab-nav');
-  if (nav) nav.classList.add('visible');
+  var nav = document.getElementById('tab-nav');\n  if (nav) nav.classList.add('visible');
   var esAdmin = vendedorActual === 'ADMIN';
   var esCampo = vendedorActual === 'Juan' || vendedorActual === 'Lisandro';
 
-  // Tab Visitas — solo Juan y Lisandro (vendedores de campo)
+  // Tab Visitas — Juan, Lisandro Y Admin (admin ve panel de visitas)
   var tabGps = document.getElementById('tab-btn-gps');
-  if (tabGps) tabGps.style.display = esCampo ? '' : 'none';
+  if (tabGps) {
+    tabGps.style.display = (esCampo || esAdmin) ? '' : 'none';
+    // Cambiar label según rol
+    var lbl = tabGps.querySelector('span:last-child');
+    if (lbl) lbl.textContent = esAdmin ? 'Visitas' : 'Visitas';
+  }
 
   // Tab Mapa — solo Admin
   var tabMapa = document.getElementById('tab-btn-mapa');
   if (tabMapa) tabMapa.style.display = esAdmin ? '' : 'none';
 
   // Si el tab activo quedó oculto, ir a Pedidos
-  if ((_tabActual === 'gps' && !esCampo) || (_tabActual === 'mapa' && !esAdmin)) {
-    cambiarTab('pedidos');
-  }
+  if (_tabActual === 'gps' && !esCampo && !esAdmin) cambiarTab('pedidos');
+  if (_tabActual === 'mapa' && !esAdmin) cambiarTab('pedidos');
 }
 
 function ocultarTabs() {
@@ -6597,6 +6639,210 @@ function gpsGetCoords() {
 }
 
 // Cargar historial del día
+// ══ ADMIN: VISITAS DE VENDEDORES ══════════════════════════════════
+
+async function adminVisitasCargar() {
+  var body = document.getElementById('admin-visitas-body');
+  if (!body) return;
+  body.innerHTML = '<div style="text-align:center;padding:30px;color:#999;font-size:13px;">⏳ Cargando...</div>';
+
+  var fechaSelect = document.getElementById('av-fecha');
+  var vendSelect  = document.getElementById('av-vendedor');
+  var fechaVal    = fechaSelect ? fechaSelect.value : 'hoy';
+  var vendVal     = vendSelect  ? vendSelect.value  : 'todos';
+
+  // Calcular fecha
+  var d = new Date();
+  d.setHours(0,0,0,0);
+  if (fechaVal === 'ayer')  d.setDate(d.getDate()-1);
+  if (fechaVal === 'hace2') d.setDate(d.getDate()-2);
+  if (fechaVal === 'hace3') d.setDate(d.getDate()-3);
+  if (fechaVal === 'hace7') d.setDate(d.getDate()-7);
+  var dFin = new Date(d); dFin.setHours(23,59,59,999);
+
+  try {
+    // Traer visitas del día
+    var url = 'visitas?fecha=gte.' + d.toISOString() + '&fecha=lte.' + dFin.toISOString() + '&order=fecha.asc&select=*,vendedores(nombre)';
+    var visitas = await sbFetch(url);
+    if (!visitas) visitas = [];
+
+    // Filtrar por vendedor si corresponde
+    if (vendVal !== 'todos') {
+      visitas = visitas.filter(function(v) {
+        return v.vendedores && v.vendedores.nombre === vendVal;
+      });
+    }
+
+    // Obtener objetivos
+    var objetivosData = await sbFetch('objetivos?activo=eq.true&select=*,vendedores(nombre)');
+    var objMap = {};
+    if (objetivosData) {
+      objetivosData.forEach(function(o) {
+        var n = o.vendedores ? o.vendedores.nombre : '';
+        if (!objMap[n]) objMap[n] = {};
+        objMap[n][o.tipo] = Number(o.valor);
+      });
+    }
+
+    // Obtener pedidos del día para cruzar montos
+    var hoyStr = d.toISOString().slice(0,10);
+    var pedidosHoy = todosLosPedidos.filter(function(p) {
+      var f = fechaPedido(p); f.setHours(0,0,0,0);
+      return f.getTime() === d.getTime() && p.estado !== 'Cancelado';
+    });
+
+    // Agrupar por vendedor
+    var vendedores = vendVal === 'todos' ? ['Juan','Lisandro'] : [vendVal];
+    var html = '';
+
+    vendedores.forEach(function(vend) {
+      var vVisitas = visitas.filter(function(v) {
+        return v.vendedores && v.vendedores.nombre === vend;
+      });
+      var vPedidos = pedidosHoy.filter(function(p) {
+        return p.vendedor === vend;
+      });
+
+      html += adminVisitasRenderVendedor(vend, vVisitas, vPedidos, objMap[vend] || {}, d);
+    });
+
+    if (!html) {
+      html = '<div style="text-align:center;padding:40px;color:#999;font-size:13px;">Sin visitas registradas para este período</div>';
+    }
+
+    body.innerHTML = html;
+  } catch(e) {
+    body.innerHTML = '<div style="text-align:center;padding:30px;color:#c00;font-size:13px;">Error al cargar visitas</div>';
+    console.error(e);
+  }
+}
+
+function adminVisitasRenderVendedor(nombre, visitas, pedidos, objetivos, fecha) {
+  // Agrupar eventos en visitas completas
+  var visitasAgrupadas = [];
+  var visitaActual = null;
+  var visitasAsc = visitas.slice().sort(function(a,b){ return new Date(a.fecha)-new Date(b.fecha); });
+
+  visitasAsc.forEach(function(v) {
+    if (v.tipo === 'checkin') {
+      visitaActual = { cliente: v.nombre_cliente, entrada: new Date(v.fecha), salida: null, tuvo_pedido: false, motivo: null };
+      visitasAgrupadas.push(visitaActual);
+    } else if (v.tipo === 'pedido_campo' && visitaActual && v.nombre_cliente === visitaActual.cliente) {
+      visitaActual.tuvo_pedido = true;
+    } else if (v.tipo === 'checkout' && visitaActual && v.nombre_cliente === visitaActual.cliente) {
+      visitaActual.salida = new Date(v.fecha);
+      visitaActual.motivo = v.motivo_no_compra || null;
+      visitaActual = null;
+    } else if (v.tipo === 'visita_sin_pedido') {
+      visitasAgrupadas.push({ cliente: v.nombre_cliente, entrada: new Date(v.fecha), salida: null, tuvo_pedido: false, motivo: v.motivo_no_compra || 'Sin motivo' });
+    }
+  });
+
+  var totalVisitas   = visitasAgrupadas.length;
+  var conPedido      = visitasAgrupadas.filter(function(v){ return v.tuvo_pedido; }).length;
+  var sinPedido      = totalVisitas - conPedido;
+  var conversion     = totalVisitas ? Math.round((conPedido/totalVisitas)*100) : 0;
+  var totalMonto     = pedidos.reduce(function(a,p){ return a+(parseInt((p.total||'').replace(/[^\d]/g,''))||0); },0);
+
+  // Horario
+  var primero = visitasAgrupadas.length ? visitasAgrupadas[0].entrada : null;
+  var ultimo  = visitasAgrupadas.filter(function(v){ return v.salida; });
+  var ultimoSalida = ultimo.length ? ultimo[ultimo.length-1].salida : null;
+  var horaInicio = primero ? primero.toLocaleTimeString('es-AR',{hour:'2-digit',minute:'2-digit'}) : '—';
+  var horaFin    = ultimoSalida ? ultimoSalida.toLocaleTimeString('es-AR',{hour:'2-digit',minute:'2-digit'}) : (visitasAgrupadas.length ? '(en curso)' : '—');
+
+  // Duración promedio por visita
+  var visitasConDuracion = visitasAgrupadas.filter(function(v){ return v.salida; });
+  var durProm = 0;
+  if (visitasConDuracion.length) {
+    durProm = Math.round(visitasConDuracion.reduce(function(a,v){ return a+((v.salida-v.entrada)/60000); },0) / visitasConDuracion.length);
+  }
+
+  // Semáforo de rendimiento
+  var objVisitas = objetivos.visitas_dia || 8;
+  var objMonto   = objetivos.monto_dia   || 500000;
+  var score = 0;
+  if (totalVisitas >= objVisitas)      score += 35;
+  else if (totalVisitas >= objVisitas*0.7) score += 20;
+  if (conversion >= 60)   score += 25;
+  else if (conversion >= 40) score += 15;
+  if (totalMonto >= objMonto)      score += 25;
+  else if (totalMonto >= objMonto*0.7) score += 15;
+  if (primero && primero.getHours() <= 9)  score += 15;
+  else if (primero && primero.getHours() <= 10) score += 8;
+
+  var semaforo, semaforoLabel, semaforoBg;
+  if (score >= 75)      { semaforo='🟢'; semaforoLabel='Buen día';     semaforoBg='#E8F5E9'; }
+  else if (score >= 45) { semaforo='🟡'; semaforoLabel='Día regular';  semaforoBg='#FFFDE7'; }
+  else                  { semaforo='🔴'; semaforoLabel='Día flojo';    semaforoBg='#FFEBEE'; }
+
+  // Motivos de no compra
+  var motivoMap = {};
+  visitasAgrupadas.filter(function(v){ return !v.tuvo_pedido && v.motivo; }).forEach(function(v){
+    motivoMap[v.motivo] = (motivoMap[v.motivo]||0)+1;
+  });
+  var motivoHTML = Object.entries(motivoMap).sort(function(a,b){return b[1]-a[1];}).map(function(e){
+    return '<span style="background:#fff3e0;color:#e65100;border-radius:20px;padding:3px 10px;font-size:11px;font-weight:700;margin:2px;display:inline-block;">'
+      + e[0] + ' ×' + e[1] + '</span>';
+  }).join('');
+
+  // Timeline de visitas
+  var timelineHTML = visitasAgrupadas.map(function(v, i) {
+    var hora = v.entrada.toLocaleTimeString('es-AR',{hour:'2-digit',minute:'2-digit'});
+    var dur  = v.salida ? Math.round((v.salida-v.entrada)/60000) + ' min' : '(activo)';
+    var icono = v.tuvo_pedido ? '📦' : (v.motivo ? '🔴' : '🟢');
+    var resultado = v.tuvo_pedido ? 'Con pedido' : (v.motivo || 'Sin checkout');
+    var resultColor = v.tuvo_pedido ? '#2E7D32' : '#C62828';
+    return '<div style="display:flex;align-items:center;gap:10px;padding:9px 0;border-bottom:1px solid #f0f0f0;">'
+      + '<div style="width:28px;height:28px;border-radius:50%;background:#f5f5f5;display:flex;align-items:center;justify-content:center;font-size:14px;flex-shrink:0;">' + icono + '</div>'
+      + '<div style="flex:1;min-width:0;">'
+      + '<div style="font-family:\'Barlow Condensed\',sans-serif;font-size:14px;font-weight:700;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">' + (v.cliente||'—') + '</div>'
+      + '<div style="font-size:11px;color:#999;">' + hora + ' · ' + dur + '</div>'
+      + '</div>'
+      + '<div style="font-size:11px;font-weight:700;color:' + resultColor + ';white-space:nowrap;">' + resultado + '</div>'
+      + '</div>';
+  }).join('') || '<div style="color:#999;font-size:13px;padding:12px 0;">Sin visitas registradas</div>';
+
+  var fmt = function(n){ return n>=1000000?'$'+(n/1000000).toFixed(1)+'M':n>=1000?'$'+Math.round(n/1000)+'k':'$'+n.toLocaleString('es-AR'); };
+
+  return '<div style="background:#fff;border-radius:14px;border:1.5px solid #eee;margin-bottom:14px;overflow:hidden;box-shadow:0 2px 8px rgba(0,0,0,.06);">'
+    // Header vendedor + semáforo
+    + '<div style="background:' + semaforoBg + ';padding:12px 14px;display:flex;align-items:center;justify-content:space-between;border-bottom:1.5px solid #eee;">'
+    + '<div>'
+    + '<div style="font-family:\'Barlow Condensed\',sans-serif;font-size:18px;font-weight:900;">' + semaforo + ' ' + nombre + '</div>'
+    + '<div style="font-size:12px;color:#666;margin-top:2px;">' + semaforoLabel + ' · ' + horaInicio + ' → ' + horaFin + '</div>'
+    + '</div>'
+    + '<div style="text-align:right;">'
+    + '<div style="font-family:\'Barlow Condensed\',sans-serif;font-size:22px;font-weight:900;color:#8B0000;">' + fmt(totalMonto) + '</div>'
+    + '<div style="font-size:11px;color:#999;">facturado</div>'
+    + '</div>'
+    + '</div>'
+    // Stats
+    + '<div style="display:grid;grid-template-columns:repeat(4,1fr);gap:0;border-bottom:1.5px solid #eee;">'
+    + adminStatCell(totalVisitas, 'Visitas', '#333')
+    + adminStatCell(conPedido, 'Con pedido', '#2E7D32')
+    + adminStatCell(conversion+'%', 'Conversión', conversion>=60?'#2E7D32':conversion>=40?'#E65100':'#C62828')
+    + adminStatCell(durProm ? durProm+' min' : '—', 'Prom. visita', '#555')
+    + '</div>'
+    // Motivos
+    + (motivoHTML ? '<div style="padding:10px 14px;border-bottom:1.5px solid #eee;"><div style="font-size:10px;font-weight:700;color:#999;text-transform:uppercase;letter-spacing:.5px;margin-bottom:6px;">Motivos de no compra</div>' + motivoHTML + '</div>' : '')
+    // Timeline
+    + '<div style="padding:0 14px;">'
+    + '<div style="font-size:10px;font-weight:700;color:#999;text-transform:uppercase;letter-spacing:.5px;padding:10px 0 4px;">Detalle de visitas</div>'
+    + timelineHTML
+    + '</div>'
+    + '</div>';
+}
+
+function adminStatCell(val, lbl, color) {
+  return '<div style="padding:10px 8px;text-align:center;border-right:1px solid #f0f0f0;">'
+    + '<div style="font-family:\'Barlow Condensed\',sans-serif;font-size:20px;font-weight:900;color:' + color + ';line-height:1;">' + val + '</div>'
+    + '<div style="font-size:10px;color:#999;margin-top:2px;">' + lbl + '</div>'
+    + '</div>';
+}
+
+// ══ FIN ADMIN VISITAS ══════════════════════════════════════════════
+
 async function gpsCargarHistorial() {
   var vendedorId = await gpsObtenerVendedorId();
   var esAdmin = vendedorActual === 'ADMIN';
