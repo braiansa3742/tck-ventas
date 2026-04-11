@@ -3165,23 +3165,44 @@ input[type="date"] {
     <div class="login-titulo">Ingresá</div>
     <div class="login-sub" id="login-sub">Seleccioná tu nombre</div>
     <div id="paso1">
-      <button class="login-btn" onclick="seleccionarVendedor('Miguel','M','#8B0000')">
+      <button class="login-btn" id="login-btn-miguel" onclick="seleccionarVendedor('Miguel','M','#8B0000')">
         <div class="login-av">M</div>
         <div class="login-btn-name">Miguel Martínez<div class="login-btn-role">Vendedor</div></div>
       </button>
-      <button class="login-btn" onclick="seleccionarVendedor('Juan','J','#8B0000')">
+      <button class="login-btn" id="login-btn-juan" onclick="seleccionarVendedor('Juan','J','#8B0000')">
         <div class="login-av">J</div>
         <div class="login-btn-name">Juan Cruz<div class="login-btn-role">Vendedor</div></div>
       </button>
-      <button class="login-btn" onclick="seleccionarVendedor('Lisandro','L','#5C3A1E')">
+      <button class="login-btn" id="login-btn-lisandro" onclick="seleccionarVendedor('Lisandro','L','#5C3A1E')">
         <div class="login-av" style="background:var(--text2);">L</div>
         <div class="login-btn-name">Lisandro<div class="login-btn-role">Vendedor</div></div>
       </button>
-      <button class="login-btn" onclick="seleccionarVendedor('ADMIN','A','#B8860B')" style="margin-top:8px;border-color:var(--gold);background:var(--cream2);">
+      <button class="login-btn" id="login-btn-admin" onclick="seleccionarVendedor('ADMIN','A','#B8860B')" style="margin-top:8px;border-color:var(--gold);background:var(--cream2);">
         <div class="login-av" style="background:var(--gold);color:var(--text);">A</div>
         <div class="login-btn-name">Administración<div class="login-btn-role">Ver todos los pedidos</div></div>
       </button>
     </div>
+    <script>
+      // Filtrar botones de login según el dominio — se ejecuta inmediatamente
+      (function() {
+        var host = window.location.hostname;
+        var esAdmin  = host === 'tckadmin.lat'  || host === 'www.tckadmin.lat';
+        var esVentas = host === 'tckventas.com' || host === 'www.tckventas.com';
+        if (esAdmin) {
+          // tckadmin.lat — solo mostrar Admin, ocultar vendedores
+          ['login-btn-miguel','login-btn-juan','login-btn-lisandro'].forEach(function(id) {
+            var el = document.getElementById(id);
+            if (el) el.style.display = 'none';
+          });
+          var sub = document.getElementById('login-sub');
+          if (sub) sub.textContent = 'Acceso de administración';
+        } else if (esVentas) {
+          // tckventas.com — ocultar Admin, solo mostrar vendedores
+          var admin = document.getElementById('login-btn-admin');
+          if (admin) admin.style.display = 'none';
+        }
+      })();
+    </script>
     <div id="paso2" style="display:none;">
       <div style="display:flex;align-items:center;gap:12px;margin-bottom:20px;padding:12px 16px;background:var(--cream2);border-radius:12px;">
         <div id="pin-av" style="width:44px;height:44px;border-radius:50%;background:var(--red);color:#fff;display:flex;align-items:center;justify-content:center;font-family:'Barlow Condensed',sans-serif;font-size:20px;font-weight:900;flex-shrink:0;"></div>
