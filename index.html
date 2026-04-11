@@ -4454,9 +4454,11 @@ function guardarRemito(pedidoId) {
   var el = document.getElementById('remito-'+id);
   if (!el) return;
   try {
-    localStorage.setItem('tck_remito_'+pedidoId, el.value.trim());
+    var valor = el.value.trim();
+    localStorage.setItem('tck_remito_'+pedidoId, valor);
     var p = todosLosPedidos.find(function(x){return x.pedidoId===pedidoId;});
-    if (p) p.remito = el.value.trim();
+    if (p) p.remito = valor;
+    if (valor) fetch(APPS_SCRIPT_URL + '?accion=guardarRemito&pedidoId=' + encodeURIComponent(pedidoId) + '&remito=' + encodeURIComponent(valor)).catch(function(){});
     var ok = document.getElementById('nota-ok-'+id);
     if (ok) { ok.style.display='block'; setTimeout(function(){ok.style.display='none';},1500); }
   } catch(e) {}
@@ -4492,11 +4494,13 @@ function guardarNota(pedidoId) {
   var el = document.getElementById('nota-'+id);
   if (!el) return;
   try {
-    localStorage.setItem('tck_nota_'+pedidoId, el.value.trim());
+    var valor = el.value.trim();
+    localStorage.setItem('tck_nota_'+pedidoId, valor);
+    var p = todosLosPedidos.find(function(x){return x.pedidoId===pedidoId;});
+    if (p) p.nota = valor;
+    fetch(APPS_SCRIPT_URL + '?accion=guardarNota&pedidoId=' + encodeURIComponent(pedidoId) + '&nota=' + encodeURIComponent(valor)).catch(function(){});
     var ok = document.getElementById('nota-ok-'+id);
     if (ok) { ok.style.display='block'; setTimeout(function(){ok.style.display='none';},2000); }
-    var p = todosLosPedidos.find(function(x){return x.pedidoId===pedidoId;});
-    if (p) p.nota = el.value.trim();
   } catch(e) {}
 }
 
