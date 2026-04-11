@@ -6939,29 +6939,33 @@ function gpsCheckoutConMotivo() {
 async function gpsCheckoutFinal(motivo) {
   var modal = document.getElementById('gps-modal-checkout');
   if (modal) modal.remove();
-  var coords = await gpsGetCoords();
-  var vendedorId = await gpsObtenerVendedorId();
   var cliente = _gpsCheckinActivo ? _gpsCheckinActivo.nombre_cliente : '';
-  try {
-    await sbFetch('visitas', {
-      method: 'POST',
-      body: JSON.stringify({
-        vendedor_id:      vendedorId,
-        nombre_cliente:   cliente,
-        tipo:             'checkout',
-        motivo_no_compra: motivo || null,
-        lat:              coords.lat,
-        lng:              coords.lng
-      })
-    });
-    toast(motivo ? '📋 Visita registrada: ' + motivo : '🚪 Check-out registrado', 'ok');
-    _gpsCheckinActivo = null;
-    _gpsHizoPedido = false;
-    gpsActualizarEstado(null);
-    gpsCargarHistorial();
-  } catch(e) {
-    toast('Error al registrar check-out', 'err');
-  }
+
+  // Actualizar UI inmediatamente sin esperar GPS ni Supabase
+  _gpsCheckinActivo = null;
+  _gpsHizoPedido = false;
+  gpsActualizarEstado(null);
+  toast(motivo ? '📋 Visita registrada: ' + motivo : '🚪 Check-out registrado', 'ok');
+  gpsCargarHistorial();
+
+  // Guardar en Supabase en background
+  Promise.all([gpsGetCoords(), gpsObtenerVendedorId()])
+    .then(function(results) {
+      var coords = results[0];
+      var vendedorId = results[1];
+      return sbFetch('visitas', {
+        method: 'POST',
+        body: JSON.stringify({
+          vendedor_id:      vendedorId,
+          nombre_cliente:   cliente,
+          tipo:             'checkout',
+          motivo_no_compra: motivo || null,
+          lat:              coords.lat,
+          lng:              coords.lng
+        })
+      });
+    })
+    .catch(function(e) { console.error('Checkout background error:', e); });
 }
 
 // Visita sin pedido
@@ -8122,13 +8126,18 @@ async function tomadorConfirmarFinal() {
 
     fetch(APPS_SCRIPT_URL + '?' + params.toString(), {mode: 'no-cors'}).catch(function(){});
     toast('✅ Pedido registrado y enviado', 'ok');
+
+    // Recargar pedidos rápido — el Apps Script necesita ~1s para procesar
+    setTimeout(function() { cargarPedidos(); }, 1000);
+    // Segunda recarga por si acaso
+    setTimeout(function() { cargarPedidos(); }, 4000);
   } catch(e) {
     toast('✅ Pedido enviado por WhatsApp', 'ok');
   }
 
   _gpsHizoPedido = true;
   tomadorCerrar();
-  setTimeout(function() { cargarPedidos(); }, 2000);
+  
 }
 
 
