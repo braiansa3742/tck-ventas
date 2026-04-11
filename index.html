@@ -7641,9 +7641,14 @@ function mapaActualizar() {
     return nombre === _mapaFiltro;
   });
 
-  // Solo checkins con coordenadas
+  // Solo checkins con coordenadas para markers del mapa
   var checkins = visitas.filter(function(v) {
     return v.tipo === 'checkin' && v.lat && v.lng;
+  });
+
+  // Todos los checkins para la lista (con o sin coordenadas)
+  var todosCheckins = visitas.filter(function(v) {
+    return v.tipo === 'checkin';
   });
 
   // Para cada checkin buscar si tiene checkout (para calcular tiempo)
@@ -7710,6 +7715,18 @@ function mapaActualizar() {
   if (_mapaRuta) { _mapaInstance.removeLayer(_mapaRuta); _mapaRuta = null; }
   if (Array.isArray(_mapaRutas)) _mapaRutas.forEach(function(r){ _mapaInstance.removeLayer(r); });
   _mapaRutas = [];
+  // Contar también checkins sin coordenadas para los stats
+  todosCheckins.forEach(function(v) {
+    if (v.lat && v.lng) return; // ya contados arriba
+    var sinPed = visitas.find(function(c) {
+      return (c.tipo === 'visita_sin_pedido' || c.tipo === 'checkout') &&
+             c.nombre_cliente === v.nombre_cliente &&
+             new Date(c.fecha) > new Date(v.fecha);
+    });
+    if (sinPed && sinPed.tipo === 'visita_sin_pedido') sinPedido++;
+    else conPedido++;
+  });
+
   var rutasPorVend = {};
   checkins.forEach(function(v) {
     var n = v.vendedores ? v.vendedores.nombre : 'Vendedor';
@@ -7741,9 +7758,9 @@ function mapaActualizar() {
     else _mapaInstance.fitBounds(bounds, {padding: [30,30]});
   }
 
-  mapaCargarClientesSinVisita(checkins);
+  mapaCargarClientesSinVisita(todosCheckins);
 
-  var total = checkins.length;
+  var total = todosCheckins.length;
   var elTotal = document.getElementById('mapa-stat-visitados');
   var elCon   = document.getElementById('mapa-stat-con-pedido');
   var elSin   = document.getElementById('mapa-stat-sin-pedido');
@@ -7751,8 +7768,8 @@ function mapaActualizar() {
   if (elCon)   elCon.textContent   = conPedido;
   if (elSin)   elSin.textContent   = sinPedido;
 
-  // Actualizar lista
-  mapaActualizarLista(checkins, visitas);
+  // Actualizar lista con todos los checkins
+  mapaActualizarLista(todosCheckins, visitas);
 
   // Forzar resize del mapa
   setTimeout(function() { if (_mapaInstance) _mapaInstance.invalidateSize(); }, 100);
