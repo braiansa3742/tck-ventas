@@ -7681,10 +7681,27 @@ function mapaActualizar() {
     var iconHtml = '<div style="background:' + markerColor + ';color:#fff;border-radius:50% 50% 50% 0;transform:rotate(-45deg);width:30px;height:30px;display:flex;align-items:center;justify-content:center;font-size:12px;font-weight:900;box-shadow:0 2px 8px rgba(0,0,0,.3);"><span style="transform:rotate(45deg)">' + (idx + 1) + '</span></div>';
     var icon = L.divIcon({ html: iconHtml, iconSize: [30,30], iconAnchor: [15,30], className: '' });
     var hora = new Date(v.fecha).toLocaleTimeString('es-AR', {hour:'2-digit',minute:'2-digit'});
-    var popupContent = '<b>' + v.nombre_cliente + '</b><br>' + vendedorNombre + ' · ' + hora
-      + (tiempoStr ? '<br>⏱ ' + tiempoStr : '')
-      + (sinPed ? '<br>❌ ' + sinPed.motivo_no_compra : '<br>✅ Con pedido');
-    var marker = L.marker([v.lat, v.lng], {icon: icon}).bindPopup(popupContent).addTo(_mapaInstance);
+
+    // Popup con historial al tocar
+    var popupIdV = 'popup-vis-' + idx + '-' + Date.now();
+    var popupVisitado = L.popup({ maxWidth: 260, minWidth: 220 })
+      .setContent(
+        '<div style="font-family:\'Barlow Condensed\',sans-serif;">'
+        + '<div style="font-size:15px;font-weight:900;margin-bottom:2px;">' + v.nombre_cliente + '</div>'
+        + '<div style="font-size:11px;color:#999;margin-bottom:6px;">' + vendedorNombre + ' · ' + hora + (tiempoStr ? ' · ⏱ ' + tiempoStr : '') + '</div>'
+        + '<div style="font-size:12px;font-weight:700;color:' + (sinPed?'#C62828':'#2E7D32') + ';margin-bottom:8px;">' + (sinPed ? '❌ ' + sinPed.motivo_no_compra : '✅ Con pedido') + '</div>'
+        + '<div id="' + popupIdV + '" style="font-size:12px;color:#999;">⏳ Cargando historial...</div>'
+        + '</div>'
+      );
+
+    var marker = L.marker([v.lat, v.lng], {icon: icon})
+      .bindPopup(popupVisitado)
+      .addTo(_mapaInstance);
+
+    marker.on('popupopen', function() {
+      mapaCargarHistorialCliente(v.nombre_cliente, popupIdV);
+    });
+
     _mapaMarkers.push(marker);
     bounds.push([v.lat, v.lng]);
   });
@@ -7756,13 +7773,31 @@ async function mapaCargarClientesSinVisita(checkins) {
     var visitadosHoy = new Set(checkins.map(function(v) { return v.nombre_cliente; }));
     var noVisitados = clientes.filter(function(c) { return !visitadosHoy.has(c.nombre); });
 
-    // Puntos grises en el mapa
+    // Puntos grises con popup enriquecido
     noVisitados.forEach(function(c) {
       var iconHtml = '<div style="background:#BDBDBD;color:#fff;border-radius:50%;width:18px;height:18px;display:flex;align-items:center;justify-content:center;font-size:9px;font-weight:900;box-shadow:0 1px 4px rgba(0,0,0,.2);opacity:.8">•</div>';
       var icon = L.divIcon({ html: iconHtml, iconSize: [18,18], iconAnchor: [9,9], className: '' });
+
+      // Popup con loading — se llena al abrirse
+      var popupId = 'popup-cli-' + (c.id || c.nombre.replace(/\s/g,''));
+      var popup = L.popup({ maxWidth: 260, minWidth: 220 })
+        .setContent(
+          '<div style="font-family:\'Barlow Condensed\',sans-serif;">'
+          + '<div style="font-size:15px;font-weight:900;margin-bottom:4px;">' + c.nombre + '</div>'
+          + (c.localidad ? '<div style="font-size:11px;color:#999;margin-bottom:8px;">📍 ' + c.localidad + '</div>' : '')
+          + '<div id="' + popupId + '" style="font-size:12px;color:#999;">⏳ Cargando historial...</div>'
+          + '</div>'
+        );
+
       var marker = L.marker([c.lat, c.lng], {icon: icon})
-        .bindPopup('<b>' + c.nombre + '</b><br><span style="color:#9E9E9E">⚪ Sin visitar hoy</span>' + (c.localidad ? '<br>📍 ' + c.localidad : ''))
+        .bindPopup(popup)
         .addTo(_mapaInstance);
+
+      // Cargar historial al abrir el popup
+      marker.on('popupopen', function() {
+        mapaCargarHistorialCliente(c.nombre, popupId);
+      });
+
       _mapaGrayMarkers.push(marker);
     });
 
@@ -7791,6 +7826,110 @@ async function mapaCargarClientesSinVisita(checkins) {
 function mapaToggleNoVisitados() {
   var lista = document.getElementById('mapa-no-visitados-lista');
   if (lista) lista.style.display = lista.style.display === 'none' ? 'block' : 'none';
+}
+
+async function mapaCargarHistorialCliente(nombreCliente, popupId) {
+  var el = document.getElementById(popupId);
+  if (!el) return;
+
+  try {
+    var normNombre = nombreCliente.trim().toLowerCase();
+
+    // 1. Últimas visitas desde Supabase (últimos 90 días)
+    var hace90 = new Date(); hace90.setDate(hace90.getDate() - 90);
+    var visitas = await sbFetch(
+      'visitas?nombre_cliente=ilike.' + encodeURIComponent('%' + nombreCliente + '%')
+      + '&fecha=gte.' + hace90.toISOString()
+      + '&order=fecha.desc&limit=10&select=*,vendedores(nombre)'
+    );
+
+    // 2. Pedidos desde todosLosPedidos (ya en memoria)
+    var pedidos = todosLosPedidos.filter(function(p) {
+      return p.cliente && p.cliente.trim().toLowerCase() === normNombre
+        && p.estado !== 'Cancelado';
+    }).sort(function(a,b) { return fechaPedido(b) - fechaPedido(a); });
+
+    var ultimoPedido = pedidos.length ? pedidos[0] : null;
+    var totalMonto   = pedidos.reduce(function(a,p){ return a+(parseInt((p.total||'').replace(/[^\d]/g,''))||0); },0);
+    var diasSinComprar = ultimoPedido
+      ? Math.floor((new Date() - fechaPedido(ultimoPedido)) / 86400000)
+      : null;
+
+    // 3. Últimas visitas agrupadas
+    var ultimasVisitas = [];
+    if (visitas && visitas.length) {
+      var checkins = visitas.filter(function(v){ return v.tipo === 'checkin'; }).slice(0,5);
+      checkins.forEach(function(ci) {
+        var checkout = visitas.find(function(v){
+          return v.tipo === 'checkout' && new Date(v.fecha) > new Date(ci.fecha);
+        });
+        var tuvoPedido = visitas.some(function(v){
+          return v.tipo === 'pedido_campo' && new Date(v.fecha) > new Date(ci.fecha);
+        });
+        var dias = Math.floor((new Date() - new Date(ci.fecha)) / 86400000);
+        ultimasVisitas.push({
+          fecha: new Date(ci.fecha),
+          dias: dias,
+          vendedor: ci.vendedores ? ci.vendedores.nombre : '—',
+          tuvoPedido: tuvoPedido,
+          motivo: checkout ? checkout.motivo_no_compra : null
+        });
+      });
+    }
+
+    // Construir HTML del popup
+    var fmt = function(n){ return '$' + Math.round(n).toLocaleString('es-AR'); };
+
+    var html = '';
+
+    // Stats rápidos
+    html += '<div style="display:grid;grid-template-columns:1fr 1fr;gap:6px;margin-bottom:8px;">';
+    html += '<div style="background:#f5f0e8;border-radius:8px;padding:6px 8px;text-align:center;">'
+      + '<div style="font-size:16px;font-weight:900;color:#8B0000;">' + pedidos.length + '</div>'
+      + '<div style="font-size:10px;color:#999;">pedidos</div></div>';
+    html += '<div style="background:#f5f0e8;border-radius:8px;padding:6px 8px;text-align:center;">'
+      + '<div style="font-size:14px;font-weight:900;color:#8B0000;">' + (totalMonto ? fmt(totalMonto) : '—') + '</div>'
+      + '<div style="font-size:10px;color:#999;">histórico</div></div>';
+    html += '</div>';
+
+    // Última compra
+    if (ultimoPedido) {
+      var sinColor = diasSinComprar > 14 ? '#C62828' : diasSinComprar > 7 ? '#E65100' : '#2E7D32';
+      html += '<div style="margin-bottom:8px;padding:6px 8px;background:#fff3e0;border-radius:8px;font-size:12px;">'
+        + '🛒 Última compra: <b style="color:' + sinColor + '">hace ' + diasSinComprar + ' días</b><br>'
+        + '<span style="color:#666;">' + fechaPedido(ultimoPedido).toLocaleDateString('es-AR') + ' · ' + fmt(parseInt((ultimoPedido.total||'').replace(/[^\d]/g,''))||0) + '</span>'
+        + '</div>';
+    } else {
+      html += '<div style="margin-bottom:8px;padding:6px 8px;background:#fce4ec;border-radius:8px;font-size:12px;color:#C62828;">⚠️ Sin pedidos registrados</div>';
+    }
+
+    // Últimas visitas
+    if (ultimasVisitas.length) {
+      html += '<div style="font-size:10px;font-weight:700;color:#999;text-transform:uppercase;letter-spacing:.5px;margin-bottom:4px;">Últimas visitas</div>';
+      html += ultimasVisitas.map(function(v) {
+        var icono = v.tuvoPedido ? '✅' : '❌';
+        var result = v.tuvoPedido ? 'Compró' : (v.motivo || 'Sin compra');
+        return '<div style="display:flex;align-items:center;gap:6px;padding:4px 0;border-bottom:1px solid #f5f5f5;font-size:11px;">'
+          + '<span>' + icono + '</span>'
+          + '<span style="color:#666;">hace ' + v.dias + 'd · ' + v.vendedor + '</span>'
+          + '<span style="margin-left:auto;color:' + (v.tuvoPedido?'#2E7D32':'#999') + ';">' + result + '</span>'
+          + '</div>';
+      }).join('');
+    } else {
+      html += '<div style="font-size:11px;color:#999;font-style:italic;">Sin visitas registradas en la app</div>';
+    }
+
+    el.innerHTML = html;
+
+    // Forzar actualización del popup para ajustar tamaño
+    setTimeout(function() {
+      if (_mapaInstance) _mapaInstance.invalidateSize();
+    }, 50);
+
+  } catch(e) {
+    if (el) el.innerHTML = '<span style="color:#999;font-size:11px;">Error al cargar historial</span>';
+    console.error(e);
+  }
 }
 
 
