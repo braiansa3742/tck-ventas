@@ -3387,19 +3387,27 @@ input[type="date"] {
         <div style="font-size:12px;opacity:.8;margin-top:2px" id="mapa-fecha-label">Hoy</div>
       </div>
 
-      <!-- Filtro vendedor (solo admin) -->
-      <div class="mapa-filtros" id="mapa-filtros-wrap">
-        <button class="mapa-chip sel" id="mapa-chip-todos" onclick="mapaFiltrar('todos')">👥 Todos</button>
-        <button class="mapa-chip" id="mapa-chip-Miguel" onclick="mapaFiltrar('Miguel')">Miguel</button>
-        <button class="mapa-chip" id="mapa-chip-Juan" onclick="mapaFiltrar('Juan')">Juan</button>
-        <button class="mapa-chip" id="mapa-chip-Lisandro" onclick="mapaFiltrar('Lisandro')">Lisandro</button>
+      <!-- Filtros: fecha + vendedor -->
+      <div style="background:rgba(0,0,0,.15);padding:8px 12px;display:flex;gap:8px;flex-wrap:wrap;align-items:center;">
+        <select id="mapa-fecha-sel" onchange="mapaFiltrarFecha(this.value)" style="flex:1;min-width:120px;padding:6px 10px;border-radius:8px;border:none;font-family:'Barlow Condensed',sans-serif;font-size:13px;font-weight:700;background:#fff;color:#333;">
+          <option value="0">Hoy</option>
+          <option value="1">Ayer</option>
+          <option value="2">Hace 2 días</option>
+          <option value="3">Hace 3 días</option>
+          <option value="7">Hace 7 días</option>
+        </select>
+        <div class="mapa-filtros" id="mapa-filtros-wrap" style="margin:0;padding:0;background:none;border:none;gap:6px;">
+          <button class="mapa-chip sel" id="mapa-chip-todos" onclick="mapaFiltrar('todos')">👥 Todos</button>
+          <button class="mapa-chip" id="mapa-chip-Juan" onclick="mapaFiltrar('Juan')">Juan</button>
+          <button class="mapa-chip" id="mapa-chip-Lisandro" onclick="mapaFiltrar('Lisandro')">Lisandro</button>
+        </div>
       </div>
 
       <!-- Mapa Leaflet -->
       <div id="mapa-container"></div>
 
-      <!-- Stats -->
-      <div class="mapa-stats">
+      <!-- Stats mejorados: 4 columnas -->
+      <div class="mapa-stats" style="grid-template-columns:repeat(4,1fr);">
         <div class="mapa-stat">
           <div class="mapa-stat-num" id="mapa-stat-visitados">—</div>
           <div class="mapa-stat-label">Visitados</div>
@@ -3412,11 +3420,31 @@ input[type="date"] {
           <div class="mapa-stat-num" id="mapa-stat-sin-pedido" style="color:var(--orange)">—</div>
           <div class="mapa-stat-label">Sin pedido</div>
         </div>
+        <div class="mapa-stat">
+          <div class="mapa-stat-num" id="mapa-stat-no-visitados" style="color:#9E9E9E">—</div>
+          <div class="mapa-stat-label">Sin visitar</div>
+        </div>
       </div>
 
-      <!-- Lista de visitas -->
-      <div class="mapa-lista-titulo">Detalle de visitas</div>
+      <!-- Leyenda de colores (solo cuando hay varios vendedores) -->
+      <div id="mapa-leyenda" style="display:none;padding:8px 14px;background:#fafafa;border-top:1px solid #f0f0f0;display:flex;gap:16px;flex-wrap:wrap;"></div>
+
+      <!-- Lista de visitas mejorada -->
+      <div class="mapa-lista-titulo" style="display:flex;align-items:center;justify-content:space-between;">
+        <span>Detalle de visitas</span>
+        <span id="mapa-lista-count" style="font-size:11px;color:#999;font-weight:400;"></span>
+      </div>
       <div id="mapa-lista"></div>
+
+      <!-- Clientes no visitados (colapsable) -->
+      <div id="mapa-no-visitados-wrap" style="display:none;">
+        <div onclick="mapaToggleNoVisitados()" style="padding:10px 14px;background:#f5f5f5;border-top:1px solid #eee;cursor:pointer;display:flex;align-items:center;justify-content:space-between;">
+          <span style="font-family:'Barlow Condensed',sans-serif;font-size:13px;font-weight:700;color:#666;">⚪ Clientes sin visitar hoy</span>
+          <span id="mapa-no-vis-count" style="font-family:'Barlow Condensed',sans-serif;font-size:13px;font-weight:900;color:#9E9E9E;"></span>
+        </div>
+        <div id="mapa-no-visitados-lista" style="display:none;max-height:200px;overflow-y:auto;"></div>
+      </div>
+
     </div>
   </div>
 
@@ -7514,8 +7542,9 @@ var _mapaVisitas     = [];
 var _mapaMarkers     = [];
 var _mapaRuta        = null;
 var _mapaGrayMarkers = [];
-var _mapaTrackLines  = {}; // líneas de tracking por vendedor
-var _mapaTrackMarkers = []; // marcador posición actual
+var _mapaTrackLines  = {};
+var _mapaTrackMarkers = [];
+var _mapaDiasAtras   = 0; // 0=hoy, 1=ayer, etc.
 
 // Tracking continuo
 var _trackingWatchId  = null;
@@ -7533,6 +7562,17 @@ var COLORES_VENDEDOR = {
   'Lisandro': '#1A237E',
   'Admin':    '#4A0000'
 };
+
+function mapaFiltrarFecha(dias) {
+  _mapaDiasAtras = parseInt(dias);
+  var fechaLabel = document.getElementById('mapa-fecha-label');
+  if (fechaLabel) {
+    if (_mapaDiasAtras === 0) fechaLabel.textContent = 'Hoy';
+    else if (_mapaDiasAtras === 1) fechaLabel.textContent = 'Ayer';
+    else fechaLabel.textContent = 'Hace ' + _mapaDiasAtras + ' días';
+  }
+  mapaCargarVisitas();
+}
 
 async function mapaRender() {
   // Solo admin puede ver el mapa completo
@@ -7560,22 +7600,18 @@ async function mapaRender() {
 
 async function mapaCargarVisitas() {
   try {
-    var hoy = new Date();
-    hoy.setHours(0,0,0,0);
-    var desde = hoy.toISOString();
+    var d = new Date();
+    d.setHours(0,0,0,0);
+    if (_mapaDiasAtras > 0) d.setDate(d.getDate() - _mapaDiasAtras);
+    var dFin = new Date(d); dFin.setHours(23,59,59,999);
 
-    var esAdmin = vendedorActual === 'ADMIN';
-    var query = 'visitas?fecha=gte.' + desde + '&order=fecha.asc&select=*,vendedores(nombre)';
-
-    if (!esAdmin) {
-      var vendedorId = await gpsObtenerVendedorId();
-      if (vendedorId) query += '&vendedor_id=eq.' + vendedorId;
-    }
+    var desde = d.toISOString();
+    var hasta = dFin.toISOString();
+    var query = 'visitas?fecha=gte.' + desde + '&fecha=lte.' + hasta + '&order=fecha.asc&select=*,vendedores(nombre)';
 
     var visitas = await sbFetch(query);
     _mapaVisitas = visitas || [];
     mapaActualizar();
-
   } catch(e) {
     console.error('Error cargando mapa:', e);
   }
@@ -7632,68 +7668,64 @@ function mapaActualizar() {
              c.nombre_cliente === v.nombre_cliente;
     });
 
-    var tienePedido = !sinPed; // Si no hay registro de "sin pedido", asumimos que sí
+    var tienePedido = !sinPed;
     if (sinPed) sinPedido++; else conPedido++;
 
-    // Calcular tiempo
     var tiempoStr = '';
     if (checkout) {
       var mins = Math.round((new Date(checkout.fecha) - new Date(v.fecha)) / 60000);
       tiempoStr = mins + ' min';
     }
 
-    // Color del marker
     var markerColor = sinPed ? '#E65100' : color;
-
-    // Crear marker SVG personalizado
-    var iconHtml = '<div style="background:' + markerColor + ';color:#fff;border-radius:50% 50% 50% 0;transform:rotate(-45deg);width:30px;height:30px;display:flex;align-items:center;justify-content:center;font-size:12px;font-weight:900;box-shadow:0 2px 8px rgba(0,0,0,.3);">'
-      + '<span style="transform:rotate(45deg)">' + (idx + 1) + '</span></div>';
-
-    var icon = L.divIcon({
-      html: iconHtml,
-      iconSize: [30, 30],
-      iconAnchor: [15, 30],
-      className: ''
-    });
-
+    var iconHtml = '<div style="background:' + markerColor + ';color:#fff;border-radius:50% 50% 50% 0;transform:rotate(-45deg);width:30px;height:30px;display:flex;align-items:center;justify-content:center;font-size:12px;font-weight:900;box-shadow:0 2px 8px rgba(0,0,0,.3);"><span style="transform:rotate(45deg)">' + (idx + 1) + '</span></div>';
+    var icon = L.divIcon({ html: iconHtml, iconSize: [30,30], iconAnchor: [15,30], className: '' });
     var hora = new Date(v.fecha).toLocaleTimeString('es-AR', {hour:'2-digit',minute:'2-digit'});
-    var popupContent = '<b>' + v.nombre_cliente + '</b><br>'
-      + vendedorNombre + ' · ' + hora
+    var popupContent = '<b>' + v.nombre_cliente + '</b><br>' + vendedorNombre + ' · ' + hora
       + (tiempoStr ? '<br>⏱ ' + tiempoStr : '')
       + (sinPed ? '<br>❌ ' + sinPed.motivo_no_compra : '<br>✅ Con pedido');
-
-    var marker = L.marker([v.lat, v.lng], {icon: icon})
-      .bindPopup(popupContent)
-      .addTo(_mapaInstance);
-
+    var marker = L.marker([v.lat, v.lng], {icon: icon}).bindPopup(popupContent).addTo(_mapaInstance);
     _mapaMarkers.push(marker);
     bounds.push([v.lat, v.lng]);
   });
 
-  // Dibujar ruta (línea entre checkins en orden cronológico)
+  // Rutas por vendedor con color propio
   if (_mapaRuta) { _mapaInstance.removeLayer(_mapaRuta); _mapaRuta = null; }
-  if (bounds.length > 1) {
-    _mapaRuta = L.polyline(bounds, {
-      color: '#8B0000',
-      weight: 2,
-      opacity: 0.5,
-      dashArray: '6,6'
-    }).addTo(_mapaInstance);
+  if (Array.isArray(_mapaRutas)) _mapaRutas.forEach(function(r){ _mapaInstance.removeLayer(r); });
+  _mapaRutas = [];
+  var rutasPorVend = {};
+  checkins.forEach(function(v) {
+    var n = v.vendedores ? v.vendedores.nombre : 'Vendedor';
+    if (!rutasPorVend[n]) rutasPorVend[n] = [];
+    rutasPorVend[n].push([v.lat, v.lng]);
+  });
+  var vendedoresEnMapa = Object.keys(rutasPorVend);
+  vendedoresEnMapa.forEach(function(nombre) {
+    var pts = rutasPorVend[nombre];
+    if (pts.length < 2) return;
+    var col = COLORES_VENDEDOR[nombre] || '#8B0000';
+    _mapaRutas.push(L.polyline(pts, { color: col, weight: 2.5, opacity: 0.6, dashArray: '6,5' }).addTo(_mapaInstance));
+  });
+
+  // Leyenda
+  var leyendaEl = document.getElementById('mapa-leyenda');
+  if (leyendaEl) {
+    if (vendedoresEnMapa.length > 1) {
+      leyendaEl.style.display = 'flex';
+      leyendaEl.innerHTML = vendedoresEnMapa.map(function(n) {
+        var c = COLORES_VENDEDOR[n] || '#8B0000';
+        return '<div style="display:flex;align-items:center;gap:5px;font-family:\'Barlow Condensed\',sans-serif;font-size:12px;font-weight:700;"><div style="width:24px;height:3px;background:' + c + ';border-radius:2px;"></div>' + n + '</div>';
+      }).join('');
+    } else { leyendaEl.style.display = 'none'; }
   }
 
-  // Ajustar vista del mapa
   if (bounds.length > 0) {
-    if (bounds.length === 1) {
-      _mapaInstance.setView(bounds[0], 15);
-    } else {
-      _mapaInstance.fitBounds(bounds, {padding: [30, 30]});
-    }
+    if (bounds.length === 1) _mapaInstance.setView(bounds[0], 15);
+    else _mapaInstance.fitBounds(bounds, {padding: [30,30]});
   }
 
-  // Mostrar clientes no visitados hoy (en gris)
   mapaCargarClientesSinVisita(checkins);
 
-  // Actualizar stats
   var total = checkins.length;
   var elTotal = document.getElementById('mapa-stat-visitados');
   var elCon   = document.getElementById('mapa-stat-con-pedido');
@@ -7712,48 +7744,69 @@ function mapaActualizar() {
   if (vendedorActual === 'ADMIN') mapaCargarPosiciones();
 }
 
-// Cargar clientes sin visita hoy (puntos grises en el mapa)
+// Cargar clientes sin visita (puntos grises + panel colapsable)
 async function mapaCargarClientesSinVisita(checkins) {
-  // Limpiar markers grises anteriores
   _mapaGrayMarkers.forEach(function(m) { _mapaInstance.removeLayer(m); });
   _mapaGrayMarkers = [];
 
   try {
-    // Obtener clientes con ubicación guardada
     var clientes = await sbFetch('clientes?lat=not.is.null&select=id,nombre,lat,lng,localidad&limit=200');
     if (!clientes || !clientes.length) return;
 
-    // Nombres de clientes ya visitados hoy
     var visitadosHoy = new Set(checkins.map(function(v) { return v.nombre_cliente; }));
-
-    // Filtrar los no visitados
     var noVisitados = clientes.filter(function(c) { return !visitadosHoy.has(c.nombre); });
 
+    // Puntos grises en el mapa
     noVisitados.forEach(function(c) {
-      var iconHtml = '<div style="background:#9E9E9E;color:#fff;border-radius:50%;width:20px;height:20px;display:flex;align-items:center;justify-content:center;font-size:9px;font-weight:900;box-shadow:0 1px 4px rgba(0,0,0,.2);opacity:.7">•</div>';
-      var icon = L.divIcon({ html: iconHtml, iconSize: [20,20], iconAnchor: [10,10], className: '' });
+      var iconHtml = '<div style="background:#BDBDBD;color:#fff;border-radius:50%;width:18px;height:18px;display:flex;align-items:center;justify-content:center;font-size:9px;font-weight:900;box-shadow:0 1px 4px rgba(0,0,0,.2);opacity:.8">•</div>';
+      var icon = L.divIcon({ html: iconHtml, iconSize: [18,18], iconAnchor: [9,9], className: '' });
       var marker = L.marker([c.lat, c.lng], {icon: icon})
-        .bindPopup('<b>' + c.nombre + '</b><br><span style="color:#9E9E9E">⚪ No visitado hoy</span>' + (c.localidad ? '<br>' + c.localidad : ''))
+        .bindPopup('<b>' + c.nombre + '</b><br><span style="color:#9E9E9E">⚪ Sin visitar hoy</span>' + (c.localidad ? '<br>📍 ' + c.localidad : ''))
         .addTo(_mapaInstance);
       _mapaGrayMarkers.push(marker);
     });
 
-    // Actualizar stats con no visitados
-    var elSin = document.getElementById('mapa-stat-sin-pedido');
-    // Keep existing sin-pedido count separate from unvisited
-  } catch(e) {
-    console.warn('Error cargando clientes sin visita:', e);
-  }
+    // Stat de no visitados
+    var elNoVis = document.getElementById('mapa-stat-no-visitados');
+    if (elNoVis) elNoVis.textContent = noVisitados.length;
+
+    // Panel colapsable
+    var wrap = document.getElementById('mapa-no-visitados-wrap');
+    var countEl = document.getElementById('mapa-no-vis-count');
+    if (wrap) wrap.style.display = noVisitados.length > 0 ? 'block' : 'none';
+    if (countEl) countEl.textContent = noVisitados.length;
+
+    var lista = document.getElementById('mapa-no-visitados-lista');
+    if (lista) {
+      lista.innerHTML = noVisitados.map(function(c) {
+        return '<div style="padding:8px 14px;border-bottom:1px solid #f0f0f0;display:flex;align-items:center;gap:8px;">'
+          + '<div style="width:8px;height:8px;border-radius:50%;background:#BDBDBD;flex-shrink:0;"></div>'
+          + '<div style="flex:1;font-size:13px;">' + c.nombre + (c.localidad ? '<span style="color:#999;font-size:11px;"> · ' + c.localidad + '</span>' : '') + '</div>'
+          + '</div>';
+      }).join('');
+    }
+  } catch(e) { console.warn('Error clientes sin visita:', e); }
 }
+
+function mapaToggleNoVisitados() {
+  var lista = document.getElementById('mapa-no-visitados-lista');
+  if (lista) lista.style.display = lista.style.display === 'none' ? 'block' : 'none';
+}
+
+
 
 function mapaActualizarLista(checkins, todasVisitas) {
   var el = document.getElementById('mapa-lista');
+  var countEl = document.getElementById('mapa-lista-count');
   if (!el) return;
 
   if (checkins.length === 0) {
-    el.innerHTML = '<div style="text-align:center;color:var(--text3);padding:20px;font-size:14px">No hay visitas registradas hoy</div>';
+    el.innerHTML = '<div style="text-align:center;color:var(--text3);padding:20px;font-size:14px">No hay visitas registradas</div>';
+    if (countEl) countEl.textContent = '';
     return;
   }
+
+  if (countEl) countEl.textContent = checkins.length + ' visita' + (checkins.length !== 1 ? 's' : '');
 
   el.innerHTML = checkins.map(function(v, idx) {
     var vendedorNombre = v.vendedores ? v.vendedores.nombre : '';
@@ -7765,24 +7818,28 @@ function mapaActualizarLista(checkins, todasVisitas) {
     var sinPed = todasVisitas.find(function(c) {
       return c.tipo === 'visita_sin_pedido' && c.nombre_cliente === v.nombre_cliente;
     });
+    var tuvoPedido = todasVisitas.some(function(c) {
+      return c.tipo === 'pedido_campo' && c.nombre_cliente === v.nombre_cliente && new Date(c.fecha) > new Date(v.fecha);
+    });
 
     var hora = new Date(v.fecha).toLocaleTimeString('es-AR', {hour:'2-digit',minute:'2-digit'});
-    var tiempoStr = '';
+    var duracion = '';
     if (checkout) {
       var mins = Math.round((new Date(checkout.fecha) - new Date(v.fecha)) / 60000);
-      tiempoStr = mins + ' min';
+      duracion = mins + ' min';
     }
 
-    var dotColor = sinPed ? '#E65100' : '#2E7D32';
-    var estado = sinPed ? '❌ ' + sinPed.motivo_no_compra : '✅ Con pedido';
+    var icono = tuvoPedido ? '📦' : sinPed ? '🔴' : '🟢';
+    var resultColor = tuvoPedido ? '#2E7D32' : sinPed ? '#C62828' : '#1976D2';
+    var resultado = tuvoPedido ? 'Con pedido' : sinPed ? (sinPed.motivo_no_compra || 'Sin pedido') : 'Activo';
 
-    return '<div class="mapa-visita-row">'
-      + '<div style="width:24px;height:24px;border-radius:50%;background:' + dotColor + ';color:#fff;display:flex;align-items:center;justify-content:center;font-family:Barlow Condensed,sans-serif;font-size:12px;font-weight:900;flex-shrink:0">' + (idx+1) + '</div>'
-      + '<div class="mapa-visita-info">'
-      + '<div class="mapa-visita-nombre">' + v.nombre_cliente + '</div>'
-      + '<div class="mapa-visita-detalle">' + vendedorNombre + ' · ' + hora + (tiempoStr ? ' · ⏱ ' + tiempoStr : '') + '</div>'
-      + '<div style="font-size:11px;color:var(--text3)">' + estado + '</div>'
+    return '<div style="display:flex;align-items:center;gap:10px;padding:10px 14px;border-bottom:1px solid #f5f0e8;">'
+      + '<div style="width:28px;height:28px;border-radius:50%;background:' + color + ';color:#fff;display:flex;align-items:center;justify-content:center;font-family:\'Barlow Condensed\',sans-serif;font-size:13px;font-weight:900;flex-shrink:0;">' + (idx+1) + '</div>'
+      + '<div style="flex:1;min-width:0;">'
+      +   '<div style="font-family:\'Barlow Condensed\',sans-serif;font-size:15px;font-weight:700;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">' + v.nombre_cliente + '</div>'
+      +   '<div style="font-size:11px;color:#999;">' + (vendedorNombre ? vendedorNombre + ' · ' : '') + hora + (duracion ? ' · ' + duracion : '') + '</div>'
       + '</div>'
+      + '<div style="font-size:12px;font-weight:700;color:' + resultColor + ';white-space:nowrap;">' + icono + ' ' + resultado + '</div>'
       + '</div>';
   }).join('');
 }
