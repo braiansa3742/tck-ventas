@@ -3,10 +3,10 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
-<title>TCK Ventas</title>
+<title>TCK Admin</title>
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
-<meta name="apple-mobile-web-app-title" content="TCK Ventas">
+<meta name="apple-mobile-web-app-title" content="TCK Admin">
 <meta name="theme-color" content="#8B0000">
 <link rel="apple-touch-icon" href="https://tckcatalogo.com/img/logo-tck.png">
 <link rel="manifest" href="/manifest.json">
@@ -4105,7 +4105,7 @@ function salir() {
   // Resetear UI del tab Visitas
   gpsActualizarEstado(null);
   limpiarSesion();
-  document.title = 'TCK Ventas';
+  document.title = 'TCK Admin';
   vendedorActual = null; pinActual = ''; pinVendedorTemp = null; todosLosPedidos = [];
   document.getElementById('login-wrap').style.display = 'flex';
   document.getElementById('panel').classList.remove('on');
@@ -4226,9 +4226,9 @@ function actualizarTitle() {
     return p.estado === 'Pendiente' && (vendedorActual === 'ADMIN' || p.vendedor.toLowerCase().includes(vendedorActual.toLowerCase()));
   }).length;
   if (pend > 0) {
-    document.title = '⏳ ' + pend + ' — TCK Ventas';
+    document.title = '⏳ ' + pend + ' — TCK Admin';
   } else {
-    document.title = '✅ TCK Ventas';
+    document.title = '✅ TCK Admin';
   }
 }
 
