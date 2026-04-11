@@ -3133,7 +3133,7 @@ body {
 .nota-guardada { font-size: 12px; color: var(--green2); margin-top: 4px; display: none; }
 
 /* ── RANGO FECHAS ── */
-input[type="date"] {
+.bot-section-card{background:#fff;border-radius:14px;border:1.5px solid var(--cream3);margin-bottom:12px;overflow:hidden;box-shadow:var(--shadow)}.bot-section-hdr{background:linear-gradient(135deg,#1A3A1A,#2E7D32);padding:14px 16px 12px;display:flex;align-items:center;justify-content:space-between}.bot-section-title{font-family:'Barlow Condensed',sans-serif;font-size:16px;font-weight:900;color:#fff}.bot-section-badge{background:rgba(255,255,255,.2);border-radius:20px;padding:3px 10px;font-family:'Barlow Condensed',sans-serif;font-size:11px;font-weight:700;color:#fff}.bot-field{padding:12px 16px;border-bottom:1px solid var(--cream2)}.bot-field:last-child{border-bottom:none}.bot-field-desc{font-size:11px;color:var(--text3);margin-bottom:8px;line-height:1.4}.bot-input{width:100%;padding:10px 12px;border:1.5px solid var(--cream3);border-radius:10px;font-family:'Barlow',sans-serif;font-size:14px;color:var(--text);background:#fff;outline:none;resize:vertical;min-height:60px;box-sizing:border-box}.bot-input:focus{border-color:var(--green2)}.bot-input-single{min-height:unset;height:42px;resize:none}.bot-save-btn{width:100%;background:linear-gradient(135deg,#1B5E20,#2E7D32);color:#fff;border:none;border-radius:12px;padding:14px;font-family:'Barlow Condensed',sans-serif;font-size:17px;font-weight:900;cursor:pointer;margin-top:4px;touch-action:manipulation}.bot-save-btn:active{opacity:.88}.bot-status{text-align:center;font-size:12px;color:var(--green2);padding:6px 0 0;display:none;font-weight:700}.bot-stock-grid{display:grid;grid-template-columns:1fr 1fr;gap:8px}.bot-stock-item{display:flex;align-items:center;gap:8px;padding:8px 10px;background:var(--cream2);border-radius:10px;cursor:pointer;border:1.5px solid transparent;transition:all .12s;-webkit-tap-highlight-color:transparent}.bot-stock-item.sin-stock{background:#FFEBEE;border-color:#FFCDD2}.bot-stock-item-nombre{font-size:12px;font-weight:600;color:var(--text);flex:1;line-height:1.2}.bot-stock-dot{width:10px;height:10px;border-radius:50%;background:var(--green2);flex-shrink:0;transition:background .12s}.bot-stock-item.sin-stock .bot-stock-dot{background:#C62828}.bot-conv-item{padding:12px 16px;border-bottom:1px solid var(--cream2)}.bot-conv-item:last-child{border-bottom:none}.bot-conv-from{font-family:'Barlow Condensed',sans-serif;font-size:12px;font-weight:700;color:var(--text3);margin-bottom:4px}.bot-conv-msg{font-size:13px;color:var(--text);background:var(--cream2);border-radius:10px;padding:8px 12px;line-height:1.5}.bot-conv-resp{font-size:13px;color:var(--text);background:#E8F5E9;border-radius:10px;padding:8px 12px;line-height:1.5;margin-top:4px}  input[type="date"] {
   font-family: 'Barlow', sans-serif;
   color: var(--text);
   background: #fff;
@@ -3741,7 +3741,7 @@ input[type="date"] {
 
 </div>
 
-<!-- TAB NAV -->
+<div class="view" id="view-bot"><div style="padding:12px 16px 0;"><div style="background:linear-gradient(135deg,#1A3A1A,#2E7D32);border-radius:14px;padding:16px;margin-bottom:12px;"><div style="font-family:'Barlow Condensed',sans-serif;font-size:22px;font-weight:900;color:#fff;">🤖 Bot de WhatsApp</div><div style="font-size:12px;color:rgba(255,255,255,.75);margin-top:3px;">Configurá qué dice el bot automáticamente</div><div id="bot-ultima-sync" style="font-size:11px;color:rgba(255,255,255,.5);margin-top:4px;"></div></div><div class="bot-section-card"><div class="bot-section-hdr"><div class="bot-section-title">📦 Stock actual</div><div class="bot-section-badge" id="bot-badge-sinstock">0 sin stock</div></div><div style="padding:12px 16px;"><div class="bot-field-desc">Tocá un producto para marcarlo sin stock.</div><div class="bot-stock-grid" id="bot-stock-grid"><div style="text-align:center;padding:20px;color:var(--text3);font-size:13px;grid-column:1/-1;">Cargando...</div></div></div></div><div class="bot-section-card"><div class="bot-section-hdr"><div class="bot-section-title">📢 Aviso activo</div></div><div class="bot-field"><div class="bot-field-desc">Algo importante esta semana. Dejá vacío si no hay nada.</div><textarea class="bot-input" id="bot-aviso" placeholder="Ej: Esta semana no entregamos a Pellegrini..."></textarea></div></div><div class="bot-section-card"><div class="bot-section-hdr"><div class="bot-section-title">🚚 Zonas y días de entrega</div></div><div class="bot-field"><div class="bot-field-desc">Cuándo y dónde entregamos.</div><textarea class="bot-input" id="bot-zonas" placeholder="Ej: Trenque Lauquen: Lunes a Viernes 9-12..."></textarea></div></div><div class="bot-section-card"><div class="bot-section-hdr"><div class="bot-section-title">🕐 Horario de atención</div></div><div class="bot-field"><textarea class="bot-input bot-input-single" id="bot-horario" placeholder="Ej: Lunes a Viernes 8 a 20hs"></textarea></div></div><button class="bot-save-btn" onclick="botGuardar()">💾 Guardar configuración del bot</button><div class="bot-status" id="bot-status">✅ Guardado — el bot ya lo tiene</div><div class="bot-section-card" style="margin-top:16px;"><div class="bot-section-hdr"><div class="bot-section-title">💬 Últimas conversaciones</div><button onclick="botCargarConversaciones()" style="background:rgba(255,255,255,.2);border:none;border-radius:20px;padding:4px 12px;color:#fff;font-family:'Barlow Condensed',sans-serif;font-size:12px;font-weight:700;cursor:pointer;">🔄</button></div><div id="bot-conversaciones"><div style="text-align:center;padding:24px;color:var(--text3);font-size:13px;">Cargando...</div></div></div></div></div>  <!-- TAB NAV -->
 <nav class="tab-nav" id="tab-nav">
   <button class="tab-btn active" id="tab-btn-pedidos" onclick="cambiarTab('pedidos')">
     <span class="tab-icon">📋</span>
@@ -3764,7 +3764,7 @@ input[type="date"] {
     <svg viewBox="0 0 24 24" fill="currentColor" width="18" height="18"><path d="M20.5 3l-.16.03L15 5.1 9 3 3.36 4.9c-.21.07-.36.25-.36.48V20.5c0 .28.22.5.5.5l.16-.03L9 18.9l6 2.1 5.64-1.9c.21-.07.36-.25.36-.48V3.5c0-.28-.22-.5-.5-.5zM15 19l-6-2.11V5l6 2.11V19z"/></svg>
     <span>Mapa</span>
   </button>
-  <button class="tab-btn" id="tab-btn-reportes" onclick="cambiarTab('reportes')">
+  <button class="tab-btn" id="tab-btn-bot" onclick="cambiarTab('bot')" style="display:none;"><span class="tab-icon">🤖</span><span class="tab-label">Bot</span></button> <button class="tab-btn" id="tab-btn-reportes" onclick="cambiarTab('reportes')">
     <span class="tab-icon">📈</span>
     <span class="tab-label">Reportes</span>
   </button>
@@ -5101,7 +5101,7 @@ function cambiarTab(tab) {
   _tabActual = tab;
 
   // Views
-  ['pedidos','midia','clientes','gps','mapa','reportes'].forEach(function(t) {
+  ['pedidos','midia','clientes','gps','mapa','reportes','bot'].forEach(function(t) {
     var v = document.getElementById('view-' + t);
     var b = document.getElementById('tab-btn-' + t);
     if (v) v.classList.toggle('active', t === tab);
@@ -5130,7 +5130,7 @@ function cambiarTab(tab) {
     }
     var v = document.getElementById('view-gps'); if (v) v.scrollTop = 0;
   }
-  if (tab === 'reportes') {
+  if(tab==='bot'){botCargarConfig();botCargarConversaciones();var v=document.getElementById('view-bot');if(v)v.scrollTop=0;}   if (tab === 'reportes') {
     renderReportes();
     var v = document.getElementById('view-reportes'); if (v) v.scrollTop = 0;
   }
@@ -5163,7 +5163,7 @@ function mostrarTabs() {
     if (lbl) lbl.textContent = esAdmin ? 'Visitas' : 'Visitas';
   }
 
-  // Tab Mapa — solo Admin
+  var tabBot=document.getElementById('tab-btn-bot');if(tabBot)tabBot.style.display=(vendedorActual==='Miguel')?'':'none';   // Tab Mapa — solo Admin
   var tabMapa = document.getElementById('tab-btn-mapa');
   if (tabMapa) tabMapa.style.display = esAdmin ? '' : 'none';
 
@@ -8808,7 +8808,7 @@ async function tomadorConfirmarFinal() {
 
 <script>
 (function() {
-  var _prompt = null;
+  var _botConfig={},_botSinStock=new Set(),BOT_PRODUCTOS=['Pollo Optimo','Suprema','Suprema IQF','Fino de Ave Cocida','Alita Congelada Granel','Cuarto Trasero IQF','Medallon de Pollo Clasico','Medallon Pollo c/Cheddar','Medallon Pollo JyQ','Medallon Pollo y Espinaca','Formita Clasica','Formitas Pollo JyQ','Nuggets de Pollo Crocante','Bocadito de Papa y Jamon','Pechuguitas al Verdeo','Filet Merluza Finas Hierbas','Filet de Merluza Rebozado','Filet Merluza a Granel','Milanesa de Nalga','Milanesa de Pollo','Hamburguesa 100% Carne','Papa Baston Balcarce','Pulpa de Palta','Maple N\u00b02','Maple N\u00b01']; async function botCargarConfig(){try{var data=await sbFetch('bot_config?select=clave,valor');if(data){_botConfig={};data.forEach(function(r){_botConfig[r.clave]=r.valor||''});}var s=_botConfig['sin_stock']||'';_botSinStock=new Set(s.split(',').map(function(x){return x.trim();}).filter(Boolean));var el;el=document.getElementById('bot-aviso');if(el)el.value=_botConfig['aviso_activo']||'';el=document.getElementById('bot-zonas');if(el)el.value=_botConfig['zonas_entrega']||'';el=document.getElementById('bot-horario');if(el)el.value=_botConfig['horario_atencion']||'';botRenderStock();var ts=document.getElementById('bot-ultima-sync');if(ts)ts.textContent='Última sync: '+new Date().toLocaleTimeString('es-AR',{hour:'2-digit',minute:'2-digit'});}catch(e){toast('Error al cargar config bot','err');}} function botRenderStock(){var g=document.getElementById('bot-stock-grid');if(!g)return;g.innerHTML=BOT_PRODUCTOS.map(function(n){var ss=_botSinStock.has(n);var safe=n.replace(/'/g,"\'");return'<div class="bot-stock-item'+(ss?' sin-stock':'')+'" onclick="botToggleStock(\''+safe+'\')">'+'<div class="bot-stock-dot"></div><div class="bot-stock-item-nombre">'+n+'</div></div>';}).join('');var b=document.getElementById('bot-badge-sinstock');if(b){b.textContent=_botSinStock.size+' sin stock';b.style.background=_botSinStock.size>0?'rgba(198,40,40,.7)':'rgba(255,255,255,.2)';}} function botToggleStock(n){if(_botSinStock.has(n))_botSinStock.delete(n);else _botSinStock.add(n);botRenderStock();} async function botGuardar(){var btn=document.querySelector('.bot-save-btn');var aviso=(document.getElementById('bot-aviso')||{}).value||'',zonas=(document.getElementById('bot-zonas')||{}).value||'',horario=(document.getElementById('bot-horario')||{}).value||'',sinStock=Array.from(_botSinStock).join(', ');if(btn){btn.disabled=true;btn.textContent='Guardando...';}try{var updates=[{clave:'aviso_activo',valor:aviso},{clave:'zonas_entrega',valor:zonas},{clave:'horario_atencion',valor:horario},{clave:'sin_stock',valor:sinStock}];for(var i=0;i<updates.length;i++)await sbFetch('bot_config?clave=eq.'+encodeURIComponent(updates[i].clave),{method:'PATCH',prefer:'return=minimal',body:JSON.stringify({valor:updates[i].valor,updated_at:new Date().toISOString()})});var st=document.getElementById('bot-status');if(st){st.style.display='block';setTimeout(function(){st.style.display='none';},3000);}toast('✅ Bot actualizado','ok');}catch(e){toast('Error al guardar','err');}finally{if(btn){btn.disabled=false;btn.textContent='💾 Guardar configuración del bot';}}} async function botCargarConversaciones(){var el=document.getElementById('bot-conversaciones');if(!el)return;el.innerHTML='<div style="text-align:center;padding:24px;color:var(--text3);font-size:13px;">⏳ Cargando...</div>';try{var data=await sbFetch('bot_conversaciones?order=created_at.desc&limit=15&select=*');if(!data||!data.length){el.innerHTML='<div style="text-align:center;padding:24px;color:var(--text3);font-size:13px;">💬 Sin conversaciones aún.</div>';return;}el.innerHTML=data.map(function(c){var hora=new Date(c.created_at).toLocaleString('es-AR',{day:'2-digit',month:'2-digit',hour:'2-digit',minute:'2-digit'});var from=c.from_number?c.from_number.replace('whatsapp:+',''):'—';return'<div class="bot-conv-item"><div class="bot-conv-from">📱 '+from+' · '+hora+'</div><div class="bot-conv-msg">'+(c.mensaje||'')+'</div>'+(c.respuesta?'<div class="bot-conv-resp">🤖 '+c.respuesta+'</div>':'')+'</div>';}).join('');}catch(e){el.innerHTML='<div style="text-align:center;padding:24px;color:var(--text3);font-size:13px;">Las conversaciones aparecerán cuando configures n8n.</div>';}} var _prompt = null;
 
   window.addEventListener('beforeinstallprompt', function(e) {
     e.preventDefault();
