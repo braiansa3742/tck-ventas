@@ -6821,33 +6821,34 @@ async function gpsConfirmarCheckin(nombreCliente) {
   if (modal) modal.remove();
 
   _gpsHizoPedido = false;
-  toast('📍 Obteniendo ubicación...', 'ok');
-  var coords = await gpsGetCoords();
-  var vendedorId = await gpsObtenerVendedorId();
 
-  try {
-    await sbFetch('visitas', {
-      method: 'POST',
-      body: JSON.stringify({
-        vendedor_id:    vendedorId,
-        nombre_cliente: nombreCliente,
-        tipo:           'checkin',
-        lat:            coords.lat,
-        lng:            coords.lng
-      })
-    });
+  // Mostrar check-in activo INMEDIATAMENTE sin esperar GPS ni Supabase
+  _gpsCheckinActivo = { nombre_cliente: nombreCliente, fecha: new Date().toISOString() };
+  gpsActualizarEstado(_gpsCheckinActivo);
+  toast('✅ Check-in: ' + nombreCliente, 'ok');
 
-    // Guardar ubicación permanente del cliente si tiene coordenadas
-    if (coords.lat && coords.lng) {
-      await gpsGuardarUbicacionCliente(nombreCliente, coords, vendedorId);
-    }
-
-    toast('✅ Check-in registrado en ' + nombreCliente, 'ok');
-    gpsCargarHistorial();
-  } catch(e) {
-    toast('Error al registrar check-in', 'err');
-    console.error(e);
-  }
+  // Guardar en Supabase en background (no bloquea la UI)
+  Promise.all([gpsGetCoords(), gpsObtenerVendedorId()])
+    .then(function(results) {
+      var coords = results[0];
+      var vendedorId = results[1];
+      return sbFetch('visitas', {
+        method: 'POST',
+        body: JSON.stringify({
+          vendedor_id:    vendedorId,
+          nombre_cliente: nombreCliente,
+          tipo:           'checkin',
+          lat:            coords.lat,
+          lng:            coords.lng
+        })
+      }).then(function() {
+        if (coords.lat && coords.lng) {
+          gpsGuardarUbicacionCliente(nombreCliente, coords, vendedorId);
+        }
+        gpsCargarHistorial();
+      });
+    })
+    .catch(function(e) { console.error('Check-in background error:', e); });
 }
 
 // Guardar ubicación permanente del cliente (solo si no tiene una ya)
