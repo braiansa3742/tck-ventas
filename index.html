@@ -7945,7 +7945,7 @@ function tomadorAbrirCompetencia(nombre, imgId) {
   modal.innerHTML = '<div class="tomador-comp-sheet">'
     + '<div class="tomador-comp-titulo">💲 Precio competencia</div>'
     + '<div style="font-size:13px;color:var(--text2);margin-bottom:12px">' + nombre + '</div>'
-    + '<input class="tomador-comp-input" id="tcomp-precio" type="number" placeholder="Precio de la competencia ($)" value="' + (comp.precio || '') + '">'
+    + '<input class="tomador-comp-input" id="tcomp-precio" type="number" inputmode="numeric" pattern="[0-9]*" placeholder="Precio de la competencia ($)" value="' + (comp.precio || '') + '">'
     + '<input class="tomador-comp-input" id="tcomp-nombre" type="text" placeholder="¿Quién? (opcional — ej: Don Pollo)" value="' + (comp.nombre || '') + '">'
     + '<button class="tomador-comp-guardar" id="tcomp-guardar-btn" data-nombre="' + nombre.replace(/"/g,'&quot;') + '" data-imgid="' + imgId + '" onclick="tomadorGuardarCompetencia(this.getAttribute(&quot;data-nombre&quot;),this.getAttribute(&quot;data-imgid&quot;))">Guardar</button>'
     + '<button style="width:100%;padding:12px;background:none;border:none;color:var(--text3);cursor:pointer;margin-top:6px" onclick="document.getElementById(&quot;tomador-comp-modal&quot;).remove()">Cancelar</button>'
