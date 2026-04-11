@@ -4162,7 +4162,10 @@ async function cargarPedidos(silencioso) {
     // Detectar duplicados — solo dentro del MISMO DÍA
     var mapTotal = {}, mapCliente = {};
     pedidos.forEach(function(p) {
-      var fechaDia = (p.fechaHora || '').substring(0, 10);
+      // Usar fecha del pedidoId (siempre presente) en vez de fechaHora (puede estar vacío)
+      var mFecha = (p.pedidoId || '').match(/TCK-(\d{8})/);
+      var fechaDia = mFecha ? mFecha[1] : (p.fechaHora || '').substring(0, 10).replace(/-/g,'');
+      if (!fechaDia) return; // si no hay fecha, no comparar
       var kT = (fechaDia + p.cliente + p.total).toLowerCase().replace(/\s/g,'');
       var kC = (fechaDia + p.cliente).toLowerCase().trim();
       if (!mapTotal[kT]) mapTotal[kT] = [];
@@ -4171,7 +4174,9 @@ async function cargarPedidos(silencioso) {
       mapCliente[kC].push(p);
     });
     pedidos.forEach(function(p) {
-      var fechaDia = (p.fechaHora || '').substring(0, 10);
+      var mFecha = (p.pedidoId || '').match(/TCK-(\d{8})/);
+      var fechaDia = mFecha ? mFecha[1] : (p.fechaHora || '').substring(0, 10).replace(/-/g,'');
+      if (!fechaDia) { p.esDuplicado = false; p.tipoDuplicado = null; p.duplicadoCon = ''; return; }
       var kT = (fechaDia + p.cliente + p.total).toLowerCase().replace(/\s/g,'');
       var kC = (fechaDia + p.cliente).toLowerCase().trim();
       var gT = mapTotal[kT], gC = mapCliente[kC];
@@ -6640,27 +6645,67 @@ async function gpsCargarHistorial() {
       return;
     }
 
-    if (hdrEl) hdrEl.textContent = '📅 Hoy en campo — ' + visitas.length + ' visita' + (visitas.length !== 1 ? 's' : '');
-    el.innerHTML = visitas.map(function(v) {
-      var hora = new Date(v.fecha).toLocaleTimeString('es-AR', {hour:'2-digit',minute:'2-digit'});
-      var esCheckin  = v.tipo === 'checkin';
-      var esCheckout = v.tipo === 'checkout';
-      var esSinPed   = v.tipo === 'visita_sin_pedido';
-      var esPedido   = v.tipo === 'pedido_campo';
-      var dotBg   = esCheckin ? '#E8F5E9' : esCheckout ? '#FFEBEE' : esPedido ? '#E3F2FD' : '#FFF3E0';
-      var icono   = esCheckin ? '🟢' : esCheckout ? '🔴' : esPedido ? '📦' : '🟡';
-      var tipoLbl = esCheckin ? 'Check-in' : esCheckout ? 'Check-out' : esPedido ? 'Pedido' : 'Visita sin pedido';
-      var detalle = v.motivo_no_compra ? ' · ' + v.motivo_no_compra : '';
-      var monto = v.observacion && v.observacion.includes('$') ? '' : '';
-      var montoColor = esPedido ? '#2E7D32' : esCheckin ? '#1976D2' : '#E65100';
-      var montoTxt = esCheckout ? '' : (esPedido ? 'Con pedido' : esCheckin ? 'Activo' : 'Sin pedido');
+    // Agrupar eventos por visita (check-in + pedido + check-out = 1 visita)
+    var visitas_agrupadas = [];
+    var visitaActual = null;
+
+    // Ordenar por fecha ASC para agrupar correctamente
+    var visitasAsc = visitas.slice().sort(function(a, b) {
+      return new Date(a.fecha) - new Date(b.fecha);
+    });
+
+    visitasAsc.forEach(function(v) {
+      if (v.tipo === 'checkin') {
+        visitaActual = {
+          nombre_cliente: v.nombre_cliente,
+          hora_entrada:   new Date(v.fecha),
+          hora_salida:    null,
+          tuvo_pedido:    false,
+          motivo:         null,
+          duracion:       null
+        };
+        visitas_agrupadas.push(visitaActual);
+      } else if (v.tipo === 'pedido_campo' && visitaActual && v.nombre_cliente === visitaActual.nombre_cliente) {
+        visitaActual.tuvo_pedido = true;
+      } else if (v.tipo === 'checkout' && visitaActual && v.nombre_cliente === visitaActual.nombre_cliente) {
+        visitaActual.hora_salida = new Date(v.fecha);
+        var mins = Math.round((visitaActual.hora_salida - visitaActual.hora_entrada) / 60000);
+        visitaActual.duracion = mins + ' min';
+        visitaActual.motivo = v.motivo_no_compra || null;
+        visitaActual = null; // cerrar visita
+      } else if (v.tipo === 'visita_sin_pedido') {
+        visitas_agrupadas.push({
+          nombre_cliente: v.nombre_cliente,
+          hora_entrada:   new Date(v.fecha),
+          hora_salida:    null,
+          tuvo_pedido:    false,
+          motivo:         v.motivo_no_compra || 'Sin motivo',
+          duracion:       null
+        });
+      }
+    });
+
+    // Ordenar DESC (más reciente primero)
+    visitas_agrupadas.sort(function(a, b) { return b.hora_entrada - a.hora_entrada; });
+
+    if (hdrEl) hdrEl.textContent = '📅 Hoy en campo — ' + visitas_agrupadas.length + ' visita' + (visitas_agrupadas.length !== 1 ? 's' : '');
+    el.innerHTML = visitas_agrupadas.map(function(v) {
+      var hora = v.hora_entrada.toLocaleTimeString('es-AR', {hour:'2-digit',minute:'2-digit'});
+      var esActivo = !v.hora_salida;
+      var resultado = esActivo ? 'Activo'
+        : v.tuvo_pedido ? 'Con pedido'
+        : (v.motivo || 'Sin pedido');
+      var icono = esActivo ? '🟢' : v.tuvo_pedido ? '📦' : '🔴';
+      var dotBg = esActivo ? '#E8F5E9' : v.tuvo_pedido ? '#E3F2FD' : '#FFEBEE';
+      var montoColor = esActivo ? '#1976D2' : v.tuvo_pedido ? '#2E7D32' : '#E65100';
+      var durLabel = v.duracion ? ' · ' + v.duracion : '';
       return '<div class="gps-visita-item">'
         + '<div class="gps-visita-dot" style="background:' + dotBg + '">' + icono + '</div>'
         + '<div class="gps-visita-info">'
         + '<div class="gps-visita-nombre">' + (v.nombre_cliente || '—') + '</div>'
-        + '<div class="gps-visita-hora">' + tipoLbl + ' · ' + hora + detalle + '</div>'
+        + '<div class="gps-visita-hora">' + hora + durLabel + '</div>'
         + '</div>'
-        + '<div class="gps-visita-monto" style="color:' + montoColor + '">' + montoTxt + '</div>'
+        + '<div class="gps-visita-monto" style="color:' + montoColor + ';font-size:12px;font-weight:700">' + resultado + '</div>'
         + '</div>';
     }).join('');
 
