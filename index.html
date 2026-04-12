@@ -6879,13 +6879,59 @@ async function gpsObtenerVendedorId() {
 // Obtener coordenadas GPS
 function gpsGetCoords() {
   return new Promise(function(resolve) {
-    if (!navigator.geolocation) { resolve({lat: null, lng: null}); return; }
-    navigator.geolocation.getCurrentPosition(
-      function(pos) { resolve({lat: pos.coords.latitude, lng: pos.coords.longitude}); },
-      function() { resolve({lat: null, lng: null}); },
-      {timeout: 8000, maximumAge: 30000}
-    );
+    if (!navigator.geolocation) {
+      toast('⚠️ Tu dispositivo no soporta GPS', 'err');
+      resolve({lat: null, lng: null});
+      return;
+    }
+    // Verificar permiso primero si la API está disponible
+    if (navigator.permissions && navigator.permissions.query) {
+      navigator.permissions.query({name: 'geolocation'}).then(function(result) {
+        if (result.state === 'denied') {
+          // Permiso denegado — mostrar instrucciones
+          var msg = '📍 Ubicación bloqueada.\n\nPara activarla en iOS:\nConfiguración → Safari → Ubicación → Permitir\n\nO tocá el ícono 🔒 en la barra de Safari → Ubicación → Permitir';
+          if (confirm('📍 GPS bloqueado. ¿Querés ver cómo activarlo?')) {
+            alert(msg);
+          }
+          resolve({lat: null, lng: null});
+          return;
+        }
+        // Permiso granted o prompt — intentar obtener posición
+        _gpsObtenerPosicion(resolve);
+      }).catch(function() {
+        _gpsObtenerPosicion(resolve);
+      });
+    } else {
+      _gpsObtenerPosicion(resolve);
+    }
   });
+}
+
+function _gpsObtenerPosicion(resolve) {
+  navigator.geolocation.getCurrentPosition(
+    function(pos) {
+      resolve({lat: pos.coords.latitude, lng: pos.coords.longitude});
+    },
+    function(err) {
+      // Error 1 = permiso denegado, Error 2 = no disponible, Error 3 = timeout
+      if (err.code === 1) {
+        var isAndroid2 = /android/i.test(navigator.userAgent);
+        toast('📍 Permiso de ubicación denegado. Tocá para ver cómo activarlo.', 'err');
+        setTimeout(function() {
+          var instrucciones = isAndroid2
+            ? 'Para activar la ubicación en Android:\n\n1. Tocá el ícono 🔒 en la barra del navegador\n2. Tocá Permisos\n3. Ubicación → Permitir\n\nSi no aparece, andá a:\nConfiguración del sitio → Ubicación → Permitir'
+            : 'Para activar la ubicación en iPhone:\n\n1. Abrí Configuración\n2. Tocá Safari (o Chrome)\n3. Tocá Ubicación\n4. Seleccioná "Preguntar" o "Permitir"\n\nDespués recargá la app.';
+          alert(instrucciones);
+        }, 500);
+      } else if (err.code === 3) {
+        toast('⏱️ GPS tardó demasiado. Salí al aire libre e intentá de nuevo.', 'err');
+      } else {
+        toast('📍 No se pudo obtener la ubicación', 'err');
+      }
+      resolve({lat: null, lng: null});
+    },
+    {timeout: 10000, maximumAge: 60000, enableHighAccuracy: true}
+  );
 }
 
 // Cargar historial del día
