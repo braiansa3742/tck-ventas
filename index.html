@@ -7349,27 +7349,58 @@ async function gpsConfirmarCheckin(nombreCliente) {
 
 // Guardar ubicación permanente del cliente (solo si no tiene una ya)
 async function gpsGuardarUbicacionCliente(nombreCliente, coords, vendedorId) {
+  if (!coords.lat || !coords.lng) return;
   try {
-    // Buscar si el cliente ya existe en la tabla clientes
-    var existing = await sbFetch('clientes?nombre=eq.' + encodeURIComponent(nombreCliente) + '&select=id,lat,lng');
+    var existing = await sbFetch('clientes_ubicaciones?nombre_cliente=eq.' + encodeURIComponent(nombreCliente) + '&select=*');
     
     if (existing && existing.length > 0) {
-      // Si ya existe pero no tiene coordenadas, actualizarlas
-      if (!existing[0].lat) {
-        await sbFetch('clientes?id=eq.' + existing[0].id, {
+      var ub = existing[0];
+      // Calcular distancia con la ubicación registrada
+      var distancia = Math.sqrt(
+        Math.pow((coords.lat - ub.lat) * 111000, 2) +
+        Math.pow((coords.lng - ub.lng) * 111000 * Math.cos(ub.lat * Math.PI / 180), 2)
+      );
+      
+      if (distancia > 200) {
+        // Más de 200 metros de diferencia — guardar alerta
+        await sbFetch('clientes_ubicaciones?nombre_cliente=eq.' + encodeURIComponent(nombreCliente), {
           method: 'PATCH',
-          body: JSON.stringify({ lat: coords.lat, lng: coords.lng, ultima_visita: new Date().toISOString() })
+          prefer: 'return=minimal',
+          body: JSON.stringify({
+            alerta_ubicacion: true,
+            lat_anterior: ub.lat,
+            lng_anterior: ub.lng,
+            ultima_visita: new Date().toISOString(),
+            visitas_count: (ub.visitas_count || 1) + 1
+          })
+        });
+        // Mostrar alerta al vendedor
+        setTimeout(function() {
+          toast('⚠️ ' + nombreCliente + ': ubicación diferente a la registrada (' + Math.round(distancia) + 'm)', 'err');
+        }, 1000);
+      } else {
+        // Ubicación normal — actualizar conteo
+        await sbFetch('clientes_ubicaciones?nombre_cliente=eq.' + encodeURIComponent(nombreCliente), {
+          method: 'PATCH',
+          prefer: 'return=minimal',
+          body: JSON.stringify({
+            ultima_visita: new Date().toISOString(),
+            visitas_count: (ub.visitas_count || 1) + 1,
+            alerta_ubicacion: false
+          })
         });
       }
     } else {
-      // Crear nuevo cliente con coordenadas
-      await sbFetch('clientes', {
+      // Primera vez — guardar ubicación
+      await sbFetch('clientes_ubicaciones', {
         method: 'POST',
+        prefer: 'return=minimal',
         body: JSON.stringify({
-          nombre:       nombreCliente,
-          vendedor_id:  vendedorId,
-          lat:          coords.lat,
-          lng:          coords.lng,
+          nombre_cliente: nombreCliente,
+          lat: coords.lat,
+          lng: coords.lng,
+          vendedor_id: vendedorId,
+          primera_visita: new Date().toISOString(),
           ultima_visita: new Date().toISOString()
         })
       });
@@ -7807,7 +7838,8 @@ async function mapaCargarClientesSinVisita(checkins) {
   _mapaGrayMarkers = [];
 
   try {
-    var clientes = await sbFetch('clientes?lat=not.is.null&select=id,nombre,lat,lng,localidad&limit=200');
+    var clientes = await sbFetch('clientes_ubicaciones?lat=not.is.null&order=ultima_visita.desc&select=nombre_cliente,lat,lng&limit=300');
+    if (clientes) clientes = clientes.map(function(c){ return {nombre: c.nombre_cliente, lat: c.lat, lng: c.lng}; });
     if (!clientes || !clientes.length) return;
 
     var visitadosHoy = new Set(checkins.map(function(v) { return v.nombre_cliente; }));
