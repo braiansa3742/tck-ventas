@@ -7607,8 +7607,8 @@ async function mapaRender() {
   // Inicializar mapa si no existe
   if (!_mapaInstance) {
     _mapaInstance = L.map('mapa-container', {
-      center: [-34.6037, -58.3816], // Buenos Aires por defecto
-      zoom: 12,
+      center: [-36.375, -62.005], // Trenque Lauquen
+      zoom: 13,
       zoomControl: true
     });
     L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
@@ -7703,7 +7703,7 @@ function mapaActualizar() {
       tiempoStr = mins + ' min';
     }
 
-    var markerColor = sinPed ? '#E65100' : color;
+    var markerColor = sinPed ? '#C62828' : '#2E7D32';
     var iconHtml = '<div style="background:' + markerColor + ';color:#fff;border-radius:50% 50% 50% 0;transform:rotate(-45deg);width:30px;height:30px;display:flex;align-items:center;justify-content:center;font-size:12px;font-weight:900;box-shadow:0 2px 8px rgba(0,0,0,.3);"><span style="transform:rotate(45deg)">' + (idx + 1) + '</span></div>';
     var icon = L.divIcon({ html: iconHtml, iconSize: [30,30], iconAnchor: [15,30], className: '' });
     var hora = new Date(v.fecha).toLocaleTimeString('es-AR', {hour:'2-digit',minute:'2-digit'});
@@ -7759,7 +7759,7 @@ function mapaActualizar() {
     var pts = rutasPorVend[nombre];
     if (pts.length < 2) return;
     var col = COLORES_VENDEDOR[nombre] || '#8B0000';
-    _mapaRutas.push(L.polyline(pts, { color: col, weight: 2.5, opacity: 0.6, dashArray: '6,5' }).addTo(_mapaInstance));
+    _mapaRutas.push(L.polyline(pts, { color: col, weight: 3, opacity: 0.75, dashArray: '8,6' }).addTo(_mapaInstance));
   });
 
   // Leyenda
@@ -7775,8 +7775,10 @@ function mapaActualizar() {
   }
 
   if (bounds.length > 0) {
-    if (bounds.length === 1) _mapaInstance.setView(bounds[0], 15);
-    else _mapaInstance.fitBounds(bounds, {padding: [30,30]});
+    if (bounds.length === 1) _mapaInstance.setView(bounds[0], 16);
+    else _mapaInstance.fitBounds(bounds, {padding: [40,40], maxZoom: 17});
+  } else {
+    _mapaInstance.setView([-36.375, -62.005], 13); // Trenque Lauquen
   }
 
   mapaCargarClientesSinVisita(todosCheckins);
@@ -7813,7 +7815,7 @@ async function mapaCargarClientesSinVisita(checkins) {
 
     // Puntos grises con popup enriquecido
     noVisitados.forEach(function(c) {
-      var iconHtml = '<div style="background:#BDBDBD;color:#fff;border-radius:50%;width:18px;height:18px;display:flex;align-items:center;justify-content:center;font-size:9px;font-weight:900;box-shadow:0 1px 4px rgba(0,0,0,.2);opacity:.8">•</div>';
+      var iconHtml = '<div style="background:#9E9E9E;color:#fff;border-radius:50%;width:20px;height:20px;display:flex;align-items:center;justify-content:center;font-size:9px;font-weight:900;box-shadow:0 1px 4px rgba(0,0,0,.2);opacity:.8">•</div>';
       var icon = L.divIcon({ html: iconHtml, iconSize: [18,18], iconAnchor: [9,9], className: '' });
 
       // Popup con loading — se llena al abrirse
