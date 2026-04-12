@@ -7358,39 +7358,43 @@ function gpsCheckinManual() {
 }
 
 // Confirmar check-in
-async function gpsConfirmarCheckin(nombreCliente) {
+async async function gpsConfirmarCheckin(nombreCliente) {
   var modal = document.getElementById('gps-modal-checkin');
   if (modal) modal.remove();
 
+  // Verificar GPS ANTES de confirmar el check-in
+  toast('📍 Obteniendo ubicación...', 'ok');
+  var coords = await gpsGetCoords();
+  
+  if (!coords.lat || !coords.lng) {
+    // GPS falló — no permitir check-in
+    toast('❌ Check-in cancelado: necesitás activar el GPS', 'err');
+    return;
+  }
+
   _gpsHizoPedido = false;
 
-  // Mostrar check-in activo INMEDIATAMENTE sin esperar GPS ni Supabase
+  // Mostrar check-in activo con coordenadas confirmadas
   _gpsCheckinActivo = { nombre_cliente: nombreCliente, fecha: new Date().toISOString() };
   gpsActualizarEstado(_gpsCheckinActivo);
   toast('✅ Check-in: ' + nombreCliente, 'ok');
 
-  // Guardar en Supabase en background (no bloquea la UI)
-  Promise.all([gpsGetCoords(), gpsObtenerVendedorId()])
-    .then(function(results) {
-      var coords = results[0];
-      var vendedorId = results[1];
-      return sbFetch('visitas', {
-        method: 'POST',
-        body: JSON.stringify({
-          vendedor_id:    vendedorId,
-          nombre_cliente: nombreCliente,
-          tipo:           'checkin',
-          lat:            coords.lat,
-          lng:            coords.lng
-        })
-      }).then(function() {
-        if (coords.lat && coords.lng) {
-          gpsGuardarUbicacionCliente(nombreCliente, coords, vendedorId);
-        }
-        gpsCargarHistorial();
-      });
-    })
-    .catch(function(e) { console.error('Check-in background error:', e); });
+  // Guardar en Supabase en background
+  var vendedorId = await gpsObtenerVendedorId();
+  try {
+    await sbFetch('visitas', {
+      method: 'POST',
+      body: JSON.stringify({
+        vendedor_id:    vendedorId,
+        nombre_cliente: nombreCliente,
+        tipo:           'checkin',
+        lat:            coords.lat,
+        lng:            coords.lng
+      })
+    });
+    gpsGuardarUbicacionCliente(nombreCliente, coords, vendedorId);
+    gpsCargarHistorial();
+  } catch(e) { console.error('Check-in error:', e); }
 }
 
 // Guardar ubicación permanente del cliente (solo si no tiene una ya)
