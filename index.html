@@ -7377,7 +7377,7 @@ async function gpsGuardarUbicacionCliente(nombreCliente, coords, vendedorId) {
 }
 
 // Check-out
-async async function gpsCheckout() {
+async function gpsCheckout() {
   if (!_gpsCheckinActivo) return;
   var coords = await gpsGetCoords();
   var vendedorId = await gpsObtenerVendedorId();
