@@ -7358,7 +7358,47 @@ function gpsCheckinManual() {
 }
 
 // Confirmar check-in
-async async function gpsConfirmarCheckin(nombreCliente) {
+async 
+function gpsCheckInSinCoordenadas(nombreCliente) {
+  // Remover modal existente si hay
+  var existing = document.getElementById('gps-modal-sin-coords');
+  if (existing) existing.remove();
+
+  var isAndroid = /android/i.test(navigator.userAgent);
+  var instrucciones = isAndroid
+    ? '1. Tocá el ícono 🔒 en la barra del navegador\n2. Permisos → Ubicación → Permitir\n\nO andá a Configuración del celular → Aplicaciones → Chrome → Permisos → Ubicación'
+    : '1. Abrí Configuración del iPhone\n2. Tocá Chrome (o Safari)\n3. Ubicación → Mientras se usa la app';
+
+  var modal = document.createElement('div');
+  modal.className = 'gps-modal-overlay';
+  modal.id = 'gps-modal-sin-coords';
+  modal.innerHTML = '<div class="gps-modal">'
+    + '<div class="gps-modal-hdr">'
+    + '<div class="gps-modal-titulo">📍 GPS no disponible</div>'
+    + '<button class="gps-modal-close" onclick="document.getElementById('gps-modal-sin-coords').remove()">✕</button>'
+    + '</div>'
+    + '<div style="padding:16px 20px;">'
+    + '<div style="background:#FFF3E0;border:1.5px solid #FFB74D;border-radius:10px;padding:12px 14px;margin-bottom:14px;">'
+    + '<div style="font-family:'Barlow Condensed',sans-serif;font-size:15px;font-weight:900;color:#E65100;margin-bottom:6px;">⚠️ El check-in requiere ubicación</div>'
+    + '<div style="font-size:12px;color:#BF360C;line-height:1.5;">Sin GPS no podemos registrar dónde estás. Activalo y volvé a intentar.</div>'
+    + '</div>'
+    + '<div style="font-family:'Barlow Condensed',sans-serif;font-size:13px;font-weight:900;color:var(--text2);margin-bottom:8px;">Cómo activarlo:</div>'
+    + '<div style="font-size:12px;color:var(--text3);line-height:1.8;white-space:pre-line;margin-bottom:16px;">' + instrucciones + '</div>'
+    + '<button onclick="gpsReintentar('' + nombreCliente.replace(/'/g, "\'") + '')" style="width:100%;padding:14px;background:linear-gradient(135deg,#1B5E20,#2E7D32);color:#fff;border:none;border-radius:12px;font-family:'Barlow Condensed',sans-serif;font-size:17px;font-weight:900;cursor:pointer;margin-bottom:8px;touch-action:manipulation;">🔄 Reintentar con GPS</button>'
+    + '<button onclick="document.getElementById('gps-modal-sin-coords').remove()" style="width:100%;padding:12px;background:none;border:none;font-family:'Barlow Condensed',sans-serif;font-size:14px;color:var(--text3);cursor:pointer;">Cancelar</button>'
+    + '</div>'
+    + '</div>';
+  document.body.appendChild(modal);
+}
+
+async function gpsReintentar(nombreCliente) {
+  var modal = document.getElementById('gps-modal-sin-coords');
+  if (modal) modal.remove();
+  // Reintentar check-in completo
+  gpsConfirmarCheckin(nombreCliente);
+}
+
+async function gpsConfirmarCheckin(nombreCliente) {
   var modal = document.getElementById('gps-modal-checkin');
   if (modal) modal.remove();
 
@@ -7367,8 +7407,8 @@ async async function gpsConfirmarCheckin(nombreCliente) {
   var coords = await gpsGetCoords();
   
   if (!coords.lat || !coords.lng) {
-    // GPS falló — no permitir check-in
-    toast('❌ Check-in cancelado: necesitás activar el GPS', 'err');
+    // GPS falló — mostrar modal para reintentar
+    gpsCheckInSinCoordenadas(nombreCliente);
     return;
   }
 
