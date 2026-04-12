@@ -7439,7 +7439,8 @@ async function gpsCheckoutFinal(motivo) {
   _gpsHizoPedido = false;
   gpsActualizarEstado(null);
   toast(motivo ? '📋 Visita registrada: ' + motivo : '🚪 Check-out registrado', 'ok');
-  gpsCargarHistorial();
+  // Delay historial reload para que el checkout se guarde primero en Supabase
+  setTimeout(function() { gpsCargarHistorial(); }, 2500);
 
   // Guardar en Supabase en background
   Promise.all([gpsGetCoords(), gpsObtenerVendedorId()])
