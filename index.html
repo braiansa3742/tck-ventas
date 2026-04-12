@@ -7377,7 +7377,7 @@ async function gpsGuardarUbicacionCliente(nombreCliente, coords, vendedorId) {
 }
 
 // Check-out
-async function gpsCheckout() {
+async async function gpsCheckout() {
   if (!_gpsCheckinActivo) return;
   var coords = await gpsGetCoords();
   var vendedorId = await gpsObtenerVendedorId();
@@ -8763,6 +8763,9 @@ async function tomadorConfirmarFinal() {
   });
 
   // Guardar en Supabase como visita con pedido
+  _gpsHizoPedido = true;
+  gpsActualizarEstado(_gpsCheckinActivo);
+
   try {
     var vendedorId = await gpsObtenerVendedorId();
     var detalleStr = lineas.join(' | ');
@@ -8813,7 +8816,6 @@ async function tomadorConfirmarFinal() {
     toast('✅ Pedido enviado por WhatsApp', 'ok');
   }
 
-  _gpsHizoPedido = true;
   tomadorCerrar();
   
 }
