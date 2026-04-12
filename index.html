@@ -7742,15 +7742,17 @@ async function mapaRender() {
 
 async function mapaCargarVisitas() {
   try {
-    var d = new Date();
-    d.setHours(0,0,0,0);
-    if (_mapaDiasAtras > 0) d.setDate(d.getDate() - _mapaDiasAtras);
-    var dFin = new Date(d); dFin.setHours(23,59,59,999);
-
-    var desde = d.toISOString();
-    var hasta = dFin.toISOString();
+    // Zona horaria Argentina (UTC-3)
+    var offsetMs = 3 * 60 * 60 * 1000;
+    var ahoraAR = new Date(new Date().getTime() - offsetMs);
+    var dAR = new Date(ahoraAR);
+    dAR.setUTCHours(0, 0, 0, 0);
+    if (_mapaDiasAtras > 0) dAR.setUTCDate(dAR.getUTCDate() - _mapaDiasAtras);
+    var dFinAR = new Date(dAR);
+    dFinAR.setUTCHours(23, 59, 59, 999);
+    var desde = new Date(dAR.getTime() + offsetMs).toISOString();
+    var hasta = new Date(dFinAR.getTime() + offsetMs).toISOString();
     var query = 'visitas?fecha=gte.' + desde + '&fecha=lte.' + hasta + '&order=fecha.asc&select=*,vendedores(nombre)';
-
     var visitas = await sbFetch(query);
     _mapaVisitas = visitas || [];
     mapaActualizar();
