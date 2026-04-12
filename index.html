@@ -4055,7 +4055,10 @@ setInterval(function() {
     || document.querySelector('.xubio-dropdown.on') !== null
     || document.querySelector('.xubio-sel.on') !== null;
   var tomadorEnUso = document.getElementById('tomador-overlay') !== null;
-  if (xubioEnUso || tomadorEnUso) return;
+  // No refrescar si hay algún sheet/detalle abierto
+  var sheetAbierto = document.querySelector('.export-backdrop.on') !== null
+    || document.querySelector('#bot-cli-sheet-backdrop.on') !== null;
+  if (xubioEnUso || tomadorEnUso || sheetAbierto) return;
   const antes = todosLosPedidos.length;
   const dupAntes = new Set(todosLosPedidos.filter(p => p.esDuplicado).map(p => p.pedidoId));
   cargarPedidos(true).then(function() {
