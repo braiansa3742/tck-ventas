@@ -4069,7 +4069,12 @@ setInterval(function() {
   // No refrescar si hay algún sheet/detalle abierto
   var sheetAbierto = document.querySelector('.export-backdrop.on') !== null
     || document.querySelector('#bot-cli-sheet-backdrop.on') !== null;
-  if (xubioEnUso || tomadorEnUso || sheetAbierto) return;
+  // No refrescar si hay algún modal GPS abierto
+  var modalGpsAbierto = document.getElementById('gps-modal-checkin') !== null
+    || document.getElementById('gps-modal-checkout') !== null
+    || document.getElementById('gps-modal-sin-coords') !== null
+    || document.getElementById('gps-modal-visita') !== null;
+  if (xubioEnUso || tomadorEnUso || sheetAbierto || modalGpsAbierto) return;
   const antes = todosLosPedidos.length;
   const dupAntes = new Set(todosLosPedidos.filter(p => p.esDuplicado).map(p => p.pedidoId));
   cargarPedidos(true).then(function() {
@@ -7077,8 +7082,8 @@ function adminVisitasRenderVendedor(nombre, visitas, pedidos, objetivos, fecha) 
   var primero = visitasAgrupadas.length ? visitasAgrupadas[0].entrada : null;
   var ultimo  = visitasAgrupadas.filter(function(v){ return v.salida; });
   var ultimoSalida = ultimo.length ? ultimo[ultimo.length-1].salida : null;
-  var horaInicio = primero ? primero.toLocaleTimeString('es-AR',{hour:'2-digit',minute:'2-digit'}) : '—';
-  var horaFin    = ultimoSalida ? ultimoSalida.toLocaleTimeString('es-AR',{hour:'2-digit',minute:'2-digit'}) : (visitasAgrupadas.length ? '(en curso)' : '—');
+  var horaInicio = primero ? primero.toLocaleTimeString('es-AR',{hour:'2-digit',minute:'2-digit',timeZone:'America/Argentina/Buenos_Aires'}) : '—';
+  var horaFin    = ultimoSalida ? ultimoSalida.toLocaleTimeString('es-AR',{hour:'2-digit',minute:'2-digit',timeZone:'America/Argentina/Buenos_Aires'}) : (visitasAgrupadas.length ? '(en curso)' : '—');
 
   // Duración promedio por visita
   var visitasConDuracion = visitasAgrupadas.filter(function(v){ return v.salida; });
@@ -7117,7 +7122,7 @@ function adminVisitasRenderVendedor(nombre, visitas, pedidos, objetivos, fecha) 
 
   // Timeline de visitas
   var timelineHTML = visitasAgrupadas.map(function(v, i) {
-    var hora = v.entrada.toLocaleTimeString('es-AR',{hour:'2-digit',minute:'2-digit'});
+    var hora = v.entrada.toLocaleTimeString('es-AR',{hour:'2-digit',minute:'2-digit',timeZone:'America/Argentina/Buenos_Aires'});
     var dur  = v.salida ? Math.round((v.salida-v.entrada)/60000) + ' min' : '(activo)';
     var icono = v.tuvo_pedido ? '📦' : (v.motivo ? '🔴' : '🟢');
     var resultado = v.tuvo_pedido ? 'Con pedido' : (v.motivo || 'Sin checkout');
@@ -7266,7 +7271,7 @@ async function gpsCargarHistorial() {
 
     if (hdrEl) hdrEl.textContent = '📅 Hoy en campo — ' + visitas_agrupadas.length + ' visita' + (visitas_agrupadas.length !== 1 ? 's' : '');
     el.innerHTML = visitas_agrupadas.map(function(v) {
-      var hora = v.hora_entrada.toLocaleTimeString('es-AR', {hour:'2-digit',minute:'2-digit'});
+      var hora = v.hora_entrada.toLocaleTimeString('es-AR', {hour:'2-digit',minute:'2-digit',timeZone:'America/Argentina/Buenos_Aires'});
       var esActivo = !v.hora_salida;
       var resultado = esActivo ? 'Activo'
         : v.tuvo_pedido ? 'Con pedido'
@@ -7305,7 +7310,7 @@ function gpsActualizarEstado(checkinActivo) {
     if (dot2) dot2.style.display = 'block';
     if (icon)   icon.textContent = '✅';
     if (titulo) titulo.textContent = 'En: ' + (checkinActivo.nombre_cliente || 'Cliente');
-    var entrada = new Date(checkinActivo.fecha).toLocaleTimeString('es-AR', {hour:'2-digit',minute:'2-digit'});
+    var entrada = new Date(checkinActivo.fecha).toLocaleTimeString('es-AR', {hour:'2-digit',minute:'2-digit',timeZone:'America/Argentina/Buenos_Aires'});
     if (sub)    sub.textContent = 'Entrada: ' + entrada;
     var sinDiv = document.getElementById('gps-acciones-sin');
     var conDiv = document.getElementById('gps-acciones-con');
@@ -7874,7 +7879,7 @@ function mapaActualizar() {
     var markerColor = sinPed ? '#C62828' : '#2E7D32';
     var iconHtml = '<div style="background:' + markerColor + ';color:#fff;border-radius:50% 50% 50% 0;transform:rotate(-45deg);width:30px;height:30px;display:flex;align-items:center;justify-content:center;font-size:12px;font-weight:900;box-shadow:0 2px 8px rgba(0,0,0,.3);"><span style="transform:rotate(45deg)">' + (idx + 1) + '</span></div>';
     var icon = L.divIcon({ html: iconHtml, iconSize: [30,30], iconAnchor: [15,30], className: '' });
-    var hora = new Date(v.fecha).toLocaleTimeString('es-AR', {hour:'2-digit',minute:'2-digit'});
+    var hora = new Date(v.fecha).toLocaleTimeString('es-AR', {hour:'2-digit',minute:'2-digit',timeZone:'America/Argentina/Buenos_Aires'});
 
     // Popup con historial al tocar
     var popupIdV = 'popup-vis-' + idx + '-' + Date.now();
@@ -8171,7 +8176,7 @@ function mapaActualizarLista(checkins, todasVisitas) {
       return c.tipo === 'pedido_campo' && c.nombre_cliente === v.nombre_cliente && new Date(c.fecha) > new Date(v.fecha);
     });
 
-    var hora = new Date(v.fecha).toLocaleTimeString('es-AR', {hour:'2-digit',minute:'2-digit'});
+    var hora = new Date(v.fecha).toLocaleTimeString('es-AR', {hour:'2-digit',minute:'2-digit',timeZone:'America/Argentina/Buenos_Aires'});
     var duracion = '';
     if (checkout) {
       var mins = Math.round((new Date(checkout.fecha) - new Date(v.fecha)) / 60000);
@@ -8716,9 +8721,10 @@ function tomadorRenderProductos(catId) {
       var comp = _tomadorCompetencia[item.n];
       var compLabel = comp ? '💲' + comp.precio.toLocaleString('es-AR') + (comp.nombre ? ' — ' + comp.nombre : '') : '';
       var safeName = item.n.replace(/'/g, "\'").replace(/"/g, '&quot;');
+      var safeId = item.n.replace(/[^a-zA-Z0-9]/g, '_');
 
       var sinStockBadge = sinStock ? '<div style="position:absolute;top:4px;left:4px;background:#C62828;color:#fff;font-size:9px;font-weight:900;padding:2px 6px;border-radius:6px;font-family:Barlow Condensed,sans-serif;letter-spacing:.5px">SIN STOCK</div>' : '';
-  html += '<div class="tomador-item' + (tieneQty ? ' tiene' : '') + (sinStock ? ' sin-stock' : '') + '" id="titem-' + item.img + '" style="position:relative">'
+  html += '<div class="tomador-item' + (tieneQty ? ' tiene' : '') + (sinStock ? ' sin-stock' : '') + '" id="titem-' + safeId + '" style="position:relative">'
         + sinStockBadge
         + '<img class="tomador-item-img" src="' + (item.img2 || imgUrl) + '" onerror="this.style.display=&quot;none&quot;;this.nextSibling.style.display=&quot;flex&quot;" loading="lazy">'
         + '<div class="tomador-item-img-placeholder" style="display:none">🍗</div>'
@@ -8728,10 +8734,10 @@ function tomadorRenderProductos(catId) {
         + '<div class="tomador-item-precio">$' + item.pr.toLocaleString('es-AR') + '</div>'
         + '<div class="tomador-qty">'
         + '<button class="tomador-qty-btn" onclick="tomadorCambiarQty(&quot;' + safeName + '&quot;,-1)" ' + (sinStock ? 'disabled' : '') + '>−</button>'
-        + '<span class="tomador-qty-num" id="tqty-' + item.img + '">' + qty + '</span>'
+        + '<span class="tomador-qty-num" id="tqty-' + safeId + '">' + qty + '</span>'
         + '<button class="tomador-qty-btn plus" onclick="tomadorCambiarQty(&quot;' + safeName + '&quot;,1)" ' + (sinStock ? 'disabled' : '') + '>+</button>'
         + '</div>'
-        + '<button class="tomador-precio-comp-btn" onclick="tomadorAbrirCompetencia(&quot;' + safeName + '&quot;,&quot;' + item.img + '&quot;)">'
+        + '<button class="tomador-precio-comp-btn" onclick="tomadorAbrirCompetencia(&quot;' + safeName + '&quot;,&quot;' + safeId + '&quot;)">'
         + (comp ? '✅ Comp: $' + comp.precio.toLocaleString('es-AR') + (comp.nombre ? ' · ' + comp.nombre : '') : '💲 Cargar precio competencia')
         + '</button>'
         + '</div></div>';
@@ -8758,9 +8764,10 @@ function tomadorCambiarQty(nombre, delta) {
     if (item) break;
   }
   if (item) {
-    var qtyEl = document.getElementById('tqty-' + item.img);
+    var safeId = item.n.replace(/[^a-zA-Z0-9]/g, '_');
+    var qtyEl = document.getElementById('tqty-' + safeId);
     if (qtyEl) qtyEl.textContent = nuevo;
-    var itemEl = document.getElementById('titem-' + item.img);
+    var itemEl = document.getElementById('titem-' + safeId);
     if (itemEl) itemEl.classList.toggle('tiene', nuevo > 0);
   }
   tomadorActualizarTotal();
@@ -8859,7 +8866,9 @@ async function tomadorConfirmar() {
     if (!item) return;
     var sub = item.pr * qty;
     resumenTotal += sub;
-    resumenLineas.push({ nombre: nombre, qty: qty, presentacion: item.p, precio: item.pr, subtotal: sub });
+    var imgFileR = IMGMAP[item.n] || (item.img + '.jpg');
+    var imgUrlR = 'https://tckcatalogo.com/img/' + encodeURIComponent(imgFileR).replace(/%20/g,'%20');
+    resumenLineas.push({ nombre: nombre, qty: qty, presentacion: item.p, precio: item.pr, subtotal: sub, imgUrl: item.img2 || imgUrlR });
   });
 
   // Crear modal de resumen
@@ -8874,8 +8883,9 @@ async function tomadorConfirmar() {
     + '<div style="padding:14px 20px 0;font-size:13px;color:#666">👤 ' + cliente + '</div>'
     + '<div style="padding:10px 20px">'
     + resumenLineas.map(function(l) {
-        return '<div style="display:flex;align-items:center;justify-content:space-between;padding:10px 0;border-bottom:1px solid #f0e8e8">'
-          + '<div><div style="font-weight:700;font-size:14px">' + l.nombre + '</div>'
+        return '<div style="display:flex;align-items:center;gap:10px;padding:10px 0;border-bottom:1px solid #f0e8e8">'
+          + '<img src="' + l.imgUrl + '" style="width:44px;height:44px;object-fit:cover;border-radius:8px;flex-shrink:0" onerror="this.style.display=\'none\'">'
+          + '<div style="flex:1"><div style="font-weight:700;font-size:14px">' + l.nombre + '</div>'
           + '<div style="font-size:12px;color:#888">' + l.presentacion + ' · ' + l.qty + ' unid.</div></div>'
           + '<div style="font-family:Barlow Condensed,sans-serif;font-size:16px;font-weight:900;color:#8B0000">$' + l.subtotal.toLocaleString('es-AR') + '</div>'
           + '</div>';
@@ -8984,10 +8994,10 @@ async function tomadorConfirmarFinal() {
     fetch(APPS_SCRIPT_URL + '?' + params.toString(), {mode: 'no-cors'}).catch(function(){});
     toast('✅ Pedido registrado y enviado', 'ok');
 
-    // Recargar pedidos rápido — el Apps Script necesita ~1s para procesar
-    setTimeout(function() { cargarPedidos(); }, 1000);
-    // Segunda recarga por si acaso
-    setTimeout(function() { cargarPedidos(); }, 4000);
+    // Recargar pedidos — el Apps Script puede tardar hasta 10s en escribir en el Sheet
+    setTimeout(function() { cargarPedidos(); }, 2000);
+    setTimeout(function() { cargarPedidos(); }, 6000);
+    setTimeout(function() { cargarPedidos(); }, 12000);
   } catch(e) {
     toast('✅ Pedido enviado por WhatsApp', 'ok');
   }
@@ -9079,7 +9089,7 @@ async function botCargarHistorialCliente(telefono) {
     }
     var html = '<div class="bot-cli-sheet-msg">';
     data.forEach(function(m) {
-      var hora = new Date(m.created_at).toLocaleTimeString('es-AR',{hour:'2-digit',minute:'2-digit'});
+      var hora = new Date(m.created_at).toLocaleTimeString('es-AR',{hour:'2-digit',minute:'2-digit',timeZone:'America/Argentina/Buenos_Aires'});
       var fecha = new Date(m.created_at).toLocaleDateString('es-AR',{day:'2-digit',month:'2-digit'});
       html += '<div class="bot-cli-hora">' + fecha + ' ' + hora + '</div>';
       if (m.mensaje) html += '<div class="bot-cli-burbuja-user">👤 ' + m.mensaje + '</div>';
@@ -9177,7 +9187,7 @@ async function botGuardarPrecios() {
   }
 }
 
-var _botConfig={},_botSinStock=new Set(),BOT_PRODUCTOS=['Pollo Optimo','Suprema','Suprema IQF','Suprema B IQF','Fino de Ave Cocida','Alita Congelada Granel','Cuarto Trasero IQF','Medallon de Pollo Clasico','Medallon Pollo c/Cheddar','Medallon Pollo JyQ','Medallon Pollo y Espinaca','Formita Clasica','Formitas Pollo JyQ','Nuggets de Pollo Crocante','Bocadito de Papa y Jamon','Pechuguitas al Verdeo','Filet Merluza Finas Hierbas','Filet de Merluza Rebozado','Filet Merluza a Granel','Milanesa de Nalga','Milanesa de Pollo','Hamburguesa 100% Carne','Papa Baston Balcarce','Pulpa de Palta'];
+var _botConfig={},_botSinStock=new Set(),BOT_PRODUCTOS=['Pollo Optimo','Suprema','Suprema IQF','Suprema B IQF','Fino de Ave Cocida','Alita Congelada Granel','MDM - Carne Molida de Pollo','Cuarto Trasero IQF','Medallon de Pollo Clasico','Medallon Pollo c/Cheddar','Medallon Pollo JyQ','Medallon Pollo y Espinaca','Formita Clasica','Formitas Pollo JyQ','Nuggets de Pollo Crocante','Bocadito de Papa y Jamon','Pechuguitas al Verdeo','Filet Merluza Finas Hierbas','Filet de Merluza Rebozado','Filet Merluza a Granel','Milanesa de Nalga','Milanesa de Pollo','Hamburguesa 100% Carne','Papa Baston Balcarce','Pulpa de Palta','Maple N° 2','Maple N° 1','Cajita 1/2 Docena N° 2','Arándanos Solimeno','Brocoli','Espinacas','Morron','Primavera','Frutos Rojos','Cebolla'];
 async function botCargarConfig(){try{var data=await sbFetch('bot_config?select=clave,valor');if(data){_botConfig={};data.forEach(function(r){_botConfig[r.clave]=r.valor||''});}var s=_botConfig['sin_stock']||'';_botSinStock=new Set(s.split(',').map(function(x){return x.trim();}).filter(Boolean));var el;el=document.getElementById('bot-aviso');if(el)el.value=_botConfig['aviso_activo']||'';el=document.getElementById('bot-zonas');if(el)el.value=_botConfig['zonas_entrega']||'';el=document.getElementById('bot-horario');if(el)el.value=_botConfig['horario_atencion']||'';botRenderStock();var ts=document.getElementById('bot-ultima-sync');if(ts)ts.textContent='Última sync: '+new Date().toLocaleTimeString('es-AR',{hour:'2-digit',minute:'2-digit'});}catch(e){toast('Error al cargar config bot','err');}}
 function botRenderStock(){var g=document.getElementById('bot-stock-grid');if(!g)return;g.innerHTML=BOT_PRODUCTOS.map(function(n){var ss=_botSinStock.has(n);var safe=n.replace(/'/g,"\\'");return'<div class="bot-stock-item'+(ss?' sin-stock':'')+'" onclick="botToggleStock(\''+safe+'\')"><div class="bot-stock-dot"></div><div class="bot-stock-item-nombre">'+n+'</div></div>';}).join('');var b=document.getElementById('bot-badge-sinstock');if(b){b.textContent=_botSinStock.size+' sin stock';b.style.background=_botSinStock.size>0?'rgba(198,40,40,.7)':'rgba(255,255,255,.2)';}}
 function botToggleStock(n){if(_botSinStock.has(n))_botSinStock.delete(n);else _botSinStock.add(n);botRenderStock();}
