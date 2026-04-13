@@ -3258,6 +3258,40 @@ body {
   font-family: 'Barlow Condensed', sans-serif; font-size: 24px;
   font-weight: 900; color: #fff;
 }
+
+/* ── Asignar chofer ── */
+.btn-asignar {
+  background: linear-gradient(135deg, #1565C0, #1976D2);
+  color: #fff; border: none; border-radius: 8px; padding: 8px 14px;
+  font-family: 'Barlow Condensed', sans-serif; font-size: 14px; font-weight: 800;
+  cursor: pointer; letter-spacing: .3px; transition: opacity .15s;
+}
+.btn-asignar:active { opacity: .8; }
+.chofer-asignado-badge {
+  display: inline-flex; align-items: center; gap: 6px;
+  background: #E3F2FD; color: #1565C0; border-radius: 20px;
+  padding: 4px 12px; font-size: 12px; font-weight: 800;
+  font-family: 'Barlow Condensed', sans-serif; letter-spacing: .3px;
+}
+.chofer-asignado-badge button {
+  background: none; border: none; color: #1565C0; cursor: pointer;
+  font-size: 14px; padding: 0; line-height: 1;
+}
+.chofer-picker {
+  display: flex; gap: 8px; flex-wrap: wrap; margin-top: 6px;
+}
+.chofer-picker-btn {
+  flex: 1; min-width: 80px; padding: 9px 12px; border: 2px solid rgba(21,101,192,.2);
+  border-radius: 10px; background: #fff; cursor: pointer;
+  font-family: 'Barlow Condensed', sans-serif; font-size: 15px; font-weight: 800;
+  color: #1565C0; transition: all .15s; text-align: center;
+}
+.chofer-picker-btn:active { background: #E3F2FD; border-color: #1565C0; }
+.chofer-picker-cancel {
+  width: 100%; margin-top: 4px; padding: 8px; background: none;
+  border: none; color: var(--text3); font-size: 13px; cursor: pointer;
+  font-family: 'Barlow', sans-serif;
+}
 </style>
 </head>
 <body>
@@ -4363,7 +4397,10 @@ function login(nombre) {
     ? 'Viendo todos los pedidos del día'
     : 'Tus pedidos de hoy — ' + new Date().toLocaleDateString('es-AR');
   document.getElementById('filtros-vendedor').style.display = esAdmin ? 'flex' : 'none';
-  setTimeout(function() { cargarPedidos(); }, 300);
+  setTimeout(function() {
+    cargarPedidos();
+    if (vendedorActual === 'ADMIN') cargarAsignaciones();
+  }, 300);
   mostrarTabs();
   mostrarBotonesManual();
   checkPrimeraVez();
@@ -4492,6 +4529,10 @@ async function cargarPedidos(silencioso, _reintentos) {
       } else if (cambio) {
         delete _estadosCambiados[p.pedidoId];
       }
+    });
+    // Marcar chofer asignado en cada pedido
+    pedidos.forEach(function(p) {
+      if (_asignaciones[p.pedidoId]) p.choferAsignado = _asignaciones[p.pedidoId];
     });
     todosLosPedidos = pedidos;
 
@@ -4706,6 +4747,21 @@ function renderCard(p) {
   if (esAdmin && p.estado !== 'Pendiente') btns += '<button class="btn-estado btn-pendiente-again" onclick="cambiarEstado(\'' + p.pedidoId + '\',' + p.fila + ',\'Pendiente\',event)">⏳ Pendiente</button>';
   if (esAdmin && p.estado !== 'Cancelado') btns += '<button class="btn-estado btn-cancelar" onclick="confirmarCancelar(\'' + p.pedidoId + '\',' + p.fila + ',event)">❌ Cancelar</button>';
 
+  // Botón asignar chofer — solo ADMIN y pedidos confirmados
+  var asignarHtml = '';
+  if (esAdmin && p.estado === 'Confirmado') {
+    if (p.choferAsignado) {
+      asignarHtml = '<div style="margin-top:10px;">' +
+        '<span class="chofer-asignado-badge">🚚 ' + p.choferAsignado +
+        ' <button onclick="desasignarChofer(\'' + p.pedidoId + '\',event)" title="Cambiar">✕</button>' +
+        '</span></div>';
+    } else {
+      asignarHtml = '<div style="margin-top:10px;">' +
+        '<button class="btn-asignar" data-pedido="' + p.pedidoId + '" onclick="mostrarPickerChofer(this,event)">🚚 Asignar a chofer</button>' +
+        '</div>';
+    }
+  }
+
   var vendedorRow = esAdmin ? '<div class="pedido-detalle-row"><span class="pdr-label">Vendedor</span><span class="pdr-val">' + p.vendedor + '</span></div>' : '';
   var detalle = p.detalle ? p.detalle.replace(/\|/g,'\n').replace(/ · /g,' — ') : (p.resumen || '');
   var hora = (p.fechaHora||'').split(' ')[1] || (p.fechaHora||'').split('T')[1] || '';
@@ -4733,6 +4789,7 @@ function renderCard(p) {
       (detalle ? '<div class="pedido-productos">' + detalle + '</div>' : '') +
       dupAlert +
       '<div class="pedido-acciones">' + btns + '</div>' +
+      asignarHtml +
       buildXubioPanel(p, id) +
       '<div class="nota-wrap">' +
         '<div style="display:flex;gap:8px;margin-bottom:8px;align-items:center;">' +
@@ -9530,6 +9587,119 @@ async function cobroSeleccionar(formaCobro) {
     console.error('cobroSeleccionar:', e);
   }
   _entregasPedidoActual = null;
+}
+
+
+// ════════════════════════════════════════════════════════════════
+//  ASIGNACIÓN DE PEDIDOS A CHOFERES
+// ════════════════════════════════════════════════════════════════
+
+// Cache de asignaciones: pedidoId → chofer
+let _asignaciones = {};
+
+async function cargarAsignaciones() {
+  try {
+    const hoyStr = new Date().toISOString().split('T')[0];
+    const rows = await sbFetch('entregas?fecha_asignacion=gte.' + hoyStr + 'T00:00:00&select=pedido_id,chofer');
+    if (rows && rows.length) {
+      rows.forEach(function(r) {
+        if (r.pedido_id && r.chofer) _asignaciones[r.pedido_id] = r.chofer;
+      });
+    }
+  } catch(e) {
+    console.warn('cargarAsignaciones:', e);
+  }
+}
+
+function mostrarPickerChofer(btn, event) {
+  event.stopPropagation();
+  const pedidoId = btn.getAttribute('data-pedido');
+  // Reemplazar el botón con el picker
+  const wrap = btn.parentElement;
+  wrap.innerHTML =
+    '<div class="chofer-picker">' +
+      '<button class="chofer-picker-btn" data-pid="' + pedidoId + '" data-chofer="Joan" onclick="asignarChoferBtn(this,event)">🚚 Joan</button>' +
+      '<button class="chofer-picker-btn" data-pid="' + pedidoId + '" data-chofer="Luis" onclick="asignarChoferBtn(this,event)">🚚 Luis</button>' +
+    '</div>' +
+    '<button class="chofer-picker-cancel" data-pid="' + pedidoId + '" onclick="cancelarPickerChoferBtn(this,event)">Cancelar</button>';
+}
+
+function asignarChoferBtn(btn, event) {
+  const pid    = btn.getAttribute('data-pid');
+  const chofer = btn.getAttribute('data-chofer');
+  asignarChofer(pid, chofer, event);
+}
+
+function cancelarPickerChoferBtn(btn, event) {
+  const pid = btn.getAttribute('data-pid');
+  cancelarPickerChofer(pid, event);
+}
+
+function cancelarPickerChofer(pedidoId, event) {
+  event.stopPropagation();
+  // Re-render solo esta card
+  const p = todosLosPedidos.find(x => x.pedidoId === pedidoId);
+  if (p) {
+    const id = pedidoId.replace(/[^a-zA-Z0-9]/g, '-');
+    const card = document.getElementById('card-' + id);
+    if (card) card.outerHTML = renderCard(p);
+  }
+}
+
+async function asignarChofer(pedidoId, chofer, event) {
+  if (event) event.stopPropagation();
+  const p = todosLosPedidos.find(x => x.pedidoId === pedidoId);
+  if (!p) return;
+
+  // Guardar en _asignaciones local
+  _asignaciones[pedidoId] = chofer;
+  p.choferAsignado = chofer;
+
+  // Re-render la card inmediatamente
+  const id = pedidoId.replace(/[^a-zA-Z0-9]/g, '-');
+  const card = document.getElementById('card-' + id);
+  if (card) card.outerHTML = renderCard(p);
+
+  try {
+    // Guardar en Supabase tabla entregas
+    const tel = (p.telCliente || '').replace(/\D/g, '');
+    await sbFetch('entregas', {
+      method: 'POST',
+      headers: { 'Prefer': 'resolution=merge-duplicates' },
+      body: JSON.stringify({
+        pedido_id:        pedidoId,
+        chofer:           chofer,
+        cliente:          p.cliente || '',
+        telefono_cliente: tel || null,
+        ciudad:           p.localidad || '',
+        estado:           'pendiente',
+        monto:            parseFloat((p.total || '0').toString().replace(/[^0-9.]/g, '')) || 0,
+        nota:             p.resumen || ''
+      })
+    });
+    toast('✅ Asignado a ' + chofer, 'ok');
+  } catch(e) {
+    toast('❌ Error al guardar', 'err');
+    console.error('asignarChofer:', e);
+  }
+}
+
+async function desasignarChofer(pedidoId, event) {
+  if (event) event.stopPropagation();
+  if (!confirm('¿Desasignar el chofer de este pedido?')) return;
+
+  delete _asignaciones[pedidoId];
+  const p = todosLosPedidos.find(x => x.pedidoId === pedidoId);
+  if (p) {
+    delete p.choferAsignado;
+    const id = pedidoId.replace(/[^a-zA-Z0-9]/g, '-');
+    const card = document.getElementById('card-' + id);
+    if (card) card.outerHTML = renderCard(p);
+  }
+
+  try {
+    await sbFetch('entregas?pedido_id=eq.' + encodeURIComponent(pedidoId), { method: 'DELETE' });
+  } catch(e) {}
 }
 </script>
 
