@@ -4231,6 +4231,10 @@ function login(nombre) {
   if (nombre !== 'ADMIN') trackingIniciar();
   // Cargar objetivos
   objetivosCargar();
+  // Restaurar checkin activo si existe
+  if (nombre !== 'ADMIN') {
+    setTimeout(function() { gpsCargarHistorial(); }, 500);
+  }
   // Si viene en modo campo, ir directo a Visitas
   if (_modoCampo && (nombre === 'Juan' || nombre === 'Lisandro')) {
     setTimeout(function() { cambiarTab('gps'); }, 300);
@@ -7166,9 +7170,12 @@ async function gpsCargarHistorial() {
   var esAdmin = vendedorActual === 'ADMIN';
   if (!vendedorId && !esAdmin) return;
 
-  var hoy = new Date();
-  hoy.setHours(0,0,0,0);
-  var ayer = hoy.toISOString();
+  // Zona horaria Argentina (UTC-3)
+  var offsetMs = 3 * 60 * 60 * 1000;
+  var ahoraAR = new Date(new Date().getTime() - offsetMs);
+  var hoy = new Date(ahoraAR);
+  hoy.setUTCHours(0, 0, 0, 0);
+  var ayer = new Date(hoy.getTime() + offsetMs).toISOString();
 
   try {
     // Admin ve todas las visitas del día, vendedor solo las suyas
