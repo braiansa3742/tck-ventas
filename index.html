@@ -4223,7 +4223,7 @@ function login(nombre) {
     ? 'Viendo todos los pedidos del día'
     : 'Tus pedidos de hoy — ' + new Date().toLocaleDateString('es-AR');
   document.getElementById('filtros-vendedor').style.display = esAdmin ? 'flex' : 'none';
-  cargarPedidos();
+  setTimeout(function() { cargarPedidos(); }, 300);
   mostrarTabs();
   mostrarBotonesManual();
   checkPrimeraVez();
@@ -4270,8 +4270,9 @@ function salir() {
 }
 
 // ── CARGAR PEDIDOS ───────────────────────────────────────────────
-async function cargarPedidos(silencioso) {
+async function cargarPedidos(silencioso, _reintentos) {
   silencioso = silencioso || false;
+  _reintentos = _reintentos === undefined ? 0 : _reintentos;
   if (!silencioso) document.getElementById('lista-pedidos').innerHTML =
     '<div class="loading"><div class="loading-spinner"></div>Cargando pedidos...</div>';
   try {
@@ -4362,8 +4363,14 @@ async function cargarPedidos(silencioso) {
     renderPedidos();
     actualizarMiDiaSiAbierto();
     } catch(e) {
-    if (!silencioso) document.getElementById('lista-pedidos').innerHTML =
-      '<div class="empty">❌ Error al cargar pedidos.<br>Verificá tu conexión.</div>';
+    if (_reintentos < 3) {
+      // Retry automático: 1s, 3s, 6s
+      var delays = [1000, 3000, 6000];
+      setTimeout(function() { cargarPedidos(silencioso, _reintentos + 1); }, delays[_reintentos]);
+    } else {
+      if (!silencioso) document.getElementById('lista-pedidos').innerHTML =
+        '<div class="empty">❌ Error al cargar pedidos.<br>Verificá tu conexión.</div>';
+    }
   }
 }
 
@@ -7787,8 +7794,8 @@ async function mapaCargarVisitas() {
     if (_mapaDiasAtras > 0) dAR.setUTCDate(dAR.getUTCDate() - _mapaDiasAtras);
     var dFinAR = new Date(dAR);
     dFinAR.setUTCHours(23, 59, 59, 999);
-    var desde = new Date(dAR.getTime() + offsetMs).toISOString();
-    var hasta = new Date(dFinAR.getTime() + offsetMs).toISOString();
+    var desde = dAR.toISOString();
+    var hasta = dFinAR.toISOString();
     var query = 'visitas?fecha=gte.' + desde + '&fecha=lte.' + hasta + '&order=fecha.asc&select=*,vendedores(nombre)';
     var visitas = await sbFetch(query);
     _mapaVisitas = visitas || [];
