@@ -9319,8 +9319,7 @@ async function asignarPedidosChofer() {
     // Leer pedidos confirmados del sheet CSV
     const res = await fetch(SHEET_CSV + '&_t=' + Date.now());
     const csv = await res.text();
-    const lines = csv.trim().split('
-');
+        const lines = csv.trim().split('\n');
     const hoy = new Date(); hoy.setHours(0,0,0,0);
     const pedidos = [];
 
@@ -9451,12 +9450,11 @@ function renderEntregas(entregas) {
             'Estoy en camino a ' + ciudad + ' con tu pedido. ' +
             'En breve estaré llegando. ¿Confirmás que vas a estar disponible? 🚚'
           );
-          html += '<button class="entrega-btn avisar" onclick="window.open('https://wa.me/' + waNum + '?text=' + msgWA + '')">' +
+          html += '<button class="entrega-btn avisar" onclick="avisarClienteWA(\'' + waNum + '\',\'' + msgWA + '\')">' +
             '📍 Avisar al cliente</button>';
         }
-        html += '<button class="entrega-btn entregar" onclick="abrirCobroModal('' + e.id + '','' +
-          (e.cliente || '').replace(/'/g, '') + '',' + (e.monto || 0) + ')">' +
-          '✅ Entregado</button>';
+        html += '<button class="entrega-btn entregar" data-id="' + e.id + '" data-nombre="' + (e.cliente||'').replace(/"/g,'') + '" data-monto="' + (e.monto||0) + '" onclick="abrirCobroModalBtn(this)">' +
+          '✅ Entregado</button>'
       } else {
         const cobro = e.forma_cobro ? (' · ' + e.forma_cobro) : '';
         html += '<button class="entrega-btn entregado-done">✅ Entregado' + cobro + '</button>';
@@ -9471,7 +9469,19 @@ function renderEntregas(entregas) {
   el.innerHTML = html;
 }
 
+// ── AVISAR CLIENTE WA ────────────────────────────────────────
+function avisarClienteWA(waNum, msgWA) {
+  window.open('https://wa.me/' + waNum + '?text=' + msgWA);
+}
+
 // ── MODAL DE COBRO ────────────────────────────────────────────
+function abrirCobroModalBtn(btn) {
+  const id     = btn.getAttribute('data-id');
+  const nombre = btn.getAttribute('data-nombre');
+  const monto  = parseFloat(btn.getAttribute('data-monto')) || 0;
+  abrirCobroModal(id, nombre, monto);
+}
+
 function abrirCobroModal(entregaId, clienteNombre, monto) {
   _entregasPedidoActual = entregaId;
   const sub = document.getElementById('cobro-sub');
