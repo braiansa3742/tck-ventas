@@ -7175,7 +7175,7 @@ async function gpsCargarHistorial() {
   var ahoraAR = new Date(new Date().getTime() - offsetMs);
   var hoy = new Date(ahoraAR);
   hoy.setUTCHours(0, 0, 0, 0);
-  var ayer = new Date(hoy.getTime() + offsetMs).toISOString();
+  var ayer = hoy.toISOString();
 
   try {
     // Admin ve todas las visitas del día, vendedor solo las suyas
@@ -7387,8 +7387,8 @@ function gpsCheckinManual() {
 }
 
 // Confirmar check-in
-async 
-function gpsCheckInSinCoordenadas(nombreCliente) {
+
+async function gpsCheckInSinCoordenadas(nombreCliente) {
   var existing = document.getElementById('gps-modal-sin-coords');
   if (existing) existing.remove();
 
