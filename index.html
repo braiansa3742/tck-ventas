@@ -7061,8 +7061,12 @@ function adminVisitasRenderVendedor(nombre, visitas, pedidos, objetivos, fecha) 
     if (v.tipo === 'checkin') {
       visitaActual = { cliente: v.nombre_cliente, entrada: new Date(v.fecha), salida: null, tuvo_pedido: false, motivo: null };
       visitasAgrupadas.push(visitaActual);
-    } else if (v.tipo === 'pedido_campo' && visitaActual && v.nombre_cliente === visitaActual.cliente) {
-      visitaActual.tuvo_pedido = true;
+    } else if (v.tipo === 'pedido_campo') {
+      if (visitaActual) {
+        visitaActual.tuvo_pedido = true;
+      } else {
+        visitasAgrupadas.push({ cliente: v.nombre_cliente, entrada: new Date(v.fecha), salida: null, tuvo_pedido: true, motivo: null });
+      }
     } else if (v.tipo === 'checkout' && visitaActual && v.nombre_cliente === visitaActual.cliente) {
       visitaActual.salida = new Date(v.fecha);
       visitaActual.motivo = v.motivo_no_compra || null;
@@ -7246,8 +7250,21 @@ async function gpsCargarHistorial() {
           duracion:       null
         };
         visitas_agrupadas.push(visitaActual);
-      } else if (v.tipo === 'pedido_campo' && visitaActual && v.nombre_cliente === visitaActual.nombre_cliente) {
-        visitaActual.tuvo_pedido = true;
+      } else if (v.tipo === 'pedido_campo') {
+        if (visitaActual) {
+          // Asociar al checkin activo (por nombre o por proximidad temporal)
+          visitaActual.tuvo_pedido = true;
+        } else {
+          // Pedido tomado sin checkin — mostrar igual como visita con pedido
+          visitas_agrupadas.push({
+            nombre_cliente: v.nombre_cliente,
+            hora_entrada:   new Date(v.fecha),
+            hora_salida:    null,
+            tuvo_pedido:    true,
+            motivo:         null,
+            duracion:       null
+          });
+        }
       } else if (v.tipo === 'checkout' && visitaActual && v.nombre_cliente === visitaActual.nombre_cliente) {
         visitaActual.hora_salida = new Date(v.fecha);
         var mins = Math.round((visitaActual.hora_salida - visitaActual.hora_entrada) / 60000);
@@ -8995,16 +9012,18 @@ async function tomadorConfirmarFinal() {
     fetch(APPS_SCRIPT_URL + '?' + params.toString(), {mode: 'no-cors'}).catch(function(){});
     toast('✅ Pedido registrado y enviado', 'ok');
 
-    // Recargar pedidos — el Apps Script puede tardar hasta 10s en escribir en el Sheet
-    setTimeout(function() { cargarPedidos(); }, 2000);
-    setTimeout(function() { cargarPedidos(); }, 6000);
-    setTimeout(function() { cargarPedidos(); }, 12000);
+    // Recargar pedidos silencioso — no borrar lista si aún no llegó al Sheet
+    setTimeout(function() { cargarPedidos(true); }, 2000);
+    setTimeout(function() { cargarPedidos(true); }, 6000);
+    setTimeout(function() { cargarPedidos(true); }, 12000);
+    setTimeout(function() { cargarPedidos(true); }, 20000);
   } catch(e) {
     toast('✅ Pedido enviado por WhatsApp', 'ok');
   }
 
   tomadorCerrar();
-  
+  // Recargar historial GPS para mostrar la visita con pedido
+  setTimeout(function() { gpsCargarHistorial(); }, 1500);
 }
 
 
