@@ -12,6 +12,9 @@
 <link rel="manifest" href="/manifest.json">
 <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
 <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<link rel="stylesheet" href="https://unpkg.com/leaflet.markercluster@1.5.3/dist/MarkerCluster.css" />
+<link rel="stylesheet" href="https://unpkg.com/leaflet.markercluster@1.5.3/dist/MarkerCluster.Default.css" />
+<script src="https://unpkg.com/leaflet.markercluster@1.5.3/dist/leaflet.markercluster.js"></script>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@400;700;900&family=Barlow:wght@400;500;600&display=swap" rel="stylesheet">
 <style>
@@ -4005,6 +4008,7 @@ var _gpsHizoPedido  = false; // true si tomó pedido en el checkin activo
 
 let vendedorActual = null;
 let todosLosPedidos = [];
+var _estadosCambiados = {}; // pedidoId -> {estado, ts}
 let filtroActual = 'todos';
 let filtroFecha = 'hoy';
 let filtroVendedor = 'todos';
@@ -4039,10 +4043,17 @@ var _modoCampo = new URLSearchParams(window.location.search).get('modo') === 'ca
 (function() {
   var sesion = recuperarSesion();
   if (sesion && PINS[sesion]) {
-    login(sesion);
-    // Si viene con ?modo=campo, ir directo al tab Visitas
-    if (_modoCampo) {
-      setTimeout(function() { cambiarTab('gps'); }, 300);
+    // En tckadmin.lat solo restaurar si es ADMIN
+    var host = window.location.hostname;
+    var esAdminSite = host === 'tckadmin.lat' || host === 'www.tckadmin.lat';
+    if (esAdminSite && sesion !== 'ADMIN') {
+      // Limpiar sesión de vendedor en el admin
+      limpiarSesion();
+    } else {
+      login(sesion);
+      if (_modoCampo) {
+        setTimeout(function() { cambiarTab('gps'); }, 300);
+      }
     }
   }
 })();
@@ -4327,6 +4338,16 @@ async function cargarPedidos(silencioso) {
     });
 
     cargarNotas(pedidos);
+    // Respetar cambios locales recientes (últimos 2 min)
+    var ahora = Date.now();
+    pedidos.forEach(function(p) {
+      var cambio = _estadosCambiados[p.pedidoId];
+      if (cambio && (ahora - cambio.ts) < 120000) {
+        p.estado = cambio.estado;
+      } else if (cambio) {
+        delete _estadosCambiados[p.pedidoId];
+      }
+    });
     todosLosPedidos = pedidos;
 
     if (!silencioso) {
@@ -4859,6 +4880,7 @@ async function cambiarEstado(pedidoId, fila, nuevoEstado, event) {
     await fetch(APPS_SCRIPT_URL+'?'+params.toString(), {mode:'no-cors'});
     var p = todosLosPedidos.find(function(x){return x.pedidoId===pedidoId;});
     if (p) p.estado = nuevoEstado;
+    _estadosCambiados[pedidoId] = { estado: nuevoEstado, ts: Date.now() };
     renderPedidos();
     toast('Estado: '+nuevoEstado, 'ok');
   } catch(e) {
@@ -7360,37 +7382,41 @@ function gpsCheckinManual() {
 // Confirmar check-in
 async 
 function gpsCheckInSinCoordenadas(nombreCliente) {
-  // Remover modal existente si hay
   var existing = document.getElementById('gps-modal-sin-coords');
   if (existing) existing.remove();
 
   var isAndroid = /android/i.test(navigator.userAgent);
   var instrucciones = isAndroid
-    ? '1. Tocá el ícono 🔒 en la barra del navegador\n2. Permisos → Ubicación → Permitir\n\nO andá a Configuración del celular → Aplicaciones → Chrome → Permisos → Ubicación'
+    ? '1. Tocá el ícono 🔒 en la barra del navegador\n2. Permisos → Ubicación → Permitir\n\nO andá a Configuración → Aplicaciones → Chrome → Permisos → Ubicación'
     : '1. Abrí Configuración del iPhone\n2. Tocá Chrome (o Safari)\n3. Ubicación → Mientras se usa la app';
 
   var modal = document.createElement('div');
   modal.className = 'gps-modal-overlay';
   modal.id = 'gps-modal-sin-coords';
-  modal.innerHTML = '<div class="gps-modal">'
-    + '<div class="gps-modal-hdr">'
-    + '<div class="gps-modal-titulo">📍 GPS no disponible</div>'
-    + '<button class="gps-modal-close" onclick="document.getElementById('gps-modal-sin-coords').remove()">✕</button>'
-    + '</div>'
-    + '<div style="padding:16px 20px;">'
-    + '<div style="background:#FFF3E0;border:1.5px solid #FFB74D;border-radius:10px;padding:12px 14px;margin-bottom:14px;">'
-    + '<div style="font-family:'Barlow Condensed',sans-serif;font-size:15px;font-weight:900;color:#E65100;margin-bottom:6px;">⚠️ El check-in requiere ubicación</div>'
-    + '<div style="font-size:12px;color:#BF360C;line-height:1.5;">Sin GPS no podemos registrar dónde estás. Activalo y volvé a intentar.</div>'
-    + '</div>'
-    + '<div style="font-family:'Barlow Condensed',sans-serif;font-size:13px;font-weight:900;color:var(--text2);margin-bottom:8px;">Cómo activarlo:</div>'
-    + '<div style="font-size:12px;color:var(--text3);line-height:1.8;white-space:pre-line;margin-bottom:16px;">' + instrucciones + '</div>'
-    + '<button onclick="gpsReintentar('' + nombreCliente.replace(/'/g, "\'") + '')" style="width:100%;padding:14px;background:linear-gradient(135deg,#1B5E20,#2E7D32);color:#fff;border:none;border-radius:12px;font-family:'Barlow Condensed',sans-serif;font-size:17px;font-weight:900;cursor:pointer;margin-bottom:8px;touch-action:manipulation;">🔄 Reintentar con GPS</button>'
-    + '<button onclick="document.getElementById('gps-modal-sin-coords').remove()" style="width:100%;padding:12px;background:none;border:none;font-family:'Barlow Condensed',sans-serif;font-size:14px;color:var(--text3);cursor:pointer;">Cancelar</button>'
-    + '</div>'
-    + '</div>';
+
+  var nc = nombreCliente.replace(/\\/g, '\\\\').replace(/'/g, "\\'");
+
+  modal.innerHTML = [
+    '<div class="gps-modal">',
+    '<div class="gps-modal-hdr">',
+    '<div class="gps-modal-titulo">📍 GPS no disponible</div>',
+    '<button class="gps-modal-close" onclick="document.getElementById(&quot;gps-modal-sin-coords&quot;).remove()">✕</button>',
+    '</div>',
+    '<div style="padding:16px 20px;">',
+    '<div style="background:#FFF3E0;border:1.5px solid #FFB74D;border-radius:10px;padding:12px 14px;margin-bottom:14px;">',
+    '<div style="font-family:\'Barlow Condensed\',sans-serif;font-size:15px;font-weight:900;color:#E65100;margin-bottom:6px;">⚠️ El check-in requiere ubicación</div>',
+    '<div style="font-size:12px;color:#BF360C;line-height:1.5;">Sin GPS no podemos registrar dónde estás. Activalo y volvé a intentar.</div>',
+    '</div>',
+    '<div style="font-family:\'Barlow Condensed\',sans-serif;font-size:13px;font-weight:900;color:var(--text2);margin-bottom:8px;">Cómo activarlo:</div>',
+    '<div style="font-size:12px;color:var(--text3);line-height:1.8;white-space:pre-line;margin-bottom:16px;">' + instrucciones + '</div>',
+    '<button onclick="gpsReintentar(\'' + nc + '\')" style="width:100%;padding:14px;background:linear-gradient(135deg,#1B5E20,#2E7D32);color:#fff;border:none;border-radius:12px;font-family:\'Barlow Condensed\',sans-serif;font-size:17px;font-weight:900;cursor:pointer;margin-bottom:8px;touch-action:manipulation;">🔄 Reintentar con GPS</button>',
+    '<button onclick="document.getElementById(&quot;gps-modal-sin-coords&quot;).remove()" style="width:100%;padding:12px;background:none;border:none;font-family:\'Barlow Condensed\',sans-serif;font-size:14px;color:var(--text3);cursor:pointer;">Cancelar</button>',
+    '</div>',
+    '</div>'
+  ].join('');
+
   document.body.appendChild(modal);
 }
-
 async function gpsReintentar(nombreCliente) {
   var modal = document.getElementById('gps-modal-sin-coords');
   if (modal) modal.remove();
@@ -7683,6 +7709,8 @@ var _mapaFiltro      = 'todos';
 var _mapaVisitas     = [];
 var _mapaMarkers     = [];
 var _mapaRuta        = null;
+var _mapaRutas       = [];
+var _mapaCluster     = null;
 var _mapaGrayMarkers = [];
 var _mapaTrackLines  = {};
 var _mapaTrackMarkers = [];
@@ -7735,6 +7763,8 @@ async function mapaRender() {
     L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
       attribution: '© OpenStreetMap'
     }).addTo(_mapaInstance);
+    _mapaCluster = L.markerClusterGroup({ maxClusterRadius: 40, showCoverageOnHover: false });
+    _mapaInstance.addLayer(_mapaCluster);
   }
 
   await mapaCargarVisitas();
@@ -7777,6 +7807,7 @@ function mapaActualizar() {
   // Limpiar markers anteriores
   _mapaMarkers.forEach(function(m) { _mapaInstance.removeLayer(m); });
   _mapaMarkers = [];
+  if (_mapaCluster) _mapaCluster.clearLayers();
 
   // Filtrar visitas
   var visitas = _mapaVisitas.filter(function(v) {
@@ -7844,8 +7875,9 @@ function mapaActualizar() {
       );
 
     var marker = L.marker([v.lat, v.lng], {icon: icon})
-      .bindPopup(popupVisitado)
-      .addTo(_mapaInstance);
+      .bindPopup(popupVisitado);
+    if (_mapaCluster) _mapaCluster.addLayer(marker);
+    else marker.addTo(_mapaInstance);
 
     marker.on('popupopen', function() {
       mapaCargarHistorialCliente(v.nombre_cliente, popupIdV);
