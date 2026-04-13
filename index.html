@@ -4230,6 +4230,7 @@ var _gpsHizoPedido  = false; // true si tomó pedido en el checkin activo
 
 let vendedorActual = null;
 let todosLosPedidos = [];
+let _pedidosCache   = []; // cache para no perder pedidos entre refreshes
 var _estadosCambiados = {}; // pedidoId -> {estado, ts}
 let filtroActual = 'todos';
 let filtroFecha = 'hoy';
@@ -4545,7 +4546,7 @@ function salir() {
   gpsActualizarEstado(null);
   limpiarSesion();
   document.title = 'TCK Ventas';
-  vendedorActual = null; pinActual = ''; pinVendedorTemp = null; todosLosPedidos = [];
+  vendedorActual = null; pinActual = ''; pinVendedorTemp = null; todosLosPedidos = []; _pedidosCache = [];
   document.getElementById('login-wrap').style.display = 'flex';
   document.getElementById('panel').classList.remove('on');
   document.getElementById('lista-pedidos').innerHTML = '';
@@ -4644,6 +4645,20 @@ async function cargarPedidos(silencioso, _reintentos) {
     pedidos.forEach(function(p) {
       if (_asignaciones[p.pedidoId]) p.choferAsignado = _asignaciones[p.pedidoId];
     });
+
+    // ── CACHE: nunca perder pedidos que ya se vieron ──────────
+    // Si el Sheet devolvió menos pedidos de los que teníamos (latencia/cache de Google),
+    // mantener los que ya habíamos visto hasta el próximo refresh que los confirme ausentes.
+    if (_pedidosCache.length > 0 && pedidos.length < _pedidosCache.length) {
+      var idsNuevos = new Set(pedidos.map(function(p) { return p.pedidoId; }));
+      _pedidosCache.forEach(function(cp) {
+        if (!idsNuevos.has(cp.pedidoId)) {
+          // Pedido que teníamos pero no está en la nueva carga — mantenerlo con estado provisional
+          pedidos.push(cp);
+        }
+      });
+    }
+    _pedidosCache = pedidos.slice(); // actualizar cache
     todosLosPedidos = pedidos;
 
     if (!silencioso) {
