@@ -3158,6 +3158,106 @@ body {
   color: var(--text);
   background: #fff;
 }
+
+/* ═══════════════════════════════════════════════════════════════
+   PANEL CHOFER — ENTREGAS
+═══════════════════════════════════════════════════════════════ */
+.entrega-card {
+  background: #fff; border-radius: 14px; margin-bottom: 12px;
+  border: 1.5px solid rgba(21,101,192,.12); overflow: hidden;
+  box-shadow: 0 2px 8px rgba(0,0,0,.06);
+}
+.entrega-card-hdr {
+  background: linear-gradient(135deg, #1565C0, #1976D2);
+  padding: 12px 16px; display: flex; align-items: center; justify-content: space-between;
+}
+.entrega-card-ciudad {
+  font-family: 'Barlow Condensed', sans-serif; font-size: 18px;
+  font-weight: 900; color: #fff; letter-spacing: .5px;
+}
+.entrega-card-orden {
+  background: rgba(255,255,255,.2); border-radius: 20px;
+  padding: 3px 10px; font-size: 11px; font-weight: 800; color: #fff;
+}
+.entrega-item {
+  padding: 14px 16px; border-bottom: 1px solid #f0f4ff;
+}
+.entrega-item:last-child { border-bottom: none; }
+.entrega-item-top { display: flex; align-items: flex-start; justify-content: space-between; margin-bottom: 6px; }
+.entrega-item-nombre {
+  font-family: 'Barlow Condensed', sans-serif; font-size: 17px;
+  font-weight: 900; color: var(--text); flex: 1;
+}
+.entrega-item-monto {
+  font-family: 'Barlow Condensed', sans-serif; font-size: 18px;
+  font-weight: 900; color: #1565C0;
+}
+.entrega-item-detalle {
+  font-size: 12px; color: var(--text3); margin-bottom: 10px; line-height: 1.5;
+}
+.entrega-estado-badge {
+  display: inline-flex; align-items: center; gap: 4px;
+  padding: 3px 10px; border-radius: 20px; font-size: 11px;
+  font-weight: 800; letter-spacing: .5px; margin-bottom: 10px;
+}
+.entrega-estado-badge.pendiente { background: #FFF8E1; color: #E65100; }
+.entrega-estado-badge.en-camino { background: #E3F2FD; color: #1565C0; }
+.entrega-estado-badge.entregado { background: #E8F5E9; color: #2E7D32; }
+.entrega-btns { display: flex; gap: 8px; flex-wrap: wrap; }
+.entrega-btn {
+  flex: 1; min-width: 120px; padding: 10px 12px; border: none; border-radius: 10px;
+  font-family: 'Barlow Condensed', sans-serif; font-size: 14px; font-weight: 800;
+  cursor: pointer; transition: opacity .15s; letter-spacing: .3px; text-align: center;
+}
+.entrega-btn:active { opacity: .8; }
+.entrega-btn.avisar {
+  background: linear-gradient(135deg, #25D366, #1a9e4e); color: #fff;
+}
+.entrega-btn.entregar {
+  background: linear-gradient(135deg, #1565C0, #1976D2); color: #fff;
+}
+.entrega-btn.entregado-done {
+  background: #E8F5E9; color: #2E7D32; cursor: default;
+}
+
+/* Modal cobro */
+.cobro-modal {
+  position: fixed; inset: 0; background: rgba(0,0,0,.6); z-index: 700;
+  display: flex; align-items: flex-end;
+}
+.cobro-modal.hidden { display: none; }
+.cobro-sheet {
+  background: #fff; border-radius: 22px 22px 0 0; width: 100%;
+  padding: 22px 20px calc(22px + env(safe-area-inset-bottom));
+}
+.cobro-titulo {
+  font-family: 'Barlow Condensed', sans-serif; font-size: 22px;
+  font-weight: 900; color: var(--red); margin-bottom: 4px;
+}
+.cobro-sub { font-size: 13px; color: var(--text3); margin-bottom: 18px; }
+.cobro-opciones { display: flex; flex-direction: column; gap: 10px; margin-bottom: 14px; }
+.cobro-opt {
+  padding: 14px 16px; border: 2px solid rgba(0,0,0,.1); border-radius: 12px;
+  font-family: 'Barlow Condensed', sans-serif; font-size: 18px; font-weight: 700;
+  background: #fff; cursor: pointer; text-align: left; transition: all .15s;
+  display: flex; align-items: center; gap: 10px;
+}
+.cobro-opt:active, .cobro-opt.sel { background: rgba(21,101,192,.08); border-color: #1565C0; color: #1565C0; }
+.cobro-cancel {
+  width: 100%; padding: 13px; background: #f5f5f5; border: none;
+  border-radius: 12px; font-family: 'Barlow Condensed', sans-serif;
+  font-size: 16px; font-weight: 700; color: var(--text3); cursor: pointer;
+}
+.entrega-resumen-hdr {
+  background: linear-gradient(135deg, #1565C0, #0D47A1);
+  border-radius: 14px; padding: 16px; margin-bottom: 16px;
+  display: flex; justify-content: space-between; align-items: center;
+}
+.entrega-resumen-label { font-size: 12px; color: rgba(255,255,255,.7); margin-bottom: 2px; }
+.entrega-resumen-val {
+  font-family: 'Barlow Condensed', sans-serif; font-size: 24px;
+  font-weight: 900; color: #fff;
+}
 </style>
 </head>
 <body>
@@ -3200,6 +3300,15 @@ body {
       <button class="login-btn" id="login-btn-admin" onclick="seleccionarVendedor('ADMIN','A','#B8860B')" style="margin-top:8px;border-color:var(--gold);background:var(--cream2);">
         <div class="login-av" style="background:var(--gold);color:var(--text);">A</div>
         <div class="login-btn-name">Administración<div class="login-btn-role">Ver todos los pedidos</div></div>
+      </button>
+      <div style="margin-top:14px;padding-top:14px;border-top:1px solid var(--cream3);font-size:11px;color:var(--text3);text-align:center;letter-spacing:1px;text-transform:uppercase;margin-bottom:8px;">Logística</div>
+      <button class="login-btn" id="login-btn-joan" onclick="seleccionarVendedor('Joan','J','#1565C0')">
+        <div class="login-av" style="background:#1565C0;">J</div>
+        <div class="login-btn-name">Joan<div class="login-btn-role">Chofer / Logística</div></div>
+      </button>
+      <button class="login-btn" id="login-btn-luis" onclick="seleccionarVendedor('Luis','L','#1565C0')">
+        <div class="login-av" style="background:#1565C0;">L</div>
+        <div class="login-btn-name">Luis<div class="login-btn-role">Chofer / Logística</div></div>
       </button>
     </div>
     <script>
@@ -3761,7 +3870,32 @@ body {
 
 </div>
 
-<div class="view" id="view-bot"><div style="padding:12px 16px 0;"><div style="background:linear-gradient(135deg,#1A3A1A,#2E7D32);border-radius:14px;padding:16px;margin-bottom:12px;"><div style="font-family:'Barlow Condensed',sans-serif;font-size:22px;font-weight:900;color:#fff;">🤖 Bot de WhatsApp</div><div style="font-size:12px;color:rgba(255,255,255,.75);margin-top:3px;">Configurá qué dice el bot automáticamente</div><div id="bot-ultima-sync" style="font-size:11px;color:rgba(255,255,255,.5);margin-top:4px;"></div></div><div class="bot-section-card"><div class="bot-section-hdr"><div class="bot-section-title">📦 Stock actual</div><div class="bot-section-badge" id="bot-badge-sinstock">0 sin stock</div></div><div style="padding:12px 16px;"><div class="bot-field-desc">Tocá un producto para marcarlo sin stock.</div><div class="bot-stock-grid" id="bot-stock-grid"><div style="text-align:center;padding:20px;color:var(--text3);font-size:13px;grid-column:1/-1;">Cargando...</div></div></div></div><div class="bot-section-card"><div class="bot-section-hdr"><div class="bot-section-title">📢 Aviso activo</div></div><div class="bot-field"><div class="bot-field-desc">Algo importante esta semana. Dejá vacío si no hay nada.</div><textarea class="bot-input" id="bot-aviso" placeholder="Ej: Esta semana no entregamos a Pellegrini..."></textarea></div></div><div class="bot-section-card"><div class="bot-section-hdr"><div class="bot-section-title">🚚 Zonas y días de entrega</div></div><div class="bot-field"><div class="bot-field-desc">Cuándo y dónde entregamos.</div><textarea class="bot-input" id="bot-zonas" placeholder="Ej: Trenque Lauquen: Lunes a Viernes 9-12..."></textarea></div></div><div class="bot-section-card"><div class="bot-section-hdr"><div class="bot-section-title">🕐 Horario de atención</div></div><div class="bot-field"><textarea class="bot-input bot-input-single" id="bot-horario" placeholder="Ej: Lunes a Viernes 8 a 20hs"></textarea></div></div><div class="bot-section-card"><div class="bot-section-hdr"><div class="bot-section-title">💰 Precios del catálogo</div><div style="display:flex;align-items:center;gap:8px;"><div style="font-family:'Barlow Condensed',sans-serif;font-size:11px;color:rgba(255,255,255,.7);">El bot usa estos precios</div><button onclick="botCargarPrecios()" style="background:rgba(255,255,255,.2);border:none;border-radius:20px;padding:4px 12px;color:#fff;font-family:'Barlow Condensed',sans-serif;font-size:12px;font-weight:700;cursor:pointer;touch-action:manipulation;">🔄</button></div></div><div id="bot-precios-list"><div style="text-align:center;padding:20px;color:var(--text3);font-size:13px;">Cargando...</div></div><div style="padding:12px 16px;"><button onclick="botGuardarPrecios()" style="width:100%;background:linear-gradient(135deg,#1B5E20,#2E7D32);color:#fff;border:none;border-radius:10px;padding:10px;font-family:'Barlow Condensed',sans-serif;font-size:15px;font-weight:900;cursor:pointer;touch-action:manipulation;">💾 Guardar precios</button></div></div><button class="bot-save-btn" onclick="botGuardar()">💾 Guardar configuración del bot</button><div class="bot-status" id="bot-status">✅ Guardado — el bot ya lo tiene</div><div class="bot-section-card" style="margin-top:16px;"><div class="bot-section-hdr"><div class="bot-section-title">💬 Últimas conversaciones</div><button onclick="botCargarConversaciones()" style="background:rgba(255,255,255,.2);border:none;border-radius:20px;padding:4px 12px;color:#fff;font-family:'Barlow Condensed',sans-serif;font-size:12px;font-weight:700;cursor:pointer;">🔄</button></div><div id="bot-conversaciones"><div style="text-align:center;padding:24px;color:var(--text3);font-size:13px;">Cargando...</div></div><div class="bot-section-card" style="margin-top:16px;"><div class="bot-section-hdr"><div class="bot-section-title">👥 Clientes del bot</div><div style="display:flex;align-items:center;gap:8px;"><div id="bot-cli-count" style="background:rgba(255,255,255,.2);border-radius:20px;padding:3px 10px;font-family:'Barlow Condensed',sans-serif;font-size:11px;font-weight:700;color:#fff;"></div><button onclick="botCargarClientes()" style="background:rgba(255,255,255,.2);border:none;border-radius:20px;padding:4px 12px;color:#fff;font-family:'Barlow Condensed',sans-serif;font-size:12px;font-weight:700;cursor:pointer;touch-action:manipulation;">🔄</button></div></div><div id="bot-clientes-list"><div style="text-align:center;padding:24px;color:var(--text3);font-size:13px;">Cargando...</div></div></div></div></div></div>  <!-- TAB NAV -->
+<div class="view" id="view-bot"><div style="padding:12px 16px 0;"><div style="background:linear-gradient(135deg,#1A3A1A,#2E7D32);border-radius:14px;padding:16px;margin-bottom:12px;"><div style="font-family:'Barlow Condensed',sans-serif;font-size:22px;font-weight:900;color:#fff;">🤖 Bot de WhatsApp</div><div style="font-size:12px;color:rgba(255,255,255,.75);margin-top:3px;">Configurá qué dice el bot automáticamente</div><div id="bot-ultima-sync" style="font-size:11px;color:rgba(255,255,255,.5);margin-top:4px;"></div></div><div class="bot-section-card"><div class="bot-section-hdr"><div class="bot-section-title">📦 Stock actual</div><div class="bot-section-badge" id="bot-badge-sinstock">0 sin stock</div></div><div style="padding:12px 16px;"><div class="bot-field-desc">Tocá un producto para marcarlo sin stock.</div><div class="bot-stock-grid" id="bot-stock-grid"><div style="text-align:center;padding:20px;color:var(--text3);font-size:13px;grid-column:1/-1;">Cargando...</div></div></div></div><div class="bot-section-card"><div class="bot-section-hdr"><div class="bot-section-title">📢 Aviso activo</div></div><div class="bot-field"><div class="bot-field-desc">Algo importante esta semana. Dejá vacío si no hay nada.</div><textarea class="bot-input" id="bot-aviso" placeholder="Ej: Esta semana no entregamos a Pellegrini..."></textarea></div></div><div class="bot-section-card"><div class="bot-section-hdr"><div class="bot-section-title">🚚 Zonas y días de entrega</div></div><div class="bot-field"><div class="bot-field-desc">Cuándo y dónde entregamos.</div><textarea class="bot-input" id="bot-zonas" placeholder="Ej: Trenque Lauquen: Lunes a Viernes 9-12..."></textarea></div></div><div class="bot-section-card"><div class="bot-section-hdr"><div class="bot-section-title">🕐 Horario de atención</div></div><div class="bot-field"><textarea class="bot-input bot-input-single" id="bot-horario" placeholder="Ej: Lunes a Viernes 8 a 20hs"></textarea></div></div><div class="bot-section-card"><div class="bot-section-hdr"><div class="bot-section-title">💰 Precios del catálogo</div><div style="display:flex;align-items:center;gap:8px;"><div style="font-family:'Barlow Condensed',sans-serif;font-size:11px;color:rgba(255,255,255,.7);">El bot usa estos precios</div><button onclick="botCargarPrecios()" style="background:rgba(255,255,255,.2);border:none;border-radius:20px;padding:4px 12px;color:#fff;font-family:'Barlow Condensed',sans-serif;font-size:12px;font-weight:700;cursor:pointer;touch-action:manipulation;">🔄</button></div></div><div id="bot-precios-list"><div style="text-align:center;padding:20px;color:var(--text3);font-size:13px;">Cargando...</div></div><div style="padding:12px 16px;"><button onclick="botGuardarPrecios()" style="width:100%;background:linear-gradient(135deg,#1B5E20,#2E7D32);color:#fff;border:none;border-radius:10px;padding:10px;font-family:'Barlow Condensed',sans-serif;font-size:15px;font-weight:900;cursor:pointer;touch-action:manipulation;">💾 Guardar precios</button></div></div><button class="bot-save-btn" onclick="botGuardar()">💾 Guardar configuración del bot</button><div class="bot-status" id="bot-status">✅ Guardado — el bot ya lo tiene</div><div class="bot-section-card" style="margin-top:16px;"><div class="bot-section-hdr"><div class="bot-section-title">💬 Últimas conversaciones</div><button onclick="botCargarConversaciones()" style="background:rgba(255,255,255,.2);border:none;border-radius:20px;padding:4px 12px;color:#fff;font-family:'Barlow Condensed',sans-serif;font-size:12px;font-weight:700;cursor:pointer;">🔄</button></div><div id="bot-conversaciones"><div style="text-align:center;padding:24px;color:var(--text3);font-size:13px;">Cargando...</div></div><div class="bot-section-card" style="margin-top:16px;"><div class="bot-section-hdr"><div class="bot-section-title">👥 Clientes del bot</div><div style="display:flex;align-items:center;gap:8px;"><div id="bot-cli-count" style="background:rgba(255,255,255,.2);border-radius:20px;padding:3px 10px;font-family:'Barlow Condensed',sans-serif;font-size:11px;font-weight:700;color:#fff;"></div><button onclick="botCargarClientes()" style="background:rgba(255,255,255,.2);border:none;border-radius:20px;padding:4px 12px;color:#fff;font-family:'Barlow Condensed',sans-serif;font-size:12px;font-weight:700;cursor:pointer;touch-action:manipulation;">🔄</button></div></div><div id="bot-clientes-list"><div style="text-align:center;padding:24px;color:var(--text3);font-size:13px;">Cargando...</div></div></div></div></div></div>  <!-- ═══ TAB ENTREGAS (solo choferes) ═══ -->
+  <div class="view" id="view-entregas">
+    <div style="padding:12px 16px 0;">
+      <div id="entregas-resumen" style="display:none"></div>
+      <div id="entregas-lista">
+        <div style="text-align:center;padding:40px 20px;color:var(--text3);font-size:14px;">Cargando entregas...</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Modal cobro -->
+  <div class="cobro-modal hidden" id="cobro-modal">
+    <div class="cobro-sheet">
+      <div class="cobro-titulo">💰 ¿Cómo cobró?</div>
+      <div class="cobro-sub" id="cobro-sub">Registrá la forma de cobro</div>
+      <div class="cobro-opciones">
+        <button class="cobro-opt" onclick="cobroSeleccionar('efectivo')">💵 Efectivo</button>
+        <button class="cobro-opt" onclick="cobroSeleccionar('transferencia')">📲 Transferencia</button>
+        <button class="cobro-opt" onclick="cobroSeleccionar('cheque')">📋 Cheque</button>
+        <button class="cobro-opt" onclick="cobroSeleccionar('cuenta_corriente')">📒 Cuenta corriente</button>
+      </div>
+      <button class="cobro-cancel" onclick="cobroCancelar()">Cancelar</button>
+    </div>
+  </div>
+
+  <!-- TAB NAV -->
 <nav class="tab-nav" id="tab-nav">
   <button class="tab-btn active" id="tab-btn-pedidos" onclick="cambiarTab('pedidos')">
     <span class="tab-icon">📋</span>
@@ -3784,6 +3918,7 @@ body {
     <svg viewBox="0 0 24 24" fill="currentColor" width="18" height="18"><path d="M20.5 3l-.16.03L15 5.1 9 3 3.36 4.9c-.21.07-.36.25-.36.48V20.5c0 .28.22.5.5.5l.16-.03L9 18.9l6 2.1 5.64-1.9c.21-.07.36-.25.36-.48V3.5c0-.28-.22-.5-.5-.5zM15 19l-6-2.11V5l6 2.11V19z"/></svg>
     <span>Mapa</span>
   </button>
+  <button class="tab-btn" id="tab-btn-entregas" onclick="cambiarTab('entregas')" style="display:none;"><span class="tab-icon">🚚</span><span class="tab-label">Entregas</span></button>
   <button class="tab-btn" id="tab-btn-bot" onclick="cambiarTab('bot')" style="display:none;"><span class="tab-icon">🤖</span><span class="tab-label">Bot</span></button> <button class="tab-btn" id="tab-btn-reportes" onclick="cambiarTab('reportes')">
     <span class="tab-icon">📈</span>
     <span class="tab-label">Reportes</span>
@@ -3951,7 +4086,7 @@ body {
 const APPS_SCRIPT_URL = 'https://script.google.com/macros/s/AKfycbxbx9ma8S5wcuRqFXjRyFYvIo_kLwc5Px4eE4Y7-CqPmIfJbI3VBEP4I9qSV8s0owMMYg/exec';
 const SHEET_CSV = 'https://docs.google.com/spreadsheets/d/e/2PACX-1vQDZk6Z5pejrI_djbUYBLEvh-X7H_sLF5ZCW2RQr0Bc03r8LOL17_C3pCmwwyLe2iXf3Fan0tgl7IJG/pub?gid=0&single=true&output=csv';
 const NUM_ADMIN = '5492314475357';
-const PINS = { 'Miguel':'3356', 'Juan':'4256', 'Lisandro':'8020', 'ADMIN':'3050' };
+const PINS = { 'Miguel':'3356', 'Juan':'4256', 'Lisandro':'8020', 'ADMIN':'3050', 'Joan':'9060', 'Luis':'7040' };
 const SESSION_KEY   = 'tck_session';
 const SESSION_HORAS = 720; // 30 días — cada vendedor tiene su propio celular
 
@@ -5209,23 +5344,41 @@ function cambiarTab(tab) {
 function mostrarTabs() {
   var nav = document.getElementById('tab-nav');
   if (nav) nav.classList.add('visible');
-  var esAdmin = vendedorActual === 'ADMIN';
-  var esCampo = vendedorActual === 'Juan' || vendedorActual === 'Lisandro';
+  var esAdmin    = vendedorActual === 'ADMIN';
+  var esCampo    = vendedorActual === 'Juan' || vendedorActual === 'Lisandro';
+  var esChofer   = vendedorActual === 'Joan' || vendedorActual === 'Luis';
 
-  // Tab Visitas — Juan, Lisandro Y Admin (admin ve panel de visitas)
+  // Choferes: solo ven tab Entregas
+  if (esChofer) {
+    ['pedidos','midia','clientes','gps','mapa','bot','reportes'].forEach(function(t) {
+      var btn = document.getElementById('tab-btn-' + t);
+      if (btn) btn.style.display = 'none';
+    });
+    var tabEnt = document.getElementById('tab-btn-entregas');
+    if (tabEnt) tabEnt.style.display = '';
+    cambiarTab('entregas');
+    cargarEntregas();
+    return;
+  }
+
+  // Tab Entregas — oculto para no-choferes
+  var tabEnt = document.getElementById('tab-btn-entregas');
+  if (tabEnt) tabEnt.style.display = 'none';
+
+  // Tab Visitas — Juan, Lisandro y Admin
   var tabGps = document.getElementById('tab-btn-gps');
   if (tabGps) {
     tabGps.style.display = (esCampo || esAdmin) ? '' : 'none';
-    // Cambiar label según rol
     var lbl = tabGps.querySelector('span:last-child');
-    if (lbl) lbl.textContent = esAdmin ? 'Visitas' : 'Visitas';
+    if (lbl) lbl.textContent = 'Visitas';
   }
 
-  var tabBot=document.getElementById('tab-btn-bot');if(tabBot)tabBot.style.display=(vendedorActual==='Miguel')?'':'none';   // Tab Mapa — solo Admin
+  var tabBot = document.getElementById('tab-btn-bot');
+  if (tabBot) tabBot.style.display = (vendedorActual === 'Miguel') ? '' : 'none';
+
   var tabMapa = document.getElementById('tab-btn-mapa');
   if (tabMapa) tabMapa.style.display = esAdmin ? '' : 'none';
 
-  // Si el tab activo quedó oculto, ir a Pedidos
   if (_tabActual === 'gps' && !esCampo && !esAdmin) cambiarTab('pedidos');
   if (_tabActual === 'mapa' && !esAdmin) cambiarTab('pedidos');
 }
@@ -9115,6 +9268,259 @@ async function tomadorConfirmarFinal() {
 }
 
 
+
+
+// ════════════════════════════════════════════════════════════════
+//  PANEL CHOFER — ENTREGAS
+// ════════════════════════════════════════════════════════════════
+
+// Ruta fija: orden de ciudades
+const RUTA_FIJA = [
+  'Trenque Lauquen', 'Pehuajó', 'Henderson', 'Carlos Casares',
+  'Daireaux', 'Pellegrini', 'Salliqueló', 'Tres Lomas',
+  'Guaminí', '30 de Agosto', 'Lincoln', 'Quemú Quemú'
+];
+
+let _entregasPedidoActual = null; // pedido_id en proceso de cobro
+let _entregasCache = [];
+
+async function cargarEntregas() {
+  const el = document.getElementById('entregas-lista');
+  el.innerHTML = '<div style="text-align:center;padding:40px;color:var(--text3);">Cargando entregas...</div>';
+
+  try {
+    // Cargar pedidos confirmados del día asignados a este chofer
+    const hoy = new Date();
+    hoy.setHours(0, 0, 0, 0);
+    const hoyStr = hoy.toISOString().split('T')[0];
+
+    // Buscar en tabla entregas los pedidos asignados al chofer
+    let entregas = await sbFetch('entregas?chofer=eq.' + encodeURIComponent(vendedorActual) +
+      '&fecha_asignacion=gte.' + hoyStr + 'T00:00:00&select=*&order=ciudad.asc');
+
+    if (!entregas || !entregas.length) {
+      // Si no hay entregas asignadas, buscar en pedidos confirmados
+      // y crear entradas en la tabla entregas
+      entregas = await asignarPedidosChofer();
+    }
+
+    _entregasCache = entregas || [];
+    renderEntregas(_entregasCache);
+    renderResumenChofer(_entregasCache);
+
+  } catch(e) {
+    el.innerHTML = '<div style="text-align:center;padding:40px;color:var(--text3);">Error al cargar. Tocá para reintentar.</div>';
+    console.error('cargarEntregas:', e);
+  }
+}
+
+async function asignarPedidosChofer() {
+  try {
+    // Leer pedidos confirmados del sheet CSV
+    const res = await fetch(SHEET_CSV + '&_t=' + Date.now());
+    const csv = await res.text();
+    const lines = csv.trim().split('
+');
+    const hoy = new Date(); hoy.setHours(0,0,0,0);
+    const pedidos = [];
+
+    for (let i = 1; i < lines.length; i++) {
+      const cols = parseCsv(lines[i]);
+      if (!cols[0] || !/^TCK-\d{8}-/.test(cols[0].trim())) continue;
+      const estado = (cols[10] || '').trim();
+      if (estado !== 'Confirmado') continue;
+      const fechaRow = new Date((cols[1] || '').replace(' ', 'T'));
+      fechaRow.setHours(0,0,0,0);
+      if (fechaRow.getTime() !== hoy.getTime()) continue;
+
+      const ciudad = (cols[5] || '').trim();
+      const total  = parseFloat((cols[6] || '0').replace(/[^0-9.]/g, '')) || 0;
+
+      pedidos.push({
+        pedido_id:        cols[0].trim(),
+        chofer:           vendedorActual,
+        cliente:          (cols[3] || '').trim(),
+        telefono_cliente: (cols[12] || '').trim(),
+        ciudad:           ciudad,
+        estado:           'pendiente',
+        monto:            total
+      });
+    }
+
+    if (!pedidos.length) return [];
+
+    // Ordenar por ruta fija
+    pedidos.sort((a, b) => {
+      const ia = RUTA_FIJA.findIndex(c => a.ciudad.toLowerCase().includes(c.toLowerCase()));
+      const ib = RUTA_FIJA.findIndex(c => b.ciudad.toLowerCase().includes(c.toLowerCase()));
+      return (ia === -1 ? 999 : ia) - (ib === -1 ? 999 : ib);
+    });
+
+    // Insertar en tabla entregas (ignorar duplicados)
+    for (const p of pedidos) {
+      try {
+        await sbFetch('entregas', {
+          method: 'POST',
+          headers: { 'Prefer': 'resolution=ignore-duplicates' },
+          body: JSON.stringify(p)
+        });
+      } catch(e) {}
+    }
+
+    // Releer desde Supabase
+    const hoyStr = new Date().toISOString().split('T')[0];
+    return await sbFetch('entregas?chofer=eq.' + encodeURIComponent(vendedorActual) +
+      '&fecha_asignacion=gte.' + hoyStr + 'T00:00:00&select=*&order=ciudad.asc') || pedidos;
+  } catch(e) {
+    console.error('asignarPedidosChofer:', e);
+    return [];
+  }
+}
+
+function renderResumenChofer(entregas) {
+  const el = document.getElementById('entregas-resumen');
+  if (!entregas.length) { el.style.display = 'none'; return; }
+  const total     = entregas.reduce((s, e) => s + (parseFloat(e.monto) || 0), 0);
+  const entregadas = entregas.filter(e => e.estado === 'entregado').length;
+  el.style.display = '';
+  el.innerHTML =
+    '<div class="entrega-resumen-hdr">' +
+      '<div>' +
+        '<div class="entrega-resumen-label">Total del día</div>' +
+        '<div class="entrega-resumen-val">$' + Math.round(total).toLocaleString('es-AR') + '</div>' +
+      '</div>' +
+      '<div style="text-align:right">' +
+        '<div class="entrega-resumen-label">Entregas</div>' +
+        '<div class="entrega-resumen-val">' + entregadas + ' / ' + entregas.length + '</div>' +
+      '</div>' +
+    '</div>';
+}
+
+function renderEntregas(entregas) {
+  const el = document.getElementById('entregas-lista');
+  if (!entregas.length) {
+    el.innerHTML = '<div style="text-align:center;padding:40px;color:var(--text3);font-size:14px;">📭 No hay entregas asignadas para hoy.</div>';
+    return;
+  }
+
+  // Agrupar por ciudad
+  const porCiudad = {};
+  entregas.forEach(function(e) {
+    const c = e.ciudad || 'Sin ciudad';
+    if (!porCiudad[c]) porCiudad[c] = [];
+    porCiudad[c].push(e);
+  });
+
+  // Ordenar ciudades por ruta fija
+  const ciudades = Object.keys(porCiudad).sort((a, b) => {
+    const ia = RUTA_FIJA.findIndex(c => a.toLowerCase().includes(c.toLowerCase()));
+    const ib = RUTA_FIJA.findIndex(c => b.toLowerCase().includes(c.toLowerCase()));
+    return (ia === -1 ? 999 : ia) - (ib === -1 ? 999 : ib);
+  });
+
+  let html = '';
+  let orden = 1;
+  ciudades.forEach(function(ciudad) {
+    const items = porCiudad[ciudad];
+    html += '<div class="entrega-card">' +
+      '<div class="entrega-card-hdr">' +
+        '<div class="entrega-card-ciudad">📍 ' + ciudad + '</div>' +
+        '<div class="entrega-card-orden">Parada ' + orden++ + '</div>' +
+      '</div>';
+
+    items.forEach(function(e) {
+      const estadoCls = e.estado === 'entregado' ? 'entregado' : (e.estado === 'en_camino' ? 'en-camino' : 'pendiente');
+      const estadoLabel = { pendiente: '⏳ Pendiente', en_camino: '🚚 En camino', entregado: '✅ Entregado' }[e.estado] || '⏳ Pendiente';
+      const tel = (e.telefono_cliente || '').replace(/\D/g, '');
+      const waNum = tel.startsWith('54') ? tel : ('549' + tel);
+      const totalFmt = e.monto ? ('$' + Math.round(e.monto).toLocaleString('es-AR')) : '—';
+
+      html += '<div class="entrega-item" id="entrega-item-' + e.id + '">' +
+        '<div class="entrega-item-top">' +
+          '<div class="entrega-item-nombre">' + (e.cliente || '—') + '</div>' +
+          '<div class="entrega-item-monto">' + totalFmt + '</div>' +
+        '</div>' +
+        '<div class="entrega-item-detalle">' + (e.nota || 'Pedido ' + (e.pedido_id || '')) + '</div>' +
+        '<div class="entrega-estado-badge ' + estadoCls + '">' + estadoLabel + '</div>' +
+        '<div class="entrega-btns">';
+
+      if (e.estado !== 'entregado') {
+        if (tel) {
+          const msgWA = encodeURIComponent(
+            'Hola ' + (e.cliente || '') + '! 👋 Soy el repartidor de TCK The Chicken Kings. ' +
+            'Estoy en camino a ' + ciudad + ' con tu pedido. ' +
+            'En breve estaré llegando. ¿Confirmás que vas a estar disponible? 🚚'
+          );
+          html += '<button class="entrega-btn avisar" onclick="window.open('https://wa.me/' + waNum + '?text=' + msgWA + '')">' +
+            '📍 Avisar al cliente</button>';
+        }
+        html += '<button class="entrega-btn entregar" onclick="abrirCobroModal('' + e.id + '','' +
+          (e.cliente || '').replace(/'/g, '') + '',' + (e.monto || 0) + ')">' +
+          '✅ Entregado</button>';
+      } else {
+        const cobro = e.forma_cobro ? (' · ' + e.forma_cobro) : '';
+        html += '<button class="entrega-btn entregado-done">✅ Entregado' + cobro + '</button>';
+      }
+
+      html += '</div></div>';
+    });
+
+    html += '</div>';
+  });
+
+  el.innerHTML = html;
+}
+
+// ── MODAL DE COBRO ────────────────────────────────────────────
+function abrirCobroModal(entregaId, clienteNombre, monto) {
+  _entregasPedidoActual = entregaId;
+  const sub = document.getElementById('cobro-sub');
+  if (sub) sub.textContent = clienteNombre + ' · $' + Math.round(monto).toLocaleString('es-AR');
+  document.getElementById('cobro-modal').classList.remove('hidden');
+  // Limpiar selección anterior
+  document.querySelectorAll('.cobro-opt').forEach(b => b.classList.remove('sel'));
+}
+
+function cobroCancelar() {
+  document.getElementById('cobro-modal').classList.add('hidden');
+  _entregasPedidoActual = null;
+}
+
+async function cobroSeleccionar(formaCobro) {
+  if (!_entregasPedidoActual) return;
+  document.querySelectorAll('.cobro-opt').forEach(b => b.classList.remove('sel'));
+  event.target.closest('.cobro-opt').classList.add('sel');
+
+  const id = _entregasPedidoActual;
+  document.getElementById('cobro-modal').classList.add('hidden');
+
+  try {
+    // Actualizar en Supabase
+    await sbFetch('entregas?id=eq.' + id, {
+      method: 'PATCH',
+      body: JSON.stringify({
+        estado:        'entregado',
+        forma_cobro:   formaCobro,
+        fecha_entrega: new Date().toISOString()
+      })
+    });
+
+    // Actualizar visualmente sin recargar todo
+    const idx = _entregasCache.findIndex(e => e.id === id);
+    if (idx >= 0) {
+      _entregasCache[idx].estado      = 'entregado';
+      _entregasCache[idx].forma_cobro = formaCobro;
+    }
+    renderEntregas(_entregasCache);
+    renderResumenChofer(_entregasCache);
+
+    toast('✅ Entrega registrada', 'ok');
+  } catch(e) {
+    toast('❌ Error al guardar', 'err');
+    console.error('cobroSeleccionar:', e);
+  }
+  _entregasPedidoActual = null;
+}
 </script>
 
 
