@@ -7495,8 +7495,96 @@ async function gpsConfirmarCheckin(nombreCliente) {
       })
     });
     gpsGuardarUbicacionCliente(nombreCliente, coords, vendedorId);
+    gpsBuscarMatchMaster(nombreCliente, vendedorId); // buscar/crear en clientes_master
     gpsCargarHistorial();
   } catch(e) { console.error('Check-in error:', e); }
+}
+
+// ── MATCH GPS ↔ clientes_master ─────────────────────────────
+async function gpsBuscarMatchMaster(nombreCliente, vendedorId) {
+  if (!nombreCliente) return;
+  try {
+    const normNombre = nombreCliente.toLowerCase().trim()
+      .replace(/[áàä]/g,'a').replace(/[éèë]/g,'e')
+      .replace(/[íìï]/g,'i').replace(/[óòö]/g,'o')
+      .replace(/[úùü]/g,'u').replace(/ñ/g,'n')
+      .replace(/\s+/g,' ');
+
+    // Buscar en clientes_master por nombre_canonical o variantes
+    const lista = await sbFetch('clientes_master?select=*');
+    if (!lista || !lista.length) {
+      // No existe ninguno — crear nuevo
+      await sbFetch('clientes_master', {
+        method: 'POST',
+        body: JSON.stringify({
+          nombre_canonical: nombreCliente,
+          vendedor: vendedorActual || null,
+          variantes_nombre: [nombreCliente]
+        })
+      });
+      return;
+    }
+
+    // Función Levenshtein simple
+    function lev(a, b) {
+      if (a === b) return 0;
+      const m = [], la = a.length, lb = b.length;
+      for (let i = 0; i <= lb; i++) m[i] = [i];
+      for (let j = 0; j <= la; j++) m[0][j] = j;
+      for (let i = 1; i <= lb; i++)
+        for (let j = 1; j <= la; j++)
+          m[i][j] = b[i-1] === a[j-1] ? m[i-1][j-1] : 1 + Math.min(m[i-1][j-1], m[i-1][j], m[i][j-1]);
+      return m[lb][la];
+    }
+
+    // Buscar match por nombre o variantes
+    let mejor = null, mejorDist = 999;
+    lista.forEach(function(master) {
+      const canon = (master.nombre_canonical || '').toLowerCase().trim()
+        .replace(/[áàä]/g,'a').replace(/[éèë]/g,'e')
+        .replace(/[íìï]/g,'i').replace(/[óòö]/g,'o')
+        .replace(/[úùü]/g,'u').replace(/ñ/g,'n').replace(/\s+/g,' ');
+      let dist = lev(normNombre, canon);
+      // También verificar variantes
+      if (master.variantes_nombre && Array.isArray(master.variantes_nombre)) {
+        master.variantes_nombre.forEach(function(v) {
+          const vn = (v||'').toLowerCase().trim()
+            .replace(/[áàä]/g,'a').replace(/[éèë]/g,'e')
+            .replace(/[íìï]/g,'i').replace(/[óòö]/g,'o')
+            .replace(/[úùü]/g,'u').replace(/ñ/g,'n').replace(/\s+/g,' ');
+          dist = Math.min(dist, lev(normNombre, vn));
+        });
+      }
+      if (dist < mejorDist) { mejorDist = dist; mejor = master; }
+    });
+
+    if (mejorDist <= 2 && mejor) {
+      // Match encontrado — agregar variante si es nombre diferente
+      const variantes = mejor.variantes_nombre || [];
+      if (!variantes.includes(nombreCliente)) {
+        variantes.push(nombreCliente);
+        await sbFetch('clientes_master?id=eq.' + mejor.id, {
+          method: 'PATCH',
+          body: JSON.stringify({
+            variantes_nombre: variantes,
+            ultima_actividad: new Date().toISOString()
+          })
+        });
+      }
+    } else {
+      // Sin match — crear nuevo en clientes_master
+      await sbFetch('clientes_master', {
+        method: 'POST',
+        body: JSON.stringify({
+          nombre_canonical: nombreCliente,
+          vendedor: vendedorActual || null,
+          variantes_nombre: [nombreCliente]
+        })
+      });
+    }
+  } catch(e) {
+    console.warn('gpsBuscarMatchMaster:', e);
+  }
 }
 
 // Guardar ubicación permanente del cliente (solo si no tiene una ya)
