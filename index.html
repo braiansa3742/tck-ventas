@@ -3345,6 +3345,98 @@ body {
   color: var(--text3); letter-spacing: 1px; text-transform: uppercase;
   padding: 10px 0 4px; margin-top: 6px;
 }
+
+/* ── Selector fecha/turno entrega ── */
+.entrega-selector-overlay {
+  position: fixed; inset: 0; background: rgba(0,0,0,.55); z-index: 600;
+  display: flex; align-items: flex-end;
+}
+.entrega-selector-sheet {
+  background: #fff; border-radius: 22px 22px 0 0; width: 100%;
+  padding: 22px 20px calc(22px + env(safe-area-inset-bottom));
+}
+.entrega-selector-titulo {
+  font-family: 'Barlow Condensed', sans-serif; font-size: 22px;
+  font-weight: 900; color: var(--text); margin-bottom: 4px;
+}
+.entrega-selector-sub { font-size: 13px; color: var(--text3); margin-bottom: 18px; }
+.entrega-dias-scroll {
+  display: flex; gap: 8px; overflow-x: auto; padding-bottom: 4px; margin-bottom: 16px;
+  -webkit-overflow-scrolling: touch;
+}
+.entrega-dia-btn {
+  flex-shrink: 0; padding: 10px 14px; border-radius: 14px;
+  border: 2px solid var(--cream3); background: #fff; cursor: pointer;
+  font-family: 'Barlow Condensed', sans-serif; text-align: center;
+  transition: all .15s; touch-action: manipulation;
+  min-width: 80px;
+}
+.entrega-dia-btn.sel { background: var(--red); border-color: var(--red); color: #fff; }
+.entrega-dia-nombre { font-size: 13px; font-weight: 900; line-height: 1.2; }
+.entrega-dia-fecha { font-size: 11px; opacity: .8; margin-top: 2px; }
+.entrega-turnos { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-bottom: 18px; }
+.entrega-turno-btn {
+  padding: 16px; border-radius: 14px; border: 2px solid var(--cream3);
+  background: #fff; cursor: pointer; text-align: center;
+  font-family: 'Barlow Condensed', sans-serif; font-size: 18px; font-weight: 900;
+  transition: all .15s; touch-action: manipulation;
+}
+.entrega-turno-btn.sel.manana { background: #E3F2FD; border-color: #1565C0; color: #1565C0; }
+.entrega-turno-btn.sel.tarde  { background: #FFF3E0; border-color: #E65100; color: #E65100; }
+.entrega-turno-btn:not(.sel):hover { border-color: var(--red); }
+.entrega-confirmar-btn {
+  width: 100%; padding: 15px; background: linear-gradient(135deg, var(--red), var(--red2));
+  border: none; border-radius: 14px; color: #fff;
+  font-family: 'Barlow Condensed', sans-serif; font-size: 20px; font-weight: 900;
+  cursor: pointer;
+}
+.entrega-confirmar-btn:disabled { opacity: .4; }
+
+/* ── Carga manual WA ── */
+.manual-wa-overlay {
+  position: fixed; inset: 0; background: var(--cream); z-index: 500;
+  display: flex; flex-direction: column; overflow: hidden;
+}
+.manual-wa-hdr {
+  background: linear-gradient(135deg, #1B5E20, #2E7D32);
+  padding: 14px 16px 12px; display: flex; align-items: center; gap: 12px; flex-shrink: 0;
+}
+.manual-wa-hdr-back {
+  background: rgba(255,255,255,.2); border: none; border-radius: 50%;
+  width: 34px; height: 34px; color: #fff; font-size: 18px; cursor: pointer;
+  display: flex; align-items: center; justify-content: center;
+}
+.manual-wa-hdr-info { flex: 1; }
+.manual-wa-hdr-titulo { font-family: 'Barlow Condensed', sans-serif; font-size: 18px; font-weight: 900; color: #fff; }
+.manual-wa-hdr-sub { font-size: 11px; color: rgba(255,255,255,.7); margin-top: 1px; }
+.manual-wa-hdr-total { font-family: 'Barlow Condensed', sans-serif; font-size: 20px; font-weight: 900; color: var(--gold); }
+.manual-wa-body { flex: 1; overflow-y: auto; padding: 14px 16px 100px; }
+.manual-wa-campo {
+  margin-bottom: 14px;
+}
+.manual-wa-label {
+  font-family: 'Barlow Condensed', sans-serif; font-size: 12px; font-weight: 900;
+  color: var(--text3); text-transform: uppercase; letter-spacing: .5px; margin-bottom: 5px;
+}
+.manual-wa-input {
+  width: 100%; padding: 11px 14px; border: 1.5px solid var(--cream3);
+  border-radius: 12px; font-size: 15px; background: #fff; color: var(--text);
+  font-family: 'Barlow', sans-serif; outline: none; box-sizing: border-box;
+}
+.manual-wa-input:focus { border-color: var(--green2); }
+.manual-wa-footer {
+  position: fixed; bottom: 0; left: 0; right: 0; background: #fff;
+  border-top: 1.5px solid var(--cream3);
+  padding: 12px 16px calc(12px + env(safe-area-inset-bottom)); z-index: 501;
+}
+.manual-wa-confirmar-btn {
+  width: 100%; padding: 15px;
+  background: linear-gradient(135deg, #1B5E20, #2E7D32);
+  border: none; border-radius: 14px; color: #fff;
+  font-family: 'Barlow Condensed', sans-serif; font-size: 20px; font-weight: 900;
+  cursor: pointer;
+}
+.manual-wa-confirmar-btn:disabled { opacity: .4; }
 </style>
 </head>
 <body>
@@ -3492,6 +3584,7 @@ body {
         <button class="btn-refresh" style="flex:1" onclick="cargarPedidos()">🔄 Actualizar</button>
         <button class="btn-refresh" style="flex:1;color:var(--green2);border-color:var(--green2)" onclick="abrirExport()">📤 Enviar</button>
       </div>
+      <button id="btn-carga-wa" onclick="abrirCargaManualWA()" style="display:none;width:100%;padding:12px;margin-bottom:8px;background:linear-gradient(135deg,#1B5E20,#2E7D32);border:none;border-radius:12px;color:#fff;font-family:'Barlow Condensed',sans-serif;font-size:17px;font-weight:900;cursor:pointer;letter-spacing:.3px;">📲 Cargar pedido por WhatsApp</button>
 
       <div class="buscador-wrap">
         <span class="buscador-icon">🔍</span>
@@ -4584,8 +4677,10 @@ async function cargarPedidos(silencioso, _reintentos) {
         items:     limpiar(cols[7]),
         resumen:   limpiar(cols[8]),
         detalle:   limpiar(cols[9]),
-        estado:    limpiar(cols[10]) || 'Pendiente',
-        fila:      i + 1
+        estado:         limpiar(cols[10]) || 'Pendiente',
+        fechaEntrega:   limpiar(cols[11]) || '',
+        turnoEntrega:   limpiar(cols[12]) || '',
+        fila:           i + 1
       });
     }
     sortPedidos(pedidos);
@@ -4878,6 +4973,16 @@ function renderCard(p) {
     btns += '<button class="btn-estado" style="background:#FFF8E1;color:#E65100;border-color:#E65100;" data-pid="' + p.pedidoId + '" data-cliente="' + (p.cliente||'').replace(/"/g,'') + '" data-detalle="' + encodeURIComponent(p.detalle||'') + '" onclick="editarPedidoBtn(this,event)">✏️ Editar pedido</button>';
   }
 
+  // Definir/cambiar fecha de entrega — todos los vendedores (no choferes)
+  if (!esChofer && (p.estado === 'Pendiente' || p.estado === 'Confirmado')) {
+    var entregaLabel = p.fechaEntrega
+      ? (p.turnoEntrega === 'Ma\u00F1ana' ? '\uD83C\uDF05' : '\uD83C\uDF06') + ' ' + p.fechaEntrega.split(' ')[0] + ' ' + p.fechaEntrega.split(' ')[1] + ' ' + p.turnoEntrega
+      : '\uD83D\uDCC5 Definir entrega';
+    var entregaStyle = p.fechaEntrega
+      ? 'background:#E3F2FD;color:#1565C0;border-color:#1565C0;'
+      : 'background:#FFF3E0;color:#E65100;border-color:#E65100;';
+    btns += '<button class="btn-estado" style="' + entregaStyle + '" data-pid="' + p.pedidoId + '" data-fila="' + p.fila + '" onclick="definirEntregaBtn(this,event)">' + entregaLabel + '</button>';
+  }
   // Botón asignar chofer — solo ADMIN y pedidos confirmados
   var asignarHtml = '';
   if (esAdmin && p.estado === 'Confirmado') {
@@ -4902,6 +5007,7 @@ function renderCard(p) {
       '<div class="pedido-head-left">' +
         '<div class="pedido-id">' + p.pedidoId + '</div>' +
         '<div class="pedido-cliente">' + (p.cliente||'(sin nombre)') + '</div>' +
+        (p.fechaEntrega ? '<div style="display:inline-flex;align-items:center;gap:4px;background:' + (p.turnoEntrega==='Mañana'?'#E3F2FD':'#FFF3E0') + ';color:' + (p.turnoEntrega==='Mañana'?'#1565C0':'#E65100') + ';border-radius:20px;padding:2px 8px;font-family:Barlow Condensed,sans-serif;font-size:11px;font-weight:800;margin-top:3px;">' + (p.turnoEntrega==='Mañana'?'🌅':'🌆') + ' ' + p.fechaEntrega + ' · ' + (p.turnoEntrega||'') + '</div>' : '') +
         '<div class="pedido-comercio">' + (p.comercio ? '🏪 '+p.comercio+' · ' : '') + '📍 ' + p.localidad + '</div>' +
         buildProdsPreview(p) +
       '</div>' +
@@ -5535,6 +5641,11 @@ function mostrarTabs() {
   var esAdmin    = vendedorActual === 'ADMIN';
   var esCampo    = vendedorActual === 'Juan' || vendedorActual === 'Lisandro';
   var esChofer   = vendedorActual === 'Joan' || vendedorActual === 'Luis';
+  var esVendedor = !esAdmin && !esChofer;
+
+  // Botón cargar pedido por WA — solo vendedores
+  var btnWA = document.getElementById('btn-carga-wa');
+  if (btnWA) btnWA.style.display = esVendedor ? 'block' : 'none';
 
   // Choferes: solo ven tab Entregas
   if (esChofer) {
@@ -9363,6 +9474,13 @@ async function tomadorConfirmarFinal() {
   var modal = document.getElementById('tomador-resumen-modal');
   if (modal) modal.remove();
 
+  // Abrir selector de entrega antes de guardar
+  abrirSelectorEntrega(function(entrega) {
+    tomadorConfirmarConEntrega(entrega);
+  });
+}
+
+async function tomadorConfirmarConEntrega(entregaData) {
   var items = Object.keys(_tomadorQtys);
   var cliente   = _gpsCheckinActivo ? _gpsCheckinActivo.nombre_cliente : 'Cliente';
   var vendedor  = vendedorActual || 'Vendedor';
@@ -9435,7 +9553,9 @@ async function tomadorConfirmarFinal() {
       detalle:       detalleSheet,
       total:         total,
       nota:          compLineas.length > 0 ? 'PRECIOS COMP: ' + compLineas.join(' | ') : '',
-      origen:        'campo'
+      origen:        'campo',
+      fecha_entrega: entregaData ? entregaData.dia : '',
+      turno_entrega: entregaData ? entregaData.turno : ''
     });
 
     fetch(APPS_SCRIPT_URL + '?' + params.toString(), {mode: 'no-cors'}).catch(function(){});
@@ -10015,6 +10135,384 @@ async function editarConfirmar() {
     toast('❌ Error de conexión', 'err');
     if (btn) { btn.disabled = false; btn.textContent = 'Guardar cambios'; }
   }
+}
+
+
+// ════════════════════════════════════════════════════════════════
+//  SELECTOR DE FECHA/TURNO DE ENTREGA
+// ════════════════════════════════════════════════════════════════
+
+let _entregaDiaSeleccionado  = null; // "Martes 15 de abril"
+let _entregaTurnoSeleccionado = null; // "Mañana" | "Tarde"
+let _entregaCallback = null; // función a llamar con {dia, turno}
+
+// Días de la semana en español
+const DIAS_ES  = ['Domingo','Lunes','Martes','Miércoles','Jueves','Viernes','Sábado'];
+const MESES_ES = ['enero','febrero','marzo','abril','mayo','junio','julio','agosto','septiembre','octubre','noviembre','diciembre'];
+
+function abrirSelectorEntrega(callback) {
+  _entregaCallback = callback;
+  _entregaDiaSeleccionado  = null;
+  _entregaTurnoSeleccionado = null;
+
+  // Calcular próximos 6 días empezando por hoy
+  const hoy = new Date();
+  const dias = [];
+  for (let i = 0; i < 6; i++) {
+    const d = new Date(hoy);
+    d.setDate(d.getDate() + i);
+    dias.push(d);
+  }
+
+  let diasHtml = dias.map(function(d, i) {
+    const nombre = DIAS_ES[d.getDay()];
+    const num    = d.getDate();
+    const mes    = MESES_ES[d.getMonth()];
+    const label  = nombre + ' ' + num + ' de ' + mes;
+    const labelCorto = i === 0 ? 'Hoy' : i === 1 ? 'Mañana' : nombre;
+    return '<button class="entrega-dia-btn" data-label="' + label + '" onclick="entregaSeleccionarDia(this,\"' + label + '\")">' +
+      '<div class="entrega-dia-nombre">' + labelCorto + '</div>' +
+      '<div class="entrega-dia-fecha">' + nombre + ' ' + num + '</div>' +
+    '</button>';
+  }).join('');
+
+  const overlay = document.createElement('div');
+  overlay.className = 'entrega-selector-overlay';
+  overlay.id = 'entrega-selector-overlay';
+  overlay.innerHTML =
+    '<div class="entrega-selector-sheet">' +
+      '<div class="entrega-selector-titulo">📅 ¿Cuándo se entrega?</div>' +
+      '<div class="entrega-selector-sub">Definí el día y el turno con el cliente</div>' +
+      '<div class="entrega-dias-scroll">' + diasHtml + '</div>' +
+      '<div class="entrega-turnos">' +
+        '<button class="entrega-turno-btn manana" data-turno="Ma\u00F1ana" onclick="entregaSeleccionarTurnoBtn(this)">🌅 Mañana</button>' +
+        '<button class="entrega-turno-btn tarde"  data-turno="Tarde" onclick="entregaSeleccionarTurnoBtn(this)">🌆 Tarde</button>' +
+      '</div>' +
+      '<button class="entrega-confirmar-btn" id="entrega-confirmar-btn" onclick="entregaConfirmar()" disabled>Confirmar entrega</button>' +
+    '</div>';
+  document.body.appendChild(overlay);
+}
+
+function entregaSeleccionarDia(btn, label) {
+  _entregaDiaSeleccionado = label;
+  document.querySelectorAll('.entrega-dia-btn').forEach(b => b.classList.remove('sel'));
+  btn.classList.add('sel');
+  entregaActualizarBoton();
+}
+
+function entregaSeleccionarTurnoBtn(btn) {
+  const turno = btn.getAttribute('data-turno');
+  entregaSeleccionarTurno(btn, turno);
+}
+
+function entregaSeleccionarTurno(btn, turno) {
+  _entregaTurnoSeleccionado = turno;
+  document.querySelectorAll('.entrega-turno-btn').forEach(b => b.classList.remove('sel'));
+  btn.classList.add('sel');
+  entregaActualizarBoton();
+}
+
+function entregaActualizarBoton() {
+  const btn = document.getElementById('entrega-confirmar-btn');
+  if (!btn) return;
+  const ok = _entregaDiaSeleccionado && _entregaTurnoSeleccionado;
+  btn.disabled = !ok;
+  if (ok) {
+    btn.textContent = 'Confirmar — ' + _entregaDiaSeleccionado + ' · ' + _entregaTurnoSeleccionado;
+  }
+}
+
+function entregaConfirmar() {
+  const overlay = document.getElementById('entrega-selector-overlay');
+  if (overlay) overlay.remove();
+  if (_entregaCallback) {
+    _entregaCallback({ dia: _entregaDiaSeleccionado, turno: _entregaTurnoSeleccionado });
+  }
+}
+
+// ════════════════════════════════════════════════════════════════
+//  CARGA MANUAL DE PEDIDO POR WHATSAPP
+// ════════════════════════════════════════════════════════════════
+
+let _manualWAQtys  = {};
+let _manualWACliente = '';
+let _manualWALocalidad = '';
+
+function abrirCargaManualWA() {
+  _manualWAQtys = {};
+  _manualWACliente = '';
+  _manualWALocalidad = '';
+
+  const overlay = document.createElement('div');
+  overlay.className = 'manual-wa-overlay';
+  overlay.id = 'manual-wa-overlay';
+  overlay.innerHTML = manualWAHTML();
+  document.body.appendChild(overlay);
+  document.body.style.overflow = 'hidden';
+  setTimeout(function() {
+    const inp = document.getElementById('manual-wa-cliente-input');
+    if (inp) inp.focus();
+  }, 100);
+}
+
+function manualWAHTML() {
+  // Construir grilla de productos igual al tomador
+  let prodsHtml = '';
+  TOMADOR_CAT.forEach(function(cat) {
+    prodsHtml += '<div class="tomador-sec-titulo">' + cat.sec + '</div>';
+    prodsHtml += '<div class="tomador-grid">';
+    cat.items.forEach(function(item) {
+      const imgFile = IMGMAP[item.n] || (item.img + '.jpg');
+      const imgUrl  = 'https://tckcatalogo.com/img/' + encodeURIComponent(imgFile).replace(/%20/g,'%20');
+      const safeName = item.n.replace(/'/g,"\'").replace(/"/g,'&quot;');
+      prodsHtml += '<div class="tomador-item" id="mwa-item-' + item.img + '">' +
+        '<img class="tomador-item-img" src="' + (item.img2 || imgUrl) + '" onerror="this.style.display=&quot;none&quot;" loading="lazy">' +
+        '<div class="tomador-item-body">' +
+          '<div class="tomador-item-nombre">' + item.n + '</div>' +
+          '<div class="tomador-item-presentacion">' + item.p + '</div>' +
+          '<div class="tomador-item-precio">$' + item.pr.toLocaleString('es-AR') + '</div>' +
+          '<div class="tomador-qty">' +
+            '<button class="tomador-qty-btn" onclick="manualWAQty(&quot;' + safeName + '&quot;,-1)">−</button>' +
+            '<span class="tomador-qty-num" id="mwa-qty-' + item.img + '">0</span>' +
+            '<button class="tomador-qty-btn plus" onclick="manualWAQty(&quot;' + safeName + '&quot;,1)">+</button>' +
+          '</div>' +
+        '</div>' +
+      '</div>';
+    });
+    prodsHtml += '</div>';
+  });
+
+  return '<div class="manual-wa-hdr">' +
+    '<button class="manual-wa-hdr-back" onclick="cerrarCargaManualWA()">←</button>' +
+    '<div class="manual-wa-hdr-info">' +
+      '<div class="manual-wa-hdr-titulo">📲 Cargar pedido por WA</div>' +
+      '<div class="manual-wa-hdr-sub">Cargá el pedido del cliente</div>' +
+    '</div>' +
+    '<div class="manual-wa-hdr-total" id="mwa-total">$0</div>' +
+  '</div>' +
+  '<div class="manual-wa-body">' +
+    '<div class="manual-wa-campo">' +
+      '<div class="manual-wa-label">👤 Cliente</div>' +
+      '<input class="manual-wa-input" id="manual-wa-cliente-input" type="text" placeholder="Nombre del cliente..." oninput="manualWABuscarCliente(this.value)">' +
+      '<div id="mwa-sugerencias" style="margin-top:4px;"></div>' +
+    '</div>' +
+    '<div class="manual-wa-campo">' +
+      '<div class="manual-wa-label">📍 Localidad</div>' +
+      '<input class="manual-wa-input" id="manual-wa-localidad-input" type="text" placeholder="Ciudad / localidad...">' +
+    '</div>' +
+    prodsHtml +
+  '</div>' +
+  '<div class="manual-wa-footer">' +
+    '<button class="manual-wa-confirmar-btn" id="mwa-confirmar-btn" onclick="manualWAConfirmar()" disabled>Agregar productos</button>' +
+  '</div>';
+}
+
+function cerrarCargaManualWA() {
+  const el = document.getElementById('manual-wa-overlay');
+  if (el) el.remove();
+  document.body.style.overflow = '';
+}
+
+let _mwaBuscarTimer = null;
+function manualWABuscarCliente(q) {
+  clearTimeout(_mwaBuscarTimer);
+  const el = document.getElementById('mwa-sugerencias');
+  if (!q || q.length < 2) { if (el) el.innerHTML = ''; return; }
+  _mwaBuscarTimer = setTimeout(function() {
+    // Buscar en pedidos ya cargados
+    const nombres = new Set();
+    todosLosPedidos.forEach(function(p) {
+      if (p.cliente && p.cliente.toLowerCase().includes(q.toLowerCase())) {
+        nombres.add(p.cliente + '|||' + (p.localidad||''));
+      }
+    });
+    if (!nombres.size || !el) return;
+    el.innerHTML = Array.from(nombres).slice(0,4).map(function(s) {
+      const [nombre, loc] = s.split('|||');
+      return '<button style="display:block;width:100%;padding:8px 12px;margin-bottom:4px;background:var(--cream2);border:1px solid var(--cream3);border-radius:8px;text-align:left;cursor:pointer;font-size:13px;" ' +
+        'data-nombre="' + nombre.replace(/"/g,'&quot;') + '" data-loc="' + loc.replace(/"/g,'&quot;') + '" onclick="manualWAElegirClienteBtn(this)">' +
+        '👤 ' + nombre + (loc ? '<span style="color:var(--text3);"> · ' + loc + '</span>' : '') +
+      '</button>';
+    }).join('');
+  }, 200);
+}
+
+function manualWAElegirClienteBtn(btn) {
+  const nombre = btn.getAttribute('data-nombre');
+  const loc    = btn.getAttribute('data-loc') || '';
+  manualWAElegirCliente(nombre, loc);
+}
+
+function manualWAElegirCliente(nombre, localidad) {
+  const inp = document.getElementById('manual-wa-cliente-input');
+  const locInp = document.getElementById('manual-wa-localidad-input');
+  if (inp) inp.value = nombre;
+  if (locInp && localidad && !locInp.value) locInp.value = localidad;
+  const el = document.getElementById('mwa-sugerencias');
+  if (el) el.innerHTML = '';
+  _manualWACliente = nombre;
+  _manualWALocalidad = localidad;
+}
+
+function manualWAQty(nombre, delta) {
+  const actual = _manualWAQtys[nombre] || 0;
+  const nuevo  = Math.max(0, actual + delta);
+  if (nuevo === 0) delete _manualWAQtys[nombre];
+  else _manualWAQtys[nombre] = nuevo;
+
+  // Encontrar img id del item
+  let imgId = null;
+  for (let i = 0; i < TOMADOR_CAT.length; i++) {
+    for (let j = 0; j < TOMADOR_CAT[i].items.length; j++) {
+      if (TOMADOR_CAT[i].items[j].n === nombre) { imgId = TOMADOR_CAT[i].items[j].img; break; }
+    }
+    if (imgId) break;
+  }
+  if (imgId) {
+    const qtyEl = document.getElementById('mwa-qty-' + imgId);
+    if (qtyEl) qtyEl.textContent = nuevo;
+    const itemEl = document.getElementById('mwa-item-' + imgId);
+    if (itemEl) itemEl.classList.toggle('tiene', nuevo > 0);
+  }
+
+  // Actualizar total
+  let total = 0;
+  Object.keys(_manualWAQtys).forEach(function(n) {
+    const qty = _manualWAQtys[n];
+    for (let i = 0; i < TOMADOR_CAT.length; i++) {
+      for (let j = 0; j < TOMADOR_CAT[i].items.length; j++) {
+        if (TOMADOR_CAT[i].items[j].n === n) { total += TOMADOR_CAT[i].items[j].pr * qty; break; }
+      }
+    }
+  });
+  const totalEl = document.getElementById('mwa-total');
+  if (totalEl) totalEl.textContent = '$' + total.toLocaleString('es-AR');
+  const btn = document.getElementById('mwa-confirmar-btn');
+  if (btn) {
+    const hasProds = Object.keys(_manualWAQtys).length > 0;
+    btn.disabled = !hasProds;
+    btn.textContent = hasProds ? 'Confirmar pedido — $' + total.toLocaleString('es-AR') : 'Agregar productos';
+  }
+}
+
+function manualWAConfirmar() {
+  const clienteInp  = document.getElementById('manual-wa-cliente-input');
+  const localidadInp = document.getElementById('manual-wa-localidad-input');
+  const cliente   = clienteInp  ? clienteInp.value.trim()   : '';
+  const localidad = localidadInp ? localidadInp.value.trim() : '';
+
+  if (!cliente) { toast('Ingresá el nombre del cliente', 'err'); return; }
+  if (!Object.keys(_manualWAQtys).length) { toast('Agregá al menos un producto', 'err'); return; }
+
+  // Abrir selector de entrega
+  abrirSelectorEntrega(function(entrega) {
+    manualWAGuardar(cliente, localidad, entrega);
+  });
+}
+
+async function manualWAGuardar(cliente, localidad, entrega) {
+  const vendedor = vendedorActual || 'Vendedor';
+  const hoy = new Date();
+  const hh  = hoy.getHours().toString().padStart(2,'0');
+  const mm  = hoy.getMinutes().toString().padStart(2,'0');
+  const yyyymmdd = hoy.getFullYear().toString()
+    + (hoy.getMonth()+1).toString().padStart(2,'0')
+    + hoy.getDate().toString().padStart(2,'0');
+  const pedidoId = 'TCK-' + yyyymmdd + '-' + hh + mm
+    + '-' + vendedor.substring(0,3).toUpperCase()
+    + '-W' + Math.random().toString(36).substring(2,6).toUpperCase();
+
+  const lineas = [];
+  let total = 0;
+  Object.keys(_manualWAQtys).forEach(function(nombre) {
+    const qty = _manualWAQtys[nombre];
+    for (let i = 0; i < TOMADOR_CAT.length; i++) {
+      for (let j = 0; j < TOMADOR_CAT[i].items.length; j++) {
+        if (TOMADOR_CAT[i].items[j].n === nombre) {
+          const item = TOMADOR_CAT[i].items[j];
+          const sub  = item.pr * qty;
+          total += sub;
+          lineas.push(qty + 'x ' + nombre + ' (' + item.p + ') → $' + sub.toLocaleString('es-AR'));
+          break;
+        }
+      }
+    }
+  });
+
+  const params = new URLSearchParams({
+    accion:        'guardarPedido',
+    pedidoId:      pedidoId,
+    vendedor:      vendedor,
+    cliente:       cliente,
+    localidad:     localidad || 'Sin especificar',
+    detalle:       lineas.join(' | '),
+    total:         total,
+    origen:        'whatsapp',
+    fecha_entrega: entrega.dia,
+    turno_entrega: entrega.turno
+  });
+
+  fetch(APPS_SCRIPT_URL + '?' + params.toString(), {mode:'no-cors'}).catch(function(){});
+  toast('✅ Pedido de ' + cliente + ' registrado', 'ok');
+  cerrarCargaManualWA();
+
+  // Pre-agregar al cache para que aparezca inmediatamente
+  const nuevoPedido = {
+    pedidoId:     pedidoId,
+    fechaHora:    hoy.toLocaleString('es-AR'),
+    vendedor:     vendedor,
+    cliente:      cliente,
+    comercio:     '',
+    localidad:    localidad || 'Sin especificar',
+    total:        total.toString(),
+    items:        Object.values(_manualWAQtys).reduce((a,b)=>a+b,0).toString(),
+    resumen:      lineas.map(l => l.split(' →')[0]).join(' | '),
+    detalle:      lineas.join(' | '),
+    estado:       'Pendiente',
+    fechaEntrega: entrega.dia,
+    turnoEntrega: entrega.turno,
+    fila:         todosLosPedidos.length + 2
+  };
+  todosLosPedidos.unshift(nuevoPedido);
+  _pedidosCache = todosLosPedidos.slice();
+  renderPedidos();
+
+  setTimeout(function() { cargarPedidos(true); }, 3000);
+  setTimeout(function() { cargarPedidos(true); }, 8000);
+}
+
+// ── Definir/cambiar fecha de entrega desde el panel ──
+function definirEntregaBtn(btn, event) {
+  event.stopPropagation();
+  const pedidoId = btn.getAttribute('data-pid');
+  const fila     = btn.getAttribute('data-fila');
+  abrirSelectorEntrega(async function(entrega) {
+    // Guardar en Sheet
+    const params = new URLSearchParams({
+      accion:        'editarPedido',
+      pedidoId:      pedidoId,
+      fila:          fila || '',
+      fecha_entrega: entrega.dia,
+      turno_entrega: entrega.turno
+    });
+    try {
+      const res = await fetch(APPS_SCRIPT_URL + '?' + params.toString());
+      const data = await res.json();
+      if (data.status === 'ok') {
+        // Actualizar en memoria
+        const p = todosLosPedidos.find(x => x.pedidoId === pedidoId);
+        if (p) { p.fechaEntrega = entrega.dia; p.turnoEntrega = entrega.turno; }
+        const cp = _pedidosCache.find(x => x.pedidoId === pedidoId);
+        if (cp) { cp.fechaEntrega = entrega.dia; cp.turnoEntrega = entrega.turno; }
+        renderPedidos();
+        toast('✅ Entrega: ' + entrega.dia + ' · ' + entrega.turno, 'ok');
+      } else {
+        toast('❌ Error al guardar', 'err');
+      }
+    } catch(e) {
+      toast('❌ Error de conexión', 'err');
+    }
+  });
 }
 </script>
 
