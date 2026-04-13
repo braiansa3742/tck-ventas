@@ -8674,7 +8674,7 @@ function tomadorRenderProductos(catId) {
       // Usar el nombre real del archivo desde el mapa de imágenes
       var IMGMAP = {
         "Pollo A":"Pollo ginosa.jpg","Pollo Ginosa":"Pollo ginosa.jpg","Pollo B":"pollo optimo.jpg","Pollo Optimo":"pollo optimo.jpg",
-        "Suprema":"suprema.jpg","Suprema IQF":"suprema iqf.jpg",
+        "Suprema":"suprema.jpg","Suprema IQF":"suprema iqf.jpg","Suprema B IQF":"suprema iqf.jpg",
         "Alita Congelada Granel":"alita congelada granel.jpg",
         "MDM - Carne Molida de Pollo":"MDM.jpg","Cuarto Trasero IQF":"cuarto trasero IQF.jpg",
         "Medallon de Pollo Clasico":"medallon de pollo clasico.jpg",
@@ -9177,7 +9177,7 @@ async function botGuardarPrecios() {
   }
 }
 
-var _botConfig={},_botSinStock=new Set(),BOT_PRODUCTOS=['Pollo Optimo','Suprema','Suprema IQF','Fino de Ave Cocida','Alita Congelada Granel','Cuarto Trasero IQF','Medallon de Pollo Clasico','Medallon Pollo c/Cheddar','Medallon Pollo JyQ','Medallon Pollo y Espinaca','Formita Clasica','Formitas Pollo JyQ','Nuggets de Pollo Crocante','Bocadito de Papa y Jamon','Pechuguitas al Verdeo','Filet Merluza Finas Hierbas','Filet de Merluza Rebozado','Filet Merluza a Granel','Milanesa de Nalga','Milanesa de Pollo','Hamburguesa 100% Carne','Papa Baston Balcarce','Pulpa de Palta'];
+var _botConfig={},_botSinStock=new Set(),BOT_PRODUCTOS=['Pollo Optimo','Suprema','Suprema IQF','Suprema B IQF','Fino de Ave Cocida','Alita Congelada Granel','Cuarto Trasero IQF','Medallon de Pollo Clasico','Medallon Pollo c/Cheddar','Medallon Pollo JyQ','Medallon Pollo y Espinaca','Formita Clasica','Formitas Pollo JyQ','Nuggets de Pollo Crocante','Bocadito de Papa y Jamon','Pechuguitas al Verdeo','Filet Merluza Finas Hierbas','Filet de Merluza Rebozado','Filet Merluza a Granel','Milanesa de Nalga','Milanesa de Pollo','Hamburguesa 100% Carne','Papa Baston Balcarce','Pulpa de Palta'];
 async function botCargarConfig(){try{var data=await sbFetch('bot_config?select=clave,valor');if(data){_botConfig={};data.forEach(function(r){_botConfig[r.clave]=r.valor||''});}var s=_botConfig['sin_stock']||'';_botSinStock=new Set(s.split(',').map(function(x){return x.trim();}).filter(Boolean));var el;el=document.getElementById('bot-aviso');if(el)el.value=_botConfig['aviso_activo']||'';el=document.getElementById('bot-zonas');if(el)el.value=_botConfig['zonas_entrega']||'';el=document.getElementById('bot-horario');if(el)el.value=_botConfig['horario_atencion']||'';botRenderStock();var ts=document.getElementById('bot-ultima-sync');if(ts)ts.textContent='Última sync: '+new Date().toLocaleTimeString('es-AR',{hour:'2-digit',minute:'2-digit'});}catch(e){toast('Error al cargar config bot','err');}}
 function botRenderStock(){var g=document.getElementById('bot-stock-grid');if(!g)return;g.innerHTML=BOT_PRODUCTOS.map(function(n){var ss=_botSinStock.has(n);var safe=n.replace(/'/g,"\\'");return'<div class="bot-stock-item'+(ss?' sin-stock':'')+'" onclick="botToggleStock(\''+safe+'\')"><div class="bot-stock-dot"></div><div class="bot-stock-item-nombre">'+n+'</div></div>';}).join('');var b=document.getElementById('bot-badge-sinstock');if(b){b.textContent=_botSinStock.size+' sin stock';b.style.background=_botSinStock.size>0?'rgba(198,40,40,.7)':'rgba(255,255,255,.2)';}}
 function botToggleStock(n){if(_botSinStock.has(n))_botSinStock.delete(n);else _botSinStock.add(n);botRenderStock();}
