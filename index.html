@@ -4228,34 +4228,91 @@ var _modoCampo = new URLSearchParams(window.location.search).get('modo') === 'ca
 })();
 
 // ── AUTO-REFRESH 30s ─────────────────────────────────────────────
+// ── AUTO-REFRESH INTELIGENTE ─────────────────────────────────
+// Chequea cada 30s sin molestar. Si hay pedidos nuevos muestra badge.
+// NUNCA recarga si hay una card abierta o algo en uso.
+
+function hayAlgoAbierto() {
+  // Card de pedido expandida
+  if (document.querySelector('.pedido-body.on') !== null) return true;
+  // Panel Xubio activo
+  if (_xubioActivo
+    || document.querySelector('.xubio-dropdown.on') !== null
+    || document.querySelector('.xubio-sel.on') !== null) return true;
+  // Tomador de campo abierto
+  if (document.getElementById('tomador-overlay') !== null) return true;
+  // Sheets / modales abiertos
+  if (document.querySelector('.export-backdrop.on') !== null) return true;
+  if (document.querySelector('#bot-cli-sheet-backdrop.on') !== null) return true;
+  // Modales GPS
+  if (document.getElementById('gps-modal-checkin') !== null) return true;
+  if (document.getElementById('gps-modal-checkout') !== null) return true;
+  if (document.getElementById('gps-modal-sin-coords') !== null) return true;
+  if (document.getElementById('gps-modal-visita') !== null) return true;
+  // Picker chofer abierto
+  if (document.querySelector('.chofer-picker') !== null) return true;
+  return false;
+}
+
+let _pedidosPendientesNotif = 0;
+
+function mostrarBadgeNuevosPedidos(cant) {
+  var badge = document.getElementById('badge-nuevos-pedidos');
+  if (!badge) {
+    badge = document.createElement('div');
+    badge.id = 'badge-nuevos-pedidos';
+    badge.style.cssText = 'position:fixed;top:12px;left:50%;transform:translateX(-50%);z-index:999;' +
+      'background:linear-gradient(135deg,#8B0000,#c0000c);color:#fff;border-radius:24px;' +
+      'padding:10px 20px;font-family:Barlow Condensed,sans-serif;font-size:16px;font-weight:900;' +
+      'box-shadow:0 4px 16px rgba(139,0,0,.4);cursor:pointer;letter-spacing:.3px;' +
+      'animation:badgeIn .25s ease;';
+    badge.onclick = function() {
+      badge.remove();
+      _pedidosPendientesNotif = 0;
+      cargarPedidos(false);
+    };
+    // Agregar keyframe si no existe
+    if (!document.getElementById('badge-style')) {
+      var s = document.createElement('style');
+      s.id = 'badge-style';
+      s.textContent = '@keyframes badgeIn{from{opacity:0;transform:translateX(-50%) translateY(-10px)}to{opacity:1;transform:translateX(-50%) translateY(0)}}';
+      document.head.appendChild(s);
+    }
+    document.body.appendChild(badge);
+  }
+  badge.textContent = '🔔 ' + cant + ' pedido' + (cant > 1 ? 's' : '') + ' nuevo' + (cant > 1 ? 's' : '') + ' — Actualizar';
+}
+
 setInterval(function() {
   if (!vendedorActual) return;
-  // No refrescar si hay algún panel Xubio activo o el tomador está abierto
-  var xubioEnUso = _xubioActivo
-    || document.querySelector('.xubio-dropdown.on') !== null
-    || document.querySelector('.xubio-sel.on') !== null;
-  var tomadorEnUso = document.getElementById('tomador-overlay') !== null;
-  // No refrescar si hay algún sheet/detalle abierto
-  var sheetAbierto = document.querySelector('.export-backdrop.on') !== null
-    || document.querySelector('#bot-cli-sheet-backdrop.on') !== null;
-  // No refrescar si hay algún modal GPS abierto
-  var modalGpsAbierto = document.getElementById('gps-modal-checkin') !== null
-    || document.getElementById('gps-modal-checkout') !== null
-    || document.getElementById('gps-modal-sin-coords') !== null
-    || document.getElementById('gps-modal-visita') !== null;
-  if (xubioEnUso || tomadorEnUso || sheetAbierto || modalGpsAbierto) return;
-  const antes = todosLosPedidos.length;
-  const dupAntes = new Set(todosLosPedidos.filter(p => p.esDuplicado).map(p => p.pedidoId));
+
+  // Si hay algo abierto, NO hacer nada — ni siquiera el fetch
+  if (hayAlgoAbierto()) return;
+
+  const idsAntes = new Set(todosLosPedidos.map(function(p) { return p.pedidoId; }));
+  const dupAntes = new Set(todosLosPedidos.filter(function(p) { return p.esDuplicado; }).map(function(p) { return p.pedidoId; }));
+
+  // Fetch silencioso — sin tocar la UI
   cargarPedidos(true).then(function() {
-    // Solo notificar pedidos del vendedor actual (no todos)
-    var misPedidosNuevos = todosLosPedidos.length - antes;
-    if (misPedidosNuevos > 0) notificarNuevoPedido(misPedidosNuevos);
-    const dupNuevos = todosLosPedidos.filter(function(p) {
-      return p.esDuplicado && !dupAntes.has(p.pedidoId);
-    });
+    const nuevos = todosLosPedidos.filter(function(p) { return !idsAntes.has(p.pedidoId); });
+    const dupNuevos = todosLosPedidos.filter(function(p) { return p.esDuplicado && !dupAntes.has(p.pedidoId); });
+
+    if (nuevos.length > 0) {
+      _pedidosPendientesNotif += nuevos.length;
+      if (hayAlgoAbierto()) {
+        // Si ahora abrió algo, mostrar badge en vez de recargar
+        mostrarBadgeNuevosPedidos(_pedidosPendientesNotif);
+      } else {
+        // Nada abierto — recargar directo sin molestar
+        _pedidosPendientesNotif = 0;
+        var badge = document.getElementById('badge-nuevos-pedidos');
+        if (badge) badge.remove();
+        notificarNuevoPedido(nuevos.length);
+      }
+    }
     if (dupNuevos.length > 0) notificarDuplicados(dupNuevos);
   });
-}, 20000);
+}, 30000);
 
 // ── SONIDOS ──────────────────────────────────────────────────────
 function sonarTono(frecuencias, duracion) {
