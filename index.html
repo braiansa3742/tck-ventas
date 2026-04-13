@@ -3292,6 +3292,59 @@ body {
   border: none; color: var(--text3); font-size: 13px; cursor: pointer;
   font-family: 'Barlow', sans-serif;
 }
+
+/* ── Editar pedido ── */
+.editar-overlay {
+  position: fixed; inset: 0; background: rgba(0,0,0,.6); z-index: 500;
+  display: flex; flex-direction: column;
+}
+.editar-hdr {
+  background: linear-gradient(135deg, #E65100, #BF360C);
+  padding: 14px 16px 12px; display: flex; align-items: center; gap: 12px;
+  flex-shrink: 0;
+}
+.editar-hdr-back {
+  background: rgba(255,255,255,.2); border: none; border-radius: 50%;
+  width: 34px; height: 34px; color: #fff; cursor: pointer; font-size: 18px;
+  display: flex; align-items: center; justify-content: center;
+}
+.editar-hdr-info { flex: 1; }
+.editar-hdr-cliente { font-family: 'Barlow Condensed', sans-serif; font-size: 18px; font-weight: 900; color: #fff; }
+.editar-hdr-sub { font-size: 12px; color: rgba(255,255,255,.75); margin-top: 2px; }
+.editar-hdr-total { font-family: 'Barlow Condensed', sans-serif; font-size: 22px; font-weight: 900; color: #FFD700; }
+.editar-body { flex: 1; overflow-y: auto; background: #fff; padding: 12px 14px; }
+.editar-footer {
+  background: #fff; padding: 12px 16px calc(12px + env(safe-area-inset-bottom));
+  border-top: 1px solid #f0e8e8; flex-shrink: 0;
+}
+.editar-confirmar-btn {
+  width: 100%; padding: 15px; background: linear-gradient(135deg, #E65100, #BF360C);
+  border: none; border-radius: 14px; color: #fff;
+  font-family: 'Barlow Condensed', sans-serif; font-size: 20px; font-weight: 900;
+  cursor: pointer; letter-spacing: .3px;
+}
+.editar-confirmar-btn:disabled { opacity: .4; }
+.editar-item {
+  display: flex; align-items: center; gap: 10px;
+  padding: 10px 0; border-bottom: 1px solid #f5f0f0;
+}
+.editar-item-img { width: 44px; height: 44px; object-fit: cover; border-radius: 8px; flex-shrink: 0; }
+.editar-item-info { flex: 1; min-width: 0; }
+.editar-item-nombre { font-weight: 700; font-size: 13px; color: var(--text); }
+.editar-item-pres { font-size: 11px; color: var(--text3); }
+.editar-qty-ctrl { display: flex; align-items: center; gap: 6px; flex-shrink: 0; }
+.editar-qty-btn {
+  width: 30px; height: 30px; border-radius: 50%; border: 1.5px solid var(--red);
+  background: #fff; color: var(--red); font-size: 18px; font-weight: 900;
+  cursor: pointer; display: flex; align-items: center; justify-content: center; line-height: 1;
+}
+.editar-qty-btn:active { background: var(--red); color: #fff; }
+.editar-qty-num { font-family: 'Barlow Condensed', sans-serif; font-size: 18px; font-weight: 900; min-width: 24px; text-align: center; }
+.editar-seccion-hdr {
+  font-family: 'Barlow Condensed', sans-serif; font-size: 13px; font-weight: 900;
+  color: var(--text3); letter-spacing: 1px; text-transform: uppercase;
+  padding: 10px 0 4px; margin-top: 6px;
+}
 </style>
 </head>
 <body>
@@ -4799,10 +4852,16 @@ function renderCard(p) {
   }
 
   var btns = '';
+  var esChofer = vendedorActual === 'Joan' || vendedorActual === 'Luis';
   if (p.estado !== 'Confirmado') btns += '<button class="btn-estado btn-confirmar" onclick="cambiarEstado(\'' + p.pedidoId + '\',' + p.fila + ',\'Confirmado\',event)">✅ Ya remití en Xubio</button>';
-  if (p.estado !== 'Entregado')  btns += '<button class="btn-estado btn-entregar" onclick="cambiarEstado(\'' + p.pedidoId + '\',' + p.fila + ',\'Entregado\',event)">📦 Entregado</button>';
+  // Entregado solo lo puede marcar el Admin (los choferes lo marcan desde su panel)
+  if (esAdmin && p.estado !== 'Entregado') btns += '<button class="btn-estado btn-entregar" onclick="cambiarEstado(\'' + p.pedidoId + '\',' + p.fila + ',\'Entregado\',event)">📦 Entregado</button>';
   if (esAdmin && p.estado !== 'Pendiente') btns += '<button class="btn-estado btn-pendiente-again" onclick="cambiarEstado(\'' + p.pedidoId + '\',' + p.fila + ',\'Pendiente\',event)">⏳ Pendiente</button>';
   if (esAdmin && p.estado !== 'Cancelado') btns += '<button class="btn-estado btn-cancelar" onclick="confirmarCancelar(\'' + p.pedidoId + '\',' + p.fila + ',event)">❌ Cancelar</button>';
+  // Editar pedido — vendedor puede sumar productos a pedido pendiente o confirmado
+  if (!esAdmin && !esChofer && (p.estado === 'Pendiente' || p.estado === 'Confirmado')) {
+    btns += '<button class="btn-estado" style="background:#FFF8E1;color:#E65100;border-color:#E65100;" data-pid="' + p.pedidoId + '" data-cliente="' + (p.cliente||'').replace(/"/g,'') + '" data-detalle="' + encodeURIComponent(p.detalle||'') + '" onclick="editarPedidoBtn(this,event)">✏️ Editar pedido</button>';
+  }
 
   // Botón asignar chofer — solo ADMIN y pedidos confirmados
   var asignarHtml = '';
@@ -9757,6 +9816,190 @@ async function desasignarChofer(pedidoId, event) {
   try {
     await sbFetch('entregas?pedido_id=eq.' + encodeURIComponent(pedidoId), { method: 'DELETE' });
   } catch(e) {}
+}
+
+
+// ════════════════════════════════════════════════════════════════
+//  EDITAR PEDIDO — Vendedor puede sumar/quitar productos
+// ════════════════════════════════════════════════════════════════
+
+let _editarPedidoId   = null;
+let _editarCliente    = null;
+let _editarQtys       = {};  // nombre → cantidad
+let _editarFila       = null;
+
+function editarPedidoBtn(btn, event) {
+  event.stopPropagation();
+  const pedidoId = btn.getAttribute('data-pid');
+  const cliente  = btn.getAttribute('data-cliente');
+  const detalle  = decodeURIComponent(btn.getAttribute('data-detalle') || '');
+  const p        = todosLosPedidos.find(x => x.pedidoId === pedidoId);
+  if (!p) return;
+  abrirEditarPedido(p, detalle);
+}
+
+function abrirEditarPedido(p, detalle) {
+  _editarPedidoId = p.pedidoId;
+  _editarCliente  = p.cliente || 'Cliente';
+  _editarFila     = p.fila;
+  _editarQtys     = {};
+
+  // Parsear el detalle actual para pre-cargar cantidades
+  if (detalle) {
+    const lineas = detalle.replace(/\|/g, '\n').split('\n').filter(Boolean);
+    lineas.forEach(function(linea) {
+      const m = linea.match(/^(\d+)x?\s+(.+?)(?:\s+→|\s+\(|\s*$)/);
+      if (m) _editarQtys[m[2].trim()] = parseInt(m[1]) || 1;
+    });
+  }
+
+  // Construir y mostrar el overlay
+  const overlay = document.createElement('div');
+  overlay.className = 'editar-overlay';
+  overlay.id = 'editar-overlay';
+  overlay.innerHTML = editarHTML(p.cliente || 'Cliente');
+  document.body.appendChild(overlay);
+  document.body.style.overflow = 'hidden';
+  editarRenderItems();
+  editarActualizarTotal();
+}
+
+function editarHTML(cliente) {
+  return '<div class="editar-hdr">' +
+    '<button class="editar-hdr-back" onclick="editarCerrar()">←</button>' +
+    '<div class="editar-hdr-info">' +
+      '<div class="editar-hdr-cliente">✏️ ' + cliente + '</div>' +
+      '<div class="editar-hdr-sub">Editando pedido</div>' +
+    '</div>' +
+    '<div class="editar-hdr-total" id="editar-total">$0</div>' +
+  '</div>' +
+  '<div class="editar-body" id="editar-body"></div>' +
+  '<div class="editar-footer">' +
+    '<button class="editar-confirmar-btn" id="editar-confirmar-btn" onclick="editarConfirmar()" disabled>Guardar cambios</button>' +
+  '</div>';
+}
+
+function editarRenderItems() {
+  const body = document.getElementById('editar-body');
+  if (!body) return;
+  let html = '';
+
+  TOMADOR_CAT.forEach(function(sec) {
+    html += '<div class="editar-seccion-hdr">' + sec.sec + '</div>';
+    sec.items.forEach(function(item) {
+      const qty = _editarQtys[item.n] || 0;
+      const imgFile = IMGMAP[item.n] || (item.img + '.jpg');
+      const imgUrl  = 'https://tckcatalogo.com/img/' + encodeURIComponent(imgFile).replace(/%20/g,'%20');
+      html += '<div class="editar-item">' +
+        '<img class="editar-item-img" src="' + imgUrl + '" onerror="this.style.display=&quot;none&quot;">' +
+        '<div class="editar-item-info">' +
+          '<div class="editar-item-nombre">' + item.n + '</div>' +
+          '<div class="editar-item-pres">' + item.p + ' · $' + item.pr.toLocaleString('es-AR') + '</div>' +
+        '</div>' +
+        '<div class="editar-qty-ctrl">' +
+          '<button class="editar-qty-btn" data-nombre="' + item.n.replace(/"/g,'&quot;') + '" onclick="editarQty(this,-1)">−</button>' +
+          '<div class="editar-qty-num" id="editar-qty-' + item.n.replace(/[^a-zA-Z0-9]/g,'-') + '">' + (qty || 0) + '</div>' +
+          '<button class="editar-qty-btn" data-nombre="' + item.n.replace(/"/g,'&quot;') + '" onclick="editarQty(this,1)">+</button>' +
+        '</div>' +
+      '</div>';
+    });
+  });
+
+  body.innerHTML = html;
+}
+
+function editarQty(btn, delta) {
+  const nombre = btn.getAttribute('data-nombre');
+  const actual = _editarQtys[nombre] || 0;
+  const nuevo  = Math.max(0, actual + delta);
+  if (nuevo === 0) delete _editarQtys[nombre];
+  else _editarQtys[nombre] = nuevo;
+  // Actualizar el número en pantalla
+  const id = 'editar-qty-' + nombre.replace(/[^a-zA-Z0-9]/g,'-');
+  const el = document.getElementById(id);
+  if (el) el.textContent = nuevo;
+  editarActualizarTotal();
+}
+
+function editarActualizarTotal() {
+  let total = 0;
+  Object.keys(_editarQtys).forEach(function(nombre) {
+    const qty = _editarQtys[nombre];
+    TOMADOR_CAT.forEach(function(sec) {
+      sec.items.forEach(function(item) {
+        if (item.n === nombre) total += item.pr * qty;
+      });
+    });
+  });
+  const el = document.getElementById('editar-total');
+  if (el) el.textContent = '$' + Math.round(total).toLocaleString('es-AR');
+  const btn = document.getElementById('editar-confirmar-btn');
+  if (btn) {
+    btn.disabled = Object.keys(_editarQtys).length === 0;
+    btn.textContent = 'Guardar cambios — $' + Math.round(total).toLocaleString('es-AR');
+  }
+}
+
+function editarCerrar() {
+  const el = document.getElementById('editar-overlay');
+  if (el) el.remove();
+  document.body.style.overflow = '';
+}
+
+async function editarConfirmar() {
+  if (!_editarPedidoId || Object.keys(_editarQtys).length === 0) return;
+  const btn = document.getElementById('editar-confirmar-btn');
+  if (btn) { btn.disabled = true; btn.textContent = 'Guardando...'; }
+
+  // Recalcular totales
+  let total = 0;
+  let items = 0;
+  let resumenLineas = [];
+  let detalleParts = [];
+
+  Object.keys(_editarQtys).forEach(function(nombre) {
+    const qty = _editarQtys[nombre];
+    TOMADOR_CAT.forEach(function(sec) {
+      sec.items.forEach(function(item) {
+        if (item.n === nombre) {
+          const sub = item.pr * qty;
+          total += sub;
+          items += qty;
+          resumenLineas.push(qty + 'x ' + nombre);
+          detalleParts.push(qty + 'x ' + nombre + ' (' + item.p + ') → $' + sub.toLocaleString('es-AR'));
+        }
+      });
+    });
+  });
+
+  const resumen = resumenLineas.join(' | ');
+  const detalle = detalleParts.join(' | ');
+
+  try {
+    // Actualizar en el Sheet via Apps Script
+    const params = new URLSearchParams({
+      accion:        'editarPedido',
+      pedidoId:      _editarPedidoId,
+      fila:          _editarFila || '',
+      total:         total,
+      itemsTotales:  items,
+      resumenPedido: resumen,
+      detallePedido: detalle
+    });
+    const res = await fetch(SHEETS_ENDPOINT + '?' + params.toString());
+    const data = await res.json();
+    if (data.status === 'ok') {
+      toast('✅ Pedido actualizado', 'ok');
+      editarCerrar();
+      cargarPedidos(false); // recargar para ver los cambios
+    } else {
+      toast('❌ Error al guardar: ' + (data.message||''), 'err');
+      if (btn) { btn.disabled = false; btn.textContent = 'Guardar cambios'; }
+    }
+  } catch(e) {
+    toast('❌ Error de conexión', 'err');
+    if (btn) { btn.disabled = false; btn.textContent = 'Guardar cambios'; }
+  }
 }
 </script>
 
