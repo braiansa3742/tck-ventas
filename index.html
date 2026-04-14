@@ -10172,7 +10172,7 @@ function abrirSelectorEntrega(callback) {
     const mes    = MESES_ES[d.getMonth()];
     const label  = nombre + ' ' + num + ' de ' + mes;
     const labelCorto = i === 0 ? 'Hoy' : i === 1 ? 'Mañana' : nombre;
-    return '<button class="entrega-dia-btn" data-label="' + label + '" onclick="entregaSeleccionarDia(this,\"' + label + '\")">' +
+    return '<button class="entrega-dia-btn" data-label="' + label + '" onclick="entregaSeleccionarDiaBtn(this)">' +
       '<div class="entrega-dia-nombre">' + labelCorto + '</div>' +
       '<div class="entrega-dia-fecha">' + nombre + ' ' + num + '</div>' +
     '</button>';
@@ -10193,6 +10193,11 @@ function abrirSelectorEntrega(callback) {
       '<button class="entrega-confirmar-btn" id="entrega-confirmar-btn" onclick="entregaConfirmar()" disabled>Confirmar entrega</button>' +
     '</div>';
   document.body.appendChild(overlay);
+}
+
+function entregaSeleccionarDiaBtn(btn) {
+  const label = btn.getAttribute('data-label');
+  entregaSeleccionarDia(btn, label);
 }
 
 function entregaSeleccionarDia(btn, label) {
