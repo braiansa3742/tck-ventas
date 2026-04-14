@@ -8793,7 +8793,7 @@ function mapaActualizarLista(checkins, todasVisitas) {
 // ═══════════════════════════════════════════════════════
 
 // Productos del catálogo (copiados del index.html)
-const TOMADOR_CAT = [{"id":"pollos","sec":"POLLOS CONGELADOS","items":[{"n":"Pollo A","p":"x 20 Kg · Premium","pr":86000,"img":"pollo_ginosa"},{"n":"Pollo B","p":"x 20 Kg","pr":72000,"img":"pollo_optimo"},{"n":"Suprema","p":"x 5 Kg","pr":33000,"img":"supremas_bolsa"},{"n":"Suprema IQF","p":"x 15 Kg","pr":102000,"img":"suprema_iqf"},{"n":"Suprema B IQF","p":"x 20 Kg","pr":136000,"img":"suprema_iqf"}]},{"id":"trozados","sec":"TROZADOS","items":[{"n":"Fino de Ave Cocida","p":"x 10 Kg","pr":62400,"img":"empanada mordida","img2":"https://tckcatalogo.com/img/empanada%20mordida.png"},{"n":"Alita Congelada Granel","p":"x 15 Kg","pr":44000,"img":"alas"},{"n":"MDM - Carne Molida de Pollo","p":"x 20 Kg","pr":34000,"img":"mdm"},{"n":"Cuarto Trasero IQF","p":"x 15 Kg","pr":53000,"img":"patamuslo"}]},{"id":"shaddai","sec":"REBOZADOS EL SHADDAI","items":[{"n":"Medallon de Pollo Clasico","p":"x 6 Kg","pr":28500,"img":"medallon_clasico_v2"},{"n":"Medallon Pollo c/Cheddar","p":"x 6 Kg","pr":47800,"img":"medallon_cheddar_v2"},{"n":"Medallon Pollo JyQ","p":"x 6 Kg","pr":33500,"img":"medallon_jyq_v2"},{"n":"Medallon Pollo y Espinaca","p":"x 6 Kg","pr":33000,"img":"medallon_espinaca_v2"},{"n":"Formita Clasica","p":"x 6 Kg","pr":28500,"img":"formita_clasica_v2"},{"n":"Formitas Pollo JyQ","p":"x 6 Kg","pr":33500,"img":"formita_jyq_v2"},{"n":"Nuggets de Pollo Crocante","p":"x 6 Kg","pr":34500,"img":"nuggets_v2"},{"n":"Bocadito de Papa y Jamon","p":"x 6 Kg","pr":29000,"img":"bocadito_v2"},{"n":"Pechuguitas al Verdeo","p":"x 6 Kg","pr":45500,"img":"pechuguitas_v2"},{"n":"Filet Merluza Finas Hierbas","p":"x 6 Kg","pr":45600,"img":"merluza_hierbas_v2"},{"n":"Filet de Merluza Rebozado","p":"x 6 Kg","pr":43700,"img":"merluza_rebozado"},{"n":"Filet Merluza a Granel","p":"x 10 Kg","pr":80500,"img":"merluza_granel_v2"}]},{"id":"mila","sec":"MILANESAS Y HAMBURGUESAS","items":[{"n":"Milanesa de Nalga","p":"x 5 Kg","pr":68000,"img":"milanesa_nalga_v2"},{"n":"Milanesa de Pollo","p":"x 5 Kg","pr":40500,"img":"milanesa_pollo_v2"},{"n":"Hamburguesa 100% Carne","p":"x 4 Kg","pr":46600,"img":"hamburguesa_carne"}]},{"id":"papas","sec":"McCAIN & BALCARCE","items":[{"n":"Papa Baston Balcarce","p":"x 2,5 Kg","pr":8000,"img":"papa_baston"},{"n":"Pulpa de Palta","p":"x 450 Grs","pr":12200,"img":"pulpa_palta"}]},{"id":"huevos","sec":"HUEVOS","items":[{"n":"Maple N° 2","p":"30 unidades","pr":4800,"img":"huevos_maple"},{"n":"Maple N° 1","p":"30 unidades","pr":5500,"img":"huevos_maple"},{"n":"Cajita 1/2 Docena N° 2","p":"6 unidades","pr":1350,"img":"huevos_cajita"}]},{"id":"verd","sec":"VERDURAS CONGELADAS","items":[{"n":"Arándanos Solimeno","p":"500 Grs","pr":9000,"img":"arandanos"},{"n":"Brocoli","p":"500 Grs","pr":5800,"img":"brocoli"},{"n":"Espinacas","p":"500 Grs","pr":4000,"img":"espinaca"},{"n":"Morron","p":"500 Grs","pr":7000,"img":"morron"},{"n":"Primavera","p":"500 Grs","pr":5000,"img":"primavera"},{"n":"Frutos Rojos","p":"500 Grs","pr":11000,"img":"frutos_rojos"},{"n":"Cebolla","p":"500 Grs","pr":4000,"img":"cebolla"}]}];
+const TOMADOR_CAT = [{"id":"pollos","sec":"POLLOS CONGELADOS","items":[{"n":"Pollo A","p":"x 20 Kg · Premium","pr":86000,"img":"pollo_ginosa"},{"n":"Pollo B","p":"x 20 Kg","pr":72000,"img":"pollo_optimo"},{"n":"Suprema","p":"x 5 Kg","pr":33000,"img":"supremas_bolsa"},{"n":"Suprema IQF","p":"x 15 Kg","pr":102000,"img":"suprema_iqf"},{"n":"Suprema B IQF","p":"x 20 Kg","pr":136000,"img":"suprema_iqf"}]},{"id":"trozados","sec":"TROZADOS","items":[{"n":"Fino de Ave Cocida","p":"x 10 Kg","pr":62400,"img":"empanada mordida","img2":"https://tckcatalogo.com/img/empanada%20mordida.png"},{"n":"Alita Congelada Granel","p":"x 15 Kg","pr":44000,"img":"alas"},{"n":"MDM - Carne Molida de Pollo","p":"x 20 Kg","pr":34000,"img":"mdm"},{"n":"Cuarto Trasero IQF","p":"x 15 Kg","pr":53000,"img":"patamuslo"}]},{"id":"shaddai","sec":"REBOZADOS EL SHADDAI","items":[{"n":"Medallon de Pollo Clasico","p":"x 6 Kg","pr":28500,"img":"medallon_clasico_v2"},{"n":"Medallon Pollo c/Cheddar","p":"x 6 Kg","pr":47800,"img":"medallon_cheddar_v2"},{"n":"Medallon Pollo JyQ","p":"x 6 Kg","pr":33500,"img":"medallon_jyq_v2"},{"n":"Medallon Pollo y Espinaca","p":"x 6 Kg","pr":33000,"img":"medallon_espinaca_v2"},{"n":"Formita Clasica","p":"x 6 Kg","pr":28500,"img":"formita_clasica_v2"},{"n":"Formitas Pollo JyQ","p":"x 6 Kg","pr":33500,"img":"formita_jyq_v2"},{"n":"Nuggets de Pollo Crocante","p":"x 6 Kg","pr":34500,"img":"nuggets_v2"},{"n":"Bocadito de Papa y Jamon","p":"x 6 Kg","pr":29000,"img":"bocadito_v2"},{"n":"Pechuguitas al Verdeo","p":"x 6 Kg","pr":45500,"img":"pechuguitas_v2"},{"n":"Filet Merluza Finas Hierbas","p":"x 6 Kg","pr":45600,"img":"merluza_hierbas_v2"},{"n":"Filet de Merluza Rebozado","p":"x 6 Kg","pr":43700,"img":"merluza_rebozado"},{"n":"Filet Merluza a Granel","p":"x 10 Kg","pr":80500,"img":"merluza_granel_v2"}]},{"id":"mila","sec":"MILANESAS Y HAMBURGUESAS","items":[{"n":"Milanesa de Nalga","p":"x 5 Kg","pr":68000,"img":"milanesa_nalga_v2"},{"n":"Milanesa de Pollo","p":"x 5 Kg","pr":40500,"img":"milanesa_pollo_v2"},{"n":"Hamburguesa 100% Carne","p":"x 4 Kg","pr":46600,"img":"hamburguesa_carne"}]},{"id":"papas","sec":"McCAIN & BALCARCE","items":[{"n":"Papa Baston Balcarce","p":"x 2,5 Kg","pr":8000,"img":"papa_baston"},{"n":"Pulpa de Palta","p":"x 450 Grs","pr":12200,"img":"pulpa_palta"}]},{"id":"huevos","sec":"HUEVOS","items":[{"n":"Maple N° 2","p":"30 unidades","pr":4800,"img":"huevos_maple"},{"n":"Maple N° 1","p":"30 unidades","pr":5500,"img":"huevos_maple"},{"n":"Cajita 1/2 Docena N° 2","p":"6 unidades","pr":1350,"img":"huevos_cajita"}]},{"id":"verd","sec":"VERDURAS CONGELADAS","items":[{"n":"Arándanos Solimeno","p":"500 Grs","pr":9000,"img":"arandanos"},{"n":"Brocoli","p":"500 Grs","pr":5800,"img":"brocoli"},{"n":"Espinacas","p":"500 Grs","pr":4000,"img":"espinaca"},{"n":"Morron","p":"500 Grs","pr":7000,"img":"morron"},{"n":"Primavera","p":"500 Grs","pr":5000,"img":"primavera"},{"n":"Frutos Rojos","p":"500 Grs","pr":11000,"img":"frutos_rojos"},{"n":"Cebolla","p":"500 Grs","pr":4000,"img":"cebolla"}]},{"id":"pastas","sec":"PASTAS","items":[{"n":"Ravioles de Calabaza","p":"500 Grs","pr":3500,"img":"ravioles_calabaza"},{"n":"Raviolones Espinaca y Mozz","p":"500 Grs","pr":3800,"img":"raviolones_espinaca"},{"n":"Gnoquis de Papa","p":"500 Grs","pr":3000,"img":"gnoquis_papa"},{"n":"Gnoquis de Espinaca","p":"500 Grs","pr":3200,"img":"gnoquis_espinaca"},{"n":"Sorrentinos Jamon y Queso","p":"500 Grs","pr":4000,"img":"sorrentinos_jamqueso"},{"n":"Sorrentinos Ricota 4 Quesos","p":"400 Grs","pr":3800,"img":"sorrentinos_ricota"}]},{"id":"veggie","sec":"VEGGIE","items":[{"n":"Hamburguesa de Garbanzos","p":"400 Grs","pr":3500,"img":"Hamburguesa de Garbanzos"},{"n":"Hamburguesa de Lentejas","p":"400 Grs","pr":3500,"img":"Hamburguesa de Lentejas"},{"n":"Hamburguesa de Quinoa","p":"400 Grs","pr":3500,"img":"Hamburguesa de Quinoa"},{"n":"Hamburguesa de Arvejas","p":"400 Grs","pr":3500,"img":"Hamburguesa de Arvejas"},{"n":"Hamburguesa de Hongos","p":"400 Grs","pr":3500,"img":"Hamburguesa de Hongos"},{"n":"Hamburguesa de Espinaca","p":"400 Grs","pr":3500,"img":"Hamburguesa de Espinaca"},{"n":"Hamburguesa Mexicana","p":"400 Grs","pr":3500,"img":"Hamburguesa Mexicana"},{"n":"Hamburguesa 5 Vegetales","p":"400 Grs","pr":3500,"img":"Hamburguesa 5 Vegetales"}]}];
 
 const TOMADOR_SIN_STOCK = new Set(['MDM - Carne Molida de Pollo','Filet de Merluza Rebozado','Filet Merluza Finas Hierbas','Pollo A','Nuggets de Pollo Crocante','Bocadito de Papa y Jamon']);
 
@@ -10319,19 +10319,22 @@ function manualWAHTML() {
     prodsHtml += '<div class="tomador-sec-titulo">' + cat.sec + '</div>';
     prodsHtml += '<div class="tomador-grid">';
     cat.items.forEach(function(item) {
+      const sinStock = TOMADOR_SIN_STOCK.has(item.n);
       const imgFile = IMGMAP[item.n] || (item.img + '.jpg');
       const imgUrl  = 'https://tckcatalogo.com/img/' + encodeURIComponent(imgFile).replace(/%20/g,'%20');
       const safeName = item.n.replace(/'/g,"\'").replace(/"/g,'&quot;');
-      prodsHtml += '<div class="tomador-item" id="mwa-item-' + item.img + '">' +
+      const sinStockBadge = sinStock ? '<div style="position:absolute;top:4px;left:4px;background:#C62828;color:#fff;font-size:9px;font-weight:900;padding:2px 6px;border-radius:6px;font-family:Barlow Condensed,sans-serif;letter-spacing:.5px;">SIN STOCK</div>' : '';
+      prodsHtml += '<div class="tomador-item' + (sinStock ? ' sin-stock' : '') + '" id="mwa-item-' + item.img + '" style="position:relative;">' +
+        sinStockBadge +
         '<img class="tomador-item-img" src="' + (item.img2 || imgUrl) + '" onerror="this.style.display=&quot;none&quot;" loading="lazy">' +
         '<div class="tomador-item-body">' +
           '<div class="tomador-item-nombre">' + item.n + '</div>' +
           '<div class="tomador-item-presentacion">' + item.p + '</div>' +
           '<div class="tomador-item-precio">$' + item.pr.toLocaleString('es-AR') + '</div>' +
           '<div class="tomador-qty">' +
-            '<button class="tomador-qty-btn" onclick="manualWAQty(&quot;' + safeName + '&quot;,-1)">−</button>' +
+            '<button class="tomador-qty-btn" onclick="manualWAQty(&quot;' + safeName + '&quot;,-1)" ' + (sinStock ? 'disabled' : '') + '>−</button>' +
             '<span class="tomador-qty-num" id="mwa-qty-' + item.img + '">0</span>' +
-            '<button class="tomador-qty-btn plus" onclick="manualWAQty(&quot;' + safeName + '&quot;,1)">+</button>' +
+            '<button class="tomador-qty-btn plus" onclick="manualWAQty(&quot;' + safeName + '&quot;,1)" ' + (sinStock ? 'disabled' : '') + '>+</button>' +
           '</div>' +
         '</div>' +
       '</div>';
@@ -10374,24 +10377,64 @@ let _mwaBuscarTimer = null;
 function manualWABuscarCliente(q) {
   clearTimeout(_mwaBuscarTimer);
   const el = document.getElementById('mwa-sugerencias');
-  if (!q || q.length < 2) { if (el) el.innerHTML = ''; return; }
+  if (!el) return;
+  if (!q || q.length < 2) { el.innerHTML = ''; return; }
+
+  // Mostrar spinner
+  el.innerHTML = '<div style="padding:8px;color:var(--text3);font-size:12px;">Buscando...</div>';
+
   _mwaBuscarTimer = setTimeout(function() {
-    // Buscar en pedidos ya cargados
-    const nombres = new Set();
+    // 1. Buscar en historial local
+    const nombresLocal = new Set();
     todosLosPedidos.forEach(function(p) {
       if (p.cliente && p.cliente.toLowerCase().includes(q.toLowerCase())) {
-        nombres.add(p.cliente + '|||' + (p.localidad||''));
+        nombresLocal.add(p.cliente + '|||' + (p.localidad||''));
       }
     });
-    if (!nombres.size || !el) return;
-    el.innerHTML = Array.from(nombres).slice(0,4).map(function(s) {
-      const [nombre, loc] = s.split('|||');
-      return '<button style="display:block;width:100%;padding:8px 12px;margin-bottom:4px;background:var(--cream2);border:1px solid var(--cream3);border-radius:8px;text-align:left;cursor:pointer;font-size:13px;" ' +
-        'data-nombre="' + nombre.replace(/"/g,'&quot;') + '" data-loc="' + loc.replace(/"/g,'&quot;') + '" onclick="manualWAElegirClienteBtn(this)">' +
-        '👤 ' + nombre + (loc ? '<span style="color:var(--text3);"> · ' + loc + '</span>' : '') +
-      '</button>';
-    }).join('');
-  }, 200);
+
+    function renderSugerencias(extras) {
+      const todos = new Map();
+      // Locales primero
+      Array.from(nombresLocal).forEach(function(s) {
+        const [nombre, loc] = s.split('|||');
+        todos.set(nombre.toLowerCase(), { nombre, loc, fuente: 'historial' });
+      });
+      // Xubio encima (más confiable)
+      (extras || []).forEach(function(c) {
+        todos.set((c.nombre||c.razonSocial||'').toLowerCase(), {
+          nombre: c.nombre || c.razonSocial || '',
+          loc: c.localidad || '',
+          fuente: 'xubio'
+        });
+      });
+
+      if (!todos.size) {
+        el.innerHTML = '<div style="padding:8px;color:var(--text3);font-size:12px;">No se encontraron clientes</div>';
+        return;
+      }
+
+      el.innerHTML = Array.from(todos.values()).slice(0,6).map(function(c) {
+        const badge = c.fuente === 'xubio'
+          ? '<span style="background:#E8F5E9;color:#2E7D32;border-radius:10px;padding:1px 6px;font-size:10px;font-weight:700;margin-left:4px;">Xubio</span>'
+          : '';
+        return '<button style="display:block;width:100%;padding:8px 12px;margin-bottom:4px;background:var(--cream2);border:1px solid var(--cream3);border-radius:8px;text-align:left;cursor:pointer;font-size:13px;" ' +
+          'data-nombre="' + c.nombre.replace(/"/g,'&quot;') + '" data-loc="' + (c.loc||'').replace(/"/g,'&quot;') + '" onclick="manualWAElegirClienteBtn(this)">' +
+          '👤 ' + c.nombre + badge + (c.loc ? '<span style="color:var(--text3);"> · ' + c.loc + '</span>' : '') +
+        '</button>';
+      }).join('');
+    }
+
+    // 2. Buscar también en Xubio via Apps Script
+    fetch(APPS_SCRIPT_URL + '?accion=buscarClienteXubio&q=' + encodeURIComponent(q))
+      .then(function(r) { return r.json(); })
+      .then(function(data) {
+        renderSugerencias(data.status === 'ok' ? data.clientes : []);
+      })
+      .catch(function() {
+        // Si Xubio falla, mostrar solo locales
+        renderSugerencias([]);
+      });
+  }, 300);
 }
 
 function manualWAElegirClienteBtn(btn) {
