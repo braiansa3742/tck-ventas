@@ -3494,8 +3494,8 @@ body {
       // Filtrar botones de login según el dominio — se ejecuta inmediatamente
       (function() {
         var host = window.location.hostname;
-        var esAdmin  = host === 'tckadmin.lat'  || host === 'www.tckadmin.lat';
-        var esVentas = host === 'tckventas.com' || host === 'www.tckventas.com';
+        var esAdmin = host === 'tckadmin.lat' || host === 'www.tckadmin.lat';
+        // Por defecto ocultar Admin — solo visible en tckadmin.lat
         if (esAdmin) {
           // tckadmin.lat — solo mostrar Admin, ocultar vendedores
           ['login-btn-miguel','login-btn-juan','login-btn-lisandro'].forEach(function(id) {
@@ -3504,8 +3504,8 @@ body {
           });
           var sub = document.getElementById('login-sub');
           if (sub) sub.textContent = 'Acceso de administración';
-        } else if (esVentas) {
-          // tckventas.com — ocultar Admin, solo mostrar vendedores
+        } else {
+          // tckventas.com (o cualquier otro — nav privada, etc) — ocultar Admin
           var admin = document.getElementById('login-btn-admin');
           if (admin) admin.style.display = 'none';
         }
@@ -4975,10 +4975,12 @@ function renderCard(p) {
 
   // Definir/cambiar fecha de entrega — todos los vendedores (no choferes)
   if (!esChofer && (p.estado === 'Pendiente' || p.estado === 'Confirmado')) {
-    var entregaLabel = p.fechaEntrega
-      ? (p.turnoEntrega === 'Ma\u00F1ana' ? '\uD83C\uDF05' : '\uD83C\uDF06') + ' ' + p.fechaEntrega.split(' ')[0] + ' ' + p.fechaEntrega.split(' ')[1] + ' ' + p.turnoEntrega
+    // Solo mostrar fecha si es una fecha real (ej: "Lunes 14 de abril"), no el origen del pedido
+    var esFechaReal = p.fechaEntrega && /^(Lunes|Martes|Mi|Jueves|Viernes|S|Domingo)/i.test(p.fechaEntrega);
+    var entregaLabel = esFechaReal
+      ? (p.turnoEntrega === 'Ma\u00F1ana' ? '\uD83C\uDF05' : '\uD83C\uDF06') + ' ' + p.fechaEntrega.split(' ').slice(0,2).join(' ') + ' · ' + (p.turnoEntrega || '')
       : '\uD83D\uDCC5 Definir entrega';
-    var entregaStyle = p.fechaEntrega
+    var entregaStyle = esFechaReal
       ? 'background:#E3F2FD;color:#1565C0;border-color:#1565C0;'
       : 'background:#FFF3E0;color:#E65100;border-color:#E65100;';
     btns += '<button class="btn-estado" style="' + entregaStyle + '" data-pid="' + p.pedidoId + '" data-fila="' + p.fila + '" onclick="definirEntregaBtn(this,event)">' + entregaLabel + '</button>';
@@ -10121,7 +10123,7 @@ async function editarConfirmar() {
       resumenPedido: resumen,
       detallePedido: detalle
     });
-    const res = await fetch(SHEETS_ENDPOINT + '?' + params.toString());
+    const res = await fetch(APPS_SCRIPT_URL + '?' + params.toString());
     const data = await res.json();
     if (data.status === 'ok') {
       toast('✅ Pedido actualizado', 'ok');
@@ -10185,8 +10187,8 @@ function abrirSelectorEntrega(callback) {
       '<div class="entrega-selector-sub">Definí el día y el turno con el cliente</div>' +
       '<div class="entrega-dias-scroll">' + diasHtml + '</div>' +
       '<div class="entrega-turnos">' +
-        '<button class="entrega-turno-btn manana" data-turno="Ma\u00F1ana" onclick="entregaSeleccionarTurnoBtn(this)">🌅 Mañana</button>' +
-        '<button class="entrega-turno-btn tarde"  data-turno="Tarde" onclick="entregaSeleccionarTurnoBtn(this)">🌆 Tarde</button>' +
+        '<button class="entrega-turno-btn manana" data-turno="Manana" onclick="entregaSeleccionarTurnoBtn(this)">🌅 Mañana</button>' +
+        '<button class="entrega-turno-btn tarde"  data-turno="Tarde"  onclick="entregaSeleccionarTurnoBtn(this)">🌆 Tarde</button>' +
       '</div>' +
       '<button class="entrega-confirmar-btn" id="entrega-confirmar-btn" onclick="entregaConfirmar()" disabled>Confirmar entrega</button>' +
     '</div>';
@@ -10201,7 +10203,9 @@ function entregaSeleccionarDia(btn, label) {
 }
 
 function entregaSeleccionarTurnoBtn(btn) {
-  const turno = btn.getAttribute('data-turno');
+  // Mapear "Manana" → "Mañana" (el data-turno evita el encoding issue con ñ)
+  const raw   = btn.getAttribute('data-turno');
+  const turno = raw === 'Manana' ? 'Mañana' : raw;
   entregaSeleccionarTurno(btn, turno);
 }
 
