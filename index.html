@@ -10183,7 +10183,10 @@ function abrirSelectorEntrega(callback) {
   overlay.id = 'entrega-selector-overlay';
   overlay.innerHTML =
     '<div class="entrega-selector-sheet">' +
-      '<div class="entrega-selector-titulo">📅 ¿Cuándo se entrega?</div>' +
+      '<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:4px;">' +
+        '<div class="entrega-selector-titulo">📅 ¿Cuándo se entrega?</div>' +
+        '<button onclick="entregaCancelar()" style="background:var(--cream2);border:none;border-radius:50%;width:32px;height:32px;font-size:18px;color:var(--text2);cursor:pointer;display:flex;align-items:center;justify-content:center;flex-shrink:0;">✕</button>' +
+      '</div>' +
       '<div class="entrega-selector-sub">Definí el día y el turno con el cliente</div>' +
       '<div class="entrega-dias-scroll">' + diasHtml + '</div>' +
       '<div class="entrega-turnos">' +
@@ -10191,8 +10194,18 @@ function abrirSelectorEntrega(callback) {
         '<button class="entrega-turno-btn tarde"  data-turno="Tarde"  onclick="entregaSeleccionarTurnoBtn(this)">🌆 Tarde</button>' +
       '</div>' +
       '<button class="entrega-confirmar-btn" id="entrega-confirmar-btn" onclick="entregaConfirmar()" disabled>Confirmar entrega</button>' +
+      '<button onclick="entregaCancelar()" style="width:100%;padding:12px;margin-top:8px;background:none;border:none;font-family:Barlow Condensed,sans-serif;font-size:15px;color:var(--text3);cursor:pointer;">Cancelar</button>' +
     '</div>';
+  overlay.addEventListener('click', function(e) { if (e.target === overlay) entregaCancelar(); });
   document.body.appendChild(overlay);
+}
+
+function entregaCancelar() {
+  const overlay = document.getElementById('entrega-selector-overlay');
+  if (overlay) overlay.remove();
+  _entregaCallback = null;
+  _entregaDiaSeleccionado  = null;
+  _entregaTurnoSeleccionado = null;
 }
 
 function entregaSeleccionarDiaBtn(btn) {
