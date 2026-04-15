@@ -3229,7 +3229,10 @@ body {
 .entrega-item-nombre { font-family: 'Barlow Condensed',sans-serif; font-size: 16px; font-weight: 900; color: var(--text); flex: 1; }
 .entrega-item-nombre.entregado-nombre { color: var(--text3); text-decoration: line-through; }
 .entrega-item-monto { font-family: 'Barlow Condensed',sans-serif; font-size: 16px; font-weight: 900; color: #1565C0; flex-shrink: 0; margin-left: 8px; }
-.entrega-item-comercio { font-size: 11px; color: var(--text3); margin-bottom: 6px; }
+.entrega-item-comercio { font-size: 11px; color: var(--text3); margin-bottom: 3px; }
+.entrega-item-dir { font-size: 11px; margin-bottom: 3px; }
+.entrega-item-dir--ok { color: #1565C0; font-weight: 700; }
+.entrega-item-dir--no { color: #C4A882; font-style: italic; }
 .entrega-estado-badge {
   display: inline-flex; align-items: center; padding: 2px 8px;
   border-radius: 20px; font-size: 10px; font-weight: 800; margin-bottom: 6px;
@@ -9927,6 +9930,10 @@ function renderEntregas(entregas) {
       const ciudadEsc   = ciudad.replace(/'/g, "\\'");
 
       const turno = e.turno_entrega ? (e.turno_entrega === 'Mañana' ? '🌅 Mañana' : '🌆 Tarde') : '';
+      const coords = _coordsCache[e.cliente];
+      const direccionHtml = coords
+        ? '<div class="entrega-item-dir entrega-item-dir--ok">📍 Ubicación registrada</div>'
+        : '<div class="entrega-item-dir entrega-item-dir--no">📍 Sin dirección — Maps buscará por nombre</div>';
 
       html += '<div class="entrega-item' + (e.estado === 'entregado' ? ' entregado-item' : '') + '" id="entrega-item-' + e.id + '">' +
         '<div class="entrega-item-top">' +
@@ -9937,6 +9944,7 @@ function renderEntregas(entregas) {
               : (e.nota && !e.nota.match(/^\d+ producto/)
                   ? '<div class="entrega-item-comercio">📝 ' + e.nota + '</div>'
                   : '')) +
+            direccionHtml +
             (turno ? '<div class="entrega-item-comercio">' + turno + '</div>' : '') +
           '</div>' +
           '<div style="text-align:right;flex-shrink:0;margin-left:8px;">' +
