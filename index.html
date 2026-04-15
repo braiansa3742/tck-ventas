@@ -5685,8 +5685,8 @@ function cambiarTab(tab) {
   if (_tabActual === tab) return;
   _tabActual = tab;
 
-  // Views
-  ['pedidos','midia','clientes','gps','mapa','reportes','bot'].forEach(function(t) {
+  // Views — incluye entregas para choferes
+  ['pedidos','midia','clientes','gps','mapa','reportes','bot','entregas'].forEach(function(t) {
     var v = document.getElementById('view-' + t);
     var b = document.getElementById('tab-btn-' + t);
     if (v) v.classList.toggle('active', t === tab);
