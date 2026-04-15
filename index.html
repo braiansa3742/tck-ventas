@@ -3162,62 +3162,148 @@ body {
 /* ═══════════════════════════════════════════════════════════════
    PANEL CHOFER — ENTREGAS
 ═══════════════════════════════════════════════════════════════ */
+
+/* ── Resumen del día ── */
+.entrega-resumen-wrap {
+  background: linear-gradient(135deg, #0D47A1, #1565C0);
+  border-radius: 16px; padding: 16px; margin-bottom: 14px;
+  box-shadow: 0 4px 16px rgba(21,101,192,.25);
+}
+.entrega-resumen-top {
+  display: flex; justify-content: space-between; align-items: flex-start;
+  margin-bottom: 14px;
+}
+.entrega-resumen-titulo {
+  font-family: 'Barlow Condensed', sans-serif; font-size: 13px;
+  font-weight: 700; color: rgba(255,255,255,.65); text-transform: uppercase;
+  letter-spacing: 1px; margin-bottom: 2px;
+}
+.entrega-resumen-val {
+  font-family: 'Barlow Condensed', sans-serif; font-size: 28px;
+  font-weight: 900; color: #fff; line-height: 1;
+}
+.entrega-resumen-sub {
+  font-size: 11px; color: rgba(255,255,255,.5); margin-top: 2px;
+}
+/* Barra de progreso */
+.entrega-progress-wrap {
+  background: rgba(255,255,255,.15); border-radius: 20px;
+  height: 8px; overflow: hidden; margin-bottom: 10px;
+}
+.entrega-progress-bar {
+  height: 100%; background: #FFD700; border-radius: 20px;
+  transition: width .4s ease;
+}
+.entrega-progress-label {
+  font-size: 11px; color: rgba(255,255,255,.6); text-align: center;
+  margin-bottom: 12px;
+}
+/* Desglose cobro */
+.entrega-cobro-grid {
+  display: grid; grid-template-columns: repeat(2, 1fr); gap: 8px;
+}
+.entrega-cobro-item {
+  background: rgba(255,255,255,.1); border-radius: 10px;
+  padding: 8px 10px; text-align: center;
+}
+.entrega-cobro-label {
+  font-size: 10px; color: rgba(255,255,255,.55);
+  text-transform: uppercase; letter-spacing: .5px; margin-bottom: 2px;
+}
+.entrega-cobro-val {
+  font-family: 'Barlow Condensed', sans-serif; font-size: 16px;
+  font-weight: 900; color: #fff;
+}
+
+/* ── Cards de parada ── */
 .entrega-card {
-  background: #fff; border-radius: 14px; margin-bottom: 12px;
+  background: #fff; border-radius: 16px; margin-bottom: 12px;
   border: 1.5px solid rgba(21,101,192,.12); overflow: hidden;
-  box-shadow: 0 2px 8px rgba(0,0,0,.06);
+  box-shadow: 0 2px 10px rgba(0,0,0,.07);
+}
+.entrega-card.completada {
+  border-color: rgba(46,125,50,.2);
+  opacity: .75;
 }
 .entrega-card-hdr {
   background: linear-gradient(135deg, #1565C0, #1976D2);
-  padding: 12px 16px; display: flex; align-items: center; justify-content: space-between;
+  padding: 10px 14px; display: flex; align-items: center;
+  justify-content: space-between; gap: 8px;
+}
+.entrega-card.completada .entrega-card-hdr {
+  background: linear-gradient(135deg, #2E7D32, #388E3C);
 }
 .entrega-card-ciudad {
-  font-family: 'Barlow Condensed', sans-serif; font-size: 18px;
+  font-family: 'Barlow Condensed', sans-serif; font-size: 17px;
   font-weight: 900; color: #fff; letter-spacing: .5px;
+}
+.entrega-card-badges {
+  display: flex; gap: 6px; align-items: center; flex-shrink: 0;
 }
 .entrega-card-orden {
   background: rgba(255,255,255,.2); border-radius: 20px;
-  padding: 3px 10px; font-size: 11px; font-weight: 800; color: #fff;
+  padding: 3px 9px; font-size: 11px; font-weight: 800; color: #fff;
 }
+.entrega-card-check {
+  font-size: 14px;
+}
+
+/* ── Items ── */
 .entrega-item {
   padding: 14px 16px; border-bottom: 1px solid #f0f4ff;
+  transition: background .15s;
 }
 .entrega-item:last-child { border-bottom: none; }
-.entrega-item-top { display: flex; align-items: flex-start; justify-content: space-between; margin-bottom: 6px; }
-.entrega-item-nombre {
-  font-family: 'Barlow Condensed', sans-serif; font-size: 17px;
-  font-weight: 900; color: var(--text); flex: 1;
+.entrega-item.entregado-item { background: #F9FBF9; }
+.entrega-item-top {
+  display: flex; align-items: flex-start;
+  justify-content: space-between; margin-bottom: 4px;
 }
+.entrega-item-nombre {
+  font-family: 'Barlow Condensed', sans-serif; font-size: 18px;
+  font-weight: 900; color: var(--text); flex: 1; line-height: 1.1;
+}
+.entrega-item-nombre.entregado-nombre { color: var(--text3); }
 .entrega-item-monto {
   font-family: 'Barlow Condensed', sans-serif; font-size: 18px;
-  font-weight: 900; color: #1565C0;
+  font-weight: 900; color: #1565C0; flex-shrink: 0; margin-left: 8px;
 }
-.entrega-item-detalle {
-  font-size: 12px; color: var(--text3); margin-bottom: 10px; line-height: 1.5;
+.entrega-item-comercio {
+  font-size: 12px; color: var(--text2); margin-bottom: 8px;
 }
 .entrega-estado-badge {
   display: inline-flex; align-items: center; gap: 4px;
   padding: 3px 10px; border-radius: 20px; font-size: 11px;
-  font-weight: 800; letter-spacing: .5px; margin-bottom: 10px;
+  font-weight: 800; letter-spacing: .3px; margin-bottom: 10px;
 }
 .entrega-estado-badge.pendiente { background: #FFF8E1; color: #E65100; }
 .entrega-estado-badge.en-camino { background: #E3F2FD; color: #1565C0; }
 .entrega-estado-badge.entregado { background: #E8F5E9; color: #2E7D32; }
+
+/* ── Botones de acción ── */
 .entrega-btns { display: flex; gap: 8px; flex-wrap: wrap; }
 .entrega-btn {
-  flex: 1; min-width: 120px; padding: 10px 12px; border: none; border-radius: 10px;
-  font-family: 'Barlow Condensed', sans-serif; font-size: 14px; font-weight: 800;
-  cursor: pointer; transition: opacity .15s; letter-spacing: .3px; text-align: center;
+  flex: 1; min-width: 90px; padding: 10px 10px; border: none;
+  border-radius: 10px; font-family: 'Barlow Condensed', sans-serif;
+  font-size: 14px; font-weight: 800; cursor: pointer;
+  transition: opacity .15s, transform .1s; letter-spacing: .2px;
+  text-align: center; -webkit-tap-highlight-color: transparent;
+  touch-action: manipulation;
 }
-.entrega-btn:active { opacity: .8; }
+.entrega-btn:active { opacity: .8; transform: scale(.97); }
 .entrega-btn.avisar {
   background: linear-gradient(135deg, #25D366, #1a9e4e); color: #fff;
 }
+.entrega-btn.maps {
+  background: linear-gradient(135deg, #E65100, #F57C00); color: #fff;
+}
 .entrega-btn.entregar {
-  background: linear-gradient(135deg, #1565C0, #1976D2); color: #fff;
+  background: linear-gradient(135deg, #1B5E20, #2E7D32); color: #fff;
+  font-size: 15px;
 }
 .entrega-btn.entregado-done {
   background: #E8F5E9; color: #2E7D32; cursor: default;
+  font-size: 13px;
 }
 
 /* Modal cobro */
@@ -3229,10 +3315,11 @@ body {
 .cobro-sheet {
   background: #fff; border-radius: 22px 22px 0 0; width: 100%;
   padding: 22px 20px calc(22px + env(safe-area-inset-bottom));
+  box-shadow: 0 -8px 32px rgba(0,0,0,.2);
 }
 .cobro-titulo {
   font-family: 'Barlow Condensed', sans-serif; font-size: 22px;
-  font-weight: 900; color: var(--red); margin-bottom: 4px;
+  font-weight: 900; color: var(--green); margin-bottom: 4px;
 }
 .cobro-sub { font-size: 13px; color: var(--text3); margin-bottom: 18px; }
 .cobro-opciones { display: flex; flex-direction: column; gap: 10px; margin-bottom: 14px; }
@@ -3241,8 +3328,11 @@ body {
   font-family: 'Barlow Condensed', sans-serif; font-size: 18px; font-weight: 700;
   background: #fff; cursor: pointer; text-align: left; transition: all .15s;
   display: flex; align-items: center; gap: 10px;
+  -webkit-tap-highlight-color: transparent; touch-action: manipulation;
 }
-.cobro-opt:active, .cobro-opt.sel { background: rgba(21,101,192,.08); border-color: #1565C0; color: #1565C0; }
+.cobro-opt:active, .cobro-opt.sel {
+  background: rgba(27,94,32,.08); border-color: #2E7D32; color: #2E7D32;
+}
 .cobro-cancel {
   width: 100%; padding: 13px; background: #f5f5f5; border: none;
   border-radius: 12px; font-family: 'Barlow Condensed', sans-serif;
@@ -3254,10 +3344,6 @@ body {
   display: flex; justify-content: space-between; align-items: center;
 }
 .entrega-resumen-label { font-size: 12px; color: rgba(255,255,255,.7); margin-bottom: 2px; }
-.entrega-resumen-val {
-  font-family: 'Barlow Condensed', sans-serif; font-size: 24px;
-  font-weight: 900; color: #fff;
-}
 
 /* ── Asignar chofer ── */
 .btn-asignar {
@@ -9624,6 +9710,8 @@ const RUTA_FIJA = [
 ];
 
 let _entregasPedidoActual = null; // pedido_id en proceso de cobro
+let _entregaClienteActual = null; // cliente en proceso de cobro
+let _entregaCiudadActual  = null; // ciudad en proceso de cobro
 let _entregasCache = [];
 
 async function cargarEntregas() {
@@ -9647,6 +9735,8 @@ async function cargarEntregas() {
     }
 
     _entregasCache = entregas || [];
+    // Cargar coordenadas GPS de los clientes en paralelo
+    await cargarCoordsClientes(_entregasCache);
     renderEntregas(_entregasCache);
     renderResumenChofer(_entregasCache);
 
@@ -9721,20 +9811,87 @@ async function asignarPedidosChofer() {
 function renderResumenChofer(entregas) {
   const el = document.getElementById('entregas-resumen');
   if (!entregas.length) { el.style.display = 'none'; return; }
-  const total     = entregas.reduce((s, e) => s + (parseFloat(e.monto) || 0), 0);
-  const entregadas = entregas.filter(e => e.estado === 'entregado').length;
+
+  const entregadas  = entregas.filter(e => e.estado === 'entregado').length;
+  const pendientes  = entregas.length - entregadas;
+  const pct         = entregas.length ? Math.round(entregadas / entregas.length * 100) : 0;
+
+  // Totales por forma de cobro
+  const cobros = { efectivo: 0, transferencia: 0, cheque: 0, cuenta_corriente: 0 };
+  let totalCobrado = 0;
+  entregas.filter(e => e.estado === 'entregado').forEach(e => {
+    const m = parseFloat(e.monto) || 0;
+    totalCobrado += m;
+    if (cobros[e.forma_cobro] !== undefined) cobros[e.forma_cobro] += m;
+  });
+  const totalDia = entregas.reduce((s, e) => s + (parseFloat(e.monto) || 0), 0);
+
+  const fmt = n => '$' + Math.round(n).toLocaleString('es-AR');
+
   el.style.display = '';
   el.innerHTML =
-    '<div class="entrega-resumen-hdr">' +
-      '<div>' +
-        '<div class="entrega-resumen-label">Total del día</div>' +
-        '<div class="entrega-resumen-val">$' + Math.round(total).toLocaleString('es-AR') + '</div>' +
+    '<div class="entrega-resumen-wrap">' +
+      '<div class="entrega-resumen-top">' +
+        '<div>' +
+          '<div class="entrega-resumen-titulo">Total del día</div>' +
+          '<div class="entrega-resumen-val">' + fmt(totalDia) + '</div>' +
+          '<div class="entrega-resumen-sub">Cobrado: ' + fmt(totalCobrado) + '</div>' +
+        '</div>' +
+        '<div style="text-align:right">' +
+          '<div class="entrega-resumen-titulo">Entregas</div>' +
+          '<div class="entrega-resumen-val">' + entregadas + '<span style="font-size:16px;opacity:.6;"> / ' + entregas.length + '</span></div>' +
+          '<div class="entrega-resumen-sub">' + pendientes + ' pendiente' + (pendientes !== 1 ? 's' : '') + '</div>' +
+        '</div>' +
       '</div>' +
-      '<div style="text-align:right">' +
-        '<div class="entrega-resumen-label">Entregas</div>' +
-        '<div class="entrega-resumen-val">' + entregadas + ' / ' + entregas.length + '</div>' +
+      '<div class="entrega-progress-wrap">' +
+        '<div class="entrega-progress-bar" style="width:' + pct + '%"></div>' +
+      '</div>' +
+      '<div class="entrega-progress-label">' + pct + '% completado</div>' +
+      '<div class="entrega-cobro-grid">' +
+        '<div class="entrega-cobro-item"><div class="entrega-cobro-label">💵 Efectivo</div><div class="entrega-cobro-val">' + fmt(cobros.efectivo) + '</div></div>' +
+        '<div class="entrega-cobro-item"><div class="entrega-cobro-label">📲 Transfer.</div><div class="entrega-cobro-val">' + fmt(cobros.transferencia) + '</div></div>' +
+        '<div class="entrega-cobro-item"><div class="entrega-cobro-label">📋 Cheque</div><div class="entrega-cobro-val">' + fmt(cobros.cheque) + '</div></div>' +
+        '<div class="entrega-cobro-item"><div class="entrega-cobro-label">📒 Cta. Cte.</div><div class="entrega-cobro-val">' + fmt(cobros.cuenta_corriente) + '</div></div>' +
       '</div>' +
     '</div>';
+}
+
+// Cache de coordenadas: cliente → {lat, lng}
+let _coordsCache = {};
+
+async function cargarCoordsClientes(entregas) {
+  // Obtener lista única de clientes
+  const nombres = [...new Set(entregas.map(e => e.cliente).filter(Boolean))];
+  if (!nombres.length) return;
+  try {
+    // Buscar coordenadas en clientes_ubicaciones
+    const rows = await sbFetch(
+      'clientes_ubicaciones?nombre_cliente=in.(' +
+      nombres.map(n => encodeURIComponent('"' + n + '"')).join(',') +
+      ')&select=nombre_cliente,lat,lng&lat=not.is.null'
+    );
+    if (rows && rows.length) {
+      rows.forEach(r => {
+        if (r.lat && r.lng) _coordsCache[r.nombre_cliente] = { lat: r.lat, lng: r.lng };
+      });
+    }
+  } catch(e) {
+    console.warn('cargarCoordsClientes:', e);
+  }
+}
+
+function abrirMapsCliente(cliente, comercio, ciudad) {
+  const coords = _coordsCache[cliente];
+  let url;
+  if (coords && coords.lat && coords.lng) {
+    // Coordenadas exactas del GPS
+    url = 'https://www.google.com/maps/dir/?api=1&destination=' + coords.lat + ',' + coords.lng + '&travelmode=driving';
+  } else {
+    // Fallback: buscar por nombre de negocio + ciudad
+    const query = encodeURIComponent((comercio || cliente) + ', ' + (ciudad || ''));
+    url = 'https://www.google.com/maps/search/?api=1&query=' + query;
+  }
+  window.open(url, '_blank');
 }
 
 function renderEntregas(entregas) {
@@ -9761,45 +9918,63 @@ function renderEntregas(entregas) {
 
   let html = '';
   let orden = 1;
+
   ciudades.forEach(function(ciudad) {
-    const items = porCiudad[ciudad];
-    html += '<div class="entrega-card">' +
+    const items    = porCiudad[ciudad];
+    const allDone  = items.every(e => e.estado === 'entregado');
+
+    html += '<div class="entrega-card' + (allDone ? ' completada' : '') + '">' +
       '<div class="entrega-card-hdr">' +
         '<div class="entrega-card-ciudad">📍 ' + ciudad + '</div>' +
-        '<div class="entrega-card-orden">Parada ' + orden++ + '</div>' +
+        '<div class="entrega-card-badges">' +
+          (allDone ? '<span class="entrega-card-check">✅</span>' : '') +
+          '<div class="entrega-card-orden">Parada ' + orden++ + '</div>' +
+        '</div>' +
       '</div>';
 
     items.forEach(function(e) {
-      const estadoCls = e.estado === 'entregado' ? 'entregado' : (e.estado === 'en_camino' ? 'en-camino' : 'pendiente');
+      const estadoCls   = e.estado === 'entregado' ? 'entregado' : (e.estado === 'en_camino' ? 'en-camino' : 'pendiente');
       const estadoLabel = { pendiente: '⏳ Pendiente', en_camino: '🚚 En camino', entregado: '✅ Entregado' }[e.estado] || '⏳ Pendiente';
-      const tel = (e.telefono_cliente || '').replace(/\D/g, '');
-      const waNum = tel.startsWith('54') ? tel : ('549' + tel);
-      const totalFmt = e.monto ? ('$' + Math.round(e.monto).toLocaleString('es-AR')) : '—';
+      const tel         = (e.telefono_cliente || '').replace(/\D/g, '');
+      const waNum       = tel ? (tel.startsWith('54') ? tel : ('549' + tel)) : '';
+      const totalFmt    = e.monto ? ('$' + Math.round(e.monto).toLocaleString('es-AR')) : '—';
+      const tieneCoords = _coordsCache[e.cliente] ? '📍' : '🗺️';
+      // Escapar para uso en onclick
+      const clienteEsc  = (e.cliente || '').replace(/'/g, "\\'").replace(/"/g, '&quot;');
+      const comercioEsc = (e.comercio || e.nota || '').replace(/'/g, "\\'");
+      const ciudadEsc   = ciudad.replace(/'/g, "\\'");
 
-      html += '<div class="entrega-item" id="entrega-item-' + e.id + '">' +
+      html += '<div class="entrega-item' + (e.estado === 'entregado' ? ' entregado-item' : '') + '" id="entrega-item-' + e.id + '">' +
         '<div class="entrega-item-top">' +
-          '<div class="entrega-item-nombre">' + (e.cliente || '—') + '</div>' +
+          '<div class="entrega-item-nombre' + (e.estado === 'entregado' ? ' entregado-nombre' : '') + '">' + (e.cliente || '—') + '</div>' +
           '<div class="entrega-item-monto">' + totalFmt + '</div>' +
         '</div>' +
-        '<div class="entrega-item-detalle">' + (e.nota || 'Pedido ' + (e.pedido_id || '')) + '</div>' +
-        '<div class="entrega-estado-badge ' + estadoCls + '">' + estadoLabel + '</div>' +
+        (e.comercio ? '<div class="entrega-item-comercio">🏪 ' + e.comercio + '</div>' : '') +
+        '<div class="entrega-estado-badge ' + estadoCls + '">' + estadoLabel +
+          (e.estado === 'entregado' && e.forma_cobro ? ' · ' + e.forma_cobro.replace('_', ' ') : '') +
+        '</div>' +
         '<div class="entrega-btns">';
 
       if (e.estado !== 'entregado') {
-        if (tel) {
+        // Botón Maps
+        html += '<button class="entrega-btn maps" onclick="abrirMapsCliente(\'' + clienteEsc + '\',\'' + comercioEsc + '\',\'' + ciudadEsc + '\')">' +
+          tieneCoords + ' Maps</button>';
+        // Botón WA
+        if (waNum) {
           const msgWA = encodeURIComponent(
             'Hola ' + (e.cliente || '') + '! 👋 Soy el repartidor de TCK The Chicken Kings. ' +
-            'Estoy en camino a ' + ciudad + ' con tu pedido. ' +
-            'En breve estaré llegando. ¿Confirmás que vas a estar disponible? 🚚'
+            'Estoy en camino a ' + ciudad + ' con tu pedido. ¿Confirmás que vas a estar disponible? 🚚'
           );
           html += '<button class="entrega-btn avisar" onclick="avisarClienteWA(\'' + waNum + '\',\'' + msgWA + '\')">' +
-            '📍 Avisar al cliente</button>';
+            '📲 Avisar</button>';
         }
-        html += '<button class="entrega-btn entregar" data-id="' + e.id + '" data-nombre="' + (e.cliente||'').replace(/"/g,'') + '" data-monto="' + (e.monto||0) + '" onclick="abrirCobroModalBtn(this)">' +
-          '✅ Entregado</button>'
+        // Botón Entregado
+        html += '<button class="entrega-btn entregar" data-id="' + e.id + '" data-nombre="' + clienteEsc + '" data-monto="' + (e.monto || 0) + '" data-cliente="' + clienteEsc + '" data-ciudad="' + ciudadEsc + '" onclick="abrirCobroModalBtn(this)">' +
+          '✅ Entregado</button>';
       } else {
-        const cobro = e.forma_cobro ? (' · ' + e.forma_cobro) : '';
-        html += '<button class="entrega-btn entregado-done">✅ Entregado' + cobro + '</button>';
+        html += '<button class="entrega-btn entregado-done">✅ ' +
+          (e.forma_cobro ? e.forma_cobro.charAt(0).toUpperCase() + e.forma_cobro.slice(1).replace('_', ' ') : 'Entregado') +
+          '</button>';
       }
 
       html += '</div></div>';
@@ -9821,15 +9996,18 @@ function abrirCobroModalBtn(btn) {
   const id     = btn.getAttribute('data-id');
   const nombre = btn.getAttribute('data-nombre');
   const monto  = parseFloat(btn.getAttribute('data-monto')) || 0;
-  abrirCobroModal(id, nombre, monto);
+  const cliente = btn.getAttribute('data-cliente');
+  const ciudad  = btn.getAttribute('data-ciudad');
+  abrirCobroModal(id, nombre, monto, cliente, ciudad);
 }
 
-function abrirCobroModal(entregaId, clienteNombre, monto) {
+function abrirCobroModal(entregaId, clienteNombre, monto, cliente, ciudad) {
   _entregasPedidoActual = entregaId;
+  _entregaClienteActual = cliente || clienteNombre;
+  _entregaCiudadActual  = ciudad || '';
   const sub = document.getElementById('cobro-sub');
   if (sub) sub.textContent = clienteNombre + ' · $' + Math.round(monto).toLocaleString('es-AR');
   document.getElementById('cobro-modal').classList.remove('hidden');
-  // Limpiar selección anterior
   document.querySelectorAll('.cobro-opt').forEach(b => b.classList.remove('sel'));
 }
 
@@ -9843,7 +10021,9 @@ async function cobroSeleccionar(formaCobro) {
   document.querySelectorAll('.cobro-opt').forEach(b => b.classList.remove('sel'));
   event.target.closest('.cobro-opt').classList.add('sel');
 
-  const id = _entregasPedidoActual;
+  const id      = _entregasPedidoActual;
+  const cliente = _entregaClienteActual;
+  const ciudad  = _entregaCiudadActual;
   document.getElementById('cobro-modal').classList.add('hidden');
 
   try {
@@ -9857,6 +10037,40 @@ async function cobroSeleccionar(formaCobro) {
       })
     });
 
+    // Guardar GPS de la entrega si tenemos ubicación
+    if (cliente) {
+      navigator.geolocation.getCurrentPosition(function(pos) {
+        const lat = pos.coords.latitude;
+        const lng = pos.coords.longitude;
+        // Actualizar coordenadas en clientes_ubicaciones
+        sbFetch('clientes_ubicaciones?nombre_cliente=eq.' + encodeURIComponent(cliente), {
+          method: 'GET'
+        }).then(rows => {
+          if (rows && rows.length) {
+            // Actualizar existente
+            sbFetch('clientes_ubicaciones?nombre_cliente=eq.' + encodeURIComponent(cliente), {
+              method: 'PATCH',
+              body: JSON.stringify({ lat, lng, ultima_visita: new Date().toISOString() })
+            }).catch(() => {});
+          } else {
+            // Crear nuevo
+            sbFetch('clientes_ubicaciones', {
+              method: 'POST',
+              body: JSON.stringify({
+                nombre_cliente: cliente,
+                lat, lng,
+                ultima_visita: new Date().toISOString()
+              })
+            }).catch(() => {});
+          }
+          // Actualizar cache local
+          _coordsCache[cliente] = { lat, lng };
+        }).catch(() => {});
+      }, function() {
+        // Sin GPS — no crítico
+      }, { timeout: 5000, maximumAge: 30000 });
+    }
+
     // Actualizar visualmente sin recargar todo
     const idx = _entregasCache.findIndex(e => e.id === id);
     if (idx >= 0) {
@@ -9865,13 +10079,15 @@ async function cobroSeleccionar(formaCobro) {
     }
     renderEntregas(_entregasCache);
     renderResumenChofer(_entregasCache);
-
     toast('✅ Entrega registrada', 'ok');
+
   } catch(e) {
     toast('❌ Error al guardar', 'err');
     console.error('cobroSeleccionar:', e);
   }
   _entregasPedidoActual = null;
+  _entregaClienteActual = null;
+  _entregaCiudadActual  = null;
 }
 
 
