@@ -1949,6 +1949,12 @@ body {
   padding-bottom: calc(72px + env(safe-area-inset-bottom));
 }
 .view.active { display: block; }
+#view-entregas.active {
+  display: flex;
+  height: calc(100vh - 56px);
+  overflow: hidden;
+  padding-bottom: 0;
+}
 
 /* ── VIEW: MI DÍA (ahora vista completa, no colapsable) ── */
 .midia-view-inner {
@@ -3281,29 +3287,33 @@ body {
 .entrega-estado-badge.entregado { background: #E8F5E9; color: #2E7D32; }
 
 /* ── Botones de acción ── */
-.entrega-btns { display: flex; gap: 8px; flex-wrap: wrap; }
+.entrega-btns { display: flex; gap: 8px; margin-top: 10px; }
 .entrega-btn {
-  flex: 1; min-width: 90px; padding: 10px 10px; border: none;
-  border-radius: 10px; font-family: 'Barlow Condensed', sans-serif;
-  font-size: 14px; font-weight: 800; cursor: pointer;
-  transition: opacity .15s, transform .1s; letter-spacing: .2px;
+  flex: 1; padding: 12px 10px; border: none;
+  border-radius: 12px; font-family: 'Barlow Condensed', sans-serif;
+  font-size: 15px; font-weight: 900; cursor: pointer;
+  transition: opacity .15s, transform .1s; letter-spacing: .3px;
   text-align: center; -webkit-tap-highlight-color: transparent;
-  touch-action: manipulation;
+  touch-action: manipulation; display: flex; align-items: center;
+  justify-content: center; gap: 6px;
 }
 .entrega-btn:active { opacity: .8; transform: scale(.97); }
 .entrega-btn.avisar {
-  background: linear-gradient(135deg, #25D366, #1a9e4e); color: #fff;
+  background: #E8F5E9; color: #1B5E20;
+  border: 1.5px solid rgba(27,94,32,.2);
 }
 .entrega-btn.maps {
-  background: linear-gradient(135deg, #E65100, #F57C00); color: #fff;
+  background: #FFF3E0; color: #E65100;
+  border: 1.5px solid rgba(230,81,0,.2);
 }
 .entrega-btn.entregar {
-  background: linear-gradient(135deg, #1B5E20, #2E7D32); color: #fff;
-  font-size: 15px;
+  background: linear-gradient(135deg, #1B5E20, #2E7D32);
+  color: #fff; font-size: 16px; flex: 2;
+  box-shadow: 0 3px 10px rgba(27,94,32,.3);
 }
 .entrega-btn.entregado-done {
   background: #E8F5E9; color: #2E7D32; cursor: default;
-  font-size: 13px;
+  border: 1.5px solid rgba(46,125,50,.2); font-size: 13px;
 }
 
 /* Modal cobro */
@@ -4137,12 +4147,12 @@ body {
 </div>
 
 <div class="view" id="view-bot"><div style="padding:12px 16px 0;"><div style="background:linear-gradient(135deg,#1A3A1A,#2E7D32);border-radius:14px;padding:16px;margin-bottom:12px;"><div style="font-family:'Barlow Condensed',sans-serif;font-size:22px;font-weight:900;color:#fff;">🤖 Bot de WhatsApp</div><div style="font-size:12px;color:rgba(255,255,255,.75);margin-top:3px;">Configurá qué dice el bot automáticamente</div><div id="bot-ultima-sync" style="font-size:11px;color:rgba(255,255,255,.5);margin-top:4px;"></div></div><div class="bot-section-card"><div class="bot-section-hdr"><div class="bot-section-title">📦 Stock actual</div><div class="bot-section-badge" id="bot-badge-sinstock">0 sin stock</div></div><div style="padding:12px 16px;"><div class="bot-field-desc">Tocá un producto para marcarlo sin stock.</div><div class="bot-stock-grid" id="bot-stock-grid"><div style="text-align:center;padding:20px;color:var(--text3);font-size:13px;grid-column:1/-1;">Cargando...</div></div></div></div><div class="bot-section-card"><div class="bot-section-hdr"><div class="bot-section-title">📢 Aviso activo</div></div><div class="bot-field"><div class="bot-field-desc">Algo importante esta semana. Dejá vacío si no hay nada.</div><textarea class="bot-input" id="bot-aviso" placeholder="Ej: Esta semana no entregamos a Pellegrini..."></textarea></div></div><div class="bot-section-card"><div class="bot-section-hdr"><div class="bot-section-title">🚚 Zonas y días de entrega</div></div><div class="bot-field"><div class="bot-field-desc">Cuándo y dónde entregamos.</div><textarea class="bot-input" id="bot-zonas" placeholder="Ej: Trenque Lauquen: Lunes a Viernes 9-12..."></textarea></div></div><div class="bot-section-card"><div class="bot-section-hdr"><div class="bot-section-title">🕐 Horario de atención</div></div><div class="bot-field"><textarea class="bot-input bot-input-single" id="bot-horario" placeholder="Ej: Lunes a Viernes 8 a 20hs"></textarea></div></div><div class="bot-section-card"><div class="bot-section-hdr"><div class="bot-section-title">💰 Precios del catálogo</div><div style="display:flex;align-items:center;gap:8px;"><div style="font-family:'Barlow Condensed',sans-serif;font-size:11px;color:rgba(255,255,255,.7);">El bot usa estos precios</div><button onclick="botCargarPrecios()" style="background:rgba(255,255,255,.2);border:none;border-radius:20px;padding:4px 12px;color:#fff;font-family:'Barlow Condensed',sans-serif;font-size:12px;font-weight:700;cursor:pointer;touch-action:manipulation;">🔄</button></div></div><div id="bot-precios-list"><div style="text-align:center;padding:20px;color:var(--text3);font-size:13px;">Cargando...</div></div><div style="padding:12px 16px;"><button onclick="botGuardarPrecios()" style="width:100%;background:linear-gradient(135deg,#1B5E20,#2E7D32);color:#fff;border:none;border-radius:10px;padding:10px;font-family:'Barlow Condensed',sans-serif;font-size:15px;font-weight:900;cursor:pointer;touch-action:manipulation;">💾 Guardar precios</button></div></div><button class="bot-save-btn" onclick="botGuardar()">💾 Guardar configuración del bot</button><div class="bot-status" id="bot-status">✅ Guardado — el bot ya lo tiene</div><div class="bot-section-card" style="margin-top:16px;"><div class="bot-section-hdr"><div class="bot-section-title">💬 Últimas conversaciones</div><button onclick="botCargarConversaciones()" style="background:rgba(255,255,255,.2);border:none;border-radius:20px;padding:4px 12px;color:#fff;font-family:'Barlow Condensed',sans-serif;font-size:12px;font-weight:700;cursor:pointer;">🔄</button></div><div id="bot-conversaciones"><div style="text-align:center;padding:24px;color:var(--text3);font-size:13px;">Cargando...</div></div><div class="bot-section-card" style="margin-top:16px;"><div class="bot-section-hdr"><div class="bot-section-title">👥 Clientes del bot</div><div style="display:flex;align-items:center;gap:8px;"><div id="bot-cli-count" style="background:rgba(255,255,255,.2);border-radius:20px;padding:3px 10px;font-family:'Barlow Condensed',sans-serif;font-size:11px;font-weight:700;color:#fff;"></div><button onclick="botCargarClientes()" style="background:rgba(255,255,255,.2);border:none;border-radius:20px;padding:4px 12px;color:#fff;font-family:'Barlow Condensed',sans-serif;font-size:12px;font-weight:700;cursor:pointer;touch-action:manipulation;">🔄</button></div></div><div id="bot-clientes-list"><div style="text-align:center;padding:24px;color:var(--text3);font-size:13px;">Cargando...</div></div></div></div></div></div>  <!-- ═══ TAB ENTREGAS (solo choferes) ═══ -->
-  <div class="view" id="view-entregas">
-    <div style="padding:12px 16px 0;">
-      <div id="entregas-resumen" style="display:none"></div>
-      <div id="entregas-lista">
-        <div style="text-align:center;padding:40px 20px;color:var(--text3);font-size:14px;">Cargando entregas...</div>
-      </div>
+  <div class="view" id="view-entregas" style="display:flex;flex-direction:column;padding:0;">
+    <!-- Resumen sticky arriba -->
+    <div id="entregas-resumen" style="display:none;flex-shrink:0;padding:12px 16px 0;"></div>
+    <!-- Lista scrolleable -->
+    <div id="entregas-lista" style="flex:1;overflow-y:auto;padding:12px 16px;padding-bottom:calc(80px + env(safe-area-inset-bottom));">
+      <div style="text-align:center;padding:40px 20px;color:var(--text3);font-size:14px;">Cargando entregas...</div>
     </div>
   </div>
 
@@ -9799,7 +9809,7 @@ async function asignarPedidosChofer() {
       if (fechaRow.getTime() !== hoy.getTime()) continue;
 
       const ciudad = (cols[5] || '').trim();
-      const total  = parseFloat((cols[6] || '0').replace(/[^0-9.]/g, '')) || 0;
+      const total = parseInt((cols[6] || '0').replace(/[^0-9]/g, '')) || 0;
 
       pedidos.push({
         pedido_id:        cols[0].trim(),
@@ -9980,12 +9990,16 @@ function renderEntregas(entregas) {
 
       html += '<div class="entrega-item' + (e.estado === 'entregado' ? ' entregado-item' : '') + '" id="entrega-item-' + e.id + '">' +
         '<div class="entrega-item-top">' +
-          '<div class="entrega-item-nombre' + (e.estado === 'entregado' ? ' entregado-nombre' : '') + '">' + (e.cliente || '—') + '</div>' +
-          '<div class="entrega-item-monto">' + totalFmt + '</div>' +
-        '</div>' +
-        (e.comercio ? '<div class="entrega-item-comercio">🏪 ' + e.comercio + '</div>' : '') +
-        '<div class="entrega-estado-badge ' + estadoCls + '">' + estadoLabel +
-          (e.estado === 'entregado' && e.forma_cobro ? ' · ' + e.forma_cobro.replace('_', ' ') : '') +
+          '<div>' +
+            '<div class="entrega-item-nombre' + (e.estado === 'entregado' ? ' entregado-nombre' : '') + '">' + (e.cliente || '—') + '</div>' +
+            (e.comercio ? '<div class="entrega-item-comercio">🏪 ' + e.comercio + '</div>' : '') +
+          '</div>' +
+          '<div style="text-align:right;flex-shrink:0;margin-left:8px;">' +
+            '<div class="entrega-item-monto">' + totalFmt + '</div>' +
+            '<div class="entrega-estado-badge ' + estadoCls + '" style="margin:4px 0 0;display:block;text-align:right;">' + estadoLabel +
+              (e.estado === 'entregado' && e.forma_cobro ? ' · ' + e.forma_cobro.replace('_', ' ') : '') +
+            '</div>' +
+          '</div>' +
         '</div>' +
         '<div class="entrega-btns">';
 
@@ -10002,9 +10016,9 @@ function renderEntregas(entregas) {
           html += '<button class="entrega-btn avisar" onclick="avisarClienteWA(\'' + waNum + '\',\'' + msgWA + '\')">' +
             '📲 Avisar</button>';
         }
-        // Botón Entregado
+        // Botón Entregado — más grande y destacado
         html += '<button class="entrega-btn entregar" data-id="' + e.id + '" data-nombre="' + clienteEsc + '" data-monto="' + (e.monto || 0) + '" data-cliente="' + clienteEsc + '" data-ciudad="' + ciudadEsc + '" onclick="abrirCobroModalBtn(this)">' +
-          '✅ Entregado</button>';
+          '✅ Marcar entregado</button>';
       } else {
         html += '<button class="entrega-btn entregado-done">✅ ' +
           (e.forma_cobro ? e.forma_cobro.charAt(0).toUpperCase() + e.forma_cobro.slice(1).replace('_', ' ') : 'Entregado') +
@@ -10208,7 +10222,7 @@ async function asignarChofer(pedidoId, chofer, event) {
         telefono_cliente: tel || null,
         ciudad:           p.localidad || '',
         estado:           'pendiente',
-        monto:            parseFloat((p.total || '0').toString().replace(/[^0-9.]/g, '')) || 0,
+        monto: parseInt((p.total || '0').toString().replace(/[^0-9]/g, '')) || 0,
         nota:             p.resumen || ''
       })
     });
