@@ -9727,14 +9727,40 @@ async function cargarEntregas() {
     hoy.setHours(0, 0, 0, 0);
     const hoyStr = hoy.toISOString().split('T')[0];
 
-    // Buscar en tabla entregas los pedidos asignados al chofer
-    let entregas = await sbFetch('entregas?chofer=eq.' + encodeURIComponent(vendedorActual) +
-      '&fecha_asignacion=gte.' + hoyStr + 'T00:00:00&select=*&order=ciudad.asc');
+    // Buscar entregas asignadas al chofer que estén pendientes
+    // o entregadas hoy (no filtramos por fecha_asignacion porque se asignan el día anterior)
+    let entregas = await sbFetch(
+      'entregas?chofer=eq.' + encodeURIComponent(vendedorActual) +
+      '&select=*&order=ciudad.asc'
+    );
+
+    // Filtrar: pendientes + en_camino + entregadas de hoy
+    if (entregas && entregas.length) {
+      const hoyStr = new Date().toISOString().split('T')[0];
+      entregas = entregas.filter(function(e) {
+        if (e.estado === 'pendiente' || e.estado === 'en_camino') return true;
+        // Entregadas hoy
+        if (e.estado === 'entregado' && e.fecha_entrega) {
+          return e.fecha_entrega.startsWith(hoyStr);
+        }
+        return false;
+      });
+    }
 
     if (!entregas || !entregas.length) {
       // Si no hay entregas asignadas, buscar en pedidos confirmados
       // y crear entradas en la tabla entregas
       entregas = await asignarPedidosChofer();
+    }
+
+    // Deduplicar por pedido_id (puede haber duplicados por race condition al insertar)
+    if (entregas && entregas.length) {
+      const seen = new Set();
+      entregas = entregas.filter(function(e) {
+        if (seen.has(e.pedido_id)) return false;
+        seen.add(e.pedido_id);
+        return true;
+      });
     }
 
     _entregasCache = entregas || [];
