@@ -1987,7 +1987,15 @@ body {
 .entrega-modal-prod-item { padding: 8px 12px; border-bottom: 1px solid #f0f0f0; font-size: 13px; color: var(--text); display: flex; justify-content: space-between; }
 .entrega-modal-prod-item:last-child { border-bottom: none; }
 /* Cobro múltiple */
-.cobro-multiple-wrap { display: flex; flex-direction: column; gap: 8px; }
+.cobro-rapido-btn {
+  flex: 1; min-width: 120px; padding: 8px 10px; border: 1.5px solid #E0E0E0;
+  border-radius: 20px; background: #F5F5F5; cursor: pointer;
+  font-family: 'Barlow Condensed', sans-serif; font-size: 13px; font-weight: 700;
+  color: var(--text2); touch-action: manipulation; -webkit-tap-highlight-color: transparent;
+  transition: all .12s; white-space: nowrap;
+}
+.cobro-rapido-btn:active { background: #E3F2FD; border-color: #1565C0; color: #1565C0; }
+
 .cobro-multiple-item { display: flex; align-items: center; gap: 10px; background: #F9F9F9; border-radius: 10px; padding: 8px 12px; border: 1.5px solid #eee; }
 .cobro-multiple-item.activo { background: #E8F5E9; border-color: #2E7D32; }
 .cobro-multiple-metodo { font-size: 14px; font-weight: 700; color: var(--text); flex: 1; }
@@ -4158,6 +4166,13 @@ body {
         <!-- Cobro múltiple -->
         <div class="entrega-modal-section" id="entrega-modal-cobro-wrap">
           <div class="entrega-modal-section-title">💰 ¿Cómo cobró?</div>
+          <!-- Botones rápidos -->
+          <div style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:10px;">
+            <button class="cobro-rapido-btn" onclick="cobroRapido('efectivo')">💵 Todo efectivo</button>
+            <button class="cobro-rapido-btn" onclick="cobroRapido('transferencia')">📲 Todo transfer.</button>
+            <button class="cobro-rapido-btn" onclick="cobroRapido('cheque')">📋 Todo cheque</button>
+            <button class="cobro-rapido-btn" onclick="cobroRapido('cuenta_corriente')">📒 Cta. corriente</button>
+          </div>
           <div class="cobro-multiple-wrap" id="cobro-multiple-wrap">
             <div class="cobro-multiple-item" id="cobro-m-efectivo">
               <span class="cobro-multiple-metodo">💵 Efectivo</span>
@@ -10240,6 +10255,30 @@ function cerrarEntregaModal() {
   _entregaModalId = null;
 }
 
+function cobroRapido(metodo) {
+  if (!_entregaModalId) return;
+  const e = _entregasCache.find(x => x.id === _entregaModalId);
+  if (!e) return;
+  const montoReal = (parseFloat(e.monto)||0) < 1000 && (parseFloat(e.monto)||0) > 0
+    ? parseFloat(e.monto) * 1000 : (parseFloat(e.monto)||0);
+
+  // Limpiar todos los campos
+  ['efectivo','transferencia','cheque','cuenta_corriente'].forEach(m => {
+    const inp = document.getElementById('cobro-m-' + m + '-val');
+    const item = document.getElementById('cobro-m-' + m);
+    if (inp) inp.value = '';
+    if (item) item.classList.remove('activo');
+  });
+
+  // Poner el total en el método seleccionado
+  const inp = document.getElementById('cobro-m-' + metodo + '-val');
+  const item = document.getElementById('cobro-m-' + metodo);
+  if (inp) inp.value = Math.round(montoReal);
+  if (item) item.classList.add('activo');
+
+  cobroMultipleActualizar();
+}
+
 function cobroMultipleActualizar() {
   const metodos = ['efectivo','transferencia','cheque','cuenta_corriente'];
   let total = 0;
@@ -10278,22 +10317,28 @@ async function confirmarEntregaModal() {
     return;
   }
 
-  // Forma de cobro principal (el de mayor monto) + detalle JSON
   const formaPrincipal = Object.keys(cobros).reduce((a, b) => cobros[a] > cobros[b] ? a : b);
   const detalleCobroStr = JSON.stringify(cobros);
+
+  // Construir payload — intentar con detalle_cobro, si falla sin él
+  const payload = {
+    estado:        'entregado',
+    forma_cobro:   formaPrincipal,
+    fecha_entrega: new Date().toISOString()
+  };
+
+  // Agregar detalle_cobro solo si hay múltiples métodos (la columna puede no existir aún)
+  if (Object.keys(cobros).length > 1) {
+    payload.detalle_cobro = detalleCobroStr;
+  }
 
   try {
     await sbFetch('entregas?id=eq.' + _entregaModalId, {
       method: 'PATCH',
-      body: JSON.stringify({
-        estado: 'entregado',
-        forma_cobro: formaPrincipal,
-        detalle_cobro: detalleCobroStr,
-        fecha_entrega: new Date().toISOString()
-      })
+      body: JSON.stringify(payload)
     });
 
-    // GPS
+    // GPS silencioso
     const e = _entregasCache.find(x => x.id === _entregaModalId);
     if (e) {
       navigator.geolocation.getCurrentPosition(pos => {
@@ -10312,16 +10357,34 @@ async function confirmarEntregaModal() {
 
     const idx = _entregasCache.findIndex(x => x.id === _entregaModalId);
     if (idx >= 0) {
-      _entregasCache[idx].estado = 'entregado';
+      _entregasCache[idx].estado      = 'entregado';
       _entregasCache[idx].forma_cobro = formaPrincipal;
-      _entregasCache[idx].detalle_cobro = detalleCobroStr;
+      if (Object.keys(cobros).length > 1) _entregasCache[idx].detalle_cobro = detalleCobroStr;
     }
     cerrarEntregaModal();
     renderEntregas(_entregasCache);
     renderResumenChofer(_entregasCache);
     toast('✅ Entrega registrada', 'ok');
   } catch(err) {
-    toast('❌ Error al guardar', 'err');
+    // Si falla con detalle_cobro, reintentar sin él
+    if (payload.detalle_cobro) {
+      try {
+        delete payload.detalle_cobro;
+        await sbFetch('entregas?id=eq.' + _entregaModalId, {
+          method: 'PATCH',
+          body: JSON.stringify(payload)
+        });
+        const idx = _entregasCache.findIndex(x => x.id === _entregaModalId);
+        if (idx >= 0) { _entregasCache[idx].estado = 'entregado'; _entregasCache[idx].forma_cobro = formaPrincipal; }
+        cerrarEntregaModal();
+        renderEntregas(_entregasCache);
+        renderResumenChofer(_entregasCache);
+        toast('✅ Entrega registrada', 'ok');
+        return;
+      } catch(err2) {}
+    }
+    toast('❌ Error al guardar — verificá conexión', 'err');
+    console.error('confirmarEntregaModal:', err);
   }
 }
 
