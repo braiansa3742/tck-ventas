@@ -4610,6 +4610,11 @@ function login(nombre) {
   document.getElementById('paso2').style.display = 'none';
   var esAdmin  = nombre === 'ADMIN';
   var esChofer = nombre === 'Joan' || nombre === 'Luis';
+
+  // Para choferes: ocultar bienvenida y mostrar solo salir en header
+  const bienvenidaEl = document.querySelector('.bienvenida');
+  if (bienvenidaEl) bienvenidaEl.style.display = esChofer ? 'none' : '';
+
   document.getElementById('bienvenida-nombre').textContent = esAdmin ? '👑 Administración' : '👤 ' + nombre;
   document.getElementById('bienvenida-sub').textContent = esAdmin
     ? 'Viendo todos los pedidos del día'
@@ -4642,6 +4647,9 @@ function login(nombre) {
 
 function salir() {
   trackingDetener();
+  // Restaurar bienvenida por si era chofer
+  const bienvenidaEl = document.querySelector('.bienvenida');
+  if (bienvenidaEl) bienvenidaEl.style.display = '';
   // Limpiar todo el estado GPS para que no se cruce entre vendedores
   _gpsCheckinActivo = null;
   _gpsVendedorId    = null;
@@ -9645,6 +9653,7 @@ const RUTA_FIJA = [
 let _entregasPedidoActual = null; // pedido_id en proceso de cobro
 let _entregaClienteActual = null; // cliente en proceso de cobro
 let _entregaCiudadActual  = null; // ciudad en proceso de cobro
+let _modoCobroCambio      = false; // true = cambio de cobro, false = primera vez
 let _entregasCache = [];
 
 async function cargarEntregas() {
@@ -9917,12 +9926,18 @@ function renderEntregas(entregas) {
       const comercioEsc = (e.comercio || e.nota || '').replace(/'/g, "\\'");
       const ciudadEsc   = ciudad.replace(/'/g, "\\'");
 
+      const turno = e.turno_entrega ? (e.turno_entrega === 'Mañana' ? '🌅 Mañana' : '🌆 Tarde') : '';
+
       html += '<div class="entrega-item' + (e.estado === 'entregado' ? ' entregado-item' : '') + '" id="entrega-item-' + e.id + '">' +
         '<div class="entrega-item-top">' +
           '<div style="flex:1;min-width:0;">' +
             '<div class="entrega-item-nombre' + (e.estado === 'entregado' ? ' entregado-nombre' : '') + '">' + (e.cliente || '—') + '</div>' +
-            (e.comercio ? '<div class="entrega-item-comercio">🏪 ' + e.comercio + '</div>' :
-             e.nota ? '<div class="entrega-item-comercio">📝 ' + e.nota + '</div>' : '') +
+            (e.comercio
+              ? '<div class="entrega-item-comercio">🏪 ' + e.comercio + '</div>'
+              : (e.nota && !e.nota.match(/^\d+ producto/)
+                  ? '<div class="entrega-item-comercio">📝 ' + e.nota + '</div>'
+                  : '')) +
+            (turno ? '<div class="entrega-item-comercio">' + turno + '</div>' : '') +
           '</div>' +
           '<div style="text-align:right;flex-shrink:0;margin-left:8px;">' +
             '<div class="entrega-item-monto">' + totalFmt + '</div>' +
@@ -9947,12 +9962,14 @@ function renderEntregas(entregas) {
         html += '<button class="entrega-btn entregar" data-id="' + e.id + '" data-nombre="' + clienteEsc + '" data-monto="' + (e.monto||0) + '" data-cliente="' + clienteEsc + '" data-ciudad="' + ciudadEsc + '" onclick="abrirCobroModalBtn(this)">' +
           '✅ Entregado</button>';
       } else {
-        // Entregado — mostrar forma de cobro + botón deshacer
+        // Entregado — forma de cobro + botones cambiar y deshacer
         html += '<button class="entrega-btn entregado-done">✅ ' +
           (e.forma_cobro ? e.forma_cobro.charAt(0).toUpperCase() + e.forma_cobro.slice(1).replace('_',' ') : 'Entregado') +
           '</button>';
-        html += '<button class="entrega-btn deshacer" data-id="' + e.id + '" onclick="deshacerEntrega(\'' + e.id + '\')">' +
-          '↩ Deshacer</button>';
+        html += '<button class="entrega-btn maps" style="font-size:12px;" onclick="cambiarCobroEntrega(\'' + e.id + '\',\'' + clienteEsc + '\',' + montoReal + ')">' +
+          '✏️ Cobro</button>';
+        html += '<button class="entrega-btn deshacer" onclick="deshacerEntrega(\'' + e.id + '\')">' +
+          '↩</button>';
       }
 
       html += '</div></div>';
@@ -9962,6 +9979,19 @@ function renderEntregas(entregas) {
   });
 
   el.innerHTML = html;
+}
+
+// ── CAMBIAR FORMA DE COBRO ────────────────────────────────────
+function cambiarCobroEntrega(entregaId, clienteNombre, monto) {
+  // Reusar el mismo modal de cobro pero en modo "cambio"
+  _entregasPedidoActual = entregaId;
+  _entregaClienteActual = clienteNombre;
+  _entregaCiudadActual  = '';
+  _modoCobroCambio      = true;
+  const sub = document.getElementById('cobro-sub');
+  if (sub) sub.textContent = '¿Cómo se cobró realmente? · ' + clienteNombre;
+  document.getElementById('cobro-modal').classList.remove('hidden');
+  document.querySelectorAll('.cobro-opt').forEach(b => b.classList.remove('sel'));
 }
 
 // ── DESHACER ENTREGA ─────────────────────────────────────────
@@ -10030,13 +10060,14 @@ async function cobroSeleccionar(formaCobro) {
 
   try {
     // Actualizar en Supabase
+    const patch = { forma_cobro: formaCobro };
+    if (!_modoCobroCambio) {
+      patch.estado        = 'entregado';
+      patch.fecha_entrega = new Date().toISOString();
+    }
     await sbFetch('entregas?id=eq.' + id, {
       method: 'PATCH',
-      body: JSON.stringify({
-        estado:        'entregado',
-        forma_cobro:   formaCobro,
-        fecha_entrega: new Date().toISOString()
-      })
+      body: JSON.stringify(patch)
     });
 
     // Guardar GPS de la entrega si tenemos ubicación
@@ -10076,12 +10107,12 @@ async function cobroSeleccionar(formaCobro) {
     // Actualizar visualmente sin recargar todo
     const idx = _entregasCache.findIndex(e => e.id === id);
     if (idx >= 0) {
-      _entregasCache[idx].estado      = 'entregado';
+      if (!_modoCobroCambio) _entregasCache[idx].estado = 'entregado';
       _entregasCache[idx].forma_cobro = formaCobro;
     }
     renderEntregas(_entregasCache);
     renderResumenChofer(_entregasCache);
-    toast('✅ Entrega registrada', 'ok');
+    toast(_modoCobroCambio ? '✅ Cobro actualizado' : '✅ Entrega registrada', 'ok');
 
   } catch(e) {
     toast('❌ Error al guardar', 'err');
@@ -10090,6 +10121,7 @@ async function cobroSeleccionar(formaCobro) {
   _entregasPedidoActual = null;
   _entregaClienteActual = null;
   _entregaCiudadActual  = null;
+  _modoCobroCambio      = false;
 }
 
 
@@ -10173,11 +10205,14 @@ async function asignarChofer(pedidoId, chofer, event) {
         pedido_id:        pedidoId,
         chofer:           chofer,
         cliente:          p.cliente || '',
+        comercio:         p.comercio || null,
         telefono_cliente: tel || null,
         ciudad:           p.localidad || '',
         estado:           'pendiente',
-        monto: parseInt((p.total || '0').toString().replace(/[^0-9]/g, '')) || 0,
-        nota:             p.resumen || ''
+        monto:            parseInt((p.total || '0').toString().replace(/[^0-9]/g, '')) || 0,
+        nota:             p.resumen || '',
+        turno_entrega:    p.turnoEntrega || null,
+        fecha_entrega_programada: p.fechaEntrega || null
       })
     });
     toast('✅ Asignado a ' + chofer, 'ok');
