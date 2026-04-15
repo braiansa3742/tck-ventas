@@ -4182,6 +4182,45 @@ body {
     </div>
   </div>
 
+  <!-- Modal datos del cheque -->
+  <div class="entrega-modal-overlay hidden" id="cheque-modal" style="z-index:900;">
+    <div class="entrega-modal-sheet" style="max-height:85vh;">
+      <div class="entrega-modal-hdr" style="background:linear-gradient(135deg,#1A237E,#283593);border-radius:22px 22px 0 0;">
+        <div class="entrega-modal-ciudad">DATOS DEL CHEQUE</div>
+        <div class="entrega-modal-nombre" id="cheque-modal-cliente"></div>
+        <div class="entrega-modal-monto" id="cheque-modal-monto"></div>
+      </div>
+      <div class="entrega-modal-body">
+        <div style="background:#FFF8E1;border-radius:10px;padding:10px 12px;margin-bottom:14px;font-size:12px;color:#E65100;">
+          ⚠️ Registrá los datos del cheque antes de confirmar la entrega
+        </div>
+        <div style="display:flex;flex-direction:column;gap:10px;">
+          <div>
+            <div style="font-size:11px;font-weight:700;color:var(--text3);text-transform:uppercase;letter-spacing:.8px;margin-bottom:4px;">Banco</div>
+            <input id="cheque-banco" type="text" placeholder="Ej: Banco Nación, BBVA..." autocapitalize="words" style="width:100%;padding:11px 12px;border:1.5px solid #E0E0E0;border-radius:10px;font-family:'Barlow',sans-serif;font-size:14px;outline:none;box-sizing:border-box;">
+          </div>
+          <div>
+            <div style="font-size:11px;font-weight:700;color:var(--text3);text-transform:uppercase;letter-spacing:.8px;margin-bottom:4px;">Número de cheque</div>
+            <input id="cheque-numero" type="text" placeholder="Ej: 12345678" inputmode="numeric" style="width:100%;padding:11px 12px;border:1.5px solid #E0E0E0;border-radius:10px;font-family:'Barlow',sans-serif;font-size:14px;outline:none;box-sizing:border-box;">
+          </div>
+          <div>
+            <div style="font-size:11px;font-weight:700;color:var(--text3);text-transform:uppercase;letter-spacing:.8px;margin-bottom:4px;">Nombre del emisor (quien firma)</div>
+            <input id="cheque-emisor" type="text" placeholder="Nombre o razón social" autocapitalize="words" style="width:100%;padding:11px 12px;border:1.5px solid #E0E0E0;border-radius:10px;font-family:'Barlow',sans-serif;font-size:14px;outline:none;box-sizing:border-box;">
+          </div>
+          <div>
+            <div style="font-size:11px;font-weight:700;color:var(--text3);text-transform:uppercase;letter-spacing:.8px;margin-bottom:4px;">Fecha de vencimiento</div>
+            <input id="cheque-vencimiento" type="date" style="width:100%;padding:11px 12px;border:1.5px solid #E0E0E0;border-radius:10px;font-family:'Barlow',sans-serif;font-size:14px;outline:none;box-sizing:border-box;">
+          </div>
+          <div id="cheque-err" style="color:#C62828;font-size:12px;min-height:16px;text-align:center;"></div>
+        </div>
+      </div>
+      <div style="padding:14px 18px 0;display:flex;flex-direction:column;gap:8px;">
+        <button onclick="confirmarChequeModal()" style="width:100%;padding:13px;background:linear-gradient(135deg,#1A237E,#283593);color:#fff;border:none;border-radius:12px;font-family:'Barlow Condensed',sans-serif;font-size:17px;font-weight:900;cursor:pointer;touch-action:manipulation;">✅ Confirmar entrega con cheque</button>
+        <button onclick="cerrarChequeModal()" style="width:100%;padding:11px;background:#f5f5f5;border:none;border-radius:12px;font-family:'Barlow Condensed',sans-serif;font-size:15px;font-weight:700;color:var(--text3);cursor:pointer;">Cancelar</button>
+      </div>
+    </div>
+  </div>
+
   <!-- Modal detalle entrega (chofer) -->
   <div class="entrega-modal-overlay hidden" id="entrega-modal">
     <div class="entrega-modal-sheet" id="entrega-modal-sheet">
