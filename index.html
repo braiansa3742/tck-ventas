@@ -4149,11 +4149,9 @@ body {
 </div>
 
 <div class="view" id="view-bot"><div style="padding:12px 16px 0;"><div style="background:linear-gradient(135deg,#1A3A1A,#2E7D32);border-radius:14px;padding:16px;margin-bottom:12px;"><div style="font-family:'Barlow Condensed',sans-serif;font-size:22px;font-weight:900;color:#fff;">🤖 Bot de WhatsApp</div><div style="font-size:12px;color:rgba(255,255,255,.75);margin-top:3px;">Configurá qué dice el bot automáticamente</div><div id="bot-ultima-sync" style="font-size:11px;color:rgba(255,255,255,.5);margin-top:4px;"></div></div><div class="bot-section-card"><div class="bot-section-hdr"><div class="bot-section-title">📦 Stock actual</div><div class="bot-section-badge" id="bot-badge-sinstock">0 sin stock</div></div><div style="padding:12px 16px;"><div class="bot-field-desc">Tocá un producto para marcarlo sin stock.</div><div class="bot-stock-grid" id="bot-stock-grid"><div style="text-align:center;padding:20px;color:var(--text3);font-size:13px;grid-column:1/-1;">Cargando...</div></div></div></div><div class="bot-section-card"><div class="bot-section-hdr"><div class="bot-section-title">📢 Aviso activo</div></div><div class="bot-field"><div class="bot-field-desc">Algo importante esta semana. Dejá vacío si no hay nada.</div><textarea class="bot-input" id="bot-aviso" placeholder="Ej: Esta semana no entregamos a Pellegrini..."></textarea></div></div><div class="bot-section-card"><div class="bot-section-hdr"><div class="bot-section-title">🚚 Zonas y días de entrega</div></div><div class="bot-field"><div class="bot-field-desc">Cuándo y dónde entregamos.</div><textarea class="bot-input" id="bot-zonas" placeholder="Ej: Trenque Lauquen: Lunes a Viernes 9-12..."></textarea></div></div><div class="bot-section-card"><div class="bot-section-hdr"><div class="bot-section-title">🕐 Horario de atención</div></div><div class="bot-field"><textarea class="bot-input bot-input-single" id="bot-horario" placeholder="Ej: Lunes a Viernes 8 a 20hs"></textarea></div></div><div class="bot-section-card"><div class="bot-section-hdr"><div class="bot-section-title">💰 Precios del catálogo</div><div style="display:flex;align-items:center;gap:8px;"><div style="font-family:'Barlow Condensed',sans-serif;font-size:11px;color:rgba(255,255,255,.7);">El bot usa estos precios</div><button onclick="botCargarPrecios()" style="background:rgba(255,255,255,.2);border:none;border-radius:20px;padding:4px 12px;color:#fff;font-family:'Barlow Condensed',sans-serif;font-size:12px;font-weight:700;cursor:pointer;touch-action:manipulation;">🔄</button></div></div><div id="bot-precios-list"><div style="text-align:center;padding:20px;color:var(--text3);font-size:13px;">Cargando...</div></div><div style="padding:12px 16px;"><button onclick="botGuardarPrecios()" style="width:100%;background:linear-gradient(135deg,#1B5E20,#2E7D32);color:#fff;border:none;border-radius:10px;padding:10px;font-family:'Barlow Condensed',sans-serif;font-size:15px;font-weight:900;cursor:pointer;touch-action:manipulation;">💾 Guardar precios</button></div></div><button class="bot-save-btn" onclick="botGuardar()">💾 Guardar configuración del bot</button><div class="bot-status" id="bot-status">✅ Guardado — el bot ya lo tiene</div><div class="bot-section-card" style="margin-top:16px;"><div class="bot-section-hdr"><div class="bot-section-title">💬 Últimas conversaciones</div><button onclick="botCargarConversaciones()" style="background:rgba(255,255,255,.2);border:none;border-radius:20px;padding:4px 12px;color:#fff;font-family:'Barlow Condensed',sans-serif;font-size:12px;font-weight:700;cursor:pointer;">🔄</button></div><div id="bot-conversaciones"><div style="text-align:center;padding:24px;color:var(--text3);font-size:13px;">Cargando...</div></div><div class="bot-section-card" style="margin-top:16px;"><div class="bot-section-hdr"><div class="bot-section-title">👥 Clientes del bot</div><div style="display:flex;align-items:center;gap:8px;"><div id="bot-cli-count" style="background:rgba(255,255,255,.2);border-radius:20px;padding:3px 10px;font-family:'Barlow Condensed',sans-serif;font-size:11px;font-weight:700;color:#fff;"></div><button onclick="botCargarClientes()" style="background:rgba(255,255,255,.2);border:none;border-radius:20px;padding:4px 12px;color:#fff;font-family:'Barlow Condensed',sans-serif;font-size:12px;font-weight:700;cursor:pointer;touch-action:manipulation;">🔄</button></div></div><div id="bot-clientes-list"><div style="text-align:center;padding:24px;color:var(--text3);font-size:13px;">Cargando...</div></div></div></div></div></div>  <!-- ═══ TAB ENTREGAS (solo choferes) ═══ -->
-  <div class="view" id="view-entregas" style="display:flex;flex-direction:column;padding:0;">
-    <!-- Resumen sticky arriba -->
+  <div class="view" id="view-entregas" style="display:flex;flex-direction:column;padding:0;overflow:hidden;">
     <div id="entregas-resumen" style="display:none;flex-shrink:0;padding:12px 16px 0;"></div>
-    <!-- Lista scrolleable -->
-    <div id="entregas-lista" style="flex:1;overflow-y:auto;padding:12px 16px;padding-bottom:calc(80px + env(safe-area-inset-bottom));">
+    <div id="entregas-lista" style="flex:1;overflow-y:auto;-webkit-overflow-scrolling:touch;padding:8px 16px;padding-bottom:calc(80px + env(safe-area-inset-bottom));">
       <div style="text-align:center;padding:40px 20px;color:var(--text3);font-size:14px;">Cargando entregas...</div>
     </div>
   </div>
@@ -9883,13 +9881,17 @@ function renderResumenChofer(entregas) {
 
   // Totales por forma de cobro
   const cobros = { efectivo: 0, transferencia: 0, cheque: 0, cuenta_corriente: 0 };
+  const totalDia = entregas.reduce((s, e) => {
+    const m = parseFloat(e.monto) || 0;
+    return s + (m < 1000 && m > 0 ? m * 1000 : m);
+  }, 0);
   let totalCobrado = 0;
   entregas.filter(e => e.estado === 'entregado').forEach(e => {
     const m = parseFloat(e.monto) || 0;
-    totalCobrado += m;
-    if (cobros[e.forma_cobro] !== undefined) cobros[e.forma_cobro] += m;
+    const mReal = m < 1000 && m > 0 ? m * 1000 : m;
+    totalCobrado += mReal;
+    if (cobros[e.forma_cobro] !== undefined) cobros[e.forma_cobro] += mReal;
   });
-  const totalDia = entregas.reduce((s, e) => s + (parseFloat(e.monto) || 0), 0);
 
   const fmt = n => '$' + Math.round(n).toLocaleString('es-AR');
 
@@ -10002,7 +10004,12 @@ function renderEntregas(entregas) {
       const estadoLabel = { pendiente: '⏳ Pendiente', en_camino: '🚚 En camino', entregado: '✅ Entregado' }[e.estado] || '⏳ Pendiente';
       const tel         = (e.telefono_cliente || '').replace(/\D/g, '');
       const waNum       = tel ? (tel.startsWith('54') ? tel : ('549' + tel)) : '';
-      const totalFmt    = e.monto ? ('$' + Math.round(e.monto).toLocaleString('es-AR')) : '—';
+      // Fix: si el monto parece estar dividido por 1000 (ej: 240 en vez de 240000)
+      // los pedidos de TCK son siempre > $1000, si el monto es < 1000 multiplicar x 1000
+      const montoReal = (parseFloat(e.monto) || 0) < 1000 && (parseFloat(e.monto) || 0) > 0
+        ? (parseFloat(e.monto) * 1000)
+        : (parseFloat(e.monto) || 0);
+      const totalFmt = montoReal ? ('$' + Math.round(montoReal).toLocaleString('es-AR')) : '—';
       const tieneCoords = _coordsCache[e.cliente] ? '📍' : '🗺️';
       // Escapar para uso en onclick
       const clienteEsc  = (e.cliente || '').replace(/'/g, "\\'").replace(/"/g, '&quot;');
@@ -10062,9 +10069,11 @@ function avisarClienteWA(waNum, msgWA) {
 
 // ── MODAL DE COBRO ────────────────────────────────────────────
 function abrirCobroModalBtn(btn) {
-  const id     = btn.getAttribute('data-id');
-  const nombre = btn.getAttribute('data-nombre');
-  const monto  = parseFloat(btn.getAttribute('data-monto')) || 0;
+  const id      = btn.getAttribute('data-id');
+  const nombre  = btn.getAttribute('data-nombre');
+  let   monto   = parseFloat(btn.getAttribute('data-monto')) || 0;
+  // Fix montos incorrectos guardados divididos por 1000
+  if (monto < 1000 && monto > 0) monto = monto * 1000;
   const cliente = btn.getAttribute('data-cliente');
   const ciudad  = btn.getAttribute('data-ciudad');
   abrirCobroModal(id, nombre, monto, cliente, ciudad);
