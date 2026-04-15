@@ -1954,7 +1954,66 @@ body {
   padding: 10px 14px calc(72px + env(safe-area-inset-bottom));
 }
 
-/* ── VIEW: MI DÍA (ahora vista completa, no colapsable) ── */
+/* Chofer: sin padding extra en el panel */
+.panel.on.chofer-mode { padding: 0; }
+#view-entregas.active { display: block; padding: 10px 14px calc(72px + env(safe-area-inset-bottom)); }
+
+/* ── Modal detalle entrega ── */
+.entrega-modal-overlay {
+  position: fixed; inset: 0; background: rgba(0,0,0,.55);
+  z-index: 800; display: flex; align-items: flex-end; justify-content: center;
+}
+.entrega-modal-overlay.hidden { display: none; }
+.entrega-modal-sheet {
+  background: #fff; border-radius: 22px 22px 0 0; width: 100%; max-width: 520px;
+  max-height: 90vh; overflow-y: auto; -webkit-overflow-scrolling: touch;
+  padding: 0 0 calc(20px + env(safe-area-inset-bottom));
+  box-shadow: 0 -8px 40px rgba(0,0,0,.2);
+}
+.entrega-modal-hdr {
+  background: linear-gradient(135deg, #1565C0, #1976D2);
+  padding: 16px 18px 14px; position: sticky; top: 0; z-index: 2;
+  border-radius: 22px 22px 0 0;
+}
+.entrega-modal-hdr.entregado-hdr { background: linear-gradient(135deg,#2E7D32,#388E3C); }
+.entrega-modal-ciudad { font-size: 11px; color: rgba(255,255,255,.7); text-transform: uppercase; letter-spacing: 1px; margin-bottom: 2px; }
+.entrega-modal-nombre { font-family: 'Barlow Condensed',sans-serif; font-size: 22px; font-weight: 900; color: #fff; line-height: 1.1; }
+.entrega-modal-comercio { font-size: 12px; color: rgba(255,255,255,.75); margin-top: 3px; }
+.entrega-modal-monto { font-family: 'Barlow Condensed',sans-serif; font-size: 28px; font-weight: 900; color: #FFD700; margin-top: 6px; }
+.entrega-modal-body { padding: 14px 18px 0; }
+.entrega-modal-section { margin-bottom: 14px; }
+.entrega-modal-section-title { font-size: 10px; font-weight: 800; color: var(--text3); text-transform: uppercase; letter-spacing: 1px; margin-bottom: 8px; }
+.entrega-modal-dir {
+  display: flex; align-items: center; gap: 8px;
+  background: #F5F5F5; border-radius: 10px; padding: 10px 12px;
+  font-size: 13px; color: var(--text2);
+}
+.entrega-modal-dir.tiene-gps { background: #E3F2FD; color: #1565C0; font-weight: 700; }
+.entrega-modal-productos { background: #FAFAFA; border-radius: 10px; overflow: hidden; }
+.entrega-modal-prod-item { padding: 8px 12px; border-bottom: 1px solid #f0f0f0; font-size: 13px; color: var(--text); display: flex; justify-content: space-between; }
+.entrega-modal-prod-item:last-child { border-bottom: none; }
+/* Cobro múltiple */
+.cobro-multiple-wrap { display: flex; flex-direction: column; gap: 8px; }
+.cobro-multiple-item { display: flex; align-items: center; gap: 10px; background: #F9F9F9; border-radius: 10px; padding: 8px 12px; border: 1.5px solid #eee; }
+.cobro-multiple-item.activo { background: #E8F5E9; border-color: #2E7D32; }
+.cobro-multiple-metodo { font-size: 14px; font-weight: 700; color: var(--text); flex: 1; }
+.cobro-multiple-input { width: 110px; padding: 6px 10px; border: 1.5px solid #ddd; border-radius: 8px; font-family: 'Barlow Condensed',sans-serif; font-size: 15px; font-weight: 700; text-align: right; outline: none; }
+.cobro-multiple-input:focus { border-color: #2E7D32; }
+/* Botones del modal */
+.entrega-modal-btns { display: flex; gap: 8px; padding: 14px 18px 0; flex-wrap: wrap; }
+.entrega-modal-btn {
+  flex: 1; min-width: 80px; padding: 12px 10px; border: none; border-radius: 12px;
+  font-family: 'Barlow Condensed',sans-serif; font-size: 15px; font-weight: 900;
+  cursor: pointer; touch-action: manipulation; -webkit-tap-highlight-color: transparent;
+  display: flex; align-items: center; justify-content: center; gap: 6px;
+  transition: opacity .12s;
+}
+.entrega-modal-btn:active { opacity: .75; }
+.entrega-modal-btn.maps    { background: #FFF3E0; color: #E65100; border: 1.5px solid rgba(230,81,0,.2); }
+.entrega-modal-btn.wa      { background: #E8F5E9; color: #1B5E20; border: 1.5px solid rgba(27,94,32,.2); }
+.entrega-modal-btn.entregar { background: linear-gradient(135deg,#1B5E20,#2E7D32); color: #fff; flex: 2; box-shadow: 0 2px 8px rgba(27,94,32,.25); }
+.entrega-modal-btn.deshacer { background: #FFF3E0; color: #E65100; border: 1.5px solid rgba(230,81,0,.2); }
+.entrega-modal-btn.cerrar { background: #f5f5f5; color: var(--text3); width: 100%; flex: none; margin-top: 4px; }
 .midia-view-inner {
   padding: 12px 16px 0;
 }
@@ -4073,7 +4132,60 @@ body {
     </div>
   </div>
 
-  <!-- Modal cobro -->
+  <!-- Modal detalle entrega (chofer) -->
+  <div class="entrega-modal-overlay hidden" id="entrega-modal">
+    <div class="entrega-modal-sheet" id="entrega-modal-sheet">
+      <div class="entrega-modal-hdr" id="entrega-modal-hdr">
+        <div class="entrega-modal-ciudad" id="entrega-modal-ciudad"></div>
+        <div class="entrega-modal-nombre" id="entrega-modal-nombre"></div>
+        <div class="entrega-modal-comercio" id="entrega-modal-comercio"></div>
+        <div class="entrega-modal-monto" id="entrega-modal-monto"></div>
+      </div>
+      <div class="entrega-modal-body">
+        <!-- Dirección -->
+        <div class="entrega-modal-section">
+          <div class="entrega-modal-section-title">📍 Dirección</div>
+          <div class="entrega-modal-dir" id="entrega-modal-dir"></div>
+        </div>
+        <!-- Productos -->
+        <div class="entrega-modal-section" id="entrega-modal-prods-wrap">
+          <div class="entrega-modal-section-title">📦 Productos</div>
+          <div class="entrega-modal-productos" id="entrega-modal-prods"></div>
+        </div>
+        <!-- Cobro múltiple -->
+        <div class="entrega-modal-section" id="entrega-modal-cobro-wrap">
+          <div class="entrega-modal-section-title">💰 ¿Cómo cobró?</div>
+          <div class="cobro-multiple-wrap" id="cobro-multiple-wrap">
+            <div class="cobro-multiple-item" id="cobro-m-efectivo">
+              <span class="cobro-multiple-metodo">💵 Efectivo</span>
+              <input class="cobro-multiple-input" id="cobro-m-efectivo-val" type="number" min="0" placeholder="$0" oninput="cobroMultipleActualizar()">
+            </div>
+            <div class="cobro-multiple-item" id="cobro-m-transferencia">
+              <span class="cobro-multiple-metodo">📲 Transferencia</span>
+              <input class="cobro-multiple-input" id="cobro-m-transferencia-val" type="number" min="0" placeholder="$0" oninput="cobroMultipleActualizar()">
+            </div>
+            <div class="cobro-multiple-item" id="cobro-m-cheque">
+              <span class="cobro-multiple-metodo">📋 Cheque</span>
+              <input class="cobro-multiple-input" id="cobro-m-cheque-val" type="number" min="0" placeholder="$0" oninput="cobroMultipleActualizar()">
+            </div>
+            <div class="cobro-multiple-item" id="cobro-m-cuenta_corriente">
+              <span class="cobro-multiple-metodo">📒 Cta. Corriente</span>
+              <input class="cobro-multiple-input" id="cobro-m-cuenta_corriente-val" type="number" min="0" placeholder="$0" oninput="cobroMultipleActualizar()">
+            </div>
+          </div>
+          <div id="cobro-multiple-total" style="text-align:right;font-family:'Barlow Condensed',sans-serif;font-size:13px;color:var(--text3);margin-top:8px;"></div>
+        </div>
+      </div>
+      <!-- Botones -->
+      <div class="entrega-modal-btns" id="entrega-modal-btns"></div>
+      <div style="padding:0 18px;">
+        <button class="entrega-modal-btn cerrar" onclick="cerrarEntregaModal()">Cerrar</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Modal cobro (legacy - se mantiene por compatibilidad) -->
+
   <div class="cobro-modal hidden" id="cobro-modal">
     <div class="cobro-sheet">
       <div class="cobro-titulo">💰 ¿Cómo cobró?</div>
@@ -4614,9 +4726,12 @@ function login(nombre) {
   var esAdmin  = nombre === 'ADMIN';
   var esChofer = nombre === 'Joan' || nombre === 'Luis';
 
-  // Para choferes: ocultar bienvenida y mostrar solo salir en header
+  // Para choferes: ocultar bienvenida y agregar clase al panel
   const bienvenidaEl = document.querySelector('.bienvenida');
+  const panelEl = document.getElementById('panel');
   if (bienvenidaEl) bienvenidaEl.style.display = esChofer ? 'none' : '';
+  if (panelEl && esChofer) panelEl.classList.add('chofer-mode');
+  else if (panelEl) panelEl.classList.remove('chofer-mode');
 
   document.getElementById('bienvenida-nombre').textContent = esAdmin ? '👑 Administración' : '👤 ' + nombre;
   document.getElementById('bienvenida-sub').textContent = esAdmin
@@ -4650,9 +4765,10 @@ function login(nombre) {
 
 function salir() {
   trackingDetener();
-  // Restaurar bienvenida por si era chofer
   const bienvenidaEl = document.querySelector('.bienvenida');
   if (bienvenidaEl) bienvenidaEl.style.display = '';
+  const panelEl = document.getElementById('panel');
+  if (panelEl) panelEl.classList.remove('chofer-mode');
   // Limpiar todo el estado GPS para que no se cruce entre vendedores
   _gpsCheckinActivo = null;
   _gpsVendedorId    = null;
@@ -9792,7 +9908,7 @@ function renderResumenChofer(entregas) {
   const pendientes  = entregas.length - entregadas;
   const pct         = entregas.length ? Math.round(entregadas / entregas.length * 100) : 0;
 
-  // Totales por forma de cobro
+  // Totales por forma de cobro — usa detalle_cobro si existe (cobro múltiple)
   const cobros = { efectivo: 0, transferencia: 0, cheque: 0, cuenta_corriente: 0 };
   const totalDia = entregas.reduce((s, e) => {
     const m = parseFloat(e.monto) || 0;
@@ -9803,7 +9919,19 @@ function renderResumenChofer(entregas) {
     const m = parseFloat(e.monto) || 0;
     const mReal = m < 1000 && m > 0 ? m * 1000 : m;
     totalCobrado += mReal;
-    if (cobros[e.forma_cobro] !== undefined) cobros[e.forma_cobro] += mReal;
+    // Si tiene detalle de cobro múltiple, usarlo
+    if (e.detalle_cobro) {
+      try {
+        const det = JSON.parse(e.detalle_cobro);
+        Object.keys(det).forEach(k => {
+          if (cobros[k] !== undefined) cobros[k] += parseFloat(det[k]) || 0;
+        });
+      } catch(_) {
+        if (cobros[e.forma_cobro] !== undefined) cobros[e.forma_cobro] += mReal;
+      }
+    } else {
+      if (cobros[e.forma_cobro] !== undefined) cobros[e.forma_cobro] += mReal;
+    }
   });
 
   const fmt = n => '$' + Math.round(n).toLocaleString('es-AR');
@@ -9881,15 +10009,13 @@ function renderEntregas(entregas) {
     return;
   }
 
-  // Agrupar por ciudad
   const porCiudad = {};
-  entregas.forEach(function(e) {
+  entregas.forEach(e => {
     const c = e.ciudad || 'Sin ciudad';
     if (!porCiudad[c]) porCiudad[c] = [];
     porCiudad[c].push(e);
   });
 
-  // Ordenar ciudades por ruta fija
   const ciudades = Object.keys(porCiudad).sort((a, b) => {
     const ia = RUTA_FIJA.findIndex(c => a.toLowerCase().includes(c.toLowerCase()));
     const ib = RUTA_FIJA.findIndex(c => b.toLowerCase().includes(c.toLowerCase()));
@@ -9899,88 +10025,45 @@ function renderEntregas(entregas) {
   let html = '';
   let orden = 1;
 
-  ciudades.forEach(function(ciudad) {
-    const items    = porCiudad[ciudad];
-    const allDone  = items.every(e => e.estado === 'entregado');
+  ciudades.forEach(ciudad => {
+    const items   = porCiudad[ciudad];
+    const allDone = items.every(e => e.estado === 'entregado');
+    const pendCount = items.filter(e => e.estado !== 'entregado').length;
 
     html += '<div class="entrega-card' + (allDone ? ' completada' : '') + '">' +
       '<div class="entrega-card-hdr">' +
         '<div class="entrega-card-ciudad">📍 ' + ciudad + '</div>' +
         '<div class="entrega-card-badges">' +
-          (allDone ? '<span class="entrega-card-check">✅</span>' : '') +
+          (allDone
+            ? '<span style="font-size:14px;">✅</span>'
+            : '<span style="background:rgba(255,255,255,.2);border-radius:20px;padding:2px 8px;font-size:10px;color:#fff;font-weight:800;">' + pendCount + ' pend.</span>') +
           '<div class="entrega-card-orden">Parada ' + orden++ + '</div>' +
         '</div>' +
       '</div>';
 
-    items.forEach(function(e) {
-      const estadoCls   = e.estado === 'entregado' ? 'entregado' : (e.estado === 'en_camino' ? 'en-camino' : 'pendiente');
-      const estadoLabel = { pendiente: '⏳ Pendiente', en_camino: '🚚 En camino', entregado: '✅ Entregado' }[e.estado] || '⏳ Pendiente';
-      const tel         = (e.telefono_cliente || '').replace(/\D/g, '');
-      const waNum       = tel ? (tel.startsWith('54') ? tel : ('549' + tel)) : '';
-      // Fix: si el monto parece estar dividido por 1000 (ej: 240 en vez de 240000)
-      // los pedidos de TCK son siempre > $1000, si el monto es < 1000 multiplicar x 1000
-      const montoReal = (parseFloat(e.monto) || 0) < 1000 && (parseFloat(e.monto) || 0) > 0
-        ? (parseFloat(e.monto) * 1000)
-        : (parseFloat(e.monto) || 0);
-      const totalFmt = montoReal ? ('$' + Math.round(montoReal).toLocaleString('es-AR')) : '—';
-      const tieneCoords = _coordsCache[e.cliente] ? '📍' : '🗺️';
-      // Escapar para uso en onclick
-      const clienteEsc  = (e.cliente || '').replace(/'/g, "\\'").replace(/"/g, '&quot;');
-      const comercioEsc = (e.comercio || e.nota || '').replace(/'/g, "\\'");
-      const ciudadEsc   = ciudad.replace(/'/g, "\\'");
+    items.forEach(e => {
+      const montoReal = (parseFloat(e.monto)||0) < 1000 && (parseFloat(e.monto)||0) > 0
+        ? parseFloat(e.monto) * 1000 : (parseFloat(e.monto)||0);
+      const totalFmt = montoReal ? '$' + Math.round(montoReal).toLocaleString('es-AR') : '—';
+      const estadoLabel = e.estado === 'entregado'
+        ? '✅ ' + (e.forma_cobro || 'Entregado').replace('_', ' ')
+        : '⏳ Pendiente';
+      const estadoCls = e.estado === 'entregado' ? 'entregado' : 'pendiente';
 
-      const turno = e.turno_entrega ? (e.turno_entrega === 'Mañana' ? '🌅 Mañana' : '🌆 Tarde') : '';
-      const coords = _coordsCache[e.cliente];
-      const direccionHtml = coords
-        ? '<div class="entrega-item-dir entrega-item-dir--ok">📍 Ubicación registrada</div>'
-        : '<div class="entrega-item-dir entrega-item-dir--no">📍 Sin dirección — Maps buscará por nombre</div>';
-
-      html += '<div class="entrega-item' + (e.estado === 'entregado' ? ' entregado-item' : '') + '" id="entrega-item-' + e.id + '">' +
+      html += '<div class="entrega-item' + (e.estado === 'entregado' ? ' entregado-item' : '') +
+        '" id="entrega-item-' + e.id + '" onclick="abrirEntregaModal(\'' + e.id + '\')" style="cursor:pointer;">' +
         '<div class="entrega-item-top">' +
           '<div style="flex:1;min-width:0;">' +
             '<div class="entrega-item-nombre' + (e.estado === 'entregado' ? ' entregado-nombre' : '') + '">' + (e.cliente || '—') + '</div>' +
-            (e.comercio
-              ? '<div class="entrega-item-comercio">🏪 ' + e.comercio + '</div>'
-              : (e.nota && !e.nota.match(/^\d+ producto/)
-                  ? '<div class="entrega-item-comercio">📝 ' + e.nota + '</div>'
-                  : '')) +
-            direccionHtml +
-            (turno ? '<div class="entrega-item-comercio">' + turno + '</div>' : '') +
+            (e.comercio ? '<div class="entrega-item-comercio">🏪 ' + e.comercio + '</div>' : '') +
           '</div>' +
           '<div style="text-align:right;flex-shrink:0;margin-left:8px;">' +
             '<div class="entrega-item-monto">' + totalFmt + '</div>' +
-            '<div class="entrega-estado-badge ' + estadoCls + '" style="margin:3px 0 0;">' + estadoLabel +
-              (e.estado === 'entregado' && e.forma_cobro ? ' · ' + e.forma_cobro.replace('_',' ') : '') +
-            '</div>' +
+            '<div class="entrega-estado-badge ' + estadoCls + '" style="margin:3px 0 0;">' + estadoLabel + '</div>' +
           '</div>' +
         '</div>' +
-        '<div class="entrega-btns">';
-
-      if (e.estado !== 'entregado') {
-        // Maps
-        html += '<button class="entrega-btn maps" onclick="abrirMapsCliente(\'' + clienteEsc + '\',\'' + comercioEsc + '\',\'' + ciudadEsc + '\')">' +
-          tieneCoords + ' Maps</button>';
-        // WA — siempre visible, si no tiene tel abre WA sin número para copiar mensaje
-        if (waNum) {
-          const msgWA = encodeURIComponent('Hola ' + (e.cliente||'') + '! 👋 Soy el repartidor de TCK. Estoy en camino a ' + ciudad + ' con tu pedido. ¿Confirmás que estás disponible? 🚚');
-          html += '<button class="entrega-btn wa" onclick="avisarClienteWA(\'' + waNum + '\',\'' + msgWA + '\')">' +
-            '💬 WA</button>';
-        }
-        // Entregado
-        html += '<button class="entrega-btn entregar" data-id="' + e.id + '" data-nombre="' + clienteEsc + '" data-monto="' + (e.monto||0) + '" data-cliente="' + clienteEsc + '" data-ciudad="' + ciudadEsc + '" onclick="abrirCobroModalBtn(this)">' +
-          '✅ Entregado</button>';
-      } else {
-        // Entregado — forma de cobro + botones cambiar y deshacer
-        html += '<button class="entrega-btn entregado-done">✅ ' +
-          (e.forma_cobro ? e.forma_cobro.charAt(0).toUpperCase() + e.forma_cobro.slice(1).replace('_',' ') : 'Entregado') +
-          '</button>';
-        html += '<button class="entrega-btn maps" style="font-size:12px;" onclick="cambiarCobroEntrega(\'' + e.id + '\',\'' + clienteEsc + '\',' + montoReal + ')">' +
-          '✏️ Cobro</button>';
-        html += '<button class="entrega-btn deshacer" onclick="deshacerEntrega(\'' + e.id + '\')">' +
-          '↩</button>';
-      }
-
-      html += '</div></div>';
+        '<div style="font-size:10px;color:#bbb;margin-top:3px;">Tocá para ver detalle →</div>' +
+        '</div>';
     });
 
     html += '</div>';
@@ -9989,6 +10072,215 @@ function renderEntregas(entregas) {
   el.innerHTML = html;
 }
 
+// ── MODAL DETALLE ENTREGA ─────────────────────────────────────
+let _entregaModalId = null;
+
+function abrirEntregaModal(entregaId) {
+  const e = _entregasCache.find(x => x.id === entregaId);
+  if (!e) return;
+  _entregaModalId = entregaId;
+
+  const montoReal = (parseFloat(e.monto)||0) < 1000 && (parseFloat(e.monto)||0) > 0
+    ? parseFloat(e.monto) * 1000 : (parseFloat(e.monto)||0);
+  const fmt = n => '$' + Math.round(n).toLocaleString('es-AR');
+  const coords = _coordsCache[e.cliente];
+  const tel = (e.telefono_cliente || '').replace(/\D/g, '');
+  const waNum = tel ? (tel.startsWith('54') ? tel : '549' + tel) : '';
+  const entregado = e.estado === 'entregado';
+
+  // Header
+  const hdr = document.getElementById('entrega-modal-hdr');
+  hdr.className = 'entrega-modal-hdr' + (entregado ? ' entregado-hdr' : '');
+  document.getElementById('entrega-modal-ciudad').textContent = '📍 ' + (e.ciudad || '');
+  document.getElementById('entrega-modal-nombre').textContent = e.cliente || '—';
+  document.getElementById('entrega-modal-comercio').textContent = e.comercio ? '🏪 ' + e.comercio : '';
+  document.getElementById('entrega-modal-monto').textContent = fmt(montoReal);
+
+  // Dirección
+  const dirEl = document.getElementById('entrega-modal-dir');
+  if (coords) {
+    dirEl.className = 'entrega-modal-dir tiene-gps';
+    dirEl.textContent = '📍 Ubicación GPS registrada — Maps abre en el local exacto';
+  } else {
+    dirEl.className = 'entrega-modal-dir';
+    dirEl.textContent = '📍 Sin dirección registrada — Maps buscará por nombre del cliente';
+  }
+
+  // Productos — leer del detalle del pedido en Sheet (nota o detalle)
+  const prodsWrap = document.getElementById('entrega-modal-prods-wrap');
+  const prodsEl = document.getElementById('entrega-modal-prods');
+  if (e.nota && e.nota.trim()) {
+    prodsWrap.style.display = '';
+    // Intentar parsear el detalle (formato: "Producto x2 | Producto2 x1")
+    const lineas = e.nota.split(' | ').filter(Boolean);
+    if (lineas.length > 1) {
+      prodsEl.innerHTML = lineas.map(l =>
+        '<div class="entrega-modal-prod-item"><span>' + l + '</span></div>'
+      ).join('');
+    } else {
+      prodsEl.innerHTML = '<div class="entrega-modal-prod-item"><span>' + e.nota + '</span></div>';
+    }
+  } else {
+    prodsWrap.style.display = 'none';
+  }
+
+  // Cobro múltiple
+  const cobroWrap = document.getElementById('entrega-modal-cobro-wrap');
+  cobroWrap.style.display = entregado ? 'none' : '';
+  // Limpiar inputs
+  ['efectivo','transferencia','cheque','cuenta_corriente'].forEach(m => {
+    const inp = document.getElementById('cobro-m-' + m + '-val');
+    if (inp) inp.value = '';
+    const item = document.getElementById('cobro-m-' + m);
+    if (item) item.classList.remove('activo');
+  });
+  document.getElementById('cobro-multiple-total').textContent = '';
+
+  // Botones
+  const btns = document.getElementById('entrega-modal-btns');
+  let btnsHtml = '';
+  const cli = (e.cliente || '').replace(/'/g, "\\'");
+  const com = (e.comercio || '').replace(/'/g, "\\'");
+  const ciu = (e.ciudad || '').replace(/'/g, "\\'");
+
+  btnsHtml += '<button class="entrega-modal-btn maps" onclick="abrirMapsCliente(\'' + cli + '\',\'' + com + '\',\'' + ciu + '\')">' +
+    (coords ? '📍' : '🗺️') + ' Maps</button>';
+
+  if (waNum) {
+    const msg = encodeURIComponent('Hola ' + (e.cliente||'') + '! 👋 Soy el repartidor de TCK. Estoy llegando a ' + (e.ciudad||'') + ' con tu pedido. ¿Estás disponible? 🚚');
+    btnsHtml += '<button class="entrega-modal-btn wa" onclick="avisarClienteWA(\'' + waNum + '\',\'' + msg + '\')">' +
+      '💬 WA</button>';
+  }
+
+  if (!entregado) {
+    btnsHtml += '<button class="entrega-modal-btn entregar" onclick="confirmarEntregaModal()">' +
+      '✅ Confirmar entrega</button>';
+  } else {
+    btnsHtml += '<button class="entrega-modal-btn" style="background:#E3F2FD;color:#1565C0;border:1.5px solid rgba(21,101,192,.2);" onclick="reabrirCobroModal()">' +
+      '✏️ Cambiar cobro</button>';
+    btnsHtml += '<button class="entrega-modal-btn deshacer" onclick="deshacerEntregaModal()">' +
+      '↩ Deshacer</button>';
+  }
+
+  btns.innerHTML = btnsHtml;
+
+  // Mostrar modal
+  const overlay = document.getElementById('entrega-modal');
+  overlay.classList.remove('hidden');
+  setTimeout(() => {
+    const sheet = document.getElementById('entrega-modal-sheet');
+    if (sheet) sheet.scrollTop = 0;
+  }, 50);
+}
+
+function cerrarEntregaModal() {
+  document.getElementById('entrega-modal').classList.add('hidden');
+  _entregaModalId = null;
+}
+
+function cobroMultipleActualizar() {
+  const metodos = ['efectivo','transferencia','cheque','cuenta_corriente'];
+  let total = 0;
+  metodos.forEach(m => {
+    const val = parseFloat(document.getElementById('cobro-m-' + m + '-val').value) || 0;
+    total += val;
+    const item = document.getElementById('cobro-m-' + m);
+    if (item) item.classList.toggle('activo', val > 0);
+  });
+  const totalEl = document.getElementById('cobro-multiple-total');
+  if (total > 0) {
+    const e = _entregasCache.find(x => x.id === _entregaModalId);
+    const montoReal = e ? ((parseFloat(e.monto)||0) < 1000 && (parseFloat(e.monto)||0) > 0
+      ? parseFloat(e.monto) * 1000 : (parseFloat(e.monto)||0)) : 0;
+    const diff = montoReal - total;
+    totalEl.textContent = 'Total cobrado: $' + Math.round(total).toLocaleString('es-AR') +
+      (diff !== 0 ? ' (' + (diff > 0 ? '-' : '+') + '$' + Math.abs(Math.round(diff)).toLocaleString('es-AR') + ' diferencia)' : ' ✅');
+    totalEl.style.color = diff === 0 ? '#2E7D32' : '#E65100';
+  } else {
+    totalEl.textContent = '';
+  }
+}
+
+async function confirmarEntregaModal() {
+  if (!_entregaModalId) return;
+  const metodos = ['efectivo','transferencia','cheque','cuenta_corriente'];
+  const cobros = {};
+  let totalCobrado = 0;
+  metodos.forEach(m => {
+    const val = parseFloat(document.getElementById('cobro-m-' + m + '-val').value) || 0;
+    if (val > 0) { cobros[m] = val; totalCobrado += val; }
+  });
+
+  if (totalCobrado === 0) {
+    toast('❌ Ingresá al menos un método de cobro', 'err');
+    return;
+  }
+
+  // Forma de cobro principal (el de mayor monto) + detalle JSON
+  const formaPrincipal = Object.keys(cobros).reduce((a, b) => cobros[a] > cobros[b] ? a : b);
+  const detalleCobroStr = JSON.stringify(cobros);
+
+  try {
+    await sbFetch('entregas?id=eq.' + _entregaModalId, {
+      method: 'PATCH',
+      body: JSON.stringify({
+        estado: 'entregado',
+        forma_cobro: formaPrincipal,
+        detalle_cobro: detalleCobroStr,
+        fecha_entrega: new Date().toISOString()
+      })
+    });
+
+    // GPS
+    const e = _entregasCache.find(x => x.id === _entregaModalId);
+    if (e) {
+      navigator.geolocation.getCurrentPosition(pos => {
+        const { latitude: lat, longitude: lng } = pos.coords;
+        sbFetch('clientes_ubicaciones?nombre_cliente=eq.' + encodeURIComponent(e.cliente), { method: 'GET' })
+          .then(rows => {
+            const method = (rows && rows.length) ? 'PATCH' : 'POST';
+            const url = method === 'PATCH'
+              ? 'clientes_ubicaciones?nombre_cliente=eq.' + encodeURIComponent(e.cliente)
+              : 'clientes_ubicaciones';
+            return sbFetch(url, { method, body: JSON.stringify({ nombre_cliente: e.cliente, lat, lng, ultima_visita: new Date().toISOString() }) });
+          }).catch(() => {});
+        _coordsCache[e.cliente] = { lat, lng };
+      }, () => {});
+    }
+
+    const idx = _entregasCache.findIndex(x => x.id === _entregaModalId);
+    if (idx >= 0) {
+      _entregasCache[idx].estado = 'entregado';
+      _entregasCache[idx].forma_cobro = formaPrincipal;
+      _entregasCache[idx].detalle_cobro = detalleCobroStr;
+    }
+    cerrarEntregaModal();
+    renderEntregas(_entregasCache);
+    renderResumenChofer(_entregasCache);
+    toast('✅ Entrega registrada', 'ok');
+  } catch(err) {
+    toast('❌ Error al guardar', 'err');
+  }
+}
+
+async function deshacerEntregaModal() {
+  if (!_entregaModalId) return;
+  if (!confirm('¿Deshacer esta entrega?')) return;
+  await deshacerEntrega(_entregaModalId);
+  cerrarEntregaModal();
+}
+
+function reabrirCobroModal() {
+  if (!_entregaModalId) return;
+  const e = _entregasCache.find(x => x.id === _entregaModalId);
+  if (!e) return;
+  const montoReal = (parseFloat(e.monto)||0) < 1000 && (parseFloat(e.monto)||0) > 0
+    ? parseFloat(e.monto) * 1000 : (parseFloat(e.monto)||0);
+  cambiarCobroEntrega(e.id, e.cliente, montoReal);
+  cerrarEntregaModal();
+}
+
+// ── CAMBIAR FORMA DE COBRO ────────────────────────────────────
 // ── CAMBIAR FORMA DE COBRO ────────────────────────────────────
 function cambiarCobroEntrega(entregaId, clienteNombre, monto) {
   // Reusar el mismo modal de cobro pero en modo "cambio"
