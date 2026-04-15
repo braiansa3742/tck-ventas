@@ -4684,25 +4684,30 @@ function login(nombre) {
   document.getElementById('panel').classList.add('on');
   document.getElementById('paso1').style.display = 'block';
   document.getElementById('paso2').style.display = 'none';
-  var esAdmin = nombre === 'ADMIN';
+  var esAdmin  = nombre === 'ADMIN';
+  var esChofer = nombre === 'Joan' || nombre === 'Luis';
   document.getElementById('bienvenida-nombre').textContent = esAdmin ? '👑 Administración' : '👤 ' + nombre;
   document.getElementById('bienvenida-sub').textContent = esAdmin
     ? 'Viendo todos los pedidos del día'
-    : 'Tus pedidos de hoy — ' + new Date().toLocaleDateString('es-AR');
+    : esChofer
+      ? 'Ruta del día — ' + new Date().toLocaleDateString('es-AR')
+      : 'Tus pedidos de hoy — ' + new Date().toLocaleDateString('es-AR');
   document.getElementById('filtros-vendedor').style.display = esAdmin ? 'flex' : 'none';
   setTimeout(function() {
-    cargarPedidos();
-    if (vendedorActual === 'ADMIN') cargarAsignaciones();
+    if (!esChofer) {
+      cargarPedidos();
+    }
+    if (esAdmin) cargarAsignaciones();
   }, 300);
   mostrarTabs();
   mostrarBotonesManual();
   checkPrimeraVez();
-  // Iniciar tracking GPS continuo (solo vendedores, no Admin)
-  if (nombre !== 'ADMIN') trackingIniciar();
-  // Cargar objetivos
-  objetivosCargar();
-  // Restaurar checkin activo si existe
-  if (nombre !== 'ADMIN') {
+  // Iniciar tracking GPS continuo (solo vendedores, no Admin ni Choferes)
+  if (nombre !== 'ADMIN' && !esChofer) trackingIniciar();
+  // Cargar objetivos (solo vendedores)
+  if (!esChofer) objetivosCargar();
+  // Restaurar checkin activo si existe (solo vendedores)
+  if (nombre !== 'ADMIN' && !esChofer) {
     setTimeout(function() { gpsCargarHistorial(); }, 500);
   }
   // Si viene en modo campo, ir directo a Visitas
