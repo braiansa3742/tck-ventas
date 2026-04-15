@@ -1951,7 +1951,9 @@ body {
 .view.active { display: block; }
 #view-entregas.active {
   display: flex;
-  height: calc(100vh - 56px);
+  flex-direction: column;
+  height: calc(100dvh - 56px - 52px - 56px);
+  min-height: 300px;
   overflow: hidden;
   padding-bottom: 0;
 }
@@ -5764,6 +5766,7 @@ function mostrarTabs() {
     var tabEnt = document.getElementById('tab-btn-entregas');
     if (tabEnt) tabEnt.style.display = '';
     cambiarTab('entregas');
+    setTimeout(ajustarAlturaEntregas, 100);
     cargarEntregas();
     return;
   }
@@ -9732,6 +9735,19 @@ let _entregaClienteActual = null; // cliente en proceso de cobro
 let _entregaCiudadActual  = null; // ciudad en proceso de cobro
 let _entregasCache = [];
 
+function ajustarAlturaEntregas() {
+  const view = document.getElementById('view-entregas');
+  if (!view) return;
+  const hdr  = document.querySelector('.hdr');
+  const bien = document.querySelector('.bienvenida');
+  const nav  = document.getElementById('tab-nav');
+  const hdrH  = hdr  ? hdr.offsetHeight  : 56;
+  const bienH = bien ? bien.offsetHeight : 52;
+  const navH  = nav  ? nav.offsetHeight  : 56;
+  const available = window.innerHeight - hdrH - bienH - navH;
+  view.style.height = Math.max(available, 200) + 'px';
+}
+
 async function cargarEntregas() {
   const el = document.getElementById('entregas-lista');
   el.innerHTML = '<div style="text-align:center;padding:40px;color:var(--text3);">Cargando entregas...</div>';
@@ -9763,9 +9779,13 @@ async function cargarEntregas() {
     }
 
     if (!entregas || !entregas.length) {
-      // Si no hay entregas asignadas, buscar en pedidos confirmados
-      // y crear entradas en la tabla entregas
-      entregas = await asignarPedidosChofer();
+      // Sin entregas asignadas — mostrar mensaje claro
+      _entregasCache = [];
+      const el = document.getElementById('entregas-lista');
+      if (el) el.innerHTML = '<div style="text-align:center;padding:40px 20px;color:var(--text3);font-size:14px;">📭 No tenés entregas asignadas por ahora.<br><span style="font-size:12px;margin-top:8px;display:block;">Cuando el admin te asigne pedidos van a aparecer acá.</span></div>';
+      const res = document.getElementById('entregas-resumen');
+      if (res) res.style.display = 'none';
+      return;
     }
 
     // Deduplicar por pedido_id (puede haber duplicados por race condition al insertar)
@@ -9779,6 +9799,7 @@ async function cargarEntregas() {
     }
 
     _entregasCache = entregas || [];
+    ajustarAlturaEntregas();
     // Cargar coordenadas GPS de los clientes en paralelo
     await cargarCoordsClientes(_entregasCache);
     renderEntregas(_entregasCache);
