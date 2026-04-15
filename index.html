@@ -4570,6 +4570,9 @@ function notificarNuevoPedido(cantidad) {
 }
 
 function notificarDuplicados(dups) {
+  // Los choferes no necesitan ver alertas de duplicados
+  const esChofer = vendedorActual === 'Joan' || vendedorActual === 'Luis';
+  if (esChofer) return;
   const nuevos = dups.filter(p => !duplicadosNotificados.has(p.pedidoId));
   if (!nuevos.length) return;
   nuevos.forEach(p => duplicadosNotificados.add(p.pedidoId));
