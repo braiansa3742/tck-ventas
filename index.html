@@ -1950,12 +1950,8 @@ body {
 }
 .view.active { display: block; }
 #view-entregas.active {
-  display: flex;
-  flex-direction: column;
-  height: calc(100dvh - 56px - 52px - 56px);
-  min-height: 300px;
-  overflow: hidden;
-  padding-bottom: 0;
+  display: block;
+  padding: 10px 14px calc(72px + env(safe-area-inset-bottom));
 }
 
 /* ── VIEW: MI DÍA (ahora vista completa, no colapsable) ── */
@@ -3171,190 +3167,108 @@ body {
    PANEL CHOFER — ENTREGAS
 ═══════════════════════════════════════════════════════════════ */
 
-/* ── Resumen del día ── */
+/* Layout principal — ocupa todo el espacio disponible */
+#view-entregas.active {
+  display: block;
+  overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
+  height: auto;
+  padding: 10px 14px calc(72px + env(safe-area-inset-bottom));
+}
+
+/* ── Resumen compacto ── */
 .entrega-resumen-wrap {
   background: linear-gradient(135deg, #0D47A1, #1565C0);
-  border-radius: 16px; padding: 16px; margin-bottom: 14px;
-  box-shadow: 0 4px 16px rgba(21,101,192,.25);
+  border-radius: 12px; padding: 12px 14px; margin-bottom: 10px;
+  box-shadow: 0 3px 12px rgba(21,101,192,.2);
 }
 .entrega-resumen-top {
-  display: flex; justify-content: space-between; align-items: flex-start;
-  margin-bottom: 14px;
+  display: flex; justify-content: space-between; align-items: center;
+  margin-bottom: 8px;
 }
 .entrega-resumen-titulo {
-  font-family: 'Barlow Condensed', sans-serif; font-size: 13px;
-  font-weight: 700; color: rgba(255,255,255,.65); text-transform: uppercase;
-  letter-spacing: 1px; margin-bottom: 2px;
+  font-size: 10px; color: rgba(255,255,255,.6);
+  text-transform: uppercase; letter-spacing: .8px; margin-bottom: 1px;
 }
 .entrega-resumen-val {
-  font-family: 'Barlow Condensed', sans-serif; font-size: 28px;
+  font-family: 'Barlow Condensed', sans-serif; font-size: 22px;
   font-weight: 900; color: #fff; line-height: 1;
 }
-.entrega-resumen-sub {
-  font-size: 11px; color: rgba(255,255,255,.5); margin-top: 2px;
-}
-/* Barra de progreso */
+.entrega-resumen-sub { font-size: 10px; color: rgba(255,255,255,.45); margin-top: 1px; }
 .entrega-progress-wrap {
   background: rgba(255,255,255,.15); border-radius: 20px;
-  height: 8px; overflow: hidden; margin-bottom: 10px;
+  height: 5px; overflow: hidden; margin-bottom: 6px;
 }
-.entrega-progress-bar {
-  height: 100%; background: #FFD700; border-radius: 20px;
-  transition: width .4s ease;
-}
-.entrega-progress-label {
-  font-size: 11px; color: rgba(255,255,255,.6); text-align: center;
-  margin-bottom: 12px;
-}
-/* Desglose cobro */
-.entrega-cobro-grid {
-  display: grid; grid-template-columns: repeat(2, 1fr); gap: 8px;
-}
-.entrega-cobro-item {
-  background: rgba(255,255,255,.1); border-radius: 10px;
-  padding: 8px 10px; text-align: center;
-}
-.entrega-cobro-label {
-  font-size: 10px; color: rgba(255,255,255,.55);
-  text-transform: uppercase; letter-spacing: .5px; margin-bottom: 2px;
-}
-.entrega-cobro-val {
-  font-family: 'Barlow Condensed', sans-serif; font-size: 16px;
-  font-weight: 900; color: #fff;
-}
+.entrega-progress-bar { height: 100%; background: #FFD700; border-radius: 20px; transition: width .4s; }
+.entrega-progress-label { font-size: 10px; color: rgba(255,255,255,.5); text-align: center; margin-bottom: 8px; }
+.entrega-cobro-grid { display: grid; grid-template-columns: repeat(4,1fr); gap: 6px; }
+.entrega-cobro-item { background: rgba(255,255,255,.1); border-radius: 8px; padding: 5px 6px; text-align: center; }
+.entrega-cobro-label { font-size: 9px; color: rgba(255,255,255,.5); text-transform: uppercase; letter-spacing: .3px; }
+.entrega-cobro-val { font-family: 'Barlow Condensed',sans-serif; font-size: 13px; font-weight: 900; color: #fff; }
 
-/* ── Cards de parada ── */
+/* ── Cards de ciudad ── */
 .entrega-card {
-  background: #fff; border-radius: 16px; margin-bottom: 12px;
-  border: 1.5px solid rgba(21,101,192,.12); overflow: hidden;
-  box-shadow: 0 2px 10px rgba(0,0,0,.07);
+  background: #fff; border-radius: 12px; margin-bottom: 8px;
+  border: 1.5px solid rgba(21,101,192,.1); overflow: hidden;
+  box-shadow: 0 1px 6px rgba(0,0,0,.06);
 }
-.entrega-card.completada {
-  border-color: rgba(46,125,50,.2);
-  opacity: .75;
-}
+.entrega-card.completada { border-color: rgba(46,125,50,.2); opacity: .8; }
 .entrega-card-hdr {
   background: linear-gradient(135deg, #1565C0, #1976D2);
-  padding: 10px 14px; display: flex; align-items: center;
-  justify-content: space-between; gap: 8px;
+  padding: 7px 12px; display: flex; align-items: center; justify-content: space-between;
 }
-.entrega-card.completada .entrega-card-hdr {
-  background: linear-gradient(135deg, #2E7D32, #388E3C);
-}
-.entrega-card-ciudad {
-  font-family: 'Barlow Condensed', sans-serif; font-size: 17px;
-  font-weight: 900; color: #fff; letter-spacing: .5px;
-}
-.entrega-card-badges {
-  display: flex; gap: 6px; align-items: center; flex-shrink: 0;
-}
-.entrega-card-orden {
-  background: rgba(255,255,255,.2); border-radius: 20px;
-  padding: 3px 9px; font-size: 11px; font-weight: 800; color: #fff;
-}
-.entrega-card-check {
-  font-size: 14px;
-}
+.entrega-card.completada .entrega-card-hdr { background: linear-gradient(135deg,#2E7D32,#388E3C); }
+.entrega-card-ciudad { font-family: 'Barlow Condensed',sans-serif; font-size: 15px; font-weight: 900; color: #fff; }
+.entrega-card-orden { background: rgba(255,255,255,.2); border-radius: 20px; padding: 2px 8px; font-size: 10px; font-weight: 800; color: #fff; }
 
-/* ── Items ── */
-.entrega-item {
-  padding: 14px 16px; border-bottom: 1px solid #f0f4ff;
-  transition: background .15s;
-}
+/* ── Items de cliente ── */
+.entrega-item { padding: 10px 12px; border-bottom: 1px solid #f0f4ff; }
 .entrega-item:last-child { border-bottom: none; }
-.entrega-item.entregado-item { background: #F9FBF9; }
-.entrega-item-top {
-  display: flex; align-items: flex-start;
-  justify-content: space-between; margin-bottom: 4px;
-}
-.entrega-item-nombre {
-  font-family: 'Barlow Condensed', sans-serif; font-size: 18px;
-  font-weight: 900; color: var(--text); flex: 1; line-height: 1.1;
-}
-.entrega-item-nombre.entregado-nombre { color: var(--text3); }
-.entrega-item-monto {
-  font-family: 'Barlow Condensed', sans-serif; font-size: 18px;
-  font-weight: 900; color: #1565C0; flex-shrink: 0; margin-left: 8px;
-}
-.entrega-item-comercio {
-  font-size: 12px; color: var(--text2); margin-bottom: 8px;
-}
+.entrega-item.entregado-item { background: #FAFFFE; }
+.entrega-item-top { display: flex; align-items: center; justify-content: space-between; margin-bottom: 2px; }
+.entrega-item-nombre { font-family: 'Barlow Condensed',sans-serif; font-size: 16px; font-weight: 900; color: var(--text); flex: 1; }
+.entrega-item-nombre.entregado-nombre { color: var(--text3); text-decoration: line-through; }
+.entrega-item-monto { font-family: 'Barlow Condensed',sans-serif; font-size: 16px; font-weight: 900; color: #1565C0; flex-shrink: 0; margin-left: 8px; }
+.entrega-item-comercio { font-size: 11px; color: var(--text3); margin-bottom: 6px; }
 .entrega-estado-badge {
-  display: inline-flex; align-items: center; gap: 4px;
-  padding: 3px 10px; border-radius: 20px; font-size: 11px;
-  font-weight: 800; letter-spacing: .3px; margin-bottom: 10px;
+  display: inline-flex; align-items: center; padding: 2px 8px;
+  border-radius: 20px; font-size: 10px; font-weight: 800; margin-bottom: 6px;
 }
 .entrega-estado-badge.pendiente { background: #FFF8E1; color: #E65100; }
 .entrega-estado-badge.en-camino { background: #E3F2FD; color: #1565C0; }
 .entrega-estado-badge.entregado { background: #E8F5E9; color: #2E7D32; }
 
-/* ── Botones de acción ── */
-.entrega-btns { display: flex; gap: 8px; margin-top: 10px; }
+/* ── Botones ── */
+.entrega-btns { display: flex; gap: 6px; flex-wrap: wrap; }
 .entrega-btn {
-  flex: 1; padding: 12px 10px; border: none;
-  border-radius: 12px; font-family: 'Barlow Condensed', sans-serif;
-  font-size: 15px; font-weight: 900; cursor: pointer;
-  transition: opacity .15s, transform .1s; letter-spacing: .3px;
-  text-align: center; -webkit-tap-highlight-color: transparent;
-  touch-action: manipulation; display: flex; align-items: center;
-  justify-content: center; gap: 6px;
+  padding: 8px 10px; border: none; border-radius: 10px;
+  font-family: 'Barlow Condensed',sans-serif; font-size: 13px; font-weight: 800;
+  cursor: pointer; touch-action: manipulation; -webkit-tap-highlight-color: transparent;
+  display: flex; align-items: center; justify-content: center; gap: 4px;
+  transition: opacity .12s, transform .1s; white-space: nowrap;
 }
-.entrega-btn:active { opacity: .8; transform: scale(.97); }
-.entrega-btn.avisar {
-  background: #E8F5E9; color: #1B5E20;
-  border: 1.5px solid rgba(27,94,32,.2);
-}
-.entrega-btn.maps {
-  background: #FFF3E0; color: #E65100;
-  border: 1.5px solid rgba(230,81,0,.2);
-}
+.entrega-btn:active { opacity: .75; transform: scale(.96); }
+.entrega-btn.maps    { background: #FFF3E0; color: #E65100; border: 1.5px solid rgba(230,81,0,.2); }
+.entrega-btn.avisar  { background: #E8F5E9; color: #1B5E20; border: 1.5px solid rgba(27,94,32,.2); }
+.entrega-btn.wa      { background: #E8F5E9; color: #1B5E20; border: 1.5px solid rgba(27,94,32,.2); }
 .entrega-btn.entregar {
-  background: linear-gradient(135deg, #1B5E20, #2E7D32);
-  color: #fff; font-size: 16px; flex: 2;
-  box-shadow: 0 3px 10px rgba(27,94,32,.3);
+  flex: 1; background: linear-gradient(135deg,#1B5E20,#2E7D32); color: #fff;
+  font-size: 14px; box-shadow: 0 2px 8px rgba(27,94,32,.25);
 }
-.entrega-btn.entregado-done {
-  background: #E8F5E9; color: #2E7D32; cursor: default;
-  border: 1.5px solid rgba(46,125,50,.2); font-size: 13px;
-}
+.entrega-btn.deshacer { background: #FFF3E0; color: #E65100; border: 1.5px solid rgba(230,81,0,.2); font-size: 12px; }
+.entrega-btn.entregado-done { background: #E8F5E9; color: #2E7D32; font-size: 12px; border: 1.5px solid rgba(46,125,50,.2); cursor: default; }
 
 /* Modal cobro */
-.cobro-modal {
-  position: fixed; inset: 0; background: rgba(0,0,0,.6); z-index: 700;
-  display: flex; align-items: flex-end;
-}
+.cobro-modal { position: fixed; inset: 0; background: rgba(0,0,0,.55); z-index: 700; display: flex; align-items: flex-end; }
 .cobro-modal.hidden { display: none; }
-.cobro-sheet {
-  background: #fff; border-radius: 22px 22px 0 0; width: 100%;
-  padding: 22px 20px calc(22px + env(safe-area-inset-bottom));
-  box-shadow: 0 -8px 32px rgba(0,0,0,.2);
-}
-.cobro-titulo {
-  font-family: 'Barlow Condensed', sans-serif; font-size: 22px;
-  font-weight: 900; color: var(--green); margin-bottom: 4px;
-}
-.cobro-sub { font-size: 13px; color: var(--text3); margin-bottom: 18px; }
-.cobro-opciones { display: flex; flex-direction: column; gap: 10px; margin-bottom: 14px; }
-.cobro-opt {
-  padding: 14px 16px; border: 2px solid rgba(0,0,0,.1); border-radius: 12px;
-  font-family: 'Barlow Condensed', sans-serif; font-size: 18px; font-weight: 700;
-  background: #fff; cursor: pointer; text-align: left; transition: all .15s;
-  display: flex; align-items: center; gap: 10px;
-  -webkit-tap-highlight-color: transparent; touch-action: manipulation;
-}
-.cobro-opt:active, .cobro-opt.sel {
-  background: rgba(27,94,32,.08); border-color: #2E7D32; color: #2E7D32;
-}
-.cobro-cancel {
-  width: 100%; padding: 13px; background: #f5f5f5; border: none;
-  border-radius: 12px; font-family: 'Barlow Condensed', sans-serif;
-  font-size: 16px; font-weight: 700; color: var(--text3); cursor: pointer;
-}
-.entrega-resumen-hdr {
-  background: linear-gradient(135deg, #1565C0, #0D47A1);
-  border-radius: 14px; padding: 16px; margin-bottom: 16px;
-  display: flex; justify-content: space-between; align-items: center;
-}
+.cobro-sheet { background: #fff; border-radius: 20px 20px 0 0; width: 100%; padding: 20px 18px calc(20px + env(safe-area-inset-bottom)); }
+.cobro-titulo { font-family: 'Barlow Condensed',sans-serif; font-size: 20px; font-weight: 900; color: var(--green); margin-bottom: 3px; }
+.cobro-sub { font-size: 13px; color: var(--text3); margin-bottom: 14px; }
+.cobro-opciones { display: flex; flex-direction: column; gap: 8px; margin-bottom: 12px; }
+.cobro-opt { padding: 12px 14px; border: 2px solid rgba(0,0,0,.08); border-radius: 10px; font-family: 'Barlow Condensed',sans-serif; font-size: 16px; font-weight: 700; background: #fff; cursor: pointer; text-align: left; display: flex; align-items: center; gap: 10px; touch-action: manipulation; }
+.cobro-opt:active, .cobro-opt.sel { background: rgba(27,94,32,.08); border-color: #2E7D32; color: #2E7D32; }
+.cobro-cancel { width: 100%; padding: 12px; background: #f5f5f5; border: none; border-radius: 10px; font-family: 'Barlow Condensed',sans-serif; font-size: 15px; font-weight: 700; color: var(--text3); cursor: pointer; }
+.entrega-resumen-hdr { background: linear-gradient(135deg,#1565C0,#0D47A1); border-radius: 14px; padding: 16px; margin-bottom: 16px; display: flex; justify-content: space-between; align-items: center; }
 .entrega-resumen-label { font-size: 12px; color: rgba(255,255,255,.7); margin-bottom: 2px; }
 
 /* ── Asignar chofer ── */
@@ -4149,9 +4063,9 @@ body {
 </div>
 
 <div class="view" id="view-bot"><div style="padding:12px 16px 0;"><div style="background:linear-gradient(135deg,#1A3A1A,#2E7D32);border-radius:14px;padding:16px;margin-bottom:12px;"><div style="font-family:'Barlow Condensed',sans-serif;font-size:22px;font-weight:900;color:#fff;">🤖 Bot de WhatsApp</div><div style="font-size:12px;color:rgba(255,255,255,.75);margin-top:3px;">Configurá qué dice el bot automáticamente</div><div id="bot-ultima-sync" style="font-size:11px;color:rgba(255,255,255,.5);margin-top:4px;"></div></div><div class="bot-section-card"><div class="bot-section-hdr"><div class="bot-section-title">📦 Stock actual</div><div class="bot-section-badge" id="bot-badge-sinstock">0 sin stock</div></div><div style="padding:12px 16px;"><div class="bot-field-desc">Tocá un producto para marcarlo sin stock.</div><div class="bot-stock-grid" id="bot-stock-grid"><div style="text-align:center;padding:20px;color:var(--text3);font-size:13px;grid-column:1/-1;">Cargando...</div></div></div></div><div class="bot-section-card"><div class="bot-section-hdr"><div class="bot-section-title">📢 Aviso activo</div></div><div class="bot-field"><div class="bot-field-desc">Algo importante esta semana. Dejá vacío si no hay nada.</div><textarea class="bot-input" id="bot-aviso" placeholder="Ej: Esta semana no entregamos a Pellegrini..."></textarea></div></div><div class="bot-section-card"><div class="bot-section-hdr"><div class="bot-section-title">🚚 Zonas y días de entrega</div></div><div class="bot-field"><div class="bot-field-desc">Cuándo y dónde entregamos.</div><textarea class="bot-input" id="bot-zonas" placeholder="Ej: Trenque Lauquen: Lunes a Viernes 9-12..."></textarea></div></div><div class="bot-section-card"><div class="bot-section-hdr"><div class="bot-section-title">🕐 Horario de atención</div></div><div class="bot-field"><textarea class="bot-input bot-input-single" id="bot-horario" placeholder="Ej: Lunes a Viernes 8 a 20hs"></textarea></div></div><div class="bot-section-card"><div class="bot-section-hdr"><div class="bot-section-title">💰 Precios del catálogo</div><div style="display:flex;align-items:center;gap:8px;"><div style="font-family:'Barlow Condensed',sans-serif;font-size:11px;color:rgba(255,255,255,.7);">El bot usa estos precios</div><button onclick="botCargarPrecios()" style="background:rgba(255,255,255,.2);border:none;border-radius:20px;padding:4px 12px;color:#fff;font-family:'Barlow Condensed',sans-serif;font-size:12px;font-weight:700;cursor:pointer;touch-action:manipulation;">🔄</button></div></div><div id="bot-precios-list"><div style="text-align:center;padding:20px;color:var(--text3);font-size:13px;">Cargando...</div></div><div style="padding:12px 16px;"><button onclick="botGuardarPrecios()" style="width:100%;background:linear-gradient(135deg,#1B5E20,#2E7D32);color:#fff;border:none;border-radius:10px;padding:10px;font-family:'Barlow Condensed',sans-serif;font-size:15px;font-weight:900;cursor:pointer;touch-action:manipulation;">💾 Guardar precios</button></div></div><button class="bot-save-btn" onclick="botGuardar()">💾 Guardar configuración del bot</button><div class="bot-status" id="bot-status">✅ Guardado — el bot ya lo tiene</div><div class="bot-section-card" style="margin-top:16px;"><div class="bot-section-hdr"><div class="bot-section-title">💬 Últimas conversaciones</div><button onclick="botCargarConversaciones()" style="background:rgba(255,255,255,.2);border:none;border-radius:20px;padding:4px 12px;color:#fff;font-family:'Barlow Condensed',sans-serif;font-size:12px;font-weight:700;cursor:pointer;">🔄</button></div><div id="bot-conversaciones"><div style="text-align:center;padding:24px;color:var(--text3);font-size:13px;">Cargando...</div></div><div class="bot-section-card" style="margin-top:16px;"><div class="bot-section-hdr"><div class="bot-section-title">👥 Clientes del bot</div><div style="display:flex;align-items:center;gap:8px;"><div id="bot-cli-count" style="background:rgba(255,255,255,.2);border-radius:20px;padding:3px 10px;font-family:'Barlow Condensed',sans-serif;font-size:11px;font-weight:700;color:#fff;"></div><button onclick="botCargarClientes()" style="background:rgba(255,255,255,.2);border:none;border-radius:20px;padding:4px 12px;color:#fff;font-family:'Barlow Condensed',sans-serif;font-size:12px;font-weight:700;cursor:pointer;touch-action:manipulation;">🔄</button></div></div><div id="bot-clientes-list"><div style="text-align:center;padding:24px;color:var(--text3);font-size:13px;">Cargando...</div></div></div></div></div></div>  <!-- ═══ TAB ENTREGAS (solo choferes) ═══ -->
-  <div class="view" id="view-entregas" style="display:flex;flex-direction:column;padding:0;overflow:hidden;">
-    <div id="entregas-resumen" style="display:none;flex-shrink:0;padding:12px 16px 0;"></div>
-    <div id="entregas-lista" style="flex:1;overflow-y:auto;-webkit-overflow-scrolling:touch;padding:8px 16px;padding-bottom:calc(80px + env(safe-area-inset-bottom));">
+  <div class="view" id="view-entregas">
+    <div id="entregas-resumen" style="display:none;"></div>
+    <div id="entregas-lista">
       <div style="text-align:center;padding:40px 20px;color:var(--text3);font-size:14px;">Cargando entregas...</div>
     </div>
   </div>
@@ -5764,7 +5678,7 @@ function mostrarTabs() {
     var tabEnt = document.getElementById('tab-btn-entregas');
     if (tabEnt) tabEnt.style.display = '';
     cambiarTab('entregas');
-    setTimeout(ajustarAlturaEntregas, 100);
+    
     cargarEntregas();
     return;
   }
@@ -9733,19 +9647,6 @@ let _entregaClienteActual = null; // cliente en proceso de cobro
 let _entregaCiudadActual  = null; // ciudad en proceso de cobro
 let _entregasCache = [];
 
-function ajustarAlturaEntregas() {
-  const view = document.getElementById('view-entregas');
-  if (!view) return;
-  const hdr  = document.querySelector('.hdr');
-  const bien = document.querySelector('.bienvenida');
-  const nav  = document.getElementById('tab-nav');
-  const hdrH  = hdr  ? hdr.offsetHeight  : 56;
-  const bienH = bien ? bien.offsetHeight : 52;
-  const navH  = nav  ? nav.offsetHeight  : 56;
-  const available = window.innerHeight - hdrH - bienH - navH;
-  view.style.height = Math.max(available, 200) + 'px';
-}
-
 async function cargarEntregas() {
   const el = document.getElementById('entregas-lista');
   el.innerHTML = '<div style="text-align:center;padding:40px;color:var(--text3);">Cargando entregas...</div>';
@@ -9797,7 +9698,7 @@ async function cargarEntregas() {
     }
 
     _entregasCache = entregas || [];
-    ajustarAlturaEntregas();
+    
     // Cargar coordenadas GPS de los clientes en paralelo
     await cargarCoordsClientes(_entregasCache);
     renderEntregas(_entregasCache);
@@ -10018,39 +9919,40 @@ function renderEntregas(entregas) {
 
       html += '<div class="entrega-item' + (e.estado === 'entregado' ? ' entregado-item' : '') + '" id="entrega-item-' + e.id + '">' +
         '<div class="entrega-item-top">' +
-          '<div>' +
+          '<div style="flex:1;min-width:0;">' +
             '<div class="entrega-item-nombre' + (e.estado === 'entregado' ? ' entregado-nombre' : '') + '">' + (e.cliente || '—') + '</div>' +
-            (e.comercio ? '<div class="entrega-item-comercio">🏪 ' + e.comercio + '</div>' : '') +
+            (e.comercio ? '<div class="entrega-item-comercio">🏪 ' + e.comercio + '</div>' :
+             e.nota ? '<div class="entrega-item-comercio">📝 ' + e.nota + '</div>' : '') +
           '</div>' +
           '<div style="text-align:right;flex-shrink:0;margin-left:8px;">' +
             '<div class="entrega-item-monto">' + totalFmt + '</div>' +
-            '<div class="entrega-estado-badge ' + estadoCls + '" style="margin:4px 0 0;display:block;text-align:right;">' + estadoLabel +
-              (e.estado === 'entregado' && e.forma_cobro ? ' · ' + e.forma_cobro.replace('_', ' ') : '') +
+            '<div class="entrega-estado-badge ' + estadoCls + '" style="margin:3px 0 0;">' + estadoLabel +
+              (e.estado === 'entregado' && e.forma_cobro ? ' · ' + e.forma_cobro.replace('_',' ') : '') +
             '</div>' +
           '</div>' +
         '</div>' +
         '<div class="entrega-btns">';
 
       if (e.estado !== 'entregado') {
-        // Botón Maps
+        // Maps
         html += '<button class="entrega-btn maps" onclick="abrirMapsCliente(\'' + clienteEsc + '\',\'' + comercioEsc + '\',\'' + ciudadEsc + '\')">' +
           tieneCoords + ' Maps</button>';
-        // Botón WA
+        // WA — siempre visible, si no tiene tel abre WA sin número para copiar mensaje
         if (waNum) {
-          const msgWA = encodeURIComponent(
-            'Hola ' + (e.cliente || '') + '! 👋 Soy el repartidor de TCK The Chicken Kings. ' +
-            'Estoy en camino a ' + ciudad + ' con tu pedido. ¿Confirmás que vas a estar disponible? 🚚'
-          );
-          html += '<button class="entrega-btn avisar" onclick="avisarClienteWA(\'' + waNum + '\',\'' + msgWA + '\')">' +
-            '📲 Avisar</button>';
+          const msgWA = encodeURIComponent('Hola ' + (e.cliente||'') + '! 👋 Soy el repartidor de TCK. Estoy en camino a ' + ciudad + ' con tu pedido. ¿Confirmás que estás disponible? 🚚');
+          html += '<button class="entrega-btn wa" onclick="avisarClienteWA(\'' + waNum + '\',\'' + msgWA + '\')">' +
+            '💬 WA</button>';
         }
-        // Botón Entregado — más grande y destacado
-        html += '<button class="entrega-btn entregar" data-id="' + e.id + '" data-nombre="' + clienteEsc + '" data-monto="' + (e.monto || 0) + '" data-cliente="' + clienteEsc + '" data-ciudad="' + ciudadEsc + '" onclick="abrirCobroModalBtn(this)">' +
-          '✅ Marcar entregado</button>';
+        // Entregado
+        html += '<button class="entrega-btn entregar" data-id="' + e.id + '" data-nombre="' + clienteEsc + '" data-monto="' + (e.monto||0) + '" data-cliente="' + clienteEsc + '" data-ciudad="' + ciudadEsc + '" onclick="abrirCobroModalBtn(this)">' +
+          '✅ Entregado</button>';
       } else {
+        // Entregado — mostrar forma de cobro + botón deshacer
         html += '<button class="entrega-btn entregado-done">✅ ' +
-          (e.forma_cobro ? e.forma_cobro.charAt(0).toUpperCase() + e.forma_cobro.slice(1).replace('_', ' ') : 'Entregado') +
+          (e.forma_cobro ? e.forma_cobro.charAt(0).toUpperCase() + e.forma_cobro.slice(1).replace('_',' ') : 'Entregado') +
           '</button>';
+        html += '<button class="entrega-btn deshacer" data-id="' + e.id + '" onclick="deshacerEntrega(\'' + e.id + '\')">' +
+          '↩ Deshacer</button>';
       }
 
       html += '</div></div>';
@@ -10060,6 +9962,28 @@ function renderEntregas(entregas) {
   });
 
   el.innerHTML = html;
+}
+
+// ── DESHACER ENTREGA ─────────────────────────────────────────
+async function deshacerEntrega(entregaId) {
+  if (!confirm('¿Deshacer esta entrega?')) return;
+  try {
+    await sbFetch('entregas?id=eq.' + entregaId, {
+      method: 'PATCH',
+      body: JSON.stringify({ estado: 'pendiente', forma_cobro: null, fecha_entrega: null })
+    });
+    const idx = _entregasCache.findIndex(e => e.id === entregaId);
+    if (idx >= 0) {
+      _entregasCache[idx].estado      = 'pendiente';
+      _entregasCache[idx].forma_cobro = null;
+      _entregasCache[idx].fecha_entrega = null;
+    }
+    renderEntregas(_entregasCache);
+    renderResumenChofer(_entregasCache);
+    toast('↩ Entrega deshecha', 'ok');
+  } catch(e) {
+    toast('❌ Error al deshacer', 'err');
+  }
 }
 
 // ── AVISAR CLIENTE WA ────────────────────────────────────────
