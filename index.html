@@ -4143,6 +4143,45 @@ body {
     </div>
   </div>
 
+  <!-- Modal datos del cheque -->
+  <div class="entrega-modal-overlay hidden" id="cheque-modal" style="z-index:900;">
+    <div class="entrega-modal-sheet" style="max-height:85vh;">
+      <div class="entrega-modal-hdr" style="background:linear-gradient(135deg,#1A237E,#283593);border-radius:22px 22px 0 0;">
+        <div class="entrega-modal-ciudad">DATOS DEL CHEQUE</div>
+        <div class="entrega-modal-nombre" id="cheque-modal-cliente"></div>
+        <div class="entrega-modal-monto" id="cheque-modal-monto"></div>
+      </div>
+      <div class="entrega-modal-body">
+        <div style="background:#FFF8E1;border-radius:10px;padding:10px 12px;margin-bottom:14px;font-size:12px;color:#E65100;">
+          ⚠️ Registrá los datos del cheque antes de confirmar la entrega
+        </div>
+        <div style="display:flex;flex-direction:column;gap:10px;">
+          <div>
+            <div style="font-size:11px;font-weight:700;color:var(--text3);text-transform:uppercase;letter-spacing:.8px;margin-bottom:4px;">Banco</div>
+            <input id="cheque-banco" type="text" placeholder="Ej: Banco Nación, BBVA..." autocapitalize="words" style="width:100%;padding:11px 12px;border:1.5px solid #E0E0E0;border-radius:10px;font-family:'Barlow',sans-serif;font-size:14px;outline:none;box-sizing:border-box;">
+          </div>
+          <div>
+            <div style="font-size:11px;font-weight:700;color:var(--text3);text-transform:uppercase;letter-spacing:.8px;margin-bottom:4px;">Número de cheque</div>
+            <input id="cheque-numero" type="text" placeholder="Ej: 12345678" inputmode="numeric" style="width:100%;padding:11px 12px;border:1.5px solid #E0E0E0;border-radius:10px;font-family:'Barlow',sans-serif;font-size:14px;outline:none;box-sizing:border-box;">
+          </div>
+          <div>
+            <div style="font-size:11px;font-weight:700;color:var(--text3);text-transform:uppercase;letter-spacing:.8px;margin-bottom:4px;">Nombre del emisor (quien firma)</div>
+            <input id="cheque-emisor" type="text" placeholder="Nombre o razón social" autocapitalize="words" style="width:100%;padding:11px 12px;border:1.5px solid #E0E0E0;border-radius:10px;font-family:'Barlow',sans-serif;font-size:14px;outline:none;box-sizing:border-box;">
+          </div>
+          <div>
+            <div style="font-size:11px;font-weight:700;color:var(--text3);text-transform:uppercase;letter-spacing:.8px;margin-bottom:4px;">Fecha de vencimiento</div>
+            <input id="cheque-vencimiento" type="date" style="width:100%;padding:11px 12px;border:1.5px solid #E0E0E0;border-radius:10px;font-family:'Barlow',sans-serif;font-size:14px;outline:none;box-sizing:border-box;">
+          </div>
+          <div id="cheque-err" style="color:#C62828;font-size:12px;min-height:16px;text-align:center;"></div>
+        </div>
+      </div>
+      <div style="padding:14px 18px 0;display:flex;flex-direction:column;gap:8px;">
+        <button onclick="confirmarChequeModal()" style="width:100%;padding:13px;background:linear-gradient(135deg,#1A237E,#283593);color:#fff;border:none;border-radius:12px;font-family:'Barlow Condensed',sans-serif;font-size:17px;font-weight:900;cursor:pointer;touch-action:manipulation;">✅ Confirmar entrega con cheque</button>
+        <button onclick="cerrarChequeModal()" style="width:100%;padding:11px;background:#f5f5f5;border:none;border-radius:12px;font-family:'Barlow Condensed',sans-serif;font-size:15px;font-weight:700;color:var(--text3);cursor:pointer;">Cancelar</button>
+      </div>
+    </div>
+  </div>
+
   <!-- Modal detalle entrega (chofer) -->
   <div class="entrega-modal-overlay hidden" id="entrega-modal">
     <div class="entrega-modal-sheet" id="entrega-modal-sheet">
@@ -10311,81 +10350,97 @@ async function confirmarEntregaModal() {
     const val = parseFloat(document.getElementById('cobro-m-' + m + '-val').value) || 0;
     if (val > 0) { cobros[m] = val; totalCobrado += val; }
   });
+  if (totalCobrado === 0) { toast('❌ Ingresá al menos un método de cobro', 'err'); return; }
 
-  if (totalCobrado === 0) {
-    toast('❌ Ingresá al menos un método de cobro', 'err');
+  // Si hay cobro con cheque, pedir datos antes de confirmar
+  if (cobros.cheque && cobros.cheque > 0) {
+    const e = _entregasCache.find(x => x.id === _entregaModalId);
+    _cobrosPendientes = cobros;
+    document.getElementById('cheque-modal-cliente').textContent = e ? (e.cliente||'—') : '—';
+    document.getElementById('cheque-modal-monto').textContent = '$' + Math.round(cobros.cheque).toLocaleString('es-AR') + ' en cheque';
+    ['cheque-banco','cheque-numero','cheque-emisor','cheque-vencimiento'].forEach(id => { document.getElementById(id).value = ''; });
+    document.getElementById('cheque-err').textContent = '';
+    document.getElementById('cheque-modal').classList.remove('hidden');
     return;
   }
+  await _ejecutarConfirmacionEntrega(cobros);
+}
 
-  const formaPrincipal = Object.keys(cobros).reduce((a, b) => cobros[a] > cobros[b] ? a : b);
-  const detalleCobroStr = JSON.stringify(cobros);
+let _cobrosPendientes = null;
 
-  // Construir payload — intentar con detalle_cobro, si falla sin él
-  const payload = {
-    estado:        'entregado',
-    forma_cobro:   formaPrincipal,
-    fecha_entrega: new Date().toISOString()
-  };
+function cerrarChequeModal() {
+  document.getElementById('cheque-modal').classList.add('hidden');
+  _cobrosPendientes = null;
+}
 
-  // Agregar detalle_cobro solo si hay múltiples métodos (la columna puede no existir aún)
-  if (Object.keys(cobros).length > 1) {
-    payload.detalle_cobro = detalleCobroStr;
-  }
-
+async function confirmarChequeModal() {
+  const banco    = document.getElementById('cheque-banco').value.trim();
+  const numero   = document.getElementById('cheque-numero').value.trim();
+  const emisor   = document.getElementById('cheque-emisor').value.trim();
+  const vencimie = document.getElementById('cheque-vencimiento').value;
+  const errEl    = document.getElementById('cheque-err');
+  if (!banco || !numero || !emisor || !vencimie) { errEl.textContent = 'Completá todos los campos'; return; }
+  const e = _entregasCache.find(x => x.id === _entregaModalId);
   try {
-    await sbFetch('entregas?id=eq.' + _entregaModalId, {
-      method: 'PATCH',
-      body: JSON.stringify(payload)
+    await sbFetch('cheques_recibidos', {
+      method: 'POST',
+      body: JSON.stringify({
+        pedido_id: e ? e.pedido_id : null, chofer: vendedorActual,
+        cliente: e ? e.cliente : null, comercio: e ? e.comercio : null,
+        ciudad: e ? e.ciudad : null, monto: _cobrosPendientes.cheque,
+        banco, numero_cheque: numero, emisor, fecha_vencimiento: vencimie, estado: 'recibido'
+      })
     });
+  } catch(err) { console.warn('No se pudo guardar cheque:', err); }
+  document.getElementById('cheque-modal').classList.add('hidden');
+  await _ejecutarConfirmacionEntrega(_cobrosPendientes);
+  _cobrosPendientes = null;
+}
 
-    // GPS silencioso
+async function _ejecutarConfirmacionEntrega(cobros) {
+  const formaPrincipal = Object.keys(cobros).reduce((a,b) => cobros[a] > cobros[b] ? a : b);
+  const detalleCobroStr = JSON.stringify(cobros);
+  const payload = { estado:'entregado', forma_cobro:formaPrincipal, fecha_entrega:new Date().toISOString() };
+  if (Object.keys(cobros).length > 1) payload.detalle_cobro = detalleCobroStr;
+  try {
+    await sbFetch('entregas?id=eq.' + _entregaModalId, { method:'PATCH', body:JSON.stringify(payload) });
     const e = _entregasCache.find(x => x.id === _entregaModalId);
     if (e) {
       navigator.geolocation.getCurrentPosition(pos => {
-        const { latitude: lat, longitude: lng } = pos.coords;
-        sbFetch('clientes_ubicaciones?nombre_cliente=eq.' + encodeURIComponent(e.cliente), { method: 'GET' })
+        const { latitude:lat, longitude:lng } = pos.coords;
+        sbFetch('clientes_ubicaciones?nombre_cliente=eq.' + encodeURIComponent(e.cliente), {method:'GET'})
           .then(rows => {
-            const method = (rows && rows.length) ? 'PATCH' : 'POST';
-            const url = method === 'PATCH'
-              ? 'clientes_ubicaciones?nombre_cliente=eq.' + encodeURIComponent(e.cliente)
-              : 'clientes_ubicaciones';
-            return sbFetch(url, { method, body: JSON.stringify({ nombre_cliente: e.cliente, lat, lng, ultima_visita: new Date().toISOString() }) });
-          }).catch(() => {});
-        _coordsCache[e.cliente] = { lat, lng };
-      }, () => {});
+            const method = (rows&&rows.length)?'PATCH':'POST';
+            const url = method==='PATCH' ? 'clientes_ubicaciones?nombre_cliente=eq.'+encodeURIComponent(e.cliente) : 'clientes_ubicaciones';
+            return sbFetch(url, {method, body:JSON.stringify({nombre_cliente:e.cliente,lat,lng,ultima_visita:new Date().toISOString()})});
+          }).catch(()=>{});
+        _coordsCache[e.cliente] = {lat,lng};
+      }, ()=>{});
     }
-
     const idx = _entregasCache.findIndex(x => x.id === _entregaModalId);
     if (idx >= 0) {
-      _entregasCache[idx].estado      = 'entregado';
+      _entregasCache[idx].estado = 'entregado';
       _entregasCache[idx].forma_cobro = formaPrincipal;
       if (Object.keys(cobros).length > 1) _entregasCache[idx].detalle_cobro = detalleCobroStr;
     }
     cerrarEntregaModal();
     renderEntregas(_entregasCache);
     renderResumenChofer(_entregasCache);
-    toast('✅ Entrega registrada', 'ok');
+    toast('✅ Entrega registrada','ok');
   } catch(err) {
-    // Si falla con detalle_cobro, reintentar sin él
     if (payload.detalle_cobro) {
       try {
         delete payload.detalle_cobro;
-        await sbFetch('entregas?id=eq.' + _entregaModalId, {
-          method: 'PATCH',
-          body: JSON.stringify(payload)
-        });
-        const idx = _entregasCache.findIndex(x => x.id === _entregaModalId);
-        if (idx >= 0) { _entregasCache[idx].estado = 'entregado'; _entregasCache[idx].forma_cobro = formaPrincipal; }
-        cerrarEntregaModal();
-        renderEntregas(_entregasCache);
-        renderResumenChofer(_entregasCache);
-        toast('✅ Entrega registrada', 'ok');
-        return;
+        await sbFetch('entregas?id=eq.'+_entregaModalId, {method:'PATCH',body:JSON.stringify(payload)});
+        const idx = _entregasCache.findIndex(x=>x.id===_entregaModalId);
+        if (idx>=0) { _entregasCache[idx].estado='entregado'; _entregasCache[idx].forma_cobro=formaPrincipal; }
+        cerrarEntregaModal(); renderEntregas(_entregasCache); renderResumenChofer(_entregasCache);
+        toast('✅ Entrega registrada','ok'); return;
       } catch(err2) {}
     }
-    toast('❌ Error al guardar — verificá conexión', 'err');
-    console.error('confirmarEntregaModal:', err);
+    toast('❌ Error al guardar — verificá conexión','err');
   }
+  _entregaModalId = null; _entregaClienteActual = null; _entregaCiudadActual = null; _modoCobroCambio = false;
 }
 
 async function deshacerEntregaModal() {
