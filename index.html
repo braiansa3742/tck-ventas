@@ -1949,14 +1949,7 @@ body {
   padding-bottom: calc(72px + env(safe-area-inset-bottom));
 }
 .view.active { display: block; }
-#view-entregas.active {
-  display: block;
-  padding: 10px 14px calc(72px + env(safe-area-inset-bottom));
-}
 
-/* Chofer: sin padding extra en el panel */
-.panel.on.chofer-mode { padding: 0; }
-#view-entregas.active { display: block; padding: 10px 14px calc(72px + env(safe-area-inset-bottom)); }
 
 /* ── Modal detalle entrega ── */
 .entrega-modal-overlay {
@@ -3226,12 +3219,10 @@ body {
    PANEL CHOFER — ENTREGAS
 ═══════════════════════════════════════════════════════════════ */
 
-/* Layout principal — ocupa todo el espacio disponible */
+/* Layout chofer */
+.panel.on.chofer-mode { padding: 0; }
 #view-entregas.active {
   display: block;
-  overflow-y: auto;
-  -webkit-overflow-scrolling: touch;
-  height: auto;
   padding: 10px 14px calc(72px + env(safe-area-inset-bottom));
 }
 
@@ -3267,56 +3258,67 @@ body {
 
 /* ── Cards de ciudad ── */
 .entrega-card {
-  background: #fff; border-radius: 12px; margin-bottom: 8px;
-  border: 1.5px solid rgba(21,101,192,.1); overflow: hidden;
-  box-shadow: 0 1px 6px rgba(0,0,0,.06);
+  background: #fff; border-radius: 14px; margin-bottom: 10px;
+  border: 1.5px solid rgba(21,101,192,.12); overflow: hidden;
+  box-shadow: 0 2px 8px rgba(0,0,0,.07);
 }
-.entrega-card.completada { border-color: rgba(46,125,50,.2); opacity: .8; }
+.entrega-card.completada { border-color: rgba(46,125,50,.25); }
 .entrega-card-hdr {
   background: linear-gradient(135deg, #1565C0, #1976D2);
-  padding: 7px 12px; display: flex; align-items: center; justify-content: space-between;
+  padding: 9px 14px; display: flex; align-items: center; justify-content: space-between; gap: 8px;
 }
 .entrega-card.completada .entrega-card-hdr { background: linear-gradient(135deg,#2E7D32,#388E3C); }
-.entrega-card-ciudad { font-family: 'Barlow Condensed',sans-serif; font-size: 15px; font-weight: 900; color: #fff; }
-.entrega-card-orden { background: rgba(255,255,255,.2); border-radius: 20px; padding: 2px 8px; font-size: 10px; font-weight: 800; color: #fff; }
+.entrega-card-ciudad { font-family: 'Barlow Condensed',sans-serif; font-size: 16px; font-weight: 900; color: #fff; }
+.entrega-card-orden { background: rgba(255,255,255,.2); border-radius: 20px; padding: 3px 10px; font-size: 11px; font-weight: 800; color: #fff; }
 
-/* ── Items de cliente ── */
-.entrega-item { padding: 10px 12px; border-bottom: 1px solid #f0f4ff; }
+/* ── Items de cliente — tappable ── */
+.entrega-item {
+  padding: 12px 14px; border-bottom: 1px solid #EEF2FF;
+  position: relative; transition: background .1s;
+  -webkit-tap-highlight-color: transparent; cursor: pointer;
+}
 .entrega-item:last-child { border-bottom: none; }
-.entrega-item.entregado-item { background: #FAFFFE; }
-.entrega-item-top { display: flex; align-items: center; justify-content: space-between; margin-bottom: 2px; }
-.entrega-item-nombre { font-family: 'Barlow Condensed',sans-serif; font-size: 16px; font-weight: 900; color: var(--text); flex: 1; }
-.entrega-item-nombre.entregado-nombre { color: var(--text3); text-decoration: line-through; }
-.entrega-item-monto { font-family: 'Barlow Condensed',sans-serif; font-size: 16px; font-weight: 900; color: #1565C0; flex-shrink: 0; margin-left: 8px; }
-.entrega-item-comercio { font-size: 11px; color: var(--text3); margin-bottom: 3px; }
-.entrega-item-dir { font-size: 11px; margin-bottom: 3px; }
-.entrega-item-dir--ok { color: #1565C0; font-weight: 700; }
-.entrega-item-dir--no { color: #C4A882; font-style: italic; }
-.entrega-estado-badge {
-  display: inline-flex; align-items: center; padding: 2px 8px;
-  border-radius: 20px; font-size: 10px; font-weight: 800; margin-bottom: 6px;
-}
-.entrega-estado-badge.pendiente { background: #FFF8E1; color: #E65100; }
-.entrega-estado-badge.en-camino { background: #E3F2FD; color: #1565C0; }
-.entrega-estado-badge.entregado { background: #E8F5E9; color: #2E7D32; }
+.entrega-item:active { background: #F5F8FF; }
+.entrega-item.entregado-item { background: #F8FFF8; }
+.entrega-item.entregado-item:active { background: #EFF8EF; }
 
-/* ── Botones ── */
-.entrega-btns { display: flex; gap: 6px; flex-wrap: wrap; }
-.entrega-btn {
-  padding: 8px 10px; border: none; border-radius: 10px;
-  font-family: 'Barlow Condensed',sans-serif; font-size: 13px; font-weight: 800;
+/* Fila principal: nombre + monto */
+.entrega-item-top { display: flex; align-items: flex-start; justify-content: space-between; margin-bottom: 4px; }
+.entrega-item-nombre { font-family: 'Barlow Condensed',sans-serif; font-size: 17px; font-weight: 900; color: #1A0800; flex: 1; line-height: 1.15; }
+.entrega-item-nombre.entregado-nombre { color: var(--text3); }
+.entrega-item-monto { font-family: 'Barlow Condensed',sans-serif; font-size: 18px; font-weight: 900; color: #1565C0; flex-shrink: 0; margin-left: 10px; }
+.entrega-item-monto.entregado-monto { color: #2E7D32; }
+
+/* Info secundaria */
+.entrega-item-info { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin-bottom: 6px; }
+.entrega-item-comercio { font-size: 12px; color: var(--text2); }
+.entrega-item-turno { font-size: 11px; color: var(--text3); background: #F5F5F5; border-radius: 20px; padding: 1px 7px; }
+
+/* Estado + indicador tap */
+.entrega-item-footer { display: flex; align-items: center; justify-content: space-between; }
+.entrega-estado-badge { display: inline-flex; align-items: center; padding: 3px 10px; border-radius: 20px; font-size: 11px; font-weight: 800; }
+.entrega-estado-badge.pendiente { background: #FFF3E0; color: #E65100; }
+.entrega-estado-badge.entregado { background: #E8F5E9; color: #2E7D32; }
+.entrega-item-tap { font-size: 11px; color: #1565C0; font-weight: 700; display: flex; align-items: center; gap: 3px; }
+
+/* Botón rápido WA inline en la card */
+.entrega-item-quick-btn {
+  padding: 5px 10px; border: none; border-radius: 20px;
+  font-family: 'Barlow Condensed',sans-serif; font-size: 12px; font-weight: 800;
   cursor: pointer; touch-action: manipulation; -webkit-tap-highlight-color: transparent;
-  display: flex; align-items: center; justify-content: center; gap: 4px;
-  transition: opacity .12s, transform .1s; white-space: nowrap;
+  transition: opacity .12s;
 }
-.entrega-btn:active { opacity: .75; transform: scale(.96); }
-.entrega-btn.maps    { background: #FFF3E0; color: #E65100; border: 1.5px solid rgba(230,81,0,.2); }
-.entrega-btn.avisar  { background: #E8F5E9; color: #1B5E20; border: 1.5px solid rgba(27,94,32,.2); }
-.entrega-btn.wa      { background: #E8F5E9; color: #1B5E20; border: 1.5px solid rgba(27,94,32,.2); }
-.entrega-btn.entregar {
-  flex: 1; background: linear-gradient(135deg,#1B5E20,#2E7D32); color: #fff;
-  font-size: 14px; box-shadow: 0 2px 8px rgba(27,94,32,.25);
-}
+.entrega-item-quick-btn:active { opacity: .7; }
+.wa-btn { background: #25D366; color: #fff; }
+.entrega-item-tap { font-size: 11px; color: #1565C0; font-weight: 700; opacity: .7; }
+
+/* Botones legacy */
+.entrega-btns { display: flex; gap: 6px; flex-wrap: wrap; margin-top: 8px; }
+.entrega-btn { padding: 8px 10px; border: none; border-radius: 10px; font-family: 'Barlow Condensed',sans-serif; font-size: 13px; font-weight: 800; cursor: pointer; touch-action: manipulation; -webkit-tap-highlight-color: transparent; display: flex; align-items: center; justify-content: center; gap: 4px; transition: opacity .12s; white-space: nowrap; }
+.entrega-btn:active { opacity: .75; }
+.entrega-btn.maps { background: #FFF3E0; color: #E65100; border: 1.5px solid rgba(230,81,0,.2); }
+.entrega-btn.wa { background: #E8F5E9; color: #1B5E20; border: 1.5px solid rgba(27,94,32,.2); }
+.entrega-btn.entregar { flex: 1; background: linear-gradient(135deg,#1B5E20,#2E7D32); color: #fff; font-size: 14px; }
 .entrega-btn.deshacer { background: #FFF3E0; color: #E65100; border: 1.5px solid rgba(230,81,0,.2); font-size: 12px; }
 .entrega-btn.entregado-done { background: #E8F5E9; color: #2E7D32; font-size: 12px; border: 1.5px solid rgba(46,125,50,.2); cursor: default; }
 
@@ -3628,7 +3630,7 @@ body {
   </div>
 
   <!-- ══ VIEW: PEDIDOS ══ -->
-  <div class="view active" id="view-pedidos">
+  <div class="view" id="view-pedidos">
     <div style="padding:14px 16px 0;">
       <div class="stats" style="grid-template-columns:repeat(2,1fr);margin-bottom:10px;">
         <div class="stat-card">
@@ -10026,43 +10028,71 @@ function renderEntregas(entregas) {
   let orden = 1;
 
   ciudades.forEach(ciudad => {
-    const items   = porCiudad[ciudad];
-    const allDone = items.every(e => e.estado === 'entregado');
+    const items    = porCiudad[ciudad];
+    const allDone  = items.every(e => e.estado === 'entregado');
     const pendCount = items.filter(e => e.estado !== 'entregado').length;
+    const total    = items.reduce((s,e) => {
+      const m = parseFloat(e.monto)||0;
+      return s + (m < 1000 && m > 0 ? m*1000 : m);
+    }, 0);
 
     html += '<div class="entrega-card' + (allDone ? ' completada' : '') + '">' +
       '<div class="entrega-card-hdr">' +
-        '<div class="entrega-card-ciudad">📍 ' + ciudad + '</div>' +
-        '<div class="entrega-card-badges">' +
+        '<div>' +
+          '<div class="entrega-card-ciudad">📍 ' + ciudad + '</div>' +
+          '<div style="font-size:10px;color:rgba(255,255,255,.65);margin-top:1px;">' +
+            '$' + Math.round(total).toLocaleString('es-AR') + ' · ' + items.length + ' cliente' + (items.length !== 1 ? 's' : '') +
+          '</div>' +
+        '</div>' +
+        '<div style="display:flex;gap:6px;align-items:center;">' +
           (allDone
-            ? '<span style="font-size:14px;">✅</span>'
-            : '<span style="background:rgba(255,255,255,.2);border-radius:20px;padding:2px 8px;font-size:10px;color:#fff;font-weight:800;">' + pendCount + ' pend.</span>') +
+            ? '<span style="font-size:16px;">✅</span>'
+            : '<span style="background:rgba(255,255,255,.15);border-radius:20px;padding:3px 9px;font-size:10px;color:#FFD700;font-weight:800;">' + pendCount + ' pend.</span>') +
           '<div class="entrega-card-orden">Parada ' + orden++ + '</div>' +
         '</div>' +
       '</div>';
 
     items.forEach(e => {
       const montoReal = (parseFloat(e.monto)||0) < 1000 && (parseFloat(e.monto)||0) > 0
-        ? parseFloat(e.monto) * 1000 : (parseFloat(e.monto)||0);
-      const totalFmt = montoReal ? '$' + Math.round(montoReal).toLocaleString('es-AR') : '—';
-      const estadoLabel = e.estado === 'entregado'
-        ? '✅ ' + (e.forma_cobro || 'Entregado').replace('_', ' ')
-        : '⏳ Pendiente';
-      const estadoCls = e.estado === 'entregado' ? 'entregado' : 'pendiente';
+        ? parseFloat(e.monto)*1000 : (parseFloat(e.monto)||0);
+      const totalFmt  = montoReal ? '$' + Math.round(montoReal).toLocaleString('es-AR') : '—';
+      const entregado = e.estado === 'entregado';
+      const tel       = (e.telefono_cliente || '').replace(/\D/g,'');
+      const waNum     = tel ? (tel.startsWith('54') ? tel : '549'+tel) : '';
+      const coords    = _coordsCache[e.cliente];
+      const turno     = e.turno_entrega === 'Mañana' ? '🌅 Mañana' : e.turno_entrega === 'Tarde' ? '🌆 Tarde' : '';
 
-      html += '<div class="entrega-item' + (e.estado === 'entregado' ? ' entregado-item' : '') +
-        '" id="entrega-item-' + e.id + '" onclick="abrirEntregaModal(\'' + e.id + '\')" style="cursor:pointer;">' +
+      html += '<div class="entrega-item' + (entregado ? ' entregado-item' : '') + '" id="entrega-item-' + e.id + '" onclick="abrirEntregaModal(\'' + e.id + '\')">' +
+
+        // Fila nombre + monto
         '<div class="entrega-item-top">' +
           '<div style="flex:1;min-width:0;">' +
-            '<div class="entrega-item-nombre' + (e.estado === 'entregado' ? ' entregado-nombre' : '') + '">' + (e.cliente || '—') + '</div>' +
-            (e.comercio ? '<div class="entrega-item-comercio">🏪 ' + e.comercio + '</div>' : '') +
+            '<div class="entrega-item-nombre' + (entregado ? ' entregado-nombre' : '') + '">' + (e.cliente||'—') + '</div>' +
           '</div>' +
-          '<div style="text-align:right;flex-shrink:0;margin-left:8px;">' +
-            '<div class="entrega-item-monto">' + totalFmt + '</div>' +
-            '<div class="entrega-estado-badge ' + estadoCls + '" style="margin:3px 0 0;">' + estadoLabel + '</div>' +
+          '<div class="entrega-item-monto' + (entregado ? ' entregado-monto' : '') + '">' + totalFmt + '</div>' +
+        '</div>' +
+
+        // Info secundaria: comercio + turno
+        '<div class="entrega-item-info">' +
+          (e.comercio ? '<span class="entrega-item-comercio">🏪 ' + e.comercio + '</span>' : '') +
+          (turno ? '<span class="entrega-item-turno">' + turno + '</span>' : '') +
+        '</div>' +
+
+        // Footer: estado + botones rápidos
+        '<div class="entrega-item-footer">' +
+          '<div class="entrega-estado-badge ' + (entregado ? 'entregado' : 'pendiente') + '">' +
+            (entregado ? '✅ ' + (e.forma_cobro||'Entregado').replace('_',' ') : '⏳ Pendiente') +
+          '</div>' +
+          '<div style="display:flex;gap:6px;align-items:center;">' +
+            // WA siempre visible — verde si tiene número, gris si no
+            (waNum
+              ? '<button class="entrega-item-quick-btn wa-btn" onclick="event.stopPropagation();avisarClienteWA(\''+waNum+'\',\''+encodeURIComponent('Hola '+(e.cliente||'')+'! Soy el repartidor de TCK, estoy llegando a '+ciudad+' con tu pedido 🚚')+'\')">' +
+                '💬 WA</button>'
+              : '<span style="font-size:10px;color:#ddd;">Sin WA</span>') +
+            '<span class="entrega-item-tap">Ver →</span>' +
           '</div>' +
         '</div>' +
-        '<div style="font-size:10px;color:#bbb;margin-top:3px;">Tocá para ver detalle →</div>' +
+
         '</div>';
     });
 
@@ -10070,6 +10100,34 @@ function renderEntregas(entregas) {
   });
 
   el.innerHTML = html;
+}
+
+async function cargarProductosEntrega(pedidoId, notaFallback) {
+  try {
+    // Buscar el pedido en el Sheet CSV por pedido_id
+    const res = await fetch(SHEET_CSV + '&_t=' + Date.now());
+    const csv = await res.text();
+    const lines = csv.trim().split('\n');
+    for (let i = 1; i < lines.length; i++) {
+      const cols = parseCsv(lines[i]);
+      if (!cols[0] || cols[0].trim() !== pedidoId) continue;
+      // col[9] = detallePedido
+      const detalle = (cols[9] || '').trim();
+      if (detalle) {
+        const items = detalle.split(' | ').filter(Boolean);
+        return items.map(item => {
+          // Parsear formatos: "🐔 *Pollo Ginosa* x2" o "Pollo Ginosa x2"
+          const clean = item.replace(/\*/g,'').replace(/[🐔🥩🥚🌽🍗]/gu,'').trim();
+          return '<div class="entrega-modal-prod-item"><span>' + clean + '</span></div>';
+        }).join('');
+      }
+    }
+  } catch(e) {}
+  // Fallback: usar nota
+  if (notaFallback && notaFallback.trim()) {
+    return '<div class="entrega-modal-prod-item"><span>📋 ' + notaFallback + '</span></div>';
+  }
+  return '<div class="entrega-modal-prod-item" style="color:var(--text3);">Sin detalle disponible</div>';
 }
 
 // ── MODAL DETALLE ENTREGA ─────────────────────────────────────
@@ -10106,23 +10164,16 @@ function abrirEntregaModal(entregaId) {
     dirEl.textContent = '📍 Sin dirección registrada — Maps buscará por nombre del cliente';
   }
 
-  // Productos — leer del detalle del pedido en Sheet (nota o detalle)
+  // Productos — cargar del Sheet usando pedido_id
   const prodsWrap = document.getElementById('entrega-modal-prods-wrap');
   const prodsEl = document.getElementById('entrega-modal-prods');
-  if (e.nota && e.nota.trim()) {
-    prodsWrap.style.display = '';
-    // Intentar parsear el detalle (formato: "Producto x2 | Producto2 x1")
-    const lineas = e.nota.split(' | ').filter(Boolean);
-    if (lineas.length > 1) {
-      prodsEl.innerHTML = lineas.map(l =>
-        '<div class="entrega-modal-prod-item"><span>' + l + '</span></div>'
-      ).join('');
-    } else {
-      prodsEl.innerHTML = '<div class="entrega-modal-prod-item"><span>' + e.nota + '</span></div>';
-    }
-  } else {
-    prodsWrap.style.display = 'none';
-  }
+  prodsEl.innerHTML = '<div style="padding:10px 12px;font-size:12px;color:var(--text3);">Cargando productos...</div>';
+  prodsWrap.style.display = '';
+
+  // Cargar productos del Sheet en segundo plano
+  cargarProductosEntrega(e.pedido_id, e.nota).then(html => {
+    prodsEl.innerHTML = html;
+  });
 
   // Cobro múltiple
   const cobroWrap = document.getElementById('entrega-modal-cobro-wrap');
