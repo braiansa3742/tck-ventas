@@ -4703,21 +4703,23 @@ async function cargarPedidos(silencioso, _reintentos) {
       var mFecha = (p.pedidoId || '').match(/TCK-(\d{8})/);
       var fechaDia = mFecha ? mFecha[1] : (p.fechaHora || '').substring(0, 10).replace(/-/g,'');
       if (!fechaDia) return;
-      // Duplicado exacto: mismo día + mismo cliente + mismo total + mismo vendedor
-      var kT = (fechaDia + p.cliente + p.total + p.vendedor).toLowerCase().replace(/\s/g,'');
-      if (!mapTotal[kT]) mapTotal[kT] = [];
-      mapTotal[kT].push(p);
+      // Duplicado: mismo cliente + mismo día (sin importar total ni vendedor)
+      var kCliente = (fechaDia + p.cliente).toLowerCase().replace(/\s/g,'');
+      if (!mapTotal[kCliente]) mapTotal[kCliente] = [];
+      mapTotal[kCliente].push(p);
     });
     pedidos.forEach(function(p) {
       if (p.estado === 'Cancelado') { p.esDuplicado = false; p.tipoDuplicado = null; p.duplicadoCon = ''; return; }
       var mFecha = (p.pedidoId || '').match(/TCK-(\d{8})/);
       var fechaDia = mFecha ? mFecha[1] : (p.fechaHora || '').substring(0, 10).replace(/-/g,'');
       if (!fechaDia) { p.esDuplicado = false; p.tipoDuplicado = null; p.duplicadoCon = ''; return; }
-      var kT = (fechaDia + p.cliente + p.total + p.vendedor).toLowerCase().replace(/\s/g,'');
-      var gT = mapTotal[kT];
-      if (gT && gT.length > 1) {
-        p.esDuplicado = true; p.tipoDuplicado = 'exacto';
-        p.duplicadoCon = gT.filter(function(x){return x.pedidoId!==p.pedidoId;})
+      var kCliente = (fechaDia + p.cliente).toLowerCase().replace(/\s/g,'');
+      var grupo = mapTotal[kCliente];
+      if (grupo && grupo.length > 1) {
+        var totalDistinto = grupo.some(function(x) { return x.total !== p.total; });
+        p.esDuplicado = true;
+        p.tipoDuplicado = totalDistinto ? 'parcial' : 'exacto';
+        p.duplicadoCon = grupo.filter(function(x){return x.pedidoId!==p.pedidoId;})
           .map(function(x){return x.vendedor||'otro vendedor';})
           .filter(function(v,i,a){return a.indexOf(v)===i;}).join(', ');
       } else {
