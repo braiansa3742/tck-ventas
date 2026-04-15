@@ -200,6 +200,7 @@ body {
 /* ── PANEL ── */
 .panel { display: none; max-width: 900px; margin: 0 auto; }
 .panel.on { display: block; min-height: calc(100vh - 56px); }
+.panel.on.chofer-mode { min-height: unset; padding: 0; }
 
 /* ── BIENVENIDA ── */
 .bienvenida {
@@ -5784,6 +5785,13 @@ function cambiarTab(tab) {
     var v = document.getElementById('view-pedidos');
     if (v) v.scrollTop = 0;
   }
+
+  // Para entregas: scroll al top de la página completa
+  if (tab === 'entregas') {
+    window.scrollTo(0, 0);
+    document.documentElement.scrollTop = 0;
+    document.body.scrollTop = 0;
+  }
 }
 
 function mostrarTabs() {
@@ -5807,7 +5815,10 @@ function mostrarTabs() {
     var tabEnt = document.getElementById('tab-btn-entregas');
     if (tabEnt) tabEnt.style.display = '';
     cambiarTab('entregas');
-    
+    // Scroll al top inmediatamente
+    window.scrollTo(0, 0);
+    document.documentElement.scrollTop = 0;
+    document.body.scrollTop = 0;
     cargarEntregas();
     return;
   }
