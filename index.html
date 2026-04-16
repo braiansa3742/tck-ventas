@@ -188,6 +188,13 @@ body {
   font-weight: 900;
   flex-shrink: 0;
 }
+.login-av-foto {
+  width: 40px; height: 40px; border-radius: 50%; object-fit: cover;
+  flex-shrink: 0; border: 2px solid rgba(139,0,0,.15);
+}
+.login-btn:hover .login-av-foto, .login-btn:active .login-av-foto {
+  border-color: rgba(255,255,255,.4);
+}
 .login-btn-name { flex: 1; text-align: left; }
 .login-btn-role {
   font-size: 11px;
@@ -3550,15 +3557,18 @@ body {
     <div class="login-sub" id="login-sub">Seleccioná tu nombre</div>
     <div id="paso1">
       <button class="login-btn" id="login-btn-miguel" onclick="seleccionarVendedor('Miguel','M','#8B0000')">
-        <div class="login-av">M</div>
+        <img src="https://tckcatalogo.com/img/vendedores/miguel.jpg" class="login-av-foto" onerror="this.style.display='none';this.nextElementSibling.style.display='flex';">
+        <div class="login-av" style="display:none;">M</div>
         <div class="login-btn-name">Miguel Martínez<div class="login-btn-role">Vendedor</div></div>
       </button>
       <button class="login-btn" id="login-btn-juan" onclick="seleccionarVendedor('Juan','J','#8B0000')">
-        <div class="login-av">J</div>
+        <img src="https://tckcatalogo.com/img/vendedores/juan.jpg" class="login-av-foto" onerror="this.style.display='none';this.nextElementSibling.style.display='flex';">
+        <div class="login-av" style="display:none;">J</div>
         <div class="login-btn-name">Juan Cruz<div class="login-btn-role">Vendedor</div></div>
       </button>
       <button class="login-btn" id="login-btn-lisandro" onclick="seleccionarVendedor('Lisandro','L','#5C3A1E')">
-        <div class="login-av" style="background:var(--text2);">L</div>
+        <img src="https://tckcatalogo.com/img/vendedores/lisandro.jpg" class="login-av-foto" onerror="this.style.display='none';this.nextElementSibling.style.display='flex';">
+        <div class="login-av" style="background:var(--text2);display:none;">L</div>
         <div class="login-btn-name">Lisandro<div class="login-btn-role">Vendedor</div></div>
       </button>
       <button class="login-btn" id="login-btn-admin" onclick="seleccionarVendedor('ADMIN','A','#B8860B')" style="margin-top:8px;border-color:var(--gold);background:var(--cream2);">
@@ -3631,9 +3641,12 @@ body {
 
   <!-- ── BIENVENIDA (siempre visible dentro del panel) ── -->
   <div class="bienvenida">
-    <div>
-      <div class="bienvenida-nombre" id="bienvenida-nombre"></div>
-      <div class="bienvenida-sub" id="bienvenida-sub"></div>
+    <div style="display:flex;align-items:center;gap:10px;">
+      <img id="bienvenida-foto" src="" style="width:38px;height:38px;border-radius:50%;object-fit:cover;border:2px solid rgba(255,255,255,.3);display:none;flex-shrink:0;">
+      <div>
+        <div class="bienvenida-nombre" id="bienvenida-nombre"></div>
+        <div class="bienvenida-sub" id="bienvenida-sub"></div>
+      </div>
     </div>
     <button class="btn-salir" onclick="salir()">Salir</button>
   </div>
@@ -4829,7 +4842,15 @@ function login(nombre) {
   if (panelEl && esChofer) panelEl.classList.add('chofer-mode');
   else if (panelEl) panelEl.classList.remove('chofer-mode');
 
-  document.getElementById('bienvenida-nombre').textContent = esAdmin ? '👑 Administración' : '👤 ' + nombre;
+  document.getElementById('bienvenida-nombre').textContent = esAdmin ? '👑 Administración' : nombre;
+  // Mostrar foto del vendedor en bienvenida
+  const fotoEl = document.getElementById('bienvenida-foto');
+  const FOTOS_VEND = { 'Miguel': 'https://tckcatalogo.com/img/vendedores/miguel.jpg', 'Juan': 'https://tckcatalogo.com/img/vendedores/juan.jpg', 'Lisandro': 'https://tckcatalogo.com/img/vendedores/lisandro.jpg' };
+  if (fotoEl && FOTOS_VEND[nombre]) {
+    fotoEl.src = FOTOS_VEND[nombre];
+    fotoEl.style.display = 'block';
+    fotoEl.onerror = function() { this.style.display = 'none'; };
+  } else if (fotoEl) { fotoEl.style.display = 'none'; }
   document.getElementById('bienvenida-sub').textContent = esAdmin
     ? 'Viendo todos los pedidos del día'
     : esChofer
