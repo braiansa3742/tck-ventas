@@ -3557,17 +3557,17 @@ body {
     <div class="login-sub" id="login-sub">Seleccioná tu nombre</div>
     <div id="paso1">
       <button class="login-btn" id="login-btn-miguel" onclick="seleccionarVendedor('Miguel','M','#8B0000')">
-        <img src="https://tckcatalogo.com/img/vendedores/miguel.jpg" class="login-av-foto" onerror="this.style.display='none';this.nextElementSibling.style.display='flex';">
+        <img src="https://tckcatalogo.com/img/miguel.jpg" class="login-av-foto" onerror="this.style.display='none';this.nextElementSibling.style.display='flex';">
         <div class="login-av" style="display:none;">M</div>
         <div class="login-btn-name">Miguel Martínez<div class="login-btn-role">Vendedor</div></div>
       </button>
       <button class="login-btn" id="login-btn-juan" onclick="seleccionarVendedor('Juan','J','#8B0000')">
-        <img src="https://tckcatalogo.com/img/vendedores/juan.jpg" class="login-av-foto" onerror="this.style.display='none';this.nextElementSibling.style.display='flex';">
+        <img src="https://tckcatalogo.com/img/juan.jpg" class="login-av-foto" onerror="this.style.display='none';this.nextElementSibling.style.display='flex';">
         <div class="login-av" style="display:none;">J</div>
         <div class="login-btn-name">Juan Cruz<div class="login-btn-role">Vendedor</div></div>
       </button>
       <button class="login-btn" id="login-btn-lisandro" onclick="seleccionarVendedor('Lisandro','L','#5C3A1E')">
-        <img src="https://tckcatalogo.com/img/vendedores/lisandro.jpg" class="login-av-foto" onerror="this.style.display='none';this.nextElementSibling.style.display='flex';">
+        <img src="https://tckcatalogo.com/img/lisandro.jpg" class="login-av-foto" onerror="this.style.display='none';this.nextElementSibling.style.display='flex';">
         <div class="login-av" style="background:var(--text2);display:none;">L</div>
         <div class="login-btn-name">Lisandro<div class="login-btn-role">Vendedor</div></div>
       </button>
@@ -4845,7 +4845,7 @@ function login(nombre) {
   document.getElementById('bienvenida-nombre').textContent = esAdmin ? '👑 Administración' : nombre;
   // Mostrar foto del vendedor en bienvenida
   const fotoEl = document.getElementById('bienvenida-foto');
-  const FOTOS_VEND = { 'Miguel': 'https://tckcatalogo.com/img/vendedores/miguel.jpg', 'Juan': 'https://tckcatalogo.com/img/vendedores/juan.jpg', 'Lisandro': 'https://tckcatalogo.com/img/vendedores/lisandro.jpg' };
+  const FOTOS_VEND = { 'Miguel': 'https://tckcatalogo.com/img/miguel.jpg', 'Juan': 'https://tckcatalogo.com/img/juan.jpg', 'Lisandro': 'https://tckcatalogo.com/img/lisandro.jpg' };
   if (fotoEl && FOTOS_VEND[nombre]) {
     fotoEl.src = FOTOS_VEND[nombre];
     fotoEl.style.display = 'block';
