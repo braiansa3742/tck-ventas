@@ -5021,7 +5021,13 @@ async function cargarPedidos(silencioso, _reintentos) {
     todosLosPedidos = pedidos;
 
     if (!silencioso) {
-      var dups = pedidos.filter(function(p){return p.esDuplicado;});
+      var hoyStr = new Date().toISOString().slice(0,10).replace(/-/g,'');
+      var dups = pedidos.filter(function(p){
+        if (!p.esDuplicado) return false;
+        var mFecha = (p.pedidoId||'').match(/TCK-(\d{8})/);
+        var fechaDia = mFecha ? mFecha[1] : (p.fechaHora||'').substring(0,10).replace(/-/g,'');
+        return fechaDia === hoyStr;
+      });
       if (dups.length > 0) notificarDuplicados(dups);
     }
     actualizarStats();
