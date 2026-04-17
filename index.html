@@ -6364,7 +6364,7 @@ function renderVendedoresHoy(pedidosHoy) {
       ? '<div style="font-size:10px;color:#999;margin-top:2px;">Objetivo: <b style="color:' + (objPct>=100?'#2E7D32':objPct>=60?'#F57F17':'#C62828') + '">' + objPct + '%</b></div>'
       : '';
     return '<div class="rep-vend-row">'
-      + '<div class="rep-vend-av">' + v.nombre[0].toUpperCase() + '</div>'
+      + '<div class="rep-vend-av">' + ((v.nombre&&v.nombre[0])||'?').toUpperCase() + '</div>'
       + '<div class="rep-vend-info">'
       +   '<div class="rep-vend-nombre">' + v.nombre + '</div>'
       +   '<div class="rep-vend-sub">' + v.pedidos + ' pedidos · ticket ' + fmt(ticket) + (v.pendientes?' · <span style="color:var(--orange)">'+v.pendientes+' pend.</span>':'') + '</div>'
@@ -6438,7 +6438,7 @@ function renderVendedores(datos) {
     var ticket = v.pedidos ? Math.round(v.monto / v.pedidos) : 0;
     var fmt    = function(n) { return '$' + Math.round(n).toLocaleString('es-AR'); };
     return '<div class="rep-vend-row">'
-      + '<div class="rep-vend-av">' + v.nombre[0].toUpperCase() + '</div>'
+      + '<div class="rep-vend-av">' + ((v.nombre&&v.nombre[0])||'?').toUpperCase() + '</div>'
       + '<div class="rep-vend-info">'
       +   '<div class="rep-vend-nombre">' + v.nombre + '</div>'
       +   '<div class="rep-vend-sub">' + v.pedidos + ' pedidos · ticket ' + fmt(ticket) + '</div>'
@@ -6983,7 +6983,7 @@ function renderClientes_rep(datos) {
     }
     return '<div class="rep-cli-row">'
       + '<div style="font-family:\'Barlow Condensed\',sans-serif;font-size:13px;font-weight:900;color:var(--text3);width:22px;flex-shrink:0;text-align:center;">' + medalPos(i) + '</div>'
-      + '<div class="rep-cli-av">' + (c.nombre[0]||'?').toUpperCase() + '</div>'
+      + '<div class="rep-cli-av">' + ((c.nombre&&c.nombre[0])||'?').toUpperCase() + '</div>'
       + '<div class="rep-cli-info">'
       +   '<div class="rep-cli-nombre">' + c.nombre + (tag ? ' ' + tag : '') + '</div>'
       +   '<div class="rep-cli-sub">' + (sub||meta) + '</div>'
@@ -7037,7 +7037,7 @@ function renderInactivos_rep() {
     var tagClass = c.dias >= 21 ? 'inact' : c.dias >= 14 ? 'inact' : '';
     var sub = (c.comercio||c.localidad) ? (c.comercio ? c.comercio + ' · ' : '') + (c.localidad||'') : '';
     return '<div class="rep-cli-row">'
-      + '<div class="rep-cli-av" style="background:var(--cream3);color:var(--text2);">' + (c.nombre[0]||'?').toUpperCase() + '</div>'
+      + '<div class="rep-cli-av" style="background:var(--cream3);color:var(--text2);">' + ((c.nombre&&c.nombre[0])||'?').toUpperCase() + '</div>'
       + '<div class="rep-cli-info">'
       +   '<div class="rep-cli-nombre">' + c.nombre + '</div>'
       +   '<div class="rep-cli-sub">' + (sub || ('Última compra hace ' + c.dias + ' días')) + '</div>'
@@ -9307,7 +9307,7 @@ function renderObjetivos() {
 
       return '<div class="objetivo-card">'
         + '<div class="objetivo-card-hdr">'
-        +   '<div class="objetivo-av">' + nombre[0] + '</div>'
+        +   '<div class="objetivo-av">' + (nombre&&nombre[0]||'?') + '</div>'
         +   '<div class="objetivo-nombre">' + nombre + '</div>'
         + '</div>'
         // Objetivo de visitas
@@ -10995,7 +10995,7 @@ function editarRenderItems() {
           '<div class="editar-qty-num" id="editar-qty-' + item.n.replace(/[^a-zA-Z0-9]/g,'-') + '">' + (qty || 0) + '</div>' +
           '<button class="editar-qty-btn" data-nombre="' + item.n.replace(/"/g,'&quot;') + '" onclick="editarQty(this,1)" ' + (sinStock ? 'disabled' : '') + '>+</button>' +
         '</div>' +
-        (function(){ var d=_editarDescuentos[item.n]; var sn=item.n.replace(/"/g,'&quot;'); return '<button class="tomador-dto-btn'+(d?' tiene-dto':'')+'" onclick="editarAbrirDescuento(&quot;'+sn+'&quot;)">'+(d?'✅ -'+d.pct+'% → $'+Math.round(item.pr*(1-d.pct/100)).toLocaleString('es-AR'):'% Dto')+'</button>'; })()
+        (function(){ var d=_editarDescuentos[item.n]; var sn=item.n.replace(/"/g,'&quot;'); var pr=item.pr||0; return pr>0 ? '<button class="tomador-dto-btn'+(d?' tiene-dto':'')+'" onclick="editarAbrirDescuento(&quot;'+sn+'&quot;)">'+(d?'✅ -'+d.pct+'% → $'+Math.round(pr*(1-d.pct/100)).toLocaleString('es-AR'):'% Dto')+'</button>' : ''; })()
       '</div>';
     });
   });
@@ -11317,8 +11317,8 @@ function manualWAHTML() {
             '<span class="tomador-qty-num" id="mwa-qty-' + item.img + '">0</span>' +
             '<button class="tomador-qty-btn plus" onclick="manualWAQty(&quot;' + safeName + '&quot;,1)" ' + (sinStock ? 'disabled' : '') + '>+</button>' +
           '</div>' +
-        + (function(){ var d=_manualWADescuentos[item.n]; return '<button class="tomador-dto-btn'+(d?' tiene-dto':'')+'" onclick="mwaAbrirDescuento(&quot;'+safeName+'&quot;)">'+(d?'✅ -'+d.pct+'% → $'+Math.round(item.pr*(1-d.pct/100)).toLocaleString('es-AR'):'% Dto')+'</button>'; })()
-      '</div>' +
+          (function(){ var d=_manualWADescuentos[item.n]; var pr=item.pr||0; return pr>0 ? '<button class="tomador-dto-btn'+(d?' tiene-dto':'')+'" onclick="mwaAbrirDescuento(&quot;'+safeName+'&quot;)">'+(d?'✅ -'+d.pct+'% → $'+Math.round(pr*(1-d.pct/100)).toLocaleString('es-AR'):'% Dto')+'</button>' : ''; })() +
+        '</div>' +
       '</div>';
     });
     prodsHtml += '</div>';
