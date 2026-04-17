@@ -2040,6 +2040,16 @@ body {
 .entrega-modal-btn.wa      { background: #E8F5E9; color: #1B5E20; border: 1.5px solid rgba(27,94,32,.2); }
 .entrega-modal-btn.entregar { background: linear-gradient(135deg,#1B5E20,#2E7D32); color: #fff; flex: 2; box-shadow: 0 2px 8px rgba(27,94,32,.25); }
 .entrega-modal-btn.deshacer { background: #FFF3E0; color: #E65100; border: 1.5px solid rgba(230,81,0,.2); }
+.devolucion-section { background:#FFF8E1;border:1.5px solid #FFE082;border-radius:12px;padding:12px 14px;margin:0 18px 12px; }
+.devolucion-section-title { font-family:'Barlow Condensed',sans-serif;font-size:13px;font-weight:800;color:#E65100;text-transform:uppercase;letter-spacing:.8px;margin-bottom:10px; }
+.devolucion-item { display:flex;align-items:center;gap:8px;margin-bottom:8px;padding:8px 10px;background:#fff;border-radius:8px;border:1px solid #FFE082; }
+.devolucion-item-nombre { flex:1;font-size:13px;font-weight:700;color:var(--text); }
+.devolucion-item-qty { display:flex;align-items:center;gap:6px; }
+.devolucion-qty-btn { width:26px;height:26px;border-radius:50%;border:1.5px solid #FFB74D;background:#FFF3E0;color:#E65100;font-size:14px;font-weight:900;cursor:pointer;display:flex;align-items:center;justify-content:center;touch-action:manipulation; }
+.devolucion-qty-num { min-width:20px;text-align:center;font-family:'Barlow Condensed',sans-serif;font-size:16px;font-weight:900;color:#E65100; }
+.devolucion-motivo { width:100%;margin-top:8px;padding:8px 10px;border:1.5px solid #FFE082;border-radius:8px;font-size:13px;resize:none;background:#fff;color:var(--text); }
+.devolucion-badge { display:inline-block;background:#FFF3E0;color:#E65100;border:1.5px solid #FFB74D;border-radius:20px;padding:2px 10px;font-size:11px;font-weight:800; }
+
 .entrega-modal-btn.cerrar { background: #f5f5f5; color: var(--text3); width: 100%; flex: none; margin-top: 4px; }
 .midia-view-inner {
   padding: 12px 16px 0;
@@ -4275,6 +4285,12 @@ body {
         <div class="entrega-modal-section" id="entrega-modal-prods-wrap">
           <div class="entrega-modal-section-title">📦 Productos</div>
           <div class="entrega-modal-productos" id="entrega-modal-prods"></div>
+        </div>
+        <!-- Devolución -->
+        <div class="devolucion-section" id="entrega-devolucion-wrap" style="display:none;">
+          <div class="devolucion-section-title">↩️ Devolución de productos</div>
+          <div id="entrega-devolucion-items"></div>
+          <textarea class="devolucion-motivo" id="entrega-devolucion-motivo" rows="2" placeholder="Motivo de la devolución (obligatorio)..." oninput="_devolucionMotivo=this.value"></textarea>
         </div>
         <!-- Cobro múltiple -->
         <div class="entrega-modal-section" id="entrega-modal-cobro-wrap">
@@ -10391,6 +10407,8 @@ async function cargarProductosEntrega(pedidoId, notaFallback) {
 
 // ── MODAL DETALLE ENTREGA ─────────────────────────────────────
 let _entregaModalId = null;
+let _devolucionItems = {}; // { nombreProducto: { qty, max } }
+let _devolucionMotivo = '';
 
 function abrirEntregaModal(entregaId) {
   const e = _entregasCache.find(x => x.id === entregaId);
@@ -10463,6 +10481,8 @@ function abrirEntregaModal(entregaId) {
   }
 
   if (!entregado) {
+    btnsHtml += '<button class="entrega-modal-btn" style="background:#FFF3E0;color:#E65100;border:1.5px solid #FFB74D;" onclick="toggleDevolucionSection()">' +
+      '↩️ Devolución</button>';
     btnsHtml += '<button class="entrega-modal-btn entregar" onclick="confirmarEntregaModal()">' +
       '✅ Confirmar entrega</button>';
   } else {
@@ -10483,9 +10503,127 @@ function abrirEntregaModal(entregaId) {
   }, 50);
 }
 
+// ── DEVOLUCIONES ────────────────────────────────────────────
+function toggleDevolucionSection() {
+  const wrap = document.getElementById('entrega-devolucion-wrap');
+  const isVisible = wrap.style.display !== 'none';
+  if (isVisible) {
+    wrap.style.display = 'none';
+    _devolucionItems = {};
+    document.getElementById('entrega-devolucion-motivo').value = '';
+    _devolucionMotivo = '';
+    return;
+  }
+  // Cargar productos del pedido para mostrar en devolución
+  const e = _entregasCache.find(x => x.id === _entregaModalId);
+  if (!e) return;
+  _devolucionItems = {};
+  // Parsear productos de la nota/detalle
+  const prods = _parsearProductosDevolucion(e.nota || '');
+  const itemsEl = document.getElementById('entrega-devolucion-items');
+  if (!prods.length) {
+    itemsEl.innerHTML = '<div style="font-size:12px;color:#999;padding:6px 0;">No se encontraron productos del pedido</div>';
+  } else {
+    itemsEl.innerHTML = prods.map(function(p) {
+      return '<div class="devolucion-item" id="dev-item-' + p.safe + '">'
+        + '<div class="devolucion-item-nombre">' + p.nombre + ' <span style="font-size:11px;color:#999;">(' + p.qty + ' unid.)</span></div>'
+        + '<div class="devolucion-item-qty">'
+        + '<button class="devolucion-qty-btn" data-safe="' + p.safe + '" data-delta="-1" onclick="devolucionQtyBtn(this)">−</button>'
+        + '<span class="devolucion-qty-num" id="dev-qty-' + p.safe + '">0</span>'
+        + '<button class="devolucion-qty-btn" data-safe="' + p.safe + '" data-delta="1" onclick="devolucionQtyBtn(this)">+</button>'
+        + '</div></div>';
+    }).join('');
+    // Guardar máximos
+    prods.forEach(function(p) { _devolucionItems[p.safe] = { qty: 0, max: p.qty, nombre: p.nombre }; });
+  }
+  wrap.style.display = '';
+}
+
+function _parsearProductosDevolucion(nota) {
+  var prods = [];
+  // Formato: "1x Pollo B (x 20 Kg) → $72.000 | 3x Suprema..."
+  var partes = (nota || '').split('|');
+  partes.forEach(function(parte) {
+    var m = parte.trim().match(/^(\d+)x?\s+(.+?)(?:\s+\(|\s+→|\s*\[-|\s*$)/);
+    if (m) {
+      var qty = parseInt(m[1]) || 1;
+      var nombre = m[2].trim();
+      var safe = nombre.replace(/[^a-zA-Z0-9]/g, '_');
+      prods.push({ nombre: nombre, qty: qty, safe: safe });
+    }
+  });
+  return prods;
+}
+
+function devolucionQtyBtn(btn) {
+  var safe  = btn.getAttribute('data-safe');
+  var delta = parseInt(btn.getAttribute('data-delta')) || 0;
+  devolucionQty(safe, delta);
+}
+
+function devolucionQty(safe, delta) {
+  if (!_devolucionItems[safe]) return;
+  var item = _devolucionItems[safe];
+  var nuevo = Math.max(0, Math.min(item.max, item.qty + delta));
+  item.qty = nuevo;
+  var el = document.getElementById('dev-qty-' + safe);
+  if (el) el.textContent = nuevo;
+  // Actualizar monto en el modal si hay devoluciones
+  _actualizarMontoConDevolucion();
+}
+
+function _actualizarMontoConDevolucion() {
+  var e = _entregasCache.find(function(x) { return x.id === _entregaModalId; });
+  if (!e) return;
+  var montoOriginal = (parseFloat(e.monto)||0) < 1000 && (parseFloat(e.monto)||0) > 0
+    ? parseFloat(e.monto) * 1000 : (parseFloat(e.monto)||0);
+  var totalDev = 0;
+  Object.keys(_devolucionItems).forEach(function(safe) {
+    var item = _devolucionItems[safe];
+    if (item.qty > 0) {
+      // Buscar precio del producto en el detalle
+      var prods = _parsearProductosDevolucion(e.nota || '');
+      var prod = prods.find(function(p) { return p.safe === safe; });
+      if (prod) {
+        // Precio unitario = monto total / suma de cantidades (aproximado)
+        var precioUnit = montoOriginal / prods.reduce(function(s,p){ return s+p.qty; }, 0);
+        totalDev += precioUnit * item.qty;
+      }
+    }
+  });
+  var montoFinal = Math.max(0, montoOriginal - totalDev);
+  var montoEl = document.getElementById('entrega-modal-monto');
+  if (montoEl) {
+    if (totalDev > 0) {
+      montoEl.innerHTML = '<span style="text-decoration:line-through;opacity:.5;font-size:14px;">$' + Math.round(montoOriginal).toLocaleString('es-AR') + '</span> $' + Math.round(montoFinal).toLocaleString('es-AR');
+    } else {
+      montoEl.textContent = '$' + Math.round(montoOriginal).toLocaleString('es-AR');
+    }
+  }
+}
+
+function _getDevolucionData() {
+  // Devuelve null si no hay devolución, o un objeto con el detalle
+  var tieneDevolucion = Object.keys(_devolucionItems).some(function(s) { return _devolucionItems[s].qty > 0; });
+  if (!tieneDevolucion) return null;
+  var motivo = (document.getElementById('entrega-devolucion-motivo').value || '').trim();
+  if (!motivo) return 'SIN_MOTIVO';
+  var items = Object.keys(_devolucionItems)
+    .filter(function(s) { return _devolucionItems[s].qty > 0; })
+    .map(function(s) { var it = _devolucionItems[s]; return it.qty + 'x ' + it.nombre; })
+    .join(', ');
+  return { items: items, motivo: motivo };
+}
+
 function cerrarEntregaModal() {
   document.getElementById('entrega-modal').classList.add('hidden');
   _entregaModalId = null;
+  _devolucionItems = {};
+  _devolucionMotivo = '';
+  const wrap = document.getElementById('entrega-devolucion-wrap');
+  if (wrap) { wrap.style.display = 'none'; }
+  const motEl = document.getElementById('entrega-devolucion-motivo');
+  if (motEl) motEl.value = '';
 }
 
 function cobroRapido(metodo) {
@@ -10545,6 +10683,9 @@ async function confirmarEntregaModal() {
     if (val > 0) { cobros[m] = val; totalCobrado += val; }
   });
   if (totalCobrado === 0) { toast('❌ Ingresá al menos un método de cobro', 'err'); return; }
+  // Validar devolución si hay items marcados
+  const devData = _getDevolucionData();
+  if (devData === 'SIN_MOTIVO') { toast('❌ Escribí el motivo de la devolución', 'err'); return; }
 
   // Si hay cobro con cheque, pedir datos antes de confirmar
   if (cobros.cheque && cobros.cheque > 0) {
@@ -10594,7 +10735,27 @@ async function confirmarChequeModal() {
 async function _ejecutarConfirmacionEntrega(cobros) {
   const formaPrincipal = Object.keys(cobros).reduce((a,b) => cobros[a] > cobros[b] ? a : b);
   const detalleCobroStr = JSON.stringify(cobros);
+  const devDataFinal = _getDevolucionData();
   const payload = { estado:'entregado', forma_cobro:formaPrincipal, fecha_entrega:new Date().toISOString() };
+  if (devDataFinal && devDataFinal !== 'SIN_MOTIVO') {
+    payload.devolucion = JSON.stringify(devDataFinal);
+    // Recalcular monto con devolución
+    const eOrig = _entregasCache.find(x => x.id === _entregaModalId);
+    if (eOrig) {
+      const montoOrig = (parseFloat(eOrig.monto)||0) < 1000 && (parseFloat(eOrig.monto)||0) > 0
+        ? parseFloat(eOrig.monto)*1000 : (parseFloat(eOrig.monto)||0);
+      const prods = _parsearProductosDevolucion(eOrig.nota||'');
+      let totalDevMonto = 0;
+      Object.keys(_devolucionItems).forEach(function(safe) {
+        const item = _devolucionItems[safe];
+        if (item.qty > 0) {
+          const precioUnit = prods.length ? montoOrig / prods.reduce((s,p)=>s+p.qty,0) : 0;
+          totalDevMonto += precioUnit * item.qty;
+        }
+      });
+      payload.monto_cobrado = Math.max(0, montoOrig - totalDevMonto);
+    }
+  }
   if (Object.keys(cobros).length > 1) payload.detalle_cobro = detalleCobroStr;
   try {
     await sbFetch('entregas?id=eq.' + _entregaModalId, { method:'PATCH', body:JSON.stringify(payload) });
