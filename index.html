@@ -1148,11 +1148,19 @@ body {
 }
 .tomador-precio-comp-btn.tiene-precio { background: #E8F5E9; border-color: #A5D6A7; color: #2E7D32; }
 .tomador-dto-btn {
-  display: block; width: 100%; padding: 5px 8px; font-size: 11px; font-weight: 700;
-  color: #1565C0; background: #E3F2FD; border: 1.5px solid #90CAF9; border-radius: 8px;
-  cursor: pointer; text-align: center; margin-top: 4px; -webkit-tap-highlight-color: transparent;
+  position: absolute; top: 6px; right: 6px;
+  width: 28px; height: 28px; padding: 0;
+  font-size: 11px; font-weight: 900;
+  color: #9E9E9E; background: rgba(255,255,255,0.9); 
+  border: 1.5px solid #E0E0E0; border-radius: 50%;
+  cursor: pointer; text-align: center; line-height: 26px;
+  -webkit-tap-highlight-color: transparent;
+  touch-action: manipulation; z-index: 2;
 }
-.tomador-dto-btn.tiene-dto { background: #E8F5E9; border-color: #A5D6A7; color: #2E7D32; font-weight: 900; }
+.tomador-dto-btn.tiene-dto { 
+  background: #E8F5E9; border-color: #A5D6A7; color: #2E7D32;
+  font-size: 9px; line-height: 26px;
+}
 .dto-badge {
   position: absolute; top: 4px; right: 4px; background: #1565C0; color: #fff;
   font-size: 9px; font-weight: 900; padding: 2px 6px; border-radius: 6px;
@@ -9628,9 +9636,9 @@ function tomadorRenderProductos(catId) {
         + '<button class="tomador-precio-comp-btn" onclick="tomadorAbrirCompetencia(&quot;' + safeName + '&quot;,&quot;' + safeId + '&quot;)">'
         + (comp ? '✅ Comp: $' + comp.precio.toLocaleString('es-AR') + (comp.nombre ? ' · ' + comp.nombre : '') : '💲 Cargar precio competencia')
         + '</button>'
-        + (function(){ var dto = _tomadorDescuentos[item.n]; return '<button class="tomador-dto-btn' + (dto ? ' tiene-dto' : '') + '" onclick="tomadorAbrirDescuento(&quot;' + safeName + '&quot;)">'
-          + (dto ? dto.pct === 100 ? '🎁 Bonificado' : '✅ -' + dto.pct + '% → $' + Math.round(item.pr * (1 - dto.pct/100)).toLocaleString('es-AR') : '% Dto')
-          + '</button>' + (dto ? '<div class="dto-badge">-' + dto.pct + '%</div>' : ''); })()
+        + (function(){ var dto = _tomadorDescuentos[item.n]; return '<button class="tomador-dto-btn' + (dto ? ' tiene-dto' : '') + '" onclick="tomadorAbrirDescuento(&quot;' + safeName + '&quot;)" title="Aplicar descuento">'
+          + (dto ? (dto.pct === 100 ? '🎁' : '-' + dto.pct + '%') : '%')
+          + '</button>'; })()
         + '</div></div>';
     });
     html += '</div>';
@@ -10995,7 +11003,7 @@ function editarRenderItems() {
           '<div class="editar-qty-num" id="editar-qty-' + item.n.replace(/[^a-zA-Z0-9]/g,'-') + '">' + (qty || 0) + '</div>' +
           '<button class="editar-qty-btn" data-nombre="' + item.n.replace(/"/g,'&quot;') + '" onclick="editarQty(this,1)" ' + (sinStock ? 'disabled' : '') + '>+</button>' +
         '</div>' +
-        (function(){ var d=_editarDescuentos[item.n]; var sn=item.n.replace(/"/g,'&quot;'); var pr=item.pr||0; return pr>0 ? '<button class="tomador-dto-btn'+(d?' tiene-dto':'')+'" onclick="editarAbrirDescuento(&quot;'+sn+'&quot;)">'+(d?'✅ -'+d.pct+'% → $'+Math.round(pr*(1-d.pct/100)).toLocaleString('es-AR'):'% Dto')+'</button>' : ''; })()
+        (function(){ var d=_editarDescuentos[item.n]; var sn=item.n.replace(/"/g,'&quot;'); var pr=item.pr||0; return pr>0 ? '<button class="tomador-dto-btn'+(d?' tiene-dto':'')+'" onclick="editarAbrirDescuento(&quot;'+sn+'&quot;)" title="Aplicar descuento">'+(d?(d.pct===100?'🎁':'-'+d.pct+'%'):'%')+'</button>' : ''; })()
       '</div>';
     });
   });
@@ -11317,7 +11325,7 @@ function manualWAHTML() {
             '<span class="tomador-qty-num" id="mwa-qty-' + item.img + '">0</span>' +
             '<button class="tomador-qty-btn plus" onclick="manualWAQty(&quot;' + safeName + '&quot;,1)" ' + (sinStock ? 'disabled' : '') + '>+</button>' +
           '</div>' +
-          (function(){ var d=_manualWADescuentos[item.n]; var pr=item.pr||0; return pr>0 ? '<button class="tomador-dto-btn'+(d?' tiene-dto':'')+'" onclick="mwaAbrirDescuento(&quot;'+safeName+'&quot;)">'+(d?'✅ -'+d.pct+'% → $'+Math.round(pr*(1-d.pct/100)).toLocaleString('es-AR'):'% Dto')+'</button>' : ''; })() +
+          (function(){ var d=_manualWADescuentos[item.n]; var pr=item.pr||0; return pr>0 ? '<button class="tomador-dto-btn'+(d?' tiene-dto':'')+'" onclick="mwaAbrirDescuento(&quot;'+safeName+'&quot;)" title="Aplicar descuento">'+(d?(d.pct===100?'🎁':'-'+d.pct+'%'):'%')+'</button>' : ''; })() +
         '</div>' +
       '</div>';
     });
