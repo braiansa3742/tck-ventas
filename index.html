@@ -2050,6 +2050,68 @@ body {
 .devolucion-motivo { width:100%;margin-top:8px;padding:8px 10px;border:1.5px solid #FFE082;border-radius:8px;font-size:13px;resize:none;background:#fff;color:var(--text); }
 .devolucion-badge { display:inline-block;background:#FFF3E0;color:#E65100;border:1.5px solid #FFB74D;border-radius:20px;padding:2px 10px;font-size:11px;font-weight:800; }
 
+/* ── Categorías de devolución (selector de motivo) ── */
+.dev-cat-label {
+  font-family: 'Barlow Condensed', sans-serif;
+  font-size: 12px;
+  font-weight: 800;
+  color: #E65100;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  margin: 12px 0 6px;
+}
+.dev-cat-label .req {
+  color: #C62828;
+  font-weight: 900;
+  margin-left: 3px;
+}
+.dev-cat-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 6px;
+  margin-bottom: 8px;
+}
+.dev-cat-btn {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 11px 10px;
+  background: #fff;
+  border: 1.5px solid #FFE082;
+  border-radius: 10px;
+  font-family: 'Barlow Condensed', sans-serif;
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--text);
+  cursor: pointer;
+  touch-action: manipulation;
+  -webkit-tap-highlight-color: transparent;
+  transition: all .15s;
+  text-align: left;
+  line-height: 1.2;
+  min-height: 48px;
+}
+.dev-cat-btn:active { transform: scale(0.97); }
+.dev-cat-btn.sel {
+  background: linear-gradient(135deg, #E65100, #F57C00);
+  border-color: #BF360C;
+  color: #fff;
+  box-shadow: 0 2px 8px rgba(230, 81, 0, 0.25);
+}
+.dev-cat-btn-emoji {
+  font-size: 18px;
+  flex-shrink: 0;
+  line-height: 1;
+}
+.dev-cat-btn-text {
+  flex: 1;
+  font-weight: 800;
+}
+.dev-cat-btn.sel .dev-cat-btn-text::after {
+  content: ' ✓';
+  font-weight: 900;
+}
+
 .entrega-modal-btn.cerrar { background: #f5f5f5; color: var(--text3); width: 100%; flex: none; margin-top: 4px; }
 .midia-view-inner {
   padding: 12px 16px 0;
@@ -4290,7 +4352,19 @@ body {
         <div class="devolucion-section" id="entrega-devolucion-wrap" style="display:none;">
           <div class="devolucion-section-title">↩️ Devolución de productos</div>
           <div id="entrega-devolucion-items"></div>
-          <textarea class="devolucion-motivo" id="entrega-devolucion-motivo" rows="2" placeholder="Motivo de la devolución (obligatorio)..." oninput="_devolucionMotivo=this.value"></textarea>
+
+          <!-- Selector de categoría (obligatorio) -->
+          <div class="dev-cat-label">📌 Motivo<span class="req">*</span></div>
+          <div class="dev-cat-grid" id="entrega-devolucion-cats">
+            <button type="button" class="dev-cat-btn" data-cat="sin_stock"    onclick="devolucionSetCategoria('sin_stock')"><span class="dev-cat-btn-emoji">🚫</span><span class="dev-cat-btn-text">Sin stock</span></button>
+            <button type="button" class="dev-cat-btn" data-cat="mal_estado"   onclick="devolucionSetCategoria('mal_estado')"><span class="dev-cat-btn-emoji">🤢</span><span class="dev-cat-btn-text">Con olor / mal estado</span></button>
+            <button type="button" class="dev-cat-btn" data-cat="vencido"      onclick="devolucionSetCategoria('vencido')"><span class="dev-cat-btn-emoji">📅</span><span class="dev-cat-btn-text">Vencido</span></button>
+            <button type="button" class="dev-cat-btn" data-cat="no_quiso"     onclick="devolucionSetCategoria('no_quiso')"><span class="dev-cat-btn-emoji">🙅</span><span class="dev-cat-btn-text">Cliente no quiso</span></button>
+            <button type="button" class="dev-cat-btn" data-cat="error_pedido" onclick="devolucionSetCategoria('error_pedido')"><span class="dev-cat-btn-emoji">❌</span><span class="dev-cat-btn-text">Error en el pedido</span></button>
+            <button type="button" class="dev-cat-btn" data-cat="otro"         onclick="devolucionSetCategoria('otro')"><span class="dev-cat-btn-emoji">❓</span><span class="dev-cat-btn-text">Otro motivo</span></button>
+          </div>
+
+          <textarea class="devolucion-motivo" id="entrega-devolucion-motivo" rows="2" placeholder="Detalle adicional (opcional)..." oninput="_devolucionMotivo=this.value"></textarea>
         </div>
         <!-- Cobro múltiple -->
         <div class="entrega-modal-section" id="entrega-modal-cobro-wrap">
@@ -10409,6 +10483,7 @@ async function cargarProductosEntrega(pedidoId, notaFallback) {
 let _entregaModalId = null;
 let _devolucionItems = {}; // { nombreProducto: { qty, max } }
 let _devolucionMotivo = '';
+let _devolucionCategoria = ''; // 'sin_stock' | 'mal_estado' | 'vencido' | 'no_quiso' | 'error_pedido' | 'otro'
 
 function abrirEntregaModal(entregaId) {
   const e = _entregasCache.find(x => x.id === entregaId);
@@ -10561,6 +10636,20 @@ function devolucionQtyBtn(btn) {
   devolucionQty(safe, delta);
 }
 
+// ── Selector de categoría ───────────────────────────────────────
+function devolucionSetCategoria(cat) {
+  _devolucionCategoria = cat;
+  // Actualizar estado visual de los botones
+  var grid = document.getElementById('entrega-devolucion-cats');
+  if (grid) {
+    var btns = grid.querySelectorAll('.dev-cat-btn');
+    btns.forEach(function(b) {
+      if (b.getAttribute('data-cat') === cat) b.classList.add('sel');
+      else b.classList.remove('sel');
+    });
+  }
+}
+
 function devolucionQty(safe, delta) {
   if (!_devolucionItems[safe]) return;
   var item = _devolucionItems[safe];
@@ -10604,15 +10693,42 @@ function _actualizarMontoConDevolucion() {
 
 function _getDevolucionData() {
   // Devuelve null si no hay devolución, o un objeto con el detalle
+  // Puede devolver 'SIN_CATEGORIA' si hay items pero no se eligió categoría
   var tieneDevolucion = Object.keys(_devolucionItems).some(function(s) { return _devolucionItems[s].qty > 0; });
   if (!tieneDevolucion) return null;
-  var motivo = (document.getElementById('entrega-devolucion-motivo').value || '').trim();
-  if (!motivo) return 'SIN_MOTIVO';
+  // Categoría es obligatoria
+  if (!_devolucionCategoria) return 'SIN_CATEGORIA';
+  // Detalle libre ahora es opcional (la categoría ya codifica el motivo)
+  var detalle = (document.getElementById('entrega-devolucion-motivo').value || '').trim();
   var items = Object.keys(_devolucionItems)
     .filter(function(s) { return _devolucionItems[s].qty > 0; })
     .map(function(s) { var it = _devolucionItems[s]; return it.qty + 'x ' + it.nombre; })
     .join(', ');
-  return { items: items, motivo: motivo };
+  // Label legible para mostrar en historiales (ej: "Con olor / mal estado")
+  var catLabels = {
+    sin_stock:    'Sin stock',
+    mal_estado:   'Con olor / mal estado',
+    vencido:      'Vencido',
+    no_quiso:     'Cliente no quiso',
+    error_pedido: 'Error en el pedido',
+    otro:         'Otro motivo'
+  };
+  var catLabel = catLabels[_devolucionCategoria] || _devolucionCategoria;
+  // Motivo = label de categoría + detalle libre (si lo hay)
+  var motivo = detalle ? (catLabel + ' — ' + detalle) : catLabel;
+  return {
+    items: items,
+    motivo: motivo,
+    categoria: _devolucionCategoria,
+    detalle: detalle
+  };
+}
+
+// Determina el estado inicial de reclamo al proveedor basado en la categoría
+function _calcReclamoEstado(categoria) {
+  if (categoria === 'mal_estado' || categoria === 'vencido') return 'por_reclamar';
+  if (categoria === 'sin_stock' || categoria === 'no_quiso') return 'no_aplica';
+  return 'por_evaluar'; // error_pedido, otro
 }
 
 function cerrarEntregaModal() {
@@ -10620,10 +10736,14 @@ function cerrarEntregaModal() {
   _entregaModalId = null;
   _devolucionItems = {};
   _devolucionMotivo = '';
+  _devolucionCategoria = '';
   const wrap = document.getElementById('entrega-devolucion-wrap');
   if (wrap) { wrap.style.display = 'none'; }
   const motEl = document.getElementById('entrega-devolucion-motivo');
   if (motEl) motEl.value = '';
+  // Limpiar selección visual de categorías
+  const grid = document.getElementById('entrega-devolucion-cats');
+  if (grid) grid.querySelectorAll('.dev-cat-btn').forEach(function(b) { b.classList.remove('sel'); });
 }
 
 function cobroRapido(metodo) {
@@ -10685,7 +10805,7 @@ async function confirmarEntregaModal() {
   if (totalCobrado === 0) { toast('❌ Ingresá al menos un método de cobro', 'err'); return; }
   // Validar devolución si hay items marcados
   const devData = _getDevolucionData();
-  if (devData === 'SIN_MOTIVO') { toast('❌ Escribí el motivo de la devolución', 'err'); return; }
+  if (devData === 'SIN_CATEGORIA') { toast('❌ Elegí un motivo de devolución', 'err'); return; }
 
   // Si hay cobro con cheque, pedir datos antes de confirmar
   if (cobros.cheque && cobros.cheque > 0) {
@@ -10737,13 +10857,16 @@ async function _ejecutarConfirmacionEntrega(cobros) {
   const detalleCobroStr = JSON.stringify(cobros);
   const devDataFinal = _getDevolucionData();
   const payload = { estado:'entregado', forma_cobro:formaPrincipal, fecha_entrega:new Date().toISOString() };
-  if (devDataFinal && devDataFinal !== 'SIN_MOTIVO') {
+  let montoDevuelto = 0;
+  let montoOriginalEntrega = 0;
+  if (devDataFinal && devDataFinal !== 'SIN_CATEGORIA') {
     payload.devolucion = JSON.stringify(devDataFinal);
     // Recalcular monto con devolución
     const eOrig = _entregasCache.find(x => x.id === _entregaModalId);
     if (eOrig) {
       const montoOrig = (parseFloat(eOrig.monto)||0) < 1000 && (parseFloat(eOrig.monto)||0) > 0
         ? parseFloat(eOrig.monto)*1000 : (parseFloat(eOrig.monto)||0);
+      montoOriginalEntrega = montoOrig;
       const prods = _parsearProductosDevolucion(eOrig.nota||'');
       let totalDevMonto = 0;
       Object.keys(_devolucionItems).forEach(function(safe) {
@@ -10753,6 +10876,7 @@ async function _ejecutarConfirmacionEntrega(cobros) {
           totalDevMonto += precioUnit * item.qty;
         }
       });
+      montoDevuelto = totalDevMonto;
       payload.monto_cobrado = Math.max(0, montoOrig - totalDevMonto);
     }
   }
@@ -10760,6 +10884,40 @@ async function _ejecutarConfirmacionEntrega(cobros) {
   try {
     await sbFetch('entregas?id=eq.' + _entregaModalId, { method:'PATCH', body:JSON.stringify(payload) });
     const e = _entregasCache.find(x => x.id === _entregaModalId);
+
+    // ── ESCRITURA DUAL: guardar en tabla devoluciones (para historial estructurado) ──
+    // Esto es best-effort: si falla, no afecta la entrega (ya persistida en 'entregas.devolucion')
+    if (devDataFinal && devDataFinal !== 'SIN_CATEGORIA' && e) {
+      try {
+        const devPayload = {
+          pedido_id:        e.pedido_id || null,
+          entrega_id:       e.id || null,
+          cliente:          e.cliente || null,
+          comercio:         e.comercio || null,
+          ciudad:           e.ciudad || null,
+          telefono_cliente: e.telefono_cliente || null,
+          chofer:           vendedorActual || e.chofer || null,
+          items:            devDataFinal.items || null,
+          motivo:           devDataFinal.detalle || null,
+          motivo_categoria: devDataFinal.categoria,
+          monto_devuelto:   Math.round(montoDevuelto * 100) / 100,
+          monto_original:   Math.round(montoOriginalEntrega * 100) / 100,
+          monto_cobrado:    Math.round((payload.monto_cobrado || 0) * 100) / 100,
+          fecha_devolucion: new Date().toISOString(),
+          fecha_entrega:    payload.fecha_entrega,
+          reclamo_estado:   _calcReclamoEstado(devDataFinal.categoria)
+        };
+        await sbFetch('devoluciones', {
+          method: 'POST',
+          headers: { 'Prefer': 'return=minimal' },
+          body: JSON.stringify(devPayload)
+        });
+      } catch(errDev) {
+        // Log pero no interrumpir: la devolución ya queda en entregas.devolucion
+        console.warn('No se pudo guardar en tabla devoluciones:', errDev);
+      }
+    }
+
     if (e) {
       navigator.geolocation.getCurrentPosition(pos => {
         const { latitude:lat, longitude:lng } = pos.coords;
