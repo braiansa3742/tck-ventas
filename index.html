@@ -3405,6 +3405,46 @@ body {
 .entrega-estado-badge { display: inline-flex; align-items: center; padding: 3px 10px; border-radius: 20px; font-size: 11px; font-weight: 800; }
 .entrega-estado-badge.pendiente { background: #FFF3E0; color: #E65100; }
 .entrega-estado-badge.entregado { background: #E8F5E9; color: #2E7D32; }
+.entrega-estado-badge.en-camino { background: #E3F2FD; color: #1565C0; }
+.entrega-estado-badge.no-estaba { background: #FFEBEE; color: #C62828; }
+
+/* Cards con estado especial */
+.encamino-item { border-left: 4px solid #1565C0 !important; }
+.noestaba-item { border-left: 4px solid #C62828 !important; background: #FFF5F5; }
+
+/* Botones de acción grandes (L-5: Voy/Llegué/No estaba/Reintentar) */
+.entrega-item-acciones {
+  margin-top: 10px;
+  padding-top: 10px;
+  border-top: 1px dashed rgba(0,0,0,.08);
+}
+.entrega-item-acciones-dual {
+  display: grid;
+  grid-template-columns: 1.6fr 1fr;
+  gap: 6px;
+}
+.entrega-item-accion {
+  padding: 11px 14px;
+  border: none;
+  border-radius: 12px;
+  font-family: 'Barlow Condensed', sans-serif;
+  font-size: 15px;
+  font-weight: 900;
+  cursor: pointer;
+  touch-action: manipulation;
+  -webkit-tap-highlight-color: transparent;
+  transition: all .12s;
+  width: 100%;
+  letter-spacing: 0.3px;
+  box-shadow: 0 2px 6px rgba(0,0,0,.08);
+}
+.entrega-item-accion:active { transform: scale(0.98); opacity: .9; }
+.accion-voy { background: linear-gradient(135deg,#1565C0,#1976D2); color: #fff; }
+.accion-llegue { background: linear-gradient(135deg,#1B5E20,#2E7D32); color: #fff; }
+.accion-noestaba { background: #FFEBEE; color: #C62828; border: 1.5px solid #EF9A9A; box-shadow: none; }
+.accion-noestaba:active { background: #FFCDD2; }
+.accion-reintentar { background: linear-gradient(135deg,#F57C00,#FB8C00); color: #fff; }
+
 .entrega-item-tap { font-size: 11px; color: #1565C0; font-weight: 700; display: flex; align-items: center; gap: 3px; }
 
 /* Botón rápido WA inline en la card */
@@ -10143,11 +10183,11 @@ async function cargarEntregas() {
       '&select=*&order=ciudad.asc'
     );
 
-    // Filtrar: pendientes + en_camino + entregadas de hoy
+    // Filtrar: pendientes + en_camino + no_encontrado + entregadas de hoy
     if (entregas && entregas.length) {
       const hoyStr = new Date().toISOString().split('T')[0];
       entregas = entregas.filter(function(e) {
-        if (e.estado === 'pendiente' || e.estado === 'en_camino') return true;
+        if (e.estado === 'pendiente' || e.estado === 'en_camino' || e.estado === 'no_encontrado') return true;
         // Entregadas hoy
         if (e.estado === 'entregado' && e.fecha_entrega) {
           return e.fecha_entrega.startsWith(hoyStr);
@@ -10406,12 +10446,52 @@ function renderEntregas(entregas) {
         ? parseFloat(e.monto)*1000 : (parseFloat(e.monto)||0);
       const totalFmt  = montoReal ? '$' + Math.round(montoReal).toLocaleString('es-AR') : '—';
       const entregado = e.estado === 'entregado';
+      const enCamino = e.estado === 'en_camino';
+      const noEstaba = e.estado === 'no_encontrado';
       const tel       = (e.telefono_cliente || '').replace(/\D/g,'');
       const waNum     = tel ? (tel.startsWith('54') ? tel : '549'+tel) : '';
       const coords    = _coordsCache[e.cliente];
       const turno     = e.turno_entrega === 'Mañana' ? '🌅 Mañana' : e.turno_entrega === 'Tarde' ? '🌆 Tarde' : '';
 
-      html += '<div class="entrega-item' + (entregado ? ' entregado-item' : '') + '" id="entrega-item-' + e.id + '" onclick="abrirEntregaModal(\'' + e.id + '\')">' +
+      // Hora del último cambio (fecha_en_camino, fecha_no_encontrado o fecha_entrega)
+      var horaStr = '';
+      if (enCamino && e.fecha_en_camino) {
+        var d = new Date(e.fecha_en_camino);
+        horaStr = String(d.getHours()).padStart(2,'0') + ':' + String(d.getMinutes()).padStart(2,'0');
+      } else if (noEstaba && e.fecha_no_encontrado) {
+        var d = new Date(e.fecha_no_encontrado);
+        horaStr = String(d.getHours()).padStart(2,'0') + ':' + String(d.getMinutes()).padStart(2,'0');
+      }
+
+      // Clase CSS de estado y texto del badge
+      var estadoCls, estadoTxt;
+      if (entregado) { estadoCls = 'entregado'; estadoTxt = '✅ ' + (e.forma_cobro||'Entregado').replace('_',' '); }
+      else if (enCamino) { estadoCls = 'en-camino'; estadoTxt = '🚛 En camino' + (horaStr ? ' · ' + horaStr : ''); }
+      else if (noEstaba) { estadoCls = 'no-estaba'; estadoTxt = '🚪 No estaba' + (horaStr ? ' · ' + horaStr : ''); }
+      else { estadoCls = 'pendiente'; estadoTxt = '⏳ Pendiente'; }
+
+      var itemClass = 'entrega-item';
+      if (entregado) itemClass += ' entregado-item';
+      if (enCamino) itemClass += ' encamino-item';
+      if (noEstaba) itemClass += ' noestaba-item';
+
+      // Botones de acción según estado (nuevo en L-5)
+      var accionesHtml = '';
+      if (!entregado && !enCamino && !noEstaba) {
+        // PENDIENTE: botón "Voy para allá"
+        accionesHtml = '<button class="entrega-item-accion accion-voy" onclick="event.stopPropagation();marcarEnCamino(\'' + e.id + '\')">🚛 Voy para allá</button>';
+      } else if (enCamino) {
+        // EN CAMINO: "Llegué" + "No estaba"
+        accionesHtml = '<div class="entrega-item-acciones-dual">'
+          + '<button class="entrega-item-accion accion-llegue" onclick="event.stopPropagation();abrirEntregaModal(\'' + e.id + '\')">✓ Llegué, entregar</button>'
+          + '<button class="entrega-item-accion accion-noestaba" onclick="event.stopPropagation();marcarNoEstaba(\'' + e.id + '\')">🚪 No estaba</button>'
+          + '</div>';
+      } else if (noEstaba) {
+        // NO ESTABA: Reintentar
+        accionesHtml = '<button class="entrega-item-accion accion-reintentar" onclick="event.stopPropagation();reintentarEntrega(\'' + e.id + '\')">🔄 Reintentar</button>';
+      }
+
+      html += '<div class="' + itemClass + '" id="entrega-item-' + e.id + '" onclick="abrirEntregaModal(\'' + e.id + '\')">' +
 
         // Fila nombre + monto
         '<div class="entrega-item-top">' +
@@ -10429,9 +10509,7 @@ function renderEntregas(entregas) {
 
         // Footer: estado + botones rápidos
         '<div class="entrega-item-footer">' +
-          '<div class="entrega-estado-badge ' + (entregado ? 'entregado' : 'pendiente') + '">' +
-            (entregado ? '✅ ' + (e.forma_cobro||'Entregado').replace('_',' ') : '⏳ Pendiente') +
-          '</div>' +
+          '<div class="entrega-estado-badge ' + estadoCls + '">' + estadoTxt + '</div>' +
           '<div style="display:flex;gap:6px;align-items:center;">' +
             // WA siempre visible — verde si tiene número, gris si no
             (waNum
@@ -10441,6 +10519,9 @@ function renderEntregas(entregas) {
             '<span class="entrega-item-tap">Ver →</span>' +
           '</div>' +
         '</div>' +
+
+        // Botones de acción grandes (nuevo en L-5)
+        (accionesHtml ? '<div class="entrega-item-acciones">' + accionesHtml + '</div>' : '') +
 
         '</div>';
     });
@@ -10484,6 +10565,120 @@ let _entregaModalId = null;
 let _devolucionItems = {}; // { nombreProducto: { qty, max } }
 let _devolucionMotivo = '';
 let _devolucionCategoria = ''; // 'sin_stock' | 'mal_estado' | 'vencido' | 'no_quiso' | 'error_pedido' | 'otro'
+
+// ══════════════════════════════════════════════════════════════
+// ESTADOS INTERMEDIOS (L-5): en_camino / no_encontrado / reintentar
+// ══════════════════════════════════════════════════════════════
+
+// Helper: captura GPS (timeout corto) y devuelve {lat,lng} o null
+function _capturarGpsRapido() {
+  return new Promise(function(resolve) {
+    if (!navigator.geolocation) { resolve(null); return; }
+    navigator.geolocation.getCurrentPosition(
+      function(pos) { resolve({ lat: pos.coords.latitude, lng: pos.coords.longitude, prec: pos.coords.accuracy || null }); },
+      function() { resolve(null); },
+      { enableHighAccuracy: true, timeout: 5000, maximumAge: 60000 }
+    );
+  });
+}
+
+async function marcarEnCamino(entregaId) {
+  var e = _entregasCache.find(function(x) { return x.id === entregaId; });
+  if (!e) return;
+  try {
+    // Actualización optimista de UI para feedback inmediato
+    e.estado = 'en_camino';
+    e.fecha_en_camino = new Date().toISOString();
+    renderEntregas(_entregasCache);
+
+    // Captura GPS en paralelo (no bloquea el PATCH)
+    var gps = await _capturarGpsRapido();
+    var payload = {
+      estado: 'en_camino',
+      fecha_en_camino: e.fecha_en_camino
+    };
+    if (gps) {
+      payload.lat = gps.lat;
+      payload.lng = gps.lng;
+      payload.ubicacion_precision = gps.prec;
+    }
+    await sbFetch('entregas?id=eq.' + entregaId, {
+      method: 'PATCH',
+      headers: { 'Prefer': 'return=minimal' },
+      body: JSON.stringify(payload)
+    });
+    toast('🚛 Marcado en camino', 'ok');
+  } catch (err) {
+    console.error('marcarEnCamino:', err);
+    // Revertir UI si falló
+    e.estado = 'pendiente';
+    delete e.fecha_en_camino;
+    renderEntregas(_entregasCache);
+    toast('❌ ' + ((err && err.message) || 'Error').slice(0, 80), 'err');
+  }
+}
+
+async function marcarNoEstaba(entregaId) {
+  var e = _entregasCache.find(function(x) { return x.id === entregaId; });
+  if (!e) return;
+  var estadoAnterior = e.estado;
+  try {
+    // Actualización optimista
+    e.estado = 'no_encontrado';
+    e.fecha_no_encontrado = new Date().toISOString();
+    renderEntregas(_entregasCache);
+
+    // GPS opcional (para saber dónde estuvo el chofer)
+    var gps = await _capturarGpsRapido();
+    var payload = {
+      estado: 'no_encontrado',
+      fecha_no_encontrado: e.fecha_no_encontrado
+    };
+    if (gps) {
+      payload.lat = gps.lat;
+      payload.lng = gps.lng;
+      payload.ubicacion_precision = gps.prec;
+    }
+    await sbFetch('entregas?id=eq.' + entregaId, {
+      method: 'PATCH',
+      headers: { 'Prefer': 'return=minimal' },
+      body: JSON.stringify(payload)
+    });
+    toast('🚪 Marcada como no estaba', 'ok');
+  } catch (err) {
+    console.error('marcarNoEstaba:', err);
+    e.estado = estadoAnterior;
+    delete e.fecha_no_encontrado;
+    renderEntregas(_entregasCache);
+    toast('❌ ' + ((err && err.message) || 'Error').slice(0, 80), 'err');
+  }
+}
+
+async function reintentarEntrega(entregaId) {
+  var e = _entregasCache.find(function(x) { return x.id === entregaId; });
+  if (!e) return;
+  try {
+    // Volver a pendiente: limpiar fechas de estados intermedios
+    e.estado = 'pendiente';
+    delete e.fecha_no_encontrado;
+    delete e.fecha_en_camino;
+    renderEntregas(_entregasCache);
+
+    await sbFetch('entregas?id=eq.' + entregaId, {
+      method: 'PATCH',
+      headers: { 'Prefer': 'return=minimal' },
+      body: JSON.stringify({
+        estado: 'pendiente',
+        fecha_no_encontrado: null,
+        fecha_en_camino: null
+      })
+    });
+    toast('🔄 Lista para reintentar', 'ok');
+  } catch (err) {
+    console.error('reintentarEntrega:', err);
+    toast('❌ ' + ((err && err.message) || 'Error').slice(0, 80), 'err');
+  }
+}
 
 function abrirEntregaModal(entregaId) {
   const e = _entregasCache.find(x => x.id === entregaId);
