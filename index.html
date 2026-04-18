@@ -10579,7 +10579,7 @@ function abrirEntregaModal(entregaId) {
 }
 
 // ── DEVOLUCIONES ────────────────────────────────────────────
-function toggleDevolucionSection() {
+async function toggleDevolucionSection() {
   const wrap = document.getElementById('entrega-devolucion-wrap');
   const isVisible = wrap.style.display !== 'none';
   if (isVisible) {
@@ -10589,13 +10589,26 @@ function toggleDevolucionSection() {
     _devolucionMotivo = '';
     return;
   }
-  // Cargar productos del pedido para mostrar en devolución
   const e = _entregasCache.find(x => x.id === _entregaModalId);
   if (!e) return;
   _devolucionItems = {};
-  // Parsear productos de la nota/detalle
-  const prods = _parsearProductosDevolucion(e.nota || '');
   const itemsEl = document.getElementById('entrega-devolucion-items');
+  // Mostrar loading y abrir sección inmediatamente
+  itemsEl.innerHTML = '<div style="font-size:12px;color:#999;padding:6px 0;">⏳ Cargando productos...</div>';
+  wrap.style.display = '';
+
+  // Intentar cargar desde Google Sheet (columna detalle, la misma fuente que usa la lista de productos)
+  // Si falla, caer al parser de la nota como fallback.
+  let prods = [];
+  try {
+    prods = await _cargarProductosDesdeSheet(e.pedido_id);
+  } catch(err) {
+    console.warn('No se pudo leer Sheet para devolución, usando fallback:', err);
+  }
+  if (!prods.length) {
+    prods = _parsearProductosDevolucion(e.nota || '');
+  }
+
   if (!prods.length) {
     itemsEl.innerHTML = '<div style="font-size:12px;color:#999;padding:6px 0;">No se encontraron productos del pedido</div>';
   } else {
@@ -10611,15 +10624,47 @@ function toggleDevolucionSection() {
     // Guardar máximos
     prods.forEach(function(p) { _devolucionItems[p.safe] = { qty: 0, max: p.qty, nombre: p.nombre }; });
   }
-  wrap.style.display = '';
+}
+
+// Carga productos de un pedido leyendo el Sheet (columna detalle).
+// Esta es la MISMA fuente de datos que usa cargarProductosEntrega para
+// renderizar la sección "Productos" del modal — así garantizamos
+// que devolución y productos muestran exactamente lo mismo.
+async function _cargarProductosDesdeSheet(pedidoId) {
+  if (!pedidoId) return [];
+  const res = await fetch(SHEET_CSV + '&_t=' + Date.now());
+  const csv = await res.text();
+  const lines = csv.trim().split('\n');
+  for (let i = 1; i < lines.length; i++) {
+    const cols = parseCsv(lines[i]);
+    if (!cols[0] || cols[0].trim() !== pedidoId) continue;
+    const detalle = (cols[9] || '').trim();
+    if (!detalle) return [];
+    // Mismo formato que usa cargarProductosEntrega: pipe-separado
+    const items = detalle.split(' | ').filter(Boolean);
+    return items.map(function(item) {
+      // Limpiar emojis y asteriscos tal como lo hace el renderizador de productos
+      var clean = item.replace(/\*/g, '').replace(/[🐔🥩🥚🌽🍗]/gu, '').trim();
+      // Extraer "1x Nombre" (ignorando lo que viene después: "(x 5 Kg) → $...")
+      var m = clean.match(/^(\d+)\s*[x×]?\s*(.+?)(?:\s*\(|\s*→|\s*$)/i);
+      if (!m) return null;
+      var qty = parseInt(m[1]) || 1;
+      var nombre = m[2].trim();
+      var safe = nombre.replace(/[^a-zA-Z0-9]/g, '_');
+      return { nombre: nombre, qty: qty, safe: safe };
+    }).filter(Boolean);
+  }
+  return [];
 }
 
 function _parsearProductosDevolucion(nota) {
   var prods = [];
-  // Formato: "1x Pollo B (x 20 Kg) → $72.000 | 3x Suprema..."
-  var partes = (nota || '').split('|');
+  // Parser mejorado: tolera separadores " | " o salto de línea, y cantidades sin "x"
+  var partes = (nota || '').split(/\s*\|\s*|\n+/);
   partes.forEach(function(parte) {
-    var m = parte.trim().match(/^(\d+)x?\s+(.+?)(?:\s+\(|\s+→|\s*\[-|\s*$)/);
+    parte = parte.replace(/\*/g, '').replace(/[🐔🥩🥚🌽🍗]/gu, '').trim();
+    if (!parte) return;
+    var m = parte.match(/^(\d+)\s*[x×]?\s*(.+?)(?:\s*\(|\s*→|\s*$)/i);
     if (m) {
       var qty = parseInt(m[1]) || 1;
       var nombre = m[2].trim();
