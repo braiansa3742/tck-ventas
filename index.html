@@ -3679,7 +3679,7 @@ body {
 .dup-modal-backdrop.on { display: flex; }
 
 .dup-modal-sheet {
-  background: linear-gradient(180deg, var(--cream) 0%, #FAF0E1 100%);
+  background: #FAF6EE;
   width: 100%;
   max-width: 680px;
   max-height: 94vh;
@@ -3769,28 +3769,28 @@ body {
   flex: 1;
 }
 
-/* Banner "vendedor habitual" — con identidad TCK (dorado, no azul random) */
+/* Banner "vendedor habitual" — discreto */
 .dup-habitual {
-  background: linear-gradient(135deg, #FFF9E6 0%, #FFF3D0 100%);
-  border: 1.5px solid #E4C97A;
-  border-left: 4px solid var(--gold, #D4A574);
-  border-radius: 12px;
-  padding: 12px 14px;
-  margin-bottom: 16px;
+  background: #fff;
+  border: 1px solid var(--cream3);
+  border-left: 3px solid var(--gold, #D4A574);
+  border-radius: 10px;
+  padding: 11px 14px;
+  margin-bottom: 14px;
   display: flex;
   align-items: center;
   gap: 12px;
   font-size: 13px;
-  color: #7A5A10;
+  color: var(--text2);
   position: relative;
 }
 .dup-habitual-icon {
-  font-size: 24px;
+  font-size: 20px;
   flex-shrink: 0;
 }
 .dup-habitual-content { flex: 1; line-height: 1.4; }
 .dup-habitual strong {
-  color: var(--red);
+  color: var(--text);
   font-family: 'Barlow Condensed', sans-serif;
   font-size: 16px;
   font-weight: 900;
@@ -3798,9 +3798,9 @@ body {
   letter-spacing: 0.3px;
 }
 .dup-habitual-sub {
-  font-size: 11px;
-  color: #9A7838;
-  margin-top: 2px;
+  font-size: 11.5px;
+  color: var(--text3);
+  margin-top: 1px;
 }
 
 /* Sección: pedidos a comparar */
@@ -3827,13 +3827,13 @@ body {
 /* Card de cada pedido */
 .dup-pedido-card {
   background: #fff;
-  border: 1.5px solid var(--cream3);
+  border: 1px solid var(--cream3);
   border-radius: 14px;
   padding: 0;
-  margin-bottom: 10px;
+  margin-bottom: 12px;
   overflow: hidden;
   transition: all .2s;
-  box-shadow: 0 2px 6px rgba(139, 0, 0, 0.05);
+  box-shadow: 0 4px 12px rgba(139, 0, 0, 0.06), 0 1px 3px rgba(0,0,0,0.04);
 }
 .dup-pedido-card.cancelado {
   opacity: 0.5;
@@ -3841,11 +3841,11 @@ body {
   border-color: #E0E0E0;
 }
 
-/* Cabecera del pedido — banda coloreada por vendedor */
+/* Cabecera del pedido — banda blanca limpia */
 .dup-pedido-hdr-band {
-  background: linear-gradient(135deg, #FFF8E1, #FFF3CD);
-  border-bottom: 1.5px solid var(--cream3);
-  padding: 9px 14px;
+  background: #fff;
+  border-bottom: 1px solid var(--cream3);
+  padding: 11px 14px;
   display: flex;
   justify-content: space-between;
   align-items: center;
@@ -3854,26 +3854,29 @@ body {
 .dup-pedido-hdr-izq {
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: 10px;
   flex-wrap: wrap;
 }
 .dup-pedido-hora-chip {
-  background: var(--red);
+  background: var(--text);
   color: #fff;
-  padding: 2px 8px;
-  border-radius: 10px;
+  padding: 3px 9px;
+  border-radius: 8px;
   font-family: 'Barlow Condensed', sans-serif;
-  font-size: 12px;
-  font-weight: 900;
-  letter-spacing: 0.3px;
+  font-size: 11px;
+  font-weight: 800;
+  letter-spacing: 0.5px;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
 }
 .dup-pedido-vendedor {
   font-family: 'Barlow Condensed', sans-serif;
-  font-size: 14px;
+  font-size: 15px;
   font-weight: 900;
   color: var(--text);
   text-transform: uppercase;
-  letter-spacing: 0.3px;
+  letter-spacing: 0.4px;
 }
 .dup-pedido-vendedor-habitual {
   color: #B8860B;
@@ -3963,57 +3966,41 @@ body {
   cursor: default;
 }
 
-/* Panel de acciones — el CTA principal (rediseño v3: fondo oscuro para contrastar) */
+/* Panel de acciones — la zona del CTA */
 .dup-acciones {
-  background: linear-gradient(135deg, #1A1A1A 0%, #2A1810 100%);
-  border: none;
-  border-radius: 16px;
-  padding: 22px 18px 18px;
-  margin-top: 14px;
-  position: relative;
-  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.25);
-}
-.dup-acciones::before {
-  content: '⚡ DECISIÓN';
-  position: absolute;
-  top: -11px;
-  left: 16px;
-  background: var(--gold, #D4A574);
-  color: #1A1A1A;
-  padding: 3px 12px;
-  border-radius: 8px;
-  font-family: 'Barlow Condensed', sans-serif;
-  font-size: 11px;
-  font-weight: 900;
-  letter-spacing: 1.5px;
+  background: #fff;
+  border: 1.5px solid var(--cream3);
+  border-radius: 14px;
+  padding: 14px;
+  margin-top: 12px;
+  box-shadow: 0 2px 8px rgba(0,0,0,0.04);
 }
 
 .dup-acredita-wrap {
-  background: rgba(255, 255, 255, 0.08);
-  border-radius: 12px;
-  padding: 12px 14px;
-  margin-bottom: 14px;
-  border: 1.5px solid rgba(255, 255, 255, 0.12);
+  background: var(--cream2);
+  border-radius: 10px;
+  padding: 10px 12px;
+  margin-bottom: 12px;
 }
 .dup-acredita-label {
   font-family: 'Barlow Condensed', sans-serif;
-  font-size: 12px;
-  font-weight: 900;
-  color: rgba(255, 255, 255, 0.85);
+  font-size: 11.5px;
+  font-weight: 800;
+  color: var(--text2);
   text-transform: uppercase;
-  letter-spacing: 0.6px;
-  margin-bottom: 10px;
+  letter-spacing: 0.5px;
+  margin-bottom: 8px;
 }
 .dup-acredita-opts {
   display: flex;
   flex-wrap: wrap;
-  gap: 7px;
+  gap: 6px;
 }
 .dup-acredita-opt {
-  padding: 8px 16px;
-  background: rgba(255, 255, 255, 0.95);
-  border: 1.5px solid transparent;
-  border-radius: 20px;
+  padding: 6px 14px;
+  background: #fff;
+  border: 1.5px solid var(--cream3);
+  border-radius: 18px;
   font-family: 'Barlow Condensed', sans-serif;
   font-size: 13px;
   font-weight: 800;
@@ -4025,104 +4012,98 @@ body {
 }
 .dup-acredita-opt:active { transform: scale(0.96); }
 .dup-acredita-opt.sel {
-  background: linear-gradient(135deg, var(--gold, #D4A574), #B8860B);
-  border-color: var(--gold, #D4A574);
-  color: #1A1A1A;
-  box-shadow: 0 2px 8px rgba(212, 165, 116, 0.4);
+  background: var(--red);
+  border-color: var(--red);
+  color: #fff;
+  box-shadow: 0 2px 6px rgba(139, 0, 0, 0.25);
 }
 
-/* Botón principal: UNIR — verde brillante sobre fondo oscuro */
+/* Botón principal: UNIR — verde sobrio pero claro */
 .dup-btn-unir {
   width: 100%;
-  padding: 16px 18px;
-  background: linear-gradient(135deg, #43A047 0%, #2E7D32 100%);
-  border: 2px solid #66BB6A;
+  padding: 14px 16px;
+  background: #2E7D32;
+  border: none;
   color: #fff;
-  border-radius: 14px;
+  border-radius: 12px;
   font-family: 'Barlow Condensed', sans-serif;
-  font-size: 18px;
+  font-size: 17px;
   font-weight: 900;
   cursor: pointer;
   touch-action: manipulation;
   -webkit-tap-highlight-color: transparent;
-  margin-bottom: 12px;
-  box-shadow: 0 6px 20px rgba(67, 160, 71, 0.45), 0 0 0 1px rgba(102, 187, 106, 0.3) inset;
+  margin-bottom: 10px;
+  box-shadow: 0 4px 12px rgba(46, 125, 50, 0.3);
   text-transform: uppercase;
   letter-spacing: 0.6px;
-  position: relative;
-  overflow: hidden;
   transition: all .15s;
   display: flex;
   align-items: center;
   justify-content: center;
   gap: 10px;
 }
-.dup-btn-unir-icon { font-size: 22px; }
+.dup-btn-unir-icon { font-size: 20px; }
 .dup-btn-unir-text { line-height: 1; }
-.dup-btn-unir:active { transform: translateY(1px) scale(0.99); box-shadow: 0 3px 10px rgba(67, 160, 71, 0.5); }
-.dup-btn-unir:disabled { opacity: 0.5; cursor: not-allowed; }
-.dup-btn-unir::after {
-  content: '';
-  position: absolute;
-  top: 0; left: -100%;
-  width: 100%; height: 100%;
-  background: linear-gradient(90deg, transparent, rgba(255,255,255,0.2), transparent);
-  transition: left .8s;
+.dup-btn-unir:active {
+  transform: translateY(1px);
+  background: #1B5E20;
+  box-shadow: 0 2px 6px rgba(46, 125, 50, 0.4);
 }
-.dup-btn-unir:hover::after { left: 100%; }
+.dup-btn-unir:disabled { opacity: 0.5; cursor: not-allowed; }
 
 .dup-acciones-tip {
   font-size: 11.5px;
-  color: rgba(255, 255, 255, 0.65);
+  color: var(--text3);
   line-height: 1.5;
   text-align: center;
-  padding: 0 4px;
+  padding: 8px 4px 0;
+  border-top: 1px dashed var(--cream3);
+  margin-top: 4px;
 }
-.dup-acciones-tip strong { color: #FFB74D; font-weight: 800; }
+.dup-acciones-tip strong { color: var(--text2); font-weight: 700; }
 
-/* PREVIEW: qué va a quedar */
+/* PREVIEW: qué va a quedar — más compacto */
 .dup-preview {
-  background: linear-gradient(135deg, #E8F5E9 0%, #F1F8E9 100%);
-  border: 2px dashed #66BB6A;
-  border-radius: 14px;
-  padding: 14px 16px;
+  background: #F1F8E9;
+  border: 1.5px solid #C5E1A5;
+  border-radius: 12px;
+  padding: 12px 14px;
   margin-top: 14px;
   position: relative;
 }
 .dup-preview-titulo {
   font-family: 'Barlow Condensed', sans-serif;
-  font-size: 13px;
+  font-size: 12px;
   font-weight: 900;
-  color: #1B5E20;
+  color: #2E7D32;
   text-transform: uppercase;
   letter-spacing: 0.6px;
   margin-bottom: 10px;
-  text-align: center;
 }
 .dup-preview-stats {
   display: grid;
   grid-template-columns: repeat(3, 1fr);
-  gap: 10px;
-  margin-bottom: 12px;
+  gap: 8px;
+  margin-bottom: 10px;
 }
 .dup-preview-stat {
-  background: rgba(255, 255, 255, 0.85);
-  border-radius: 10px;
-  padding: 8px 6px;
+  background: #fff;
+  border-radius: 8px;
+  padding: 7px 6px;
   text-align: center;
-  border: 1px solid rgba(46, 125, 50, 0.2);
+  border: 1px solid #DCEDC8;
 }
 .dup-preview-stat-num {
   font-family: 'Barlow Condensed', sans-serif;
-  font-size: 18px;
+  font-size: 17px;
   font-weight: 900;
   color: #1B5E20;
   line-height: 1.1;
   word-break: break-word;
 }
 .dup-preview-stat-lbl {
-  font-size: 10px;
-  color: #558B2F;
+  font-size: 9.5px;
+  color: #689F38;
   text-transform: uppercase;
   letter-spacing: 0.5px;
   font-weight: 700;
@@ -4134,17 +4115,17 @@ body {
   gap: 5px;
 }
 .dup-preview-prod-chip {
-  background: rgba(255, 255, 255, 0.9);
-  border: 1px solid rgba(46, 125, 50, 0.3);
-  color: #1B5E20;
-  padding: 4px 9px;
-  border-radius: 14px;
-  font-family: 'Barlow Condensed', sans-serif;
-  font-size: 12px;
-  font-weight: 700;
+  background: #fff;
+  border: 1px solid #C5E1A5;
+  color: #2E7D32;
+  padding: 3px 8px;
+  border-radius: 12px;
+  font-family: 'Barlow', sans-serif;
+  font-size: 11.5px;
+  font-weight: 600;
 }
 .dup-preview-prod-chip.mas {
-  background: rgba(46, 125, 50, 0.15);
+  background: #DCEDC8;
   font-style: italic;
 }
 
@@ -4166,13 +4147,13 @@ body {
   background: #F5B100;
 }
 .dup-pedido-sin-prods {
-  color: #C62828;
+  color: var(--text3);
   font-style: italic;
-  padding: 8px 10px;
-  background: #FFEBEE;
-  border-radius: 8px;
-  border-left: 3px solid #EF9A9A;
+  padding: 6px 8px;
+  background: var(--cream2);
+  border-radius: 6px;
   font-size: 12.5px;
+  text-align: center;
 }
 
 /* Mensaje de "solo queda 1 activo" — sin cambios */
@@ -13274,26 +13255,33 @@ function _dupExtraerProds(p) {
     var prods = parseProds(p.detalle);
     if (prods.length > 0) return prods;
   }
-  // 2) Fallback: parsear resumen (formato "1× Suprema (x 5 Kg) → $33.000" o similar)
+  // 2) Fallback: parsear resumen (formato "1× Suprema (x 5 Kg) → $33.000")
   if (p.resumen) {
     var prodsRes = [];
-    // Separar por coma o pipe
     var partes = p.resumen.split(/\s*[,|]\s*/);
     partes.forEach(function(parte) {
       parte = parte.trim();
       if (!parte) return;
-      // Patrón: "Nx Nombre" o "N× Nombre" — separar cantidad del nombre
       var m = parte.match(/^(\d+)\s*[x×]\s*(.+?)(?:\s*[\(→]|$)/i);
       if (m) {
         prodsRes.push({ emoji: '', name: m[2].trim().replace(/\s*[—\-]\s*\$.*/, ''), qty: parseInt(m[1]) || 1 });
       } else {
-        // Sin cantidad: tomar todo como nombre con qty=1
         var nombre = parte.replace(/\s*[—\-]\s*\$.*/, '').replace(/\(.*?\)/g, '').trim();
         if (nombre) prodsRes.push({ emoji: '', name: nombre, qty: 1 });
       }
     });
-    return prodsRes;
+    if (prodsRes.length > 0) return prodsRes;
   }
+  // 3) Fallback: detalle como texto crudo separado por saltos
+  if (p.detalle) {
+    var lineas = p.detalle.split(/\n|\|/).map(function(l){return l.trim();}).filter(Boolean);
+    if (lineas.length > 0) {
+      return lineas.map(function(l) { return { emoji: '', name: l.replace(/[*_]/g,'').trim(), qty: 1 }; });
+    }
+  }
+  // 4) Último recurso: mostrar el contenido bruto como una línea
+  var raw = (p.detalle || p.resumen || '').replace(/[*_\n]/g,' ').replace(/\s+/g,' ').trim();
+  if (raw) return [{ emoji: '', name: raw, qty: 1 }];
   return [];
 }
 
@@ -13572,7 +13560,7 @@ function _renderDupModal() {
 
     html += '<button class="dup-btn-unir" onclick="dupUnirPedidos()">'
       + '<span class="dup-btn-unir-icon">🔗</span>'
-      + '<span class="dup-btn-unir-text">Unir en 1 pedido de ' + totalUnidoFmt + '</span>'
+      + '<span class="dup-btn-unir-text">Unir en 1 pedido</span>'
       + '</button>';
 
     html += '<div class="dup-acciones-tip">💡 Si en realidad son duplicados (mismo pedido cargado 2 veces), tocá <strong>"✕ Cancelar este pedido"</strong> arriba para borrar el sobrante en lugar de unir.</div>';
