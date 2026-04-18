@@ -10925,14 +10925,12 @@ async function _ejecutarConfirmacionEntrega(cobros) {
   let montoOriginalEntrega = 0;
   let montoAcobrar = 0;
   if (devDataFinal && devDataFinal !== 'SIN_CATEGORIA') {
-    payload.devolucion = JSON.stringify(devDataFinal);
-    // Usar helper centralizado (mismo cálculo que ve el chofer en pantalla)
+    // NOTA: no escribimos 'devolucion' en la tabla entregas (esa columna no existe).
+    // Toda la info estructurada de la devolución va a la tabla `devoluciones` (más abajo).
     const m = _getMontoConDevolucion();
     montoOriginalEntrega = m.original;
     montoDevuelto = m.devolucion;
     montoAcobrar = m.aCobrar;
-    // NOTA: montoAcobrar NO se guarda en `entregas` (esa tabla no tiene ese campo).
-    // Solo lo usamos localmente y se escribe en la tabla `devoluciones`.
   }
   if (Object.keys(cobros).length > 1) payload.detalle_cobro = detalleCobroStr;
   try {
@@ -11008,9 +11006,12 @@ async function _ejecutarConfirmacionEntrega(cobros) {
         toast('✅ Entrega registrada','ok'); return;
       } catch(err2) {
         console.error('❌ Retry sin detalle_cobro también falló:', err2);
+        err = err2;
       }
     }
-    toast('❌ Error al guardar — verificá conexión','err');
+    // Mostrar el error REAL (primeros 120 chars) para diagnóstico
+    var msgErr = (err && err.message ? err.message : String(err)).slice(0, 120);
+    toast('❌ ' + msgErr, 'err');
   }
   _entregaModalId = null; _entregaClienteActual = null; _entregaCiudadActual = null; _modoCobroCambio = false;
 }
