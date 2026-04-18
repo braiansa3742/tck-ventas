@@ -4221,6 +4221,174 @@ body {
   font-size: 14px;
 }
 
+
+
+/* ════════════════════════════════════════════════
+   DASHBOARD CARD — opción 1 elegida
+   ════════════════════════════════════════════════ */
+.dash-card {
+  margin-bottom: 10px;
+  background: #fff;
+  border-radius: 16px;
+  padding: 0;
+  overflow: hidden;
+  box-shadow: 0 6px 18px rgba(139,0,0,0.08);
+  border: 1px solid var(--border, #E8DFCB);
+}
+.dash-hero {
+  background: linear-gradient(135deg, #FFF8E1 0%, #FFFEFA 100%);
+  padding: 16px 18px;
+  border-bottom: 1px solid var(--border, #E8DFCB);
+  display: flex;
+  align-items: baseline;
+  gap: 18px;
+}
+.dash-hero-col {
+  display: flex;
+  flex-direction: column;
+}
+.dash-hero-num {
+  font-family: 'Barlow Condensed', sans-serif;
+  font-size: 44px;
+  font-weight: 900;
+  color: var(--red);
+  line-height: 0.9;
+  letter-spacing: -1.5px;
+}
+.dash-hero-lbl {
+  font-size: 10px;
+  color: var(--text3, #888);
+  font-family: 'Barlow Condensed', sans-serif;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.8px;
+  margin-top: 4px;
+}
+.dash-hero-info {
+  flex: 1;
+  text-align: right;
+}
+.dash-hero-info-num {
+  font-family: 'Barlow Condensed', sans-serif;
+  font-size: 26px;
+  font-weight: 900;
+  color: var(--red);
+  line-height: 1;
+  letter-spacing: -0.5px;
+}
+.dash-hero-info-lbl {
+  font-size: 10px;
+  color: var(--text3, #888);
+  font-family: 'Barlow Condensed', sans-serif;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.8px;
+  margin-top: 2px;
+}
+.dash-breakdown {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  background: #fff;
+}
+.dash-bd-cell {
+  padding: 14px 8px 10px;
+  text-align: center;
+  border-right: 1px solid var(--border, #E8DFCB);
+  position: relative;
+}
+.dash-bd-cell:last-child { border-right: none; }
+.dash-bd-cell::before {
+  content: '';
+  position: absolute;
+  top: 6px; left: 50%;
+  transform: translateX(-50%);
+  width: 6px; height: 6px;
+  border-radius: 50%;
+}
+.dash-bd-cell.pend::before { background: var(--orange, #FF6B00); }
+.dash-bd-cell.conf::before { background: var(--green2, #43A047); }
+.dash-bd-cell.entr::before { background: var(--blue, #1565C0); }
+.dash-bd-num {
+  font-family: 'Barlow Condensed', sans-serif;
+  font-size: 24px;
+  font-weight: 900;
+  line-height: 1;
+}
+.dash-bd-cell.pend .dash-bd-num { color: var(--orange, #FF6B00); }
+.dash-bd-cell.conf .dash-bd-num { color: var(--green2, #43A047); }
+.dash-bd-cell.entr .dash-bd-num { color: var(--blue, #1565C0); }
+.dash-bd-lbl {
+  font-size: 9.5px;
+  color: var(--text3, #888);
+  font-family: 'Barlow Condensed', sans-serif;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.6px;
+  margin-top: 3px;
+}
+
+/* Acciones rediseñadas */
+.dash-actions {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
+  margin-bottom: 10px;
+}
+.dash-act-btn {
+  padding: 11px;
+  border-radius: 10px;
+  font-family: 'Barlow Condensed', sans-serif;
+  font-size: 14px;
+  font-weight: 800;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  border: 1.5px solid;
+  text-transform: uppercase;
+  letter-spacing: 0.4px;
+  background: #fff;
+  transition: all .15s;
+  -webkit-tap-highlight-color: transparent;
+  touch-action: manipulation;
+}
+.dash-act-btn.refresh { border-color: var(--border, #E8DFCB); color: var(--text, #1A1A1A); }
+.dash-act-btn.refresh:active { background: var(--cream2, #F5EDE1); transform: scale(0.98); }
+.dash-act-btn.send { border-color: var(--green2, #43A047); color: var(--green2, #43A047); }
+.dash-act-btn.send:active { background: #E8F5E9; transform: scale(0.98); }
+
+/* Filtros sticky con scroll horizontal por fila */
+.filtros-sticky {
+  position: sticky;
+  top: 0;
+  z-index: 50;
+  background: var(--cream, #FAF4EC);
+  margin: 6px -16px 0;
+  padding: 6px 0;
+  border-bottom: 1px solid var(--border, #E8DFCB);
+  box-shadow: 0 2px 6px rgba(0,0,0,0.04);
+}
+.filtros-sticky .filter-row {
+  display: flex !important;
+  gap: 6px;
+  padding: 4px 16px;
+  overflow-x: auto;
+  overflow-y: hidden;
+  scrollbar-width: none;
+  -webkit-overflow-scrolling: touch;
+  flex-wrap: nowrap !important;
+  margin-bottom: 0 !important;
+}
+.filtros-sticky .filter-row::-webkit-scrollbar { display: none; }
+.filtros-sticky .filtro-btn {
+  flex-shrink: 0;
+  padding: 6px 13px !important;
+  font-size: 12.5px !important;
+  white-space: nowrap;
+  margin: 0 !important;
+}
+
 </style>
 </head>
 <body>
@@ -4346,33 +4514,36 @@ body {
   <!-- ══ VIEW: PEDIDOS ══ -->
   <div class="view" id="view-pedidos">
     <div style="padding:14px 16px 0;">
-      <div class="stats" style="grid-template-columns:repeat(2,1fr);margin-bottom:10px;">
-        <div class="stat-card">
-          <div class="stat-num" id="stat-total">—</div>
-          <div class="stat-label">Pedidos hoy</div>
+      <!-- Dashboard stats (rediseño Opción 1) -->
+      <div class="dash-card">
+        <div class="dash-hero">
+          <div class="dash-hero-col">
+            <div class="dash-hero-num" id="stat-total">—</div>
+            <div class="dash-hero-lbl">Pedidos hoy</div>
+          </div>
+          <div class="dash-hero-info">
+            <div class="dash-hero-info-num" id="stat-monto">—</div>
+            <div class="dash-hero-info-lbl">Total del día</div>
+          </div>
         </div>
-        <div class="stat-card">
-          <div class="stat-num" id="stat-monto" style="font-size:22px">—</div>
-          <div class="stat-label">Total del día</div>
+        <div class="dash-breakdown">
+          <div class="dash-bd-cell pend">
+            <div class="dash-bd-num" id="stat-pend">—</div>
+            <div class="dash-bd-lbl">Pendientes</div>
+          </div>
+          <div class="dash-bd-cell conf">
+            <div class="dash-bd-num" id="stat-conf">—</div>
+            <div class="dash-bd-lbl">Confirmados</div>
+          </div>
+          <div class="dash-bd-cell entr">
+            <div class="dash-bd-num" id="stat-entregado">—</div>
+            <div class="dash-bd-lbl">Entregados</div>
+          </div>
         </div>
       </div>
-      <div class="stats" style="margin-top:0;margin-bottom:10px;">
-        <div class="stat-card">
-          <div class="stat-num" id="stat-pend" style="color:var(--orange)">—</div>
-          <div class="stat-label">Pendientes</div>
-        </div>
-        <div class="stat-card">
-          <div class="stat-num" id="stat-conf" style="color:var(--green2)">—</div>
-          <div class="stat-label">Confirmados</div>
-        </div>
-        <div class="stat-card">
-          <div class="stat-num" id="stat-entregado" style="color:var(--blue)">—</div>
-          <div class="stat-label">Entregados</div>
-        </div>
-      </div>
-      <div style="display:flex;gap:8px;margin-bottom:6px;">
-        <button class="btn-refresh" style="flex:1" onclick="cargarPedidos()">🔄 Actualizar</button>
-        <button class="btn-refresh" style="flex:1;color:var(--green2);border-color:var(--green2)" onclick="abrirExport()">📤 Enviar</button>
+      <div class="dash-actions">
+        <button class="dash-act-btn refresh" onclick="cargarPedidos()">🔄 Actualizar</button>
+        <button class="dash-act-btn send" onclick="abrirExport()">📤 Enviar</button>
       </div>
       <button id="btn-carga-wa" onclick="abrirCargaManualWA()" style="display:none;width:100%;padding:12px;margin-bottom:8px;background:linear-gradient(135deg,#1B5E20,#2E7D32);border:none;border-radius:12px;color:#fff;font-family:'Barlow Condensed',sans-serif;font-size:17px;font-weight:900;cursor:pointer;letter-spacing:.3px;">📲 Cargar pedido por WhatsApp</button>
 
@@ -4380,7 +4551,8 @@ body {
         <span class="buscador-icon">🔍</span>
         <input class="buscador" id="buscador" placeholder="Buscar cliente, comercio, localidad..." oninput="filtrar()">
       </div>
-      <div class="filtros" id="filtros-fecha">
+      <div class="filtros-sticky">
+      <div class="filtros filter-row" id="filtros-fecha">
         <button class="filtro-btn on" onclick="setFiltroFecha('hoy',this)">📅 Hoy</button>
         <button class="filtro-btn" onclick="setFiltroFecha('ayer',this)">Ayer</button>
         <button class="filtro-btn" onclick="setFiltroFecha('semana',this)">Esta semana</button>
@@ -4399,19 +4571,20 @@ body {
           </div>
         </div>
       </div>
-      <div class="filtros" id="filtros-vendedor" style="display:none">
+      <div class="filtros filter-row" id="filtros-vendedor" style="display:none">
         <button class="filtro-btn on" onclick="setFiltroVendedor('todos',this)">👥 Todos</button>
         <button class="filtro-btn" onclick="setFiltroVendedor('Miguel',this)">Miguel</button>
         <button class="filtro-btn" onclick="setFiltroVendedor('Juan',this)">Juan</button>
         <button class="filtro-btn" onclick="setFiltroVendedor('Lisandro',this)">Lisandro</button>
       </div>
-      <div class="filtros" id="filtros-estado">
+      <div class="filtros filter-row" id="filtros-estado">
         <button class="filtro-btn on" onclick="setFiltro('todos',this)">Todos</button>
         <button class="filtro-btn" onclick="setFiltro('Pendiente',this)">⏳ Pendientes</button>
         <button class="filtro-btn" onclick="setFiltro('Confirmado',this)">✅ Confirmados</button>
         <button class="filtro-btn" onclick="setFiltro('Entregado',this)">📦 Entregados</button>
         <button class="filtro-btn" onclick="setFiltro('duplicado',this)">⚠️ Duplicados</button>
         <button class="filtro-btn" onclick="setFiltro('Cancelado',this)">❌ Cancelados</button>
+      </div>
       </div>
     </div>
     <div id="lista-pedidos"></div>
