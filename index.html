@@ -10972,16 +10972,58 @@ async function _ejecutarConfirmacionEntrega(cobros) {
     }
 
     if (e) {
-      navigator.geolocation.getCurrentPosition(pos => {
-        const { latitude:lat, longitude:lng } = pos.coords;
-        sbFetch('clientes_ubicaciones?nombre_cliente=eq.' + encodeURIComponent(e.cliente), {method:'GET'})
-          .then(rows => {
-            const method = (rows&&rows.length)?'PATCH':'POST';
-            const url = method==='PATCH' ? 'clientes_ubicaciones?nombre_cliente=eq.'+encodeURIComponent(e.cliente) : 'clientes_ubicaciones';
-            return sbFetch(url, {method, body:JSON.stringify({nombre_cliente:e.cliente,lat,lng,ultima_visita:new Date().toISOString()})});
-          }).catch(()=>{});
-        _coordsCache[e.cliente] = {lat,lng};
-      }, ()=>{});
+      // ── CAPTURA GPS (L-4) ──────────────────────────────────────
+      // La captura es asíncrona y tolerante a fallos: si el GPS no responde
+      // o el usuario rechaza permisos, la entrega queda registrada igual.
+      // Se escribe en 3 lugares:
+      //   1. entregas.lat/lng/ubicacion_precision  (historial por entrega)
+      //   2. devoluciones.lat/lng (si hubo devolución)
+      //   3. clientes_ubicaciones (última visita al cliente, para el mapa)
+      navigator.geolocation.getCurrentPosition(function(pos) {
+        var lat = pos.coords.latitude;
+        var lng = pos.coords.longitude;
+        var prec = pos.coords.accuracy || null;
+
+        // (1) PATCH entregas con la ubicación real
+        sbFetch('entregas?id=eq.' + e.id, {
+          method: 'PATCH',
+          headers: { 'Prefer': 'return=minimal' },
+          body: JSON.stringify({ lat: lat, lng: lng, ubicacion_precision: prec })
+        }).catch(function(err) {
+          console.warn('No se pudo guardar GPS en entregas:', err && err.message);
+        });
+
+        // (2) Si hubo devolución, actualizar también su fila con lat/lng
+        if (devDataFinal && devDataFinal !== 'SIN_CATEGORIA') {
+          sbFetch('devoluciones?entrega_id=eq.' + e.id, {
+            method: 'PATCH',
+            headers: { 'Prefer': 'return=minimal' },
+            body: JSON.stringify({ lat: lat, lng: lng })
+          }).catch(function() { /* best-effort */ });
+        }
+
+        // (3) clientes_ubicaciones (para mapa de clientes y próxima búsqueda)
+        sbFetch('clientes_ubicaciones?nombre_cliente=eq.' + encodeURIComponent(e.cliente), { method: 'GET' })
+          .then(function(rows) {
+            var method = (rows && rows.length) ? 'PATCH' : 'POST';
+            var url = method === 'PATCH'
+              ? 'clientes_ubicaciones?nombre_cliente=eq.' + encodeURIComponent(e.cliente)
+              : 'clientes_ubicaciones';
+            return sbFetch(url, {
+              method: method,
+              body: JSON.stringify({ nombre_cliente: e.cliente, lat: lat, lng: lng, ultima_visita: new Date().toISOString() })
+            });
+          }).catch(function() { /* best-effort */ });
+
+        _coordsCache[e.cliente] = { lat: lat, lng: lng };
+      }, function(err) {
+        // Usuario rechazó permisos o GPS no disponible
+        console.warn('GPS no disponible:', err && err.message);
+      }, {
+        enableHighAccuracy: true,  // preferir GPS sobre red (más preciso)
+        timeout: 10000,             // 10 seg máximo esperando fix
+        maximumAge: 60000           // aceptar una lectura de hasta 1 min de antigüedad
+      });
     }
     const idx = _entregasCache.findIndex(x => x.id === _entregaModalId);
     if (idx >= 0) {
