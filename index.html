@@ -10707,33 +10707,24 @@ function devolucionQty(safe, delta) {
 }
 
 function _actualizarMontoConDevolucion() {
-  var e = _entregasCache.find(function(x) { return x.id === _entregaModalId; });
-  if (!e) return;
-  var montoOriginal = (parseFloat(e.monto)||0) < 1000 && (parseFloat(e.monto)||0) > 0
-    ? parseFloat(e.monto) * 1000 : (parseFloat(e.monto)||0);
-  var totalDev = 0;
-  Object.keys(_devolucionItems).forEach(function(safe) {
-    var item = _devolucionItems[safe];
-    if (item.qty > 0) {
-      // Buscar precio del producto en el detalle
-      var prods = _parsearProductosDevolucion(e.nota || '');
-      var prod = prods.find(function(p) { return p.safe === safe; });
-      if (prod) {
-        // Precio unitario = monto total / suma de cantidades (aproximado)
-        var precioUnit = montoOriginal / prods.reduce(function(s,p){ return s+p.qty; }, 0);
-        totalDev += precioUnit * item.qty;
-      }
-    }
-  });
-  var montoFinal = Math.max(0, montoOriginal - totalDev);
+  if (!_entregaModalId) return;
+  var m = _getMontoConDevolucion();
   var montoEl = document.getElementById('entrega-modal-monto');
   if (montoEl) {
-    if (totalDev > 0) {
-      montoEl.innerHTML = '<span style="text-decoration:line-through;opacity:.5;font-size:14px;">$' + Math.round(montoOriginal).toLocaleString('es-AR') + '</span> $' + Math.round(montoFinal).toLocaleString('es-AR');
+    if (m.devolucion > 0) {
+      montoEl.innerHTML = '<span style="text-decoration:line-through;opacity:.5;font-size:14px;">$' + Math.round(m.original).toLocaleString('es-AR') + '</span> $' + Math.round(m.aCobrar).toLocaleString('es-AR');
     } else {
-      montoEl.textContent = '$' + Math.round(montoOriginal).toLocaleString('es-AR');
+      montoEl.textContent = '$' + Math.round(m.original).toLocaleString('es-AR');
     }
   }
+  // Además, si hay inputs de cobro con valores, refrescar la diferencia
+  // (porque al cambiar cantidades de devolución, la diferencia cambia)
+  var totalInput = 0;
+  ['efectivo','transferencia','cheque','cuenta_corriente'].forEach(function(met) {
+    var inp = document.getElementById('cobro-m-' + met + '-val');
+    if (inp) totalInput += parseFloat(inp.value) || 0;
+  });
+  if (totalInput > 0) cobroMultipleActualizar();
 }
 
 function _getDevolucionData() {
@@ -10791,12 +10782,41 @@ function cerrarEntregaModal() {
   if (grid) grid.querySelectorAll('.dev-cat-btn').forEach(function(b) { b.classList.remove('sel'); });
 }
 
+// Helper: monto "real" (compatibilidad con valores guardados en miles).
+// No considera devolución.
+function _getMontoOriginal() {
+  var e = _entregasCache.find(function(x) { return x.id === _entregaModalId; });
+  if (!e) return 0;
+  var m = parseFloat(e.monto) || 0;
+  return (m > 0 && m < 1000) ? m * 1000 : m;
+}
+
+// Helper: monto total que queda por cobrar TENIENDO EN CUENTA devolución actual.
+// Devuelve { original, devolucion, aCobrar } para que las callers decidan qué mostrar.
+function _getMontoConDevolucion() {
+  var original = _getMontoOriginal();
+  var e = _entregasCache.find(function(x) { return x.id === _entregaModalId; });
+  if (!e) return { original: 0, devolucion: 0, aCobrar: 0 };
+  var prods = _parsearProductosDevolucion(e.nota || '');
+  var totalQty = prods.reduce(function(s,p){ return s+p.qty; }, 0);
+  var devolucion = 0;
+  if (totalQty > 0) {
+    var precioUnit = original / totalQty;
+    Object.keys(_devolucionItems).forEach(function(safe) {
+      var item = _devolucionItems[safe];
+      if (item.qty > 0) devolucion += precioUnit * item.qty;
+    });
+  }
+  var aCobrar = Math.max(0, original - devolucion);
+  return { original: original, devolucion: devolucion, aCobrar: aCobrar };
+}
+
 function cobroRapido(metodo) {
   if (!_entregaModalId) return;
   const e = _entregasCache.find(x => x.id === _entregaModalId);
   if (!e) return;
-  const montoReal = (parseFloat(e.monto)||0) < 1000 && (parseFloat(e.monto)||0) > 0
-    ? parseFloat(e.monto) * 1000 : (parseFloat(e.monto)||0);
+  // Usar monto CON devolución (si hay items devueltos, resta del total)
+  const montoReal = _getMontoConDevolucion().aCobrar;
 
   // Limpiar todos los campos
   ['efectivo','transferencia','cheque','cuenta_corriente'].forEach(m => {
@@ -10826,9 +10846,8 @@ function cobroMultipleActualizar() {
   });
   const totalEl = document.getElementById('cobro-multiple-total');
   if (total > 0) {
-    const e = _entregasCache.find(x => x.id === _entregaModalId);
-    const montoReal = e ? ((parseFloat(e.monto)||0) < 1000 && (parseFloat(e.monto)||0) > 0
-      ? parseFloat(e.monto) * 1000 : (parseFloat(e.monto)||0)) : 0;
+    // Comparar contra monto CON devolución (no contra el original)
+    const montoReal = _getMontoConDevolucion().aCobrar;
     const diff = montoReal - total;
     totalEl.textContent = 'Total cobrado: $' + Math.round(total).toLocaleString('es-AR') +
       (diff !== 0 ? ' (' + (diff > 0 ? '-' : '+') + '$' + Math.abs(Math.round(diff)).toLocaleString('es-AR') + ' diferencia)' : ' ✅');
@@ -10904,26 +10923,16 @@ async function _ejecutarConfirmacionEntrega(cobros) {
   const payload = { estado:'entregado', forma_cobro:formaPrincipal, fecha_entrega:new Date().toISOString() };
   let montoDevuelto = 0;
   let montoOriginalEntrega = 0;
+  let montoAcobrar = 0;
   if (devDataFinal && devDataFinal !== 'SIN_CATEGORIA') {
     payload.devolucion = JSON.stringify(devDataFinal);
-    // Recalcular monto con devolución
-    const eOrig = _entregasCache.find(x => x.id === _entregaModalId);
-    if (eOrig) {
-      const montoOrig = (parseFloat(eOrig.monto)||0) < 1000 && (parseFloat(eOrig.monto)||0) > 0
-        ? parseFloat(eOrig.monto)*1000 : (parseFloat(eOrig.monto)||0);
-      montoOriginalEntrega = montoOrig;
-      const prods = _parsearProductosDevolucion(eOrig.nota||'');
-      let totalDevMonto = 0;
-      Object.keys(_devolucionItems).forEach(function(safe) {
-        const item = _devolucionItems[safe];
-        if (item.qty > 0) {
-          const precioUnit = prods.length ? montoOrig / prods.reduce((s,p)=>s+p.qty,0) : 0;
-          totalDevMonto += precioUnit * item.qty;
-        }
-      });
-      montoDevuelto = totalDevMonto;
-      payload.monto_cobrado = Math.max(0, montoOrig - totalDevMonto);
-    }
+    // Usar helper centralizado (mismo cálculo que ve el chofer en pantalla)
+    const m = _getMontoConDevolucion();
+    montoOriginalEntrega = m.original;
+    montoDevuelto = m.devolucion;
+    montoAcobrar = m.aCobrar;
+    // NOTA: montoAcobrar NO se guarda en `entregas` (esa tabla no tiene ese campo).
+    // Solo lo usamos localmente y se escribe en la tabla `devoluciones`.
   }
   if (Object.keys(cobros).length > 1) payload.detalle_cobro = detalleCobroStr;
   try {
@@ -10941,13 +10950,13 @@ async function _ejecutarConfirmacionEntrega(cobros) {
           comercio:         e.comercio || null,
           ciudad:           e.ciudad || null,
           telefono_cliente: e.telefono_cliente || null,
-          chofer:           vendedorActual || e.chofer || null,
+          chofer:           vendedorActual || e.chofer || 'Sin chofer',
           items:            devDataFinal.items || null,
           motivo:           devDataFinal.detalle || null,
           motivo_categoria: devDataFinal.categoria,
           monto_devuelto:   Math.round(montoDevuelto * 100) / 100,
           monto_original:   Math.round(montoOriginalEntrega * 100) / 100,
-          monto_cobrado:    Math.round((payload.monto_cobrado || 0) * 100) / 100,
+          monto_cobrado:    Math.round(montoAcobrar * 100) / 100,
           fecha_devolucion: new Date().toISOString(),
           fecha_entrega:    payload.fecha_entrega,
           reclamo_estado:   _calcReclamoEstado(devDataFinal.categoria)
@@ -10957,9 +10966,10 @@ async function _ejecutarConfirmacionEntrega(cobros) {
           headers: { 'Prefer': 'return=minimal' },
           body: JSON.stringify(devPayload)
         });
+        console.log('✅ Devolución guardada en tabla devoluciones');
       } catch(errDev) {
         // Log pero no interrumpir: la devolución ya queda en entregas.devolucion
-        console.warn('No se pudo guardar en tabla devoluciones:', errDev);
+        console.error('⚠️ No se pudo guardar en tabla devoluciones:', errDev);
       }
     }
 
@@ -10986,6 +10996,8 @@ async function _ejecutarConfirmacionEntrega(cobros) {
     renderResumenChofer(_entregasCache);
     toast('✅ Entrega registrada','ok');
   } catch(err) {
+    console.error('❌ Error en _ejecutarConfirmacionEntrega (PATCH entregas):', err);
+    console.error('Payload que falló:', payload);
     if (payload.detalle_cobro) {
       try {
         delete payload.detalle_cobro;
@@ -10994,7 +11006,9 @@ async function _ejecutarConfirmacionEntrega(cobros) {
         if (idx>=0) { _entregasCache[idx].estado='entregado'; _entregasCache[idx].forma_cobro=formaPrincipal; }
         cerrarEntregaModal(); renderEntregas(_entregasCache); renderResumenChofer(_entregasCache);
         toast('✅ Entrega registrada','ok'); return;
-      } catch(err2) {}
+      } catch(err2) {
+        console.error('❌ Retry sin detalle_cobro también falló:', err2);
+      }
     }
     toast('❌ Error al guardar — verificá conexión','err');
   }
