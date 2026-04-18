@@ -3659,6 +3659,587 @@ body {
   cursor: pointer;
 }
 .manual-wa-confirmar-btn:disabled { opacity: .4; }
+
+
+/* ══════════════════════════════════════════════════════════════
+   MODAL DE DUPLICADOS — rediseño pro (estética TCK)
+   ══════════════════════════════════════════════════════════════ */
+
+.dup-modal-backdrop {
+  display: none;
+  position: fixed;
+  inset: 0;
+  background: rgba(40, 20, 20, 0.6);
+  backdrop-filter: blur(4px);
+  -webkit-backdrop-filter: blur(4px);
+  z-index: 700;
+  align-items: flex-end;
+  justify-content: center;
+}
+.dup-modal-backdrop.on { display: flex; }
+
+.dup-modal-sheet {
+  background: linear-gradient(180deg, var(--cream) 0%, #FAF0E1 100%);
+  width: 100%;
+  max-width: 680px;
+  max-height: 94vh;
+  border-radius: 24px 24px 0 0;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  animation: dupSlideUp .32s cubic-bezier(.2, .9, .3, 1);
+  box-shadow: 0 -20px 60px rgba(139, 0, 0, 0.25);
+}
+@keyframes dupSlideUp {
+  from { transform: translateY(100%); opacity: 0; }
+  to   { transform: translateY(0); opacity: 1; }
+}
+
+.dup-modal-pill {
+  width: 52px;
+  height: 5px;
+  background: linear-gradient(90deg, var(--cream3), var(--cream3));
+  border-radius: 3px;
+  margin: 10px auto 6px;
+  flex-shrink: 0;
+  opacity: 0.8;
+}
+
+/* Header con gradiente rojo sutil */
+.dup-modal-hdr {
+  padding: 16px 22px 18px;
+  background: linear-gradient(135deg, var(--red) 0%, #A61818 100%);
+  color: #fff;
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+  flex-shrink: 0;
+  position: relative;
+  overflow: hidden;
+}
+.dup-modal-hdr::before {
+  content: '';
+  position: absolute;
+  top: -40px;
+  right: -40px;
+  width: 140px;
+  height: 140px;
+  background: radial-gradient(circle, rgba(255, 215, 0, 0.18), transparent 60%);
+  pointer-events: none;
+}
+.dup-modal-hdr-title {
+  font-family: 'Barlow Condensed', sans-serif;
+  font-size: 22px;
+  font-weight: 900;
+  color: #fff;
+  line-height: 1.15;
+  letter-spacing: 0.3px;
+  text-transform: uppercase;
+  position: relative;
+}
+.dup-modal-hdr-sub {
+  font-size: 12.5px;
+  color: rgba(255, 255, 255, 0.85);
+  margin-top: 4px;
+  font-weight: 500;
+  position: relative;
+}
+.dup-modal-close {
+  background: rgba(255, 255, 255, 0.15);
+  border: 1.5px solid rgba(255, 255, 255, 0.25);
+  border-radius: 50%;
+  width: 34px;
+  height: 34px;
+  font-size: 16px;
+  color: #fff;
+  cursor: pointer;
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: background .15s;
+  position: relative;
+}
+.dup-modal-close:active { background: rgba(255, 255, 255, 0.3); }
+
+.dup-modal-body {
+  overflow-y: auto;
+  padding: 18px 18px 24px;
+  flex: 1;
+}
+
+/* Banner "vendedor habitual" — con identidad TCK (dorado, no azul random) */
+.dup-habitual {
+  background: linear-gradient(135deg, #FFF9E6 0%, #FFF3D0 100%);
+  border: 1.5px solid #E4C97A;
+  border-left: 4px solid var(--gold, #D4A574);
+  border-radius: 12px;
+  padding: 12px 14px;
+  margin-bottom: 16px;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  font-size: 13px;
+  color: #7A5A10;
+  position: relative;
+}
+.dup-habitual-icon {
+  font-size: 24px;
+  flex-shrink: 0;
+}
+.dup-habitual-content { flex: 1; line-height: 1.4; }
+.dup-habitual strong {
+  color: var(--red);
+  font-family: 'Barlow Condensed', sans-serif;
+  font-size: 16px;
+  font-weight: 900;
+  text-transform: uppercase;
+  letter-spacing: 0.3px;
+}
+.dup-habitual-sub {
+  font-size: 11px;
+  color: #9A7838;
+  margin-top: 2px;
+}
+
+/* Sección: pedidos a comparar */
+.dup-section-label {
+  font-family: 'Barlow Condensed', sans-serif;
+  font-size: 11px;
+  font-weight: 900;
+  color: var(--red);
+  text-transform: uppercase;
+  letter-spacing: 1.2px;
+  margin: 8px 0 10px 4px;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.dup-section-label::after {
+  content: '';
+  flex: 1;
+  height: 1.5px;
+  background: linear-gradient(90deg, var(--cream3), transparent);
+  margin-left: 6px;
+}
+
+/* Card de cada pedido */
+.dup-pedido-card {
+  background: #fff;
+  border: 1.5px solid var(--cream3);
+  border-radius: 14px;
+  padding: 0;
+  margin-bottom: 10px;
+  overflow: hidden;
+  transition: all .2s;
+  box-shadow: 0 2px 6px rgba(139, 0, 0, 0.05);
+}
+.dup-pedido-card.cancelado {
+  opacity: 0.5;
+  background: #FAFAFA;
+  border-color: #E0E0E0;
+}
+
+/* Cabecera del pedido — banda coloreada por vendedor */
+.dup-pedido-hdr-band {
+  background: linear-gradient(135deg, #FFF8E1, #FFF3CD);
+  border-bottom: 1.5px solid var(--cream3);
+  padding: 9px 14px;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 10px;
+}
+.dup-pedido-hdr-izq {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+.dup-pedido-hora-chip {
+  background: var(--red);
+  color: #fff;
+  padding: 2px 8px;
+  border-radius: 10px;
+  font-family: 'Barlow Condensed', sans-serif;
+  font-size: 12px;
+  font-weight: 900;
+  letter-spacing: 0.3px;
+}
+.dup-pedido-vendedor {
+  font-family: 'Barlow Condensed', sans-serif;
+  font-size: 14px;
+  font-weight: 900;
+  color: var(--text);
+  text-transform: uppercase;
+  letter-spacing: 0.3px;
+}
+.dup-pedido-vendedor-habitual {
+  color: #B8860B;
+}
+.dup-pedido-total {
+  font-family: 'Barlow Condensed', sans-serif;
+  font-size: 22px;
+  font-weight: 900;
+  color: var(--red);
+  line-height: 1;
+  letter-spacing: -0.3px;
+}
+.dup-pedido-cancelado-badge {
+  background: #C62828;
+  color: #fff;
+  padding: 2px 7px;
+  border-radius: 10px;
+  font-family: 'Barlow Condensed', sans-serif;
+  font-size: 10px;
+  font-weight: 900;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
+.dup-pedido-body { padding: 12px 14px; }
+.dup-pedido-prods {
+  font-size: 13px;
+  color: var(--text);
+  line-height: 1.45;
+}
+.dup-pedido-prod-linea {
+  padding: 4px 8px;
+  margin: 2px 0;
+  border-radius: 6px;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+.dup-pedido-prod-linea.comun {
+  background: linear-gradient(90deg, #FFF9E6, #FFFDF4);
+  border-left: 3px solid #F5B100;
+  color: #8A6508;
+  font-weight: 700;
+}
+.dup-pedido-prod-linea .warning-dot {
+  color: #F5B100;
+  font-weight: 900;
+}
+.dup-pedido-id {
+  font-size: 10px;
+  color: var(--text3);
+  font-family: 'Barlow Condensed', sans-serif;
+  letter-spacing: 0.8px;
+  margin-top: 8px;
+  padding-top: 8px;
+  border-top: 1px dashed var(--cream3);
+  opacity: 0.7;
+}
+
+/* Botón cancelar pedido individual */
+.dup-pedido-accion-cancelar {
+  margin: 0 14px 14px;
+  width: calc(100% - 28px);
+  padding: 9px 12px;
+  background: #fff;
+  border: 1.5px solid #EF9A9A;
+  color: #C62828;
+  border-radius: 10px;
+  font-family: 'Barlow Condensed', sans-serif;
+  font-size: 13px;
+  font-weight: 900;
+  cursor: pointer;
+  touch-action: manipulation;
+  -webkit-tap-highlight-color: transparent;
+  text-transform: uppercase;
+  letter-spacing: 0.4px;
+  transition: background .15s;
+}
+.dup-pedido-accion-cancelar:active {
+  transform: scale(0.98);
+  background: #FFEBEE;
+}
+.dup-pedido-accion-cancelar.done {
+  background: #E8F5E9;
+  border-color: #A5D6A7;
+  color: #2E7D32;
+  cursor: default;
+}
+
+/* Panel de acciones — el CTA principal (rediseño v3: fondo oscuro para contrastar) */
+.dup-acciones {
+  background: linear-gradient(135deg, #1A1A1A 0%, #2A1810 100%);
+  border: none;
+  border-radius: 16px;
+  padding: 22px 18px 18px;
+  margin-top: 14px;
+  position: relative;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.25);
+}
+.dup-acciones::before {
+  content: '⚡ DECISIÓN';
+  position: absolute;
+  top: -11px;
+  left: 16px;
+  background: var(--gold, #D4A574);
+  color: #1A1A1A;
+  padding: 3px 12px;
+  border-radius: 8px;
+  font-family: 'Barlow Condensed', sans-serif;
+  font-size: 11px;
+  font-weight: 900;
+  letter-spacing: 1.5px;
+}
+
+.dup-acredita-wrap {
+  background: rgba(255, 255, 255, 0.08);
+  border-radius: 12px;
+  padding: 12px 14px;
+  margin-bottom: 14px;
+  border: 1.5px solid rgba(255, 255, 255, 0.12);
+}
+.dup-acredita-label {
+  font-family: 'Barlow Condensed', sans-serif;
+  font-size: 12px;
+  font-weight: 900;
+  color: rgba(255, 255, 255, 0.85);
+  text-transform: uppercase;
+  letter-spacing: 0.6px;
+  margin-bottom: 10px;
+}
+.dup-acredita-opts {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 7px;
+}
+.dup-acredita-opt {
+  padding: 8px 16px;
+  background: rgba(255, 255, 255, 0.95);
+  border: 1.5px solid transparent;
+  border-radius: 20px;
+  font-family: 'Barlow Condensed', sans-serif;
+  font-size: 13px;
+  font-weight: 800;
+  color: var(--text);
+  cursor: pointer;
+  touch-action: manipulation;
+  transition: all .15s;
+  -webkit-tap-highlight-color: transparent;
+}
+.dup-acredita-opt:active { transform: scale(0.96); }
+.dup-acredita-opt.sel {
+  background: linear-gradient(135deg, var(--gold, #D4A574), #B8860B);
+  border-color: var(--gold, #D4A574);
+  color: #1A1A1A;
+  box-shadow: 0 2px 8px rgba(212, 165, 116, 0.4);
+}
+
+/* Botón principal: UNIR — verde brillante sobre fondo oscuro */
+.dup-btn-unir {
+  width: 100%;
+  padding: 16px 18px;
+  background: linear-gradient(135deg, #43A047 0%, #2E7D32 100%);
+  border: 2px solid #66BB6A;
+  color: #fff;
+  border-radius: 14px;
+  font-family: 'Barlow Condensed', sans-serif;
+  font-size: 18px;
+  font-weight: 900;
+  cursor: pointer;
+  touch-action: manipulation;
+  -webkit-tap-highlight-color: transparent;
+  margin-bottom: 12px;
+  box-shadow: 0 6px 20px rgba(67, 160, 71, 0.45), 0 0 0 1px rgba(102, 187, 106, 0.3) inset;
+  text-transform: uppercase;
+  letter-spacing: 0.6px;
+  position: relative;
+  overflow: hidden;
+  transition: all .15s;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+}
+.dup-btn-unir-icon { font-size: 22px; }
+.dup-btn-unir-text { line-height: 1; }
+.dup-btn-unir:active { transform: translateY(1px) scale(0.99); box-shadow: 0 3px 10px rgba(67, 160, 71, 0.5); }
+.dup-btn-unir:disabled { opacity: 0.5; cursor: not-allowed; }
+.dup-btn-unir::after {
+  content: '';
+  position: absolute;
+  top: 0; left: -100%;
+  width: 100%; height: 100%;
+  background: linear-gradient(90deg, transparent, rgba(255,255,255,0.2), transparent);
+  transition: left .8s;
+}
+.dup-btn-unir:hover::after { left: 100%; }
+
+.dup-acciones-tip {
+  font-size: 11.5px;
+  color: rgba(255, 255, 255, 0.65);
+  line-height: 1.5;
+  text-align: center;
+  padding: 0 4px;
+}
+.dup-acciones-tip strong { color: #FFB74D; font-weight: 800; }
+
+/* PREVIEW: qué va a quedar */
+.dup-preview {
+  background: linear-gradient(135deg, #E8F5E9 0%, #F1F8E9 100%);
+  border: 2px dashed #66BB6A;
+  border-radius: 14px;
+  padding: 14px 16px;
+  margin-top: 14px;
+  position: relative;
+}
+.dup-preview-titulo {
+  font-family: 'Barlow Condensed', sans-serif;
+  font-size: 13px;
+  font-weight: 900;
+  color: #1B5E20;
+  text-transform: uppercase;
+  letter-spacing: 0.6px;
+  margin-bottom: 10px;
+  text-align: center;
+}
+.dup-preview-stats {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 10px;
+  margin-bottom: 12px;
+}
+.dup-preview-stat {
+  background: rgba(255, 255, 255, 0.85);
+  border-radius: 10px;
+  padding: 8px 6px;
+  text-align: center;
+  border: 1px solid rgba(46, 125, 50, 0.2);
+}
+.dup-preview-stat-num {
+  font-family: 'Barlow Condensed', sans-serif;
+  font-size: 18px;
+  font-weight: 900;
+  color: #1B5E20;
+  line-height: 1.1;
+  word-break: break-word;
+}
+.dup-preview-stat-lbl {
+  font-size: 10px;
+  color: #558B2F;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  font-weight: 700;
+  margin-top: 2px;
+}
+.dup-preview-prods {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 5px;
+}
+.dup-preview-prod-chip {
+  background: rgba(255, 255, 255, 0.9);
+  border: 1px solid rgba(46, 125, 50, 0.3);
+  color: #1B5E20;
+  padding: 4px 9px;
+  border-radius: 14px;
+  font-family: 'Barlow Condensed', sans-serif;
+  font-size: 12px;
+  font-weight: 700;
+}
+.dup-preview-prod-chip.mas {
+  background: rgba(46, 125, 50, 0.15);
+  font-style: italic;
+}
+
+/* Productos: cantidad destacada */
+.dup-prod-qty {
+  display: inline-block;
+  background: var(--red);
+  color: #fff;
+  padding: 1px 6px;
+  border-radius: 10px;
+  font-family: 'Barlow Condensed', sans-serif;
+  font-size: 11px;
+  font-weight: 900;
+  min-width: 22px;
+  text-align: center;
+  margin-right: 2px;
+}
+.dup-pedido-prod-linea.comun .dup-prod-qty {
+  background: #F5B100;
+}
+.dup-pedido-sin-prods {
+  color: #C62828;
+  font-style: italic;
+  padding: 8px 10px;
+  background: #FFEBEE;
+  border-radius: 8px;
+  border-left: 3px solid #EF9A9A;
+  font-size: 12.5px;
+}
+
+/* Mensaje de "solo queda 1 activo" — sin cambios */
+.dup-mensaje-unico {
+  background: linear-gradient(135deg, #E8F5E9, #F1F8E9);
+  border: 1.5px solid #A5D6A7;
+  border-radius: 12px;
+  padding: 14px;
+  text-align: center;
+  color: #1B5E20;
+  font-family: 'Barlow Condensed', sans-serif;
+  font-weight: 700;
+  font-size: 14px;
+}
+
+/* Botón "Ver otros pedidos del cliente" — aparece en el detalle del pedido */
+.btn-ver-otros-pedidos {
+  width: 100%;
+  padding: 11px 14px;
+  background: linear-gradient(135deg, #FFF3E0, #FFE0B2);
+  border: 1.5px solid #FFB74D;
+  color: #E65100;
+  border-radius: 10px;
+  font-family: 'Barlow Condensed', sans-serif;
+  font-size: 14px;
+  font-weight: 900;
+  cursor: pointer;
+  touch-action: manipulation;
+  text-transform: uppercase;
+  letter-spacing: 0.4px;
+  transition: all .15s;
+  -webkit-tap-highlight-color: transparent;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+}
+.btn-ver-otros-pedidos:active {
+  transform: scale(0.98);
+  background: linear-gradient(135deg, #FFE0B2, #FFCC80);
+}
+
+/* Info: vendedor no puede unir porque hay alguno confirmado */
+.info-no-unir {
+  margin-top: 10px;
+  padding: 10px 14px;
+  background: #FFF8E1;
+  border: 1.5px solid #FFE082;
+  border-left: 3px solid #FFB300;
+  border-radius: 8px;
+  font-family: 'Barlow', sans-serif;
+  font-size: 12.5px;
+  color: #5D4037;
+  line-height: 1.4;
+}
+  background: linear-gradient(135deg, #E8F5E9, #F1F8E9);
+  border: 1.5px solid #A5D6A7;
+  border-radius: 12px;
+  padding: 14px;
+  margin-bottom: 14px;
+  text-align: center;
+  color: #1B5E20;
+  font-family: 'Barlow Condensed', sans-serif;
+  font-weight: 700;
+  font-size: 14px;
+}
+
 </style>
 </head>
 <body>
@@ -5110,16 +5691,40 @@ async function cargarPedidos(silencioso, _reintentos) {
       ahoraEl.style.color = 'var(--green2)';
     }
 
-    // Detectar duplicados — solo dentro del MISMO DÍA
-    var mapTotal = {}, mapCliente = {};
+    // Detectar duplicados — mismo cliente + mismo día, distinguir por productos comunes
+    // 🔴 DUPLICADO = mismo producto · 🟠 PEDIDO DOBLE = productos distintos
+    var mapTotal = {};
+    var _normProdVent = function(nombre) {
+      return (nombre || '').toLowerCase()
+        .replace(/[°º]/g, '')
+        .replace(/[áàä]/g,'a').replace(/[éèë]/g,'e').replace(/[íìï]/g,'i')
+        .replace(/[óòö]/g,'o').replace(/[úùü]/g,'u').replace(/ñ/g,'n')
+        .replace(/[^a-z0-9]+/g, ' ').replace(/\s+/g,' ').trim();
+    };
+    var _setProdsVent = function(p) {
+      var s = new Set();
+      // Intentar detalle
+      if (p.detalle) {
+        parseProds(p.detalle).forEach(function(pr) {
+          var n = _normProdVent(pr.name); if (n) s.add(n);
+        });
+      }
+      // Fallback resumen
+      if (s.size === 0 && p.resumen) {
+        (p.resumen.split(/\s*[,|]\s*/)).forEach(function(parte) {
+          var m = parte.trim().match(/^\d+\s*[x×]\s*(.+?)(?:\s*[\(→]|$)/i);
+          if (m) { var n = _normProdVent(m[1]); if (n) s.add(n); }
+        });
+      }
+      return s;
+    };
+
     pedidos.forEach(function(p) {
-      // No considerar cancelados como duplicados
       if (p.estado === 'Cancelado') return;
       var mFecha = (p.pedidoId || '').match(/TCK-(\d{8})/);
       var fechaDia = mFecha ? mFecha[1] : (p.fechaHora || '').substring(0, 10).replace(/-/g,'');
       if (!fechaDia) return;
-      // Duplicado: mismo cliente + mismo día (sin importar total ni vendedor)
-      var kCliente = (fechaDia + p.cliente).toLowerCase().replace(/\s/g,'');
+      var kCliente = (fechaDia + (p.cliente||'')).toLowerCase().replace(/\s/g,'');
       if (!mapTotal[kCliente]) mapTotal[kCliente] = [];
       mapTotal[kCliente].push(p);
     });
@@ -5128,14 +5733,20 @@ async function cargarPedidos(silencioso, _reintentos) {
       var mFecha = (p.pedidoId || '').match(/TCK-(\d{8})/);
       var fechaDia = mFecha ? mFecha[1] : (p.fechaHora || '').substring(0, 10).replace(/-/g,'');
       if (!fechaDia) { p.esDuplicado = false; p.tipoDuplicado = null; p.duplicadoCon = ''; return; }
-      var kCliente = (fechaDia + p.cliente).toLowerCase().replace(/\s/g,'');
+      var kCliente = (fechaDia + (p.cliente||'')).toLowerCase().replace(/\s/g,'');
       var grupo = mapTotal[kCliente];
       if (grupo && grupo.length > 1) {
-        var totalDistinto = grupo.some(function(x) { return x.total !== p.total; });
+        // Hay 2+ del mismo cliente mismo día → siempre marcar
+        var misProds = _setProdsVent(p);
+        var otros = grupo.filter(function(x){ return x.pedidoId !== p.pedidoId; });
+        var hayProdComun = otros.some(function(x) {
+          var sus = _setProdsVent(x);
+          for (var n of misProds) { if (sus.has(n)) return true; }
+          return false;
+        });
         p.esDuplicado = true;
-        p.tipoDuplicado = totalDistinto ? 'parcial' : 'exacto';
-        p.duplicadoCon = grupo.filter(function(x){return x.pedidoId!==p.pedidoId;})
-          .map(function(x){return x.vendedor||'otro vendedor';})
+        p.tipoDuplicado = hayProdComun ? 'exacto' : 'parcial';
+        p.duplicadoCon = otros.map(function(x){return x.vendedor||'otro vendedor';})
           .filter(function(v,i,a){return a.indexOf(v)===i;}).join(', ');
       } else {
         p.esDuplicado = false; p.tipoDuplicado = null; p.duplicadoCon = '';
@@ -5361,8 +5972,8 @@ function badgeHtml(p) {
     'Cancelado':  '<span class="badge badge-cancelado">❌ Cancelado</span>'
   };
   var b = bs[p.estado] || '<span class="badge badge-pendiente">' + p.estado + '</span>';
-  if (p.esDuplicado && p.tipoDuplicado === 'exacto') b += ' <span class="badge badge-dup-exacto">🔴 DUPLICADO</span>';
-  else if (p.esDuplicado) b += ' <span class="badge badge-dup-parcial">🟠 PEDIDO DOBLE</span>';
+  if (p.esDuplicado && p.tipoDuplicado === 'exacto') b += ' <span class="badge badge-dup-exacto" style="cursor:pointer" onclick="event.stopPropagation();abrirModalDuplicados(\'' + p.pedidoId + '\')" title="Ver y resolver">🔴 DUPLICADO</span>';
+  else if (p.esDuplicado) b += ' <span class="badge badge-dup-parcial" style="cursor:pointer" onclick="event.stopPropagation();abrirModalDuplicados(\'' + p.pedidoId + '\')" title="Ver y resolver">🟠 PEDIDO DOBLE</span>';
   return b;
 }
 
@@ -5423,6 +6034,36 @@ function renderCard(p) {
     }
   }
 
+  // Botón "Ver otros pedidos del cliente" — vendedor puede unir SUS pedidos del día
+  // Solo si TODOS están en Pendiente (no se puede modificar pedido ya remitido en Xubio)
+  var verOtrosHtml = '';
+  var _miMF = (p.pedidoId || '').match(/TCK-(\d{8})/);
+  var _miFechaDia = _miMF ? _miMF[1] : (p.fechaHora || '').substring(0,10).replace(/-/g,'');
+  var _miCliKey = (p.cliente || '').toLowerCase().replace(/\s+/g,' ').trim();
+  var _miVendKey = (p.vendedor || '').toLowerCase().trim();
+  var _pedidosDelCli = todosLosPedidos.filter(function(x) {
+    if (x.estado === 'Cancelado') return false;
+    var xf = (x.pedidoId || '').match(/TCK-(\d{8})/);
+    var xfd = xf ? xf[1] : (x.fechaHora || '').substring(0,10).replace(/-/g,'');
+    var xcli = (x.cliente || '').toLowerCase().replace(/\s+/g,' ').trim();
+    var xvend = (x.vendedor || '').toLowerCase().trim();
+    // En ventas siempre restringir a SUS pedidos
+    return xfd === _miFechaDia && xcli === _miCliKey && xvend === _miVendKey;
+  });
+  if (_pedidosDelCli.length >= 2) {
+    var _todosPend = _pedidosDelCli.every(function(x){ return x.estado === 'Pendiente'; });
+    if (_todosPend) {
+      verOtrosHtml = '<div style="margin-top:10px;">' +
+        '<button class="btn-ver-otros-pedidos" onclick="event.stopPropagation();abrirModalDuplicados(\'' + p.pedidoId + '\')">' +
+        '🔗 Tenés ' + _pedidosDelCli.length + ' pedidos de este cliente · Unir antes de remitir</button>' +
+        '</div>';
+    } else {
+      verOtrosHtml = '<div class="info-no-unir">' +
+        '⚠️ Tenés ' + _pedidosDelCli.length + ' pedidos de este cliente, pero no se pueden unir porque alguno ya fue remitido. Pedile al admin que los junte.' +
+        '</div>';
+    }
+  }
+
   var vendedorRow = esAdmin ? '<div class="pedido-detalle-row"><span class="pdr-label">Vendedor</span><span class="pdr-val">' + p.vendedor + '</span></div>' : '';
   var detalle = p.detalle ? p.detalle.replace(/\|/g,'\n').replace(/ · /g,' — ') : (p.resumen || '');
   var hora = (p.fechaHora||'').split(' ')[1] || (p.fechaHora||'').split('T')[1] || '';
@@ -5452,6 +6093,7 @@ function renderCard(p) {
       dupAlert +
       '<div class="pedido-acciones">' + btns + '</div>' +
       asignarHtml +
+      verOtrosHtml +
       buildXubioPanel(p, id) +
       '<div class="nota-wrap">' +
         '<div style="display:flex;gap:8px;margin-bottom:8px;align-items:center;">' +
@@ -12594,6 +13236,523 @@ async function botCargarConversaciones(){var el=document.getElementById('bot-con
 })();
 
 
+
+
+// ════════════════════════════════════════════════════════════════
+// MODAL DE DUPLICADOS — funciones copiadas del admin, con reglas vendedor
+// ════════════════════════════════════════════════════════════════
+
+var _dupModalState = null;
+
+function vendedorHabitualDeCliente(clienteNombre) {
+  if (!clienteNombre) return null;
+  var cliKey = clienteNombre.toLowerCase().replace(/\s+/g,' ').trim();
+  var hace30 = new Date(); hace30.setDate(hace30.getDate() - 30); hace30.setHours(0,0,0,0);
+  var conteo = {};
+  todosLosPedidos.forEach(function(p) {
+    if (p.estado === 'Cancelado') return;
+    if ((p.cliente||'').toLowerCase().replace(/\s+/g,' ').trim() !== cliKey) return;
+    var f = fechaPedido(p);
+    if (!f || f < hace30) return;
+    var v = (p.vendedor || '').trim();
+    if (!v) return;
+    conteo[v] = (conteo[v] || 0) + 1;
+  });
+  var ranking = Object.entries(conteo).sort(function(a,b){ return b[1] - a[1]; });
+  if (!ranking.length) return null;
+  var total = ranking.reduce(function(s, e) { return s + e[1]; }, 0);
+  return { vendedor: ranking[0][0], pedidos: ranking[0][1], totalPeriodo: total };
+}
+
+function formatMoneda(n) {
+  return '$' + (n || 0).toLocaleString('es-AR');
+}
+
+function _dupExtraerProds(p) {
+  // 1) Intentar parsear detalle (formato TCK con asteriscos)
+  if (p.detalle) {
+    var prods = parseProds(p.detalle);
+    if (prods.length > 0) return prods;
+  }
+  // 2) Fallback: parsear resumen (formato "1× Suprema (x 5 Kg) → $33.000" o similar)
+  if (p.resumen) {
+    var prodsRes = [];
+    // Separar por coma o pipe
+    var partes = p.resumen.split(/\s*[,|]\s*/);
+    partes.forEach(function(parte) {
+      parte = parte.trim();
+      if (!parte) return;
+      // Patrón: "Nx Nombre" o "N× Nombre" — separar cantidad del nombre
+      var m = parte.match(/^(\d+)\s*[x×]\s*(.+?)(?:\s*[\(→]|$)/i);
+      if (m) {
+        prodsRes.push({ emoji: '', name: m[2].trim().replace(/\s*[—\-]\s*\$.*/, ''), qty: parseInt(m[1]) || 1 });
+      } else {
+        // Sin cantidad: tomar todo como nombre con qty=1
+        var nombre = parte.replace(/\s*[—\-]\s*\$.*/, '').replace(/\(.*?\)/g, '').trim();
+        if (nombre) prodsRes.push({ emoji: '', name: nombre, qty: 1 });
+      }
+    });
+    return prodsRes;
+  }
+  return [];
+}
+
+function _dupExtraerHora(p) {
+  // 1) De fechaHora
+  if (p.fechaHora) {
+    try {
+      var d = new Date(p.fechaHora.replace(' ', 'T'));
+      if (!isNaN(d.getTime())) {
+        return d.toLocaleTimeString('es-AR', { hour: '2-digit', minute: '2-digit', hour12: false });
+      }
+    } catch(e) {}
+  }
+  // 2) Del pedidoId (formato TCK-20260417-1714-JUA-XXXX → 17:14)
+  var m = (p.pedidoId || '').match(/TCK-\d{8}-(\d{2})(\d{2})-/);
+  if (m) return m[1] + ':' + m[2];
+  return '—';
+}
+
+function vendedoresDelGrupoActivos() {
+  var s = _dupModalState; if (!s) return [];
+  return Array.from(new Set(
+    s.grupo.filter(function(p){ return !s.cancelados.has(p.pedidoId); })
+           .map(function(p){ return p.vendedor; })
+           .filter(Boolean)
+  ));
+}
+
+function abrirModalDuplicados(pedidoId) {
+  var p = todosLosPedidos.find(function(x){ return x.pedidoId === pedidoId; });
+  if (!p) return;
+
+  var esAdmin = vendedorActual === 'ADMIN';
+  var miVendKey = (vendedorActual || '').toLowerCase();
+
+  // Buscar el grupo (todos los pedidos del mismo cliente y día, no cancelados)
+  // Si NO es admin: filtrar también por mismo vendedor (no puede ver/unir pedidos de otros)
+  var mFecha = (p.pedidoId || '').match(/TCK-(\d{8})/);
+  var fechaDia = mFecha ? mFecha[1] : (p.fechaHora || '').substring(0,10).replace(/-/g,'');
+  var cliKey = (p.cliente || '').toLowerCase().replace(/\s+/g,' ').trim();
+  var grupo = todosLosPedidos.filter(function(x) {
+    if (x.estado === 'Cancelado') return false;
+    var xf = (x.pedidoId || '').match(/TCK-(\d{8})/);
+    var xfd = xf ? xf[1] : (x.fechaHora || '').substring(0,10).replace(/-/g,'');
+    var xcli = (x.cliente || '').toLowerCase().replace(/\s+/g,' ').trim();
+    if (xfd !== fechaDia || xcli !== cliKey) return false;
+    if (!esAdmin) {
+      var xvend = (x.vendedor || '').toLowerCase().trim();
+      if (xvend !== miVendKey) return false;
+    }
+    return true;
+  }).sort(function(a,b){ return (a.fechaHora || '').localeCompare(b.fechaHora || ''); });
+
+  if (grupo.length < 2) {
+    toast('Este pedido ya no tiene duplicados', 'ok');
+    return;
+  }
+
+  // Si no es admin, validar que TODOS estén en Pendiente (no se puede modificar Confirmado/Entregado)
+  if (!esAdmin) {
+    var hayNoPendiente = grupo.some(function(x){ return x.estado !== 'Pendiente'; });
+    if (hayNoPendiente) {
+      toast('No se puede unir: alguno ya fue remitido', 'err');
+      return;
+    }
+  }
+
+  // Calcular vendedor habitual (solo relevante para admin con multi-vendedor)
+  var habitual = vendedorHabitualDeCliente(p.cliente);
+
+  // Vendedor sugerido por default
+  var vendedoresDelGrupo = Array.from(new Set(grupo.map(function(x){ return x.vendedor; }).filter(Boolean)));
+  var acreditar;
+  if (!esAdmin) {
+    // Vendedor: siempre se acredita él mismo (es el único en el grupo)
+    acreditar = p.vendedor || vendedorActual;
+  } else {
+    acreditar = habitual && vendedoresDelGrupo.indexOf(habitual.vendedor) >= 0
+      ? habitual.vendedor
+      : vendedoresDelGrupo[0] || '';
+  }
+
+  _dupModalState = {
+    pedidoId: pedidoId,
+    grupo: grupo,
+    cliente: p.cliente,
+    fechaDia: fechaDia,
+    habitual: habitual,
+    acreditarA: acreditar,
+    cancelados: new Set(),
+    esAdmin: esAdmin  // guardar para que el render sepa qué mostrar
+  };
+
+  _renderDupModal();
+
+  // Mostrar
+  document.getElementById('dup-modal-backdrop').classList.add('on');
+  document.body.style.overflow = 'hidden';
+}
+
+function dupModalCerrar() {
+  document.getElementById('dup-modal-backdrop').classList.remove('on');
+  document.body.style.overflow = '';
+  _dupModalState = null;
+}
+
+function dupModalCerrarFondo(event) {
+  if (event.target.id === 'dup-modal-backdrop') dupModalCerrar();
+}
+
+function _renderDupModal() {
+  var s = _dupModalState;
+  if (!s) return;
+
+  // Título y subtítulo
+  document.getElementById('dup-modal-title').innerHTML = '<span style="margin-right:8px;">🔁</span>' + (s.cliente || 'Cliente').toUpperCase();
+  var fechaStr = s.fechaDia.substring(6,8) + '/' + s.fechaDia.substring(4,6) + '/' + s.fechaDia.substring(0,4);
+  var activos = s.grupo.filter(function(x){ return !s.cancelados.has(x.pedidoId); });
+  document.getElementById('dup-modal-sub').textContent = fechaStr + ' · ' + activos.length + ' pedido' + (activos.length !== 1 ? 's' : '') + ' del mismo cliente';
+
+  // Cuerpo
+  var html = '';
+
+  // Banner vendedor habitual (solo para admin — el vendedor ya sabe que es suyo)
+  if (s.habitual && s.esAdmin) {
+    html += '<div class="dup-habitual">'
+      + '<div class="dup-habitual-icon">🎯</div>'
+      + '<div class="dup-habitual-content">'
+      +   'Cliente habitualmente atendido por <strong>' + s.habitual.vendedor + '</strong>'
+      +   '<div class="dup-habitual-sub">' + s.habitual.pedidos + ' de ' + s.habitual.totalPeriodo + ' pedidos en los últimos 30 días</div>'
+      + '</div>'
+      + '</div>';
+  }
+
+  // Helper local para normalizar nombre
+  var _normProd = function(nombre) {
+    return (nombre || '').toLowerCase()
+      .replace(/[°º]/g, '')
+      .replace(/[áàä]/g,'a').replace(/[éèë]/g,'e').replace(/[íìï]/g,'i')
+      .replace(/[óòö]/g,'o').replace(/[úùü]/g,'u').replace(/ñ/g,'n')
+      .replace(/[^a-z0-9]+/g, ' ').replace(/\s+/g,' ').trim();
+  };
+
+  // Calcular productos en común entre activos (usando helper extractor)
+  var prodsEnComun = new Set();
+  if (activos.length >= 2) {
+    var allSets = activos.map(function(x) {
+      var set = new Set();
+      _dupExtraerProds(x).forEach(function(pr) {
+        var n = _normProd(pr.name);
+        if (n) set.add(n);
+      });
+      return set;
+    });
+    var conteo = {};
+    allSets.forEach(function(set) { set.forEach(function(n) { conteo[n] = (conteo[n]||0) + 1; }); });
+    Object.keys(conteo).forEach(function(n) { if (conteo[n] >= 2) prodsEnComun.add(n); });
+  }
+
+  // Título sección pedidos
+  html += '<div class="dup-section-label">📋 Pedidos en conflicto</div>';
+
+  // Cards de cada pedido
+  s.grupo.forEach(function(p) {
+    var esCancelado = s.cancelados.has(p.pedidoId);
+    var hora = _dupExtraerHora(p);
+    var esHabitual = s.habitual && s.habitual.vendedor === p.vendedor;
+
+    var prods = _dupExtraerProds(p);
+    var prodsHtml = '';
+    if (prods.length) {
+      prods.forEach(function(pr) {
+        var nombre = _normProd(pr.name);
+        var esComun = prodsEnComun.has(nombre);
+        var qtyPrefix = pr.qty > 1 ? '<span class="dup-prod-qty">' + pr.qty + '×</span> ' : '';
+        var emojiPrefix = pr.emoji ? pr.emoji + ' ' : '';
+        prodsHtml += '<div class="dup-pedido-prod-linea' + (esComun ? ' comun' : '') + '">'
+          + (esComun ? '<span class="warning-dot">⚡</span>' : '')
+          + qtyPrefix + emojiPrefix + pr.name
+          + '</div>';
+      });
+    } else {
+      prodsHtml = '<div class="dup-pedido-sin-prods">📭 (sin productos cargados)</div>';
+    }
+
+    html += '<div class="dup-pedido-card' + (esCancelado ? ' cancelado' : '') + '">';
+    html += '<div class="dup-pedido-hdr-band">';
+    html += '<div class="dup-pedido-hdr-izq">';
+    html += '<span class="dup-pedido-hora-chip">🕐 ' + hora + '</span>';
+    html += '<span class="dup-pedido-vendedor' + (esHabitual ? ' dup-pedido-vendedor-habitual' : '') + '">'
+      + (p.vendedor || '—') + (esHabitual ? ' ⭐' : '') + '</span>';
+    if (esCancelado) html += '<span class="dup-pedido-cancelado-badge">✕ Cancelado</span>';
+    html += '</div>';
+    html += '<div class="dup-pedido-total">' + (p.total || '—') + '</div>';
+    html += '</div>';
+    html += '<div class="dup-pedido-body">';
+    html += '<div class="dup-pedido-prods">' + prodsHtml + '</div>';
+    html += '<div class="dup-pedido-id">' + p.pedidoId + '</div>';
+    html += '</div>';
+    if (esCancelado) {
+      html += '<button class="dup-pedido-accion-cancelar done" disabled>✓ Cancelado</button>';
+    } else {
+      html += '<button class="dup-pedido-accion-cancelar" onclick="dupCancelarPedido(\'' + p.pedidoId + '\')">✕ Cancelar este pedido</button>';
+    }
+    html += '</div>';
+  });
+
+  // ═══ PANEL DE ACCIONES ═══
+  var activosCount = activos.length;
+
+  if (activosCount >= 2) {
+    // Calcular previsualización: qué quedaría si se unen
+    var prodsCombinados = {};
+    var ordenInsercion = [];
+    activos.forEach(function(p) {
+      _dupExtraerProds(p).forEach(function(pr) {
+        var key = _normProd(pr.name);
+        if (!key) return;
+        if (prodsCombinados[key]) {
+          prodsCombinados[key].qty += pr.qty;
+        } else {
+          prodsCombinados[key] = { emoji: pr.emoji, name: pr.name, qty: pr.qty };
+          ordenInsercion.push(key);
+        }
+      });
+    });
+    var totalUnido = activos.reduce(function(acc, p) {
+      var n = parseInt((p.total || '').replace(/[^\d]/g,'')) || 0;
+      return acc + n;
+    }, 0);
+    var totalUnidoFmt = '$' + totalUnido.toLocaleString('es-AR');
+
+    var vendedoresActivos = vendedoresDelGrupoActivos();
+    if (vendedoresActivos.indexOf(s.acreditarA) === -1 && vendedoresActivos.length > 0) {
+      s.acreditarA = vendedoresActivos[0];
+    }
+
+    // PREVIEW: qué quedaría si se une
+    html += '<div class="dup-preview">';
+    html += '<div class="dup-preview-titulo">👀 Si unís, va a quedar 1 solo pedido con:</div>';
+    html += '<div class="dup-preview-stats">';
+    html += '<div class="dup-preview-stat"><div class="dup-preview-stat-num">' + totalUnidoFmt + '</div><div class="dup-preview-stat-lbl">Total</div></div>';
+    html += '<div class="dup-preview-stat"><div class="dup-preview-stat-num">' + ordenInsercion.length + '</div><div class="dup-preview-stat-lbl">Productos</div></div>';
+    html += '<div class="dup-preview-stat"><div class="dup-preview-stat-num">' + s.acreditarA + '</div><div class="dup-preview-stat-lbl">Vendedor</div></div>';
+    html += '</div>';
+    if (ordenInsercion.length > 0) {
+      html += '<div class="dup-preview-prods">';
+      ordenInsercion.slice(0, 6).forEach(function(key) {
+        var pr = prodsCombinados[key];
+        html += '<div class="dup-preview-prod-chip">' + (pr.emoji ? pr.emoji + ' ' : '') + pr.qty + '× ' + pr.name + '</div>';
+      });
+      if (ordenInsercion.length > 6) {
+        html += '<div class="dup-preview-prod-chip mas">+ ' + (ordenInsercion.length - 6) + ' más</div>';
+      }
+      html += '</div>';
+    }
+    html += '</div>';
+
+    // PANEL DE DECISIÓN
+    html += '<div class="dup-acciones">';
+
+    // Selector de vendedor (solo si hay distintos)
+    if (vendedoresActivos.length > 1) {
+      html += '<div class="dup-acredita-wrap">';
+      html += '<div class="dup-acredita-label">🎯 ¿A quién acreditarle el pedido?</div>';
+      html += '<div class="dup-acredita-opts">';
+      vendedoresActivos.forEach(function(v) {
+        var sel = v === s.acreditarA ? ' sel' : '';
+        var esHabitual = s.habitual && s.habitual.vendedor === v;
+        html += '<button class="dup-acredita-opt' + sel + '" onclick="dupSeleccionarVendedor(\'' + v + '\')">'
+          + v + (esHabitual ? ' ⭐' : '') + '</button>';
+      });
+      html += '</div>';
+      html += '</div>';
+    }
+
+    html += '<button class="dup-btn-unir" onclick="dupUnirPedidos()">'
+      + '<span class="dup-btn-unir-icon">🔗</span>'
+      + '<span class="dup-btn-unir-text">Unir en 1 pedido de ' + totalUnidoFmt + '</span>'
+      + '</button>';
+
+    html += '<div class="dup-acciones-tip">💡 Si en realidad son duplicados (mismo pedido cargado 2 veces), tocá <strong>"✕ Cancelar este pedido"</strong> arriba para borrar el sobrante en lugar de unir.</div>';
+    html += '</div>';
+  } else if (activosCount === 1) {
+    html += '<div class="dup-acciones">';
+    html += '<div class="dup-mensaje-unico">'
+      + '✓ Solo queda 1 pedido activo · No hay nada que unir'
+      + '</div>';
+    html += '</div>';
+  } else {
+    html += '<div class="dup-acciones">';
+    html += '<div class="dup-mensaje-unico" style="background:linear-gradient(135deg,#FFEBEE,#FCE4EC);border-color:#EF9A9A;color:#C62828;">'
+      + '❌ Todos los pedidos están cancelados'
+      + '</div>';
+    html += '</div>';
+  }
+
+  document.getElementById('dup-modal-body').innerHTML = html;
+}
+
+async function dupCancelarPedido(pedidoId) {
+  if (!confirm('⚠️ ¿Seguro que querés cancelar este pedido?\n\nQuedará registrado como cancelado.')) return;
+  var p = todosLosPedidos.find(function(x){ return x.pedidoId === pedidoId; });
+  if (!p) return;
+  try {
+    var params = new URLSearchParams({ accion: 'cambiarEstado', pedidoId: pedidoId, fila: p.fila, estado: 'Cancelado' });
+    await fetch(APPS_SCRIPT_URL + '?' + params.toString(), { mode: 'no-cors' });
+    p.estado = 'Cancelado';
+    _estadosCambiados[pedidoId] = { estado: 'Cancelado', ts: Date.now() };
+    _dupModalState.cancelados.add(pedidoId);
+    _renderDupModal();
+    renderPedidos();
+    toast('✕ Pedido cancelado', 'ok');
+  } catch(e) {
+    toast('Error al cancelar', 'err');
+  }
+}
+
+function dupSeleccionarVendedor(v) {
+  if (_dupModalState) {
+    _dupModalState.acreditarA = v;
+    _renderDupModal();
+  }
+}
+
+async function dupUnirPedidos() {
+  var s = _dupModalState;
+  if (!s) return;
+  var activos = s.grupo.filter(function(x){ return !s.cancelados.has(x.pedidoId); });
+  if (activos.length < 2) {
+    toast('Ya queda 1 solo pedido activo', 'ok');
+    return;
+  }
+
+  // El pedido "principal" es el más antiguo — lo conservamos y actualizamos
+  var principal = activos[0];
+  var restantes = activos.slice(1);
+
+  // 1) COMBINAR PRODUCTOS (suma cantidades de los que se repiten)
+  var prodsCombinados = {};  // key (nombre normalizado) → { emoji, name, qty }
+  var ordenInsercion = [];   // para preservar el orden original
+  activos.forEach(function(p) {
+    var prods = parseProds(p.detalle || '');
+    prods.forEach(function(pr) {
+      var key = (pr.name || '').toLowerCase().replace(/\s+/g,' ').trim();
+      if (!key) return;
+      if (prodsCombinados[key]) {
+        prodsCombinados[key].qty += pr.qty;
+      } else {
+        prodsCombinados[key] = { emoji: pr.emoji, name: pr.name, qty: pr.qty };
+        ordenInsercion.push(key);
+      }
+    });
+  });
+
+  // 2) SUMAR TOTALES
+  var totalUnido = activos.reduce(function(acc, p) {
+    var n = parseInt((p.total || '').replace(/[^\d]/g,'')) || 0;
+    return acc + n;
+  }, 0);
+
+  // 3) CONSTRUIR NUEVO DETALLE en formato TCK (usa pipes como separador)
+  // Formato: "emoji *Nombre* qty"
+  var nuevoDetalle = ordenInsercion.map(function(key) {
+    var pr = prodsCombinados[key];
+    return (pr.emoji || '🛒') + ' *' + pr.name + '* ' + pr.qty;
+  }).join(' | ');
+
+  // 4) RESUMEN CORTO (primeros 4 productos)
+  var resumenNuevo = ordenInsercion.slice(0,4).map(function(key) {
+    var pr = prodsCombinados[key];
+    return pr.qty + '× ' + pr.name;
+  }).join(', ');
+  if (ordenInsercion.length > 4) resumenNuevo += '...';
+
+  // 5) Total de items
+  var itemsTotal = Object.values(prodsCombinados).reduce(function(a, pr) { return a + pr.qty; }, 0);
+
+  // Confirmar antes de actuar
+  var confirmMsg = '🔗 ¿Confirmás unir estos ' + activos.length + ' pedidos?\n\n'
+    + '• Se combinarán ' + ordenInsercion.length + ' productos diferentes\n'
+    + '• El pedido ' + principal.pedidoId + ' quedará como único con total ' + formatMoneda(totalUnido) + '\n'
+    + '• Se cancelarán los otros ' + restantes.length + ' pedidos\n'
+    + '• Acreditado a: ' + s.acreditarA;
+
+  if (!confirm(confirmMsg)) return;
+
+  try {
+    // PASO 1: Actualizar pedido principal con productos combinados + vendedor + total
+    // Usamos la acción 'editarPedido' (ya existe en el Apps Script, ahora acepta vendedor)
+    var totalFmt = '$' + totalUnido.toLocaleString('es-AR');
+    var paramsUpd = new URLSearchParams({
+      accion:        'editarPedido',
+      pedidoId:      principal.pedidoId,
+      fila:          String(principal.fila),
+      vendedor:      s.acreditarA,
+      total:         String(totalUnido),
+      itemsTotales:  String(itemsTotal),
+      resumenPedido: resumenNuevo,
+      detallePedido: nuevoDetalle
+    });
+    await fetch(APPS_SCRIPT_URL + '?' + paramsUpd.toString(), { mode: 'no-cors' });
+
+    // Actualizar en memoria
+    principal.vendedor = s.acreditarA;
+    principal.total    = totalFmt;
+    principal.items    = String(itemsTotal);
+    principal.resumen  = resumenNuevo;
+    principal.detalle  = nuevoDetalle;
+    principal.esDuplicado = false;
+    principal.tipoDuplicado = null;
+
+    // PASO 2: Agregar nota al principal para dejar rastro
+    var notaPrincipal = '📦 Pedido unido de ' + activos.length + ' pedidos · Total: ' + totalFmt + ' · Acreditado a ' + s.acreditarA;
+    if (principal.nota && principal.nota.trim()) {
+      notaPrincipal = principal.nota + ' | ' + notaPrincipal;
+    }
+    await fetch(APPS_SCRIPT_URL + '?accion=guardarNota&pedidoId=' + encodeURIComponent(principal.pedidoId)
+      + '&nota=' + encodeURIComponent(notaPrincipal), { mode: 'no-cors' });
+    principal.nota = notaPrincipal;
+
+    // PASO 3: Cancelar los restantes con nota vinculante
+    for (var i = 0; i < restantes.length; i++) {
+      var r = restantes[i];
+      var notaCancel = '❌ Unido al pedido ' + principal.pedidoId;
+      await fetch(APPS_SCRIPT_URL + '?accion=guardarNota&pedidoId=' + encodeURIComponent(r.pedidoId)
+        + '&nota=' + encodeURIComponent(notaCancel), { mode: 'no-cors' });
+      var paramsCancel = new URLSearchParams({
+        accion:   'cambiarEstado',
+        pedidoId: r.pedidoId,
+        fila:     String(r.fila),
+        estado:   'Cancelado'
+      });
+      await fetch(APPS_SCRIPT_URL + '?' + paramsCancel.toString(), { mode: 'no-cors' });
+      r.estado = 'Cancelado';
+      r.nota = notaCancel;
+      _estadosCambiados[r.pedidoId] = { estado: 'Cancelado', ts: Date.now() };
+    }
+
+    // PASO 4: Marcar el grupo como revisado localmente
+    var cliKey = (s.fechaDia + s.cliente).toLowerCase().replace(/\s/g,'');
+    try {
+      var revisados = {};
+      var raw = localStorage.getItem('tck_dup_revisados');
+      if (raw) revisados = JSON.parse(raw);
+      revisados[cliKey] = { ts: Date.now(), cliente: s.cliente, unidos: true };
+      localStorage.setItem('tck_dup_revisados', JSON.stringify(revisados));
+    } catch(e) {}
+
+    dupModalCerrar();
+    renderPedidos();
+    actualizarStats();
+    toast('✅ Pedidos unidos: ' + totalFmt + ' · ' + itemsTotal + ' uds', 'ok');
+  } catch(e) {
+    console.error('Error al unir:', e);
+    toast('❌ Error al unir pedidos', 'err');
+  }
+}
+
 </script>
 
 <!-- SHEET DETALLE CLIENTE BOT -->
@@ -12622,6 +13781,22 @@ async function botCargarConversaciones(){var el=document.getElementById('bot-con
         <div style="text-align:center;padding:20px;color:var(--text3);font-size:13px;">Cargando...</div>
       </div>
     </div>
+  </div>
+</div>
+
+
+<!-- MODAL DE DUPLICADOS -->
+<div class="dup-modal-backdrop" id="dup-modal-backdrop" onclick="dupModalCerrarFondo(event)">
+  <div class="dup-modal-sheet" id="dup-modal-sheet" onclick="event.stopPropagation()">
+    <div class="dup-modal-pill"></div>
+    <div class="dup-modal-hdr">
+      <div>
+        <div class="dup-modal-hdr-title" id="dup-modal-title">Pedidos del cliente</div>
+        <div class="dup-modal-hdr-sub" id="dup-modal-sub"></div>
+      </div>
+      <button class="dup-modal-close" onclick="dupModalCerrar()">✕</button>
+    </div>
+    <div class="dup-modal-body" id="dup-modal-body"></div>
   </div>
 </div>
 
