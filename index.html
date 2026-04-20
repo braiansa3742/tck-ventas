@@ -4213,6 +4213,276 @@ body {
 }
 .dup-modal-backdrop.on { display: flex; }
 
+/* ═══ v8.5 · MODAL GESTIONAR SUCURSALES ═══
+   z-index más alto que dup-modal (710 > 700) porque se abre DESDE él. */
+.suc-modal-backdrop {
+  display: none;
+  position: fixed;
+  inset: 0;
+  background: rgba(40, 20, 20, 0.65);
+  backdrop-filter: blur(4px);
+  -webkit-backdrop-filter: blur(4px);
+  z-index: 710;
+  align-items: flex-end;
+  justify-content: center;
+}
+.suc-modal-backdrop.on { display: flex; }
+.suc-modal-sheet {
+  background: #FAF6EE;
+  width: 100%;
+  max-width: 520px;
+  max-height: 92vh;
+  border-radius: 18px 18px 0 0;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  box-shadow: 0 -8px 30px rgba(0,0,0,0.25);
+}
+.suc-modal-hdr {
+  background: linear-gradient(135deg, #8B0000, #6B0000);
+  color: #FFD700;
+  padding: 16px 20px;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 10px;
+  flex-shrink: 0;
+}
+.suc-modal-hdr-title {
+  font-family: 'Barlow Condensed', sans-serif;
+  font-size: 20px;
+  font-weight: 800;
+  letter-spacing: .3px;
+}
+.suc-modal-hdr-sub {
+  font-size: 12px;
+  color: rgba(255,215,0,0.75);
+  margin-top: 2px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: .5px;
+}
+.suc-modal-close {
+  background: rgba(255,255,255,0.18);
+  color: #fff;
+  width: 32px;
+  height: 32px;
+  border-radius: 50%;
+  border: none;
+  cursor: pointer;
+  font-size: 14px;
+  flex-shrink: 0;
+  -webkit-tap-highlight-color: transparent;
+}
+.suc-modal-close:active { background: rgba(255,255,255,0.3); }
+.suc-modal-body {
+  padding: 16px 20px;
+  overflow-y: auto;
+  flex: 1;
+}
+.suc-modal-footer {
+  background: #F0E8D4;
+  padding: 10px 20px;
+  border-top: 1px solid #E0D2B8;
+  text-align: center;
+  font-size: 11px;
+  color: #8B6F50;
+  flex-shrink: 0;
+}
+.suc-loading {
+  text-align: center;
+  padding: 30px 20px;
+  color: #8B6F50;
+  font-family: 'Barlow Condensed', sans-serif;
+  font-size: 16px;
+  font-weight: 700;
+}
+.suc-empty {
+  background: #F5EDDF;
+  border: 1.5px dashed #E0D2B8;
+  padding: 24px 20px;
+  border-radius: 10px;
+  text-align: center;
+  color: #8B6F50;
+  font-size: 13px;
+  margin-bottom: 12px;
+  line-height: 1.5;
+}
+.suc-empty .icon {
+  font-size: 36px;
+  display: block;
+  margin-bottom: 8px;
+}
+.suc-list { margin-bottom: 12px; }
+.suc-item {
+  background: #fff;
+  border: 1px solid #E8DFCB;
+  border-left: 3px solid #D4A574;
+  border-radius: 10px;
+  padding: 12px 14px;
+  margin-bottom: 8px;
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 10px;
+}
+.suc-item-info { flex: 1; min-width: 0; }
+.suc-item-nombre {
+  font-family: 'Barlow Condensed', sans-serif;
+  font-weight: 800;
+  font-size: 16px;
+  color: #1A0800;
+  margin-bottom: 3px;
+}
+.suc-item-direccion {
+  font-size: 12px;
+  color: #5C3A1E;
+  line-height: 1.4;
+}
+.suc-item-notas {
+  font-size: 11px;
+  color: #8B6F50;
+  margin-top: 4px;
+  font-style: italic;
+}
+.suc-item-acciones { display: flex; gap: 4px; flex-shrink: 0; }
+.suc-btn-mini {
+  background: transparent;
+  border: 1px solid #E8DFCB;
+  color: #8B6F50;
+  width: 30px;
+  height: 30px;
+  border-radius: 6px;
+  cursor: pointer;
+  font-size: 13px;
+  -webkit-tap-highlight-color: transparent;
+}
+.suc-btn-mini:active { background: #F5EDDF; }
+.suc-btn-mini.borrar:active { color: #C62828; border-color: #C62828; background: #FFEBEE; }
+.suc-form {
+  background: #F5EDDF;
+  border: 1px dashed #D4A574;
+  border-radius: 12px;
+  padding: 14px;
+  margin-top: 8px;
+}
+.suc-form h4 {
+  font-family: 'Barlow Condensed', sans-serif;
+  font-size: 14px;
+  color: #8B0000;
+  margin-bottom: 10px;
+  text-transform: uppercase;
+  letter-spacing: .5px;
+  font-weight: 800;
+}
+.suc-form-row { margin-bottom: 10px; }
+.suc-form-row label {
+  display: block;
+  font-size: 11px;
+  color: #8B6F50;
+  text-transform: uppercase;
+  letter-spacing: .3px;
+  margin-bottom: 4px;
+  font-weight: 700;
+}
+.suc-form-row input, .suc-form-row textarea {
+  width: 100%;
+  padding: 10px 12px;
+  border: 1px solid #E0D2B8;
+  border-radius: 8px;
+  font-size: 14px;
+  font-family: inherit;
+  background: #fff;
+  color: #1A0800;
+}
+.suc-form-row textarea {
+  resize: vertical;
+  min-height: 50px;
+}
+.suc-form-row input:focus, .suc-form-row textarea:focus {
+  outline: none;
+  border-color: #D4A574;
+}
+.suc-form-acciones { display: flex; gap: 8px; margin-top: 12px; }
+.suc-form-btn {
+  flex: 1;
+  padding: 10px 14px;
+  border: 1.5px solid #E0D2B8;
+  background: #fff;
+  border-radius: 10px;
+  font-family: 'Barlow Condensed', sans-serif;
+  font-weight: 800;
+  font-size: 14px;
+  cursor: pointer;
+  text-transform: uppercase;
+  letter-spacing: .3px;
+  color: #5C3A1E;
+  -webkit-tap-highlight-color: transparent;
+}
+.suc-form-btn.guardar { background: #2E7D32; color: #fff; border-color: #2E7D32; }
+.suc-form-btn.guardar:active { background: #1B5E20; }
+.suc-form-btn.cancelar:active { background: #F5EDDF; }
+.suc-btn-add-primary {
+  width: 100%;
+  padding: 12px 14px;
+  background: linear-gradient(135deg, #8B0000, #6B0000);
+  color: #FFD700;
+  border: none;
+  border-radius: 10px;
+  font-family: 'Barlow Condensed', sans-serif;
+  font-weight: 800;
+  font-size: 15px;
+  cursor: pointer;
+  text-transform: uppercase;
+  letter-spacing: .4px;
+  -webkit-tap-highlight-color: transparent;
+}
+.suc-btn-add-primary:active { background: #6B0000; }
+.suc-btn-add-secondary {
+  width: 100%;
+  padding: 10px 14px;
+  background: #fff;
+  color: #8B0000;
+  border: 1.5px dashed #D4A574;
+  border-radius: 10px;
+  font-family: 'Barlow Condensed', sans-serif;
+  font-weight: 700;
+  font-size: 13px;
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+}
+.suc-btn-add-secondary:active { background: #F5EDDF; }
+.dup-btn-sucursales {
+  width: 100%;
+  padding: 12px 14px;
+  background: #FFF8DC;
+  color: #8B6F50;
+  border: 1.5px solid #D4A574;
+  border-radius: 10px;
+  font-family: 'Barlow Condensed', sans-serif;
+  font-weight: 800;
+  font-size: 14px;
+  cursor: pointer;
+  text-transform: uppercase;
+  letter-spacing: .3px;
+  margin-top: 8px;
+  -webkit-tap-highlight-color: transparent;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+}
+.dup-btn-sucursales:active { background: #D4A574; color: #fff; }
+.dup-btn-sucursales .badge-nuevo {
+  background: #2E7D32;
+  color: #fff;
+  font-size: 9px;
+  padding: 2px 6px;
+  border-radius: 4px;
+  font-weight: 900;
+  letter-spacing: .5px;
+}
+/* ═══ fin v8.5 CSS ═══ */
 .dup-modal-sheet {
   background: #FAF6EE;
   width: 100%;
@@ -7782,6 +8052,124 @@ async function sbFetch(path, options = {}) {
   const text = await resp.text();
   return text ? JSON.parse(text) : null;
 }
+
+// ═══════════════════════════════════════════════════════════════
+// v8.5 — SUCURSALES DE CLIENTE (cliente_sucursales)
+// Feature completo: un cliente puede tener múltiples direcciones de
+// entrega (caso real: misma clienta, 2 locales, 2 facturas al mismo CUIT).
+// Los vendedores gestionan desde la alerta de duplicados.
+// Se guardan por cliente_norm (nombre normalizado), para matchear
+// con cualquier pedido del mismo cliente independiente del comercio.
+// ═══════════════════════════════════════════════════════════════
+
+// Cache en memoria. Se invalida en cada sucursalesCargarPorCliente.
+// Formato: { 'maria gonzalez': [ {id, nombre_suc, direccion, localidad, ...} ] }
+var _sucursalesCache = {};
+
+// Cliente normalizado — igual que normalizarNombre existente.
+// Se expone como helper propio del módulo para evitar acoplamientos.
+function sucNormCliente(nombre) {
+  return (nombre || '').trim().toLowerCase()
+    .replace(/[áàä]/g,'a').replace(/[éèë]/g,'e')
+    .replace(/[íìï]/g,'i').replace(/[óòö]/g,'o')
+    .replace(/[úùü]/g,'u').replace(/ñ/g,'n')
+    .replace(/\s+/g,' ');
+}
+
+// Trae las sucursales registradas de un cliente. Guarda en cache.
+// Devuelve array (puede ser vacío si el cliente no tiene sucursales).
+async function sucursalesCargarPorCliente(clienteNombre) {
+  var norm = sucNormCliente(clienteNombre);
+  if (!norm) return [];
+  try {
+    var path = 'cliente_sucursales?cliente_norm=eq.' + encodeURIComponent(norm)
+             + '&select=*&order=nombre_suc.asc';
+    var data = await sbFetch(path);
+    var list = Array.isArray(data) ? data : [];
+    _sucursalesCache[norm] = list;
+    return list;
+  } catch (e) {
+    console.error('[v8.5 sucursales] error cargando:', e);
+    return [];
+  }
+}
+
+// Crear una sucursal nueva.
+// datos: { cliente_norm, cliente_id?, nombre_suc, direccion?, localidad?, notas?, creada_por }
+// Devuelve la sucursal creada (con id) o null si falla.
+async function sucursalCrear(datos) {
+  if (!datos || !datos.cliente_norm || !datos.nombre_suc) {
+    console.error('[v8.5] sucursalCrear: faltan campos obligatorios');
+    return null;
+  }
+  try {
+    var body = {
+      cliente_norm: datos.cliente_norm,
+      cliente_id:   datos.cliente_id || null,
+      nombre_suc:   datos.nombre_suc,
+      direccion:    datos.direccion || null,
+      localidad:    datos.localidad || null,
+      notas:        datos.notas || null,
+      creada_por:   datos.creada_por || (vendedorActual || 'desconocido')
+    };
+    var result = await sbFetch('cliente_sucursales', {
+      method: 'POST',
+      body: JSON.stringify(body),
+      prefer: 'return=representation'
+    });
+    // Invalidar cache
+    delete _sucursalesCache[datos.cliente_norm];
+    return Array.isArray(result) && result.length > 0 ? result[0] : null;
+  } catch (e) {
+    console.error('[v8.5] sucursalCrear error:', e);
+    alert('Error guardando sucursal. Probá de nuevo.');
+    return null;
+  }
+}
+
+// Actualiza una sucursal por id.
+async function sucursalActualizar(id, datos) {
+  if (!id) return null;
+  try {
+    var body = {};
+    if (datos.nombre_suc !== undefined) body.nombre_suc = datos.nombre_suc;
+    if (datos.direccion !== undefined)  body.direccion = datos.direccion || null;
+    if (datos.localidad !== undefined)  body.localidad = datos.localidad || null;
+    if (datos.notas !== undefined)      body.notas = datos.notas || null;
+    var result = await sbFetch('cliente_sucursales?id=eq.' + id, {
+      method: 'PATCH',
+      body: JSON.stringify(body),
+      prefer: 'return=representation'
+    });
+    // Invalidar todo el cache (no sabemos cliente_norm sin buscarlo)
+    _sucursalesCache = {};
+    return Array.isArray(result) && result.length > 0 ? result[0] : null;
+  } catch (e) {
+    console.error('[v8.5] sucursalActualizar error:', e);
+    alert('Error actualizando sucursal. Probá de nuevo.');
+    return null;
+  }
+}
+
+// Borra una sucursal por id.
+async function sucursalBorrar(id) {
+  if (!id) return false;
+  try {
+    await sbFetch('cliente_sucursales?id=eq.' + id, {
+      method: 'DELETE',
+      prefer: 'return=minimal'
+    });
+    _sucursalesCache = {};
+    return true;
+  } catch (e) {
+    console.error('[v8.5] sucursalBorrar error:', e);
+    alert('Error borrando sucursal. Probá de nuevo.');
+    return false;
+  }
+}
+// ═══════════════════════════════════════════════════════════════
+// Fin v8.5 — SUCURSALES
+// ═══════════════════════════════════════════════════════════════
 
 // GPS state
 var _gpsVendedorId  = null;
@@ -16320,6 +16708,253 @@ function dupModalCerrarFondo(event) {
   if (event.target.id === 'dup-modal-backdrop') dupModalCerrar();
 }
 
+// ═══════════════════════════════════════════════════════════════
+// v8.5 — Modal "Gestionar sucursales"
+// Se abre desde el modal de duplicados (botón "⛔ Tiene sucursales")
+// o, en el futuro, desde el tomador. Permite agregar/editar/borrar
+// sucursales del cliente. Escribe en tabla Supabase cliente_sucursales.
+// ═══════════════════════════════════════════════════════════════
+
+// Estado interno del modal. {clienteNombre, clienteNorm, lista, editandoId}
+var _sucModalState = null;
+
+async function sucModalAbrir(clienteNombre) {
+  if (!clienteNombre) return;
+  _sucModalState = {
+    clienteNombre: clienteNombre,
+    clienteNorm: sucNormCliente(clienteNombre),
+    lista: [],
+    editandoId: null,
+    mostrandoForm: false
+  };
+  // Mostrar loading inmediato
+  document.getElementById('suc-modal-cliente-nombre').textContent = clienteNombre.toUpperCase();
+  document.getElementById('suc-modal-body').innerHTML = '<div class="suc-loading">⏳ Cargando sucursales…</div>';
+  document.getElementById('suc-modal-backdrop').classList.add('on');
+  document.body.style.overflow = 'hidden';
+
+  // Cargar sucursales existentes
+  try {
+    var lista = await sucursalesCargarPorCliente(clienteNombre);
+    if (!_sucModalState) return; // el usuario cerró mientras cargaba
+    _sucModalState.lista = lista;
+    _renderSucModal();
+  } catch (e) {
+    console.error('[v8.5] sucModalAbrir error:', e);
+    document.getElementById('suc-modal-body').innerHTML =
+      '<div class="suc-empty"><span class="icon">⚠️</span>' +
+      '<div>Error cargando sucursales.</div>' +
+      '<div style="margin-top:8px"><button class="suc-btn-add-primary" onclick="sucModalAbrir(\'' +
+        (clienteNombre || '').replace(/'/g, "\\'") + '\')">Reintentar</button></div></div>';
+  }
+}
+
+function sucModalCerrar() {
+  document.getElementById('suc-modal-backdrop').classList.remove('on');
+  _sucModalState = null;
+  // Si el modal de duplicados sigue abierto, el overflow:hidden lo mantiene.
+  // Si no hay otro modal abierto, lo reseteamos.
+  if (!document.getElementById('dup-modal-backdrop').classList.contains('on')) {
+    document.body.style.overflow = '';
+  }
+}
+
+function sucModalCerrarFondo(event) {
+  if (event.target.id === 'suc-modal-backdrop') sucModalCerrar();
+}
+
+function _renderSucModal() {
+  var s = _sucModalState;
+  if (!s) return;
+  var body = document.getElementById('suc-modal-body');
+  var html = '';
+
+  // Lista de sucursales existentes
+  if (s.lista.length > 0) {
+    html += '<div class="suc-list">';
+    s.lista.forEach(function(suc) {
+      var dir = escapeHtml(suc.direccion || '(sin dirección)');
+      var loc = suc.localidad ? ' · ' + escapeHtml(suc.localidad) : '';
+      var notas = suc.notas ? '<div class="suc-item-notas">📝 ' + escapeHtml(suc.notas) + '</div>' : '';
+      html += '<div class="suc-item">' +
+        '<div class="suc-item-info">' +
+          '<div class="suc-item-nombre">🏢 ' + escapeHtml(suc.nombre_suc) + '</div>' +
+          '<div class="suc-item-direccion">📍 ' + dir + loc + '</div>' +
+          notas +
+        '</div>' +
+        '<div class="suc-item-acciones">' +
+          '<button class="suc-btn-mini" onclick="sucEditarItem(\'' + suc.id + '\')" title="Editar">✏️</button>' +
+          '<button class="suc-btn-mini borrar" onclick="sucBorrarItem(\'' + suc.id + '\',\'' + escapeAttr(suc.nombre_suc) + '\')" title="Borrar">🗑️</button>' +
+        '</div>' +
+      '</div>';
+    });
+    html += '</div>';
+  } else if (!s.mostrandoForm) {
+    html += '<div class="suc-empty">' +
+      '<span class="icon">🏢</span>' +
+      '<div><b>Este cliente todavía no tiene sucursales registradas.</b></div>' +
+      '<div style="margin-top:6px">Agregá las direcciones de entrega para que el sistema las use al tomar pedidos.</div>' +
+    '</div>';
+  }
+
+  // Form de agregar/editar o botón de agregar
+  if (s.mostrandoForm) {
+    var editando = s.editandoId ? s.lista.find(function(x){ return x.id === s.editandoId; }) : null;
+    var nombreVal = editando ? escapeAttr(editando.nombre_suc) : '';
+    var dirVal    = editando ? escapeAttr(editando.direccion || '') : '';
+    var locVal    = editando ? escapeAttr(editando.localidad || '') : '';
+    var notasVal  = editando ? escapeHtml(editando.notas || '') : '';
+    var tituloForm = editando ? 'Editar sucursal' : 'Nueva sucursal';
+
+    html += '<div class="suc-form">' +
+      '<h4>' + tituloForm + '</h4>' +
+      '<div class="suc-form-row">' +
+        '<label>Nombre / identificador *</label>' +
+        '<input type="text" id="suc-inp-nombre" placeholder="Ej: Centro, Norte, Local 2" value="' + nombreVal + '" maxlength="80">' +
+      '</div>' +
+      '<div class="suc-form-row">' +
+        '<label>Dirección</label>' +
+        '<input type="text" id="suc-inp-direccion" placeholder="Ej: Av. Mitre 500" value="' + dirVal + '" maxlength="150">' +
+      '</div>' +
+      '<div class="suc-form-row">' +
+        '<label>Localidad</label>' +
+        '<input type="text" id="suc-inp-localidad" placeholder="Ej: Pehuajó" value="' + locVal + '" maxlength="80">' +
+      '</div>' +
+      '<div class="suc-form-row">' +
+        '<label>Notas (opcional)</label>' +
+        '<textarea id="suc-inp-notas" placeholder="Horario, contacto, etc." maxlength="200">' + notasVal + '</textarea>' +
+      '</div>' +
+      '<div class="suc-form-acciones">' +
+        '<button class="suc-form-btn cancelar" onclick="sucCancelarForm()">Cancelar</button>' +
+        '<button class="suc-form-btn guardar" onclick="sucGuardarForm()">💾 Guardar</button>' +
+      '</div>' +
+    '</div>';
+  } else {
+    if (s.lista.length === 0) {
+      html += '<button class="suc-btn-add-primary" onclick="sucMostrarFormNueva()">➕ Agregar primera sucursal</button>';
+    } else {
+      html += '<button class="suc-btn-add-secondary" onclick="sucMostrarFormNueva()">➕ Agregar otra sucursal</button>';
+    }
+  }
+
+  body.innerHTML = html;
+
+  // Si hay form abierto, dar foco al primer campo
+  if (s.mostrandoForm) {
+    setTimeout(function(){
+      var el = document.getElementById('suc-inp-nombre');
+      if (el) el.focus();
+    }, 50);
+  }
+}
+
+function sucMostrarFormNueva() {
+  if (!_sucModalState) return;
+  _sucModalState.mostrandoForm = true;
+  _sucModalState.editandoId = null;
+  _renderSucModal();
+}
+
+function sucCancelarForm() {
+  if (!_sucModalState) return;
+  _sucModalState.mostrandoForm = false;
+  _sucModalState.editandoId = null;
+  _renderSucModal();
+}
+
+function sucEditarItem(id) {
+  if (!_sucModalState) return;
+  _sucModalState.mostrandoForm = true;
+  _sucModalState.editandoId = id;
+  _renderSucModal();
+}
+
+async function sucGuardarForm() {
+  var s = _sucModalState;
+  if (!s) return;
+  var nombre = (document.getElementById('suc-inp-nombre').value || '').trim();
+  var dir    = (document.getElementById('suc-inp-direccion').value || '').trim();
+  var loc    = (document.getElementById('suc-inp-localidad').value || '').trim();
+  var notas  = (document.getElementById('suc-inp-notas').value || '').trim();
+
+  if (!nombre) {
+    alert('El nombre de la sucursal es obligatorio.\nEj: "Centro", "Norte", "Local 2"');
+    return;
+  }
+
+  // Verificar duplicado de nombre dentro del mismo cliente
+  var yaExiste = s.lista.some(function(x){
+    return x.id !== s.editandoId &&
+      sucNormCliente(x.nombre_suc) === sucNormCliente(nombre);
+  });
+  if (yaExiste) {
+    alert('Ya existe una sucursal con ese nombre para este cliente.');
+    return;
+  }
+
+  // Deshabilitar botón guardar
+  var btnGuardar = document.querySelector('.suc-form-btn.guardar');
+  if (btnGuardar) { btnGuardar.disabled = true; btnGuardar.textContent = '⏳ Guardando…'; }
+
+  var resultado;
+  if (s.editandoId) {
+    resultado = await sucursalActualizar(s.editandoId, {
+      nombre_suc: nombre, direccion: dir, localidad: loc, notas: notas
+    });
+  } else {
+    resultado = await sucursalCrear({
+      cliente_norm: s.clienteNorm,
+      nombre_suc: nombre,
+      direccion: dir,
+      localidad: loc,
+      notas: notas,
+      creada_por: vendedorActual || 'desconocido'
+    });
+  }
+
+  if (!resultado) {
+    if (btnGuardar) { btnGuardar.disabled = false; btnGuardar.textContent = '💾 Guardar'; }
+    return;
+  }
+
+  // Recargar lista
+  s.lista = await sucursalesCargarPorCliente(s.clienteNombre);
+  s.mostrandoForm = false;
+  s.editandoId = null;
+  _renderSucModal();
+}
+
+async function sucBorrarItem(id, nombreSuc) {
+  if (!_sucModalState) return;
+  if (!confirm('¿Seguro que querés borrar la sucursal "' + nombreSuc + '"?\n\nEsto no afecta pedidos ya cargados, pero el cliente deja de tener esta dirección registrada.')) return;
+  var ok = await sucursalBorrar(id);
+  if (!ok) return;
+  _sucModalState.lista = await sucursalesCargarPorCliente(_sucModalState.clienteNombre);
+  _renderSucModal();
+}
+
+// Helper local para escape en atributos (onclick/value) — evita romper strings
+function escapeAttr(s) {
+  return (s || '').toString()
+    .replace(/&/g, '&amp;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;');
+}
+// Escape para contenido de texto (innerHTML) — evita XSS con strings del Sheet/Supabase
+function escapeHtml(s) {
+  return (s || '').toString()
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;');
+}
+// ═══════════════════════════════════════════════════════════════
+// Fin v8.5 — modal sucursales
+// ═══════════════════════════════════════════════════════════════
+
 function _renderDupModal() {
   var s = _dupModalState;
   if (!s) return;
@@ -16505,6 +17140,15 @@ function _renderDupModal() {
       + '❌ Todos los pedidos están cancelados'
       + '</div>';
     html += '</div>';
+  }
+
+  // v8.5 · Botón "Tiene sucursales" — disponible en cualquier estado.
+  // Solo para vendedores (no admin): son ellos los que conocen al cliente.
+  if (!s.esAdmin) {
+    html += '<button class="dup-btn-sucursales" onclick="sucModalAbrir(' + "'" + escapeAttr(s.cliente) + "'" + ')">'
+      + '<span>⛔ Tiene sucursales</span>'
+      + '<span class="badge-nuevo">NUEVO</span>'
+      + '</button>';
   }
 
   document.getElementById('dup-modal-body').innerHTML = html;
@@ -18976,6 +19620,25 @@ var _miRondaOrigCargarPedidos = null;
       <button class="dup-modal-close" onclick="dupModalCerrar()">✕</button>
     </div>
     <div class="dup-modal-body" id="dup-modal-body"></div>
+  </div>
+</div>
+
+<!-- v8.5 · MODAL GESTIONAR SUCURSALES -->
+<div class="suc-modal-backdrop" id="suc-modal-backdrop" onclick="sucModalCerrarFondo(event)">
+  <div class="suc-modal-sheet" onclick="event.stopPropagation()">
+    <div class="suc-modal-hdr">
+      <div>
+        <div class="suc-modal-hdr-title">🏢 Sucursales del cliente</div>
+        <div class="suc-modal-hdr-sub" id="suc-modal-cliente-nombre">—</div>
+      </div>
+      <button class="suc-modal-close" onclick="sucModalCerrar()">✕</button>
+    </div>
+    <div class="suc-modal-body" id="suc-modal-body">
+      <div class="suc-loading">⏳ Cargando sucursales…</div>
+    </div>
+    <div class="suc-modal-footer">
+      Las sucursales aparecerán al tomar un pedido nuevo para este cliente
+    </div>
   </div>
 </div>
 
