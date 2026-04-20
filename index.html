@@ -15273,13 +15273,6 @@ async function botCargarConversaciones(){var el=document.getElementById('bot-con
     if (window.matchMedia('(display-mode: standalone)').matches) return;
     try { if (localStorage.getItem('tck_ped_no_inst')) return; } catch(e) {}
     if (document.getElementById('_ped_inst')) return;
-    // No mostrar en la pantalla de login — position:fixed top:0 z-index:9999
-    // tapa las cards del vendedor y los botones 1-3 del PIN pad. Re-chequea
-    // cada 5s mientras _prompt siga vigente (banner aparece post-login).
-    if (!vendedorActual) {
-      if (_prompt) setTimeout(_showPedBanner, 5000);
-      return;
-    }
 
     var b = document.createElement('div');
     b.id = '_ped_inst';
@@ -15357,14 +15350,10 @@ async function botCargarConversaciones(){var el=document.getElementById('bot-con
     });
   }
 
-  // Cleanup: /sw.js no existe (404) pero versiones previas pudieron registrar
-  // un SW en algunos celulares que ahora intercepta requests y cachea HTML viejo
-  // (sospecha de clicks que no disparan en login). Desregistramos todos los SW
-  // que el browser tenga para este origin.
   if ('serviceWorker' in navigator) {
-    navigator.serviceWorker.getRegistrations().then(function(regs) {
-      regs.forEach(function(r) { r.unregister(); });
-    }).catch(function() {});
+    window.addEventListener('load', function() {
+      navigator.serviceWorker.register('/sw.js').catch(function() {});
+    });
   }
 })();
 
