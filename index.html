@@ -6222,13 +6222,26 @@ body {
 .v82-badge-vip    { background: #FFF8DC; color: #B8860B; border: 1px solid #FFE4A0; }
 .v82-badge-alerta { background: #FFEBEE; color: #C62828; }
 
+/* v8.3 — Badge de derivación entrante (prioridad visual máxima) */
+.v82-badge-nuevo  { background: #EDE0FF; color: #4B2080; border: 1px solid #C9A9F2; cursor: help; }
+
 /* Border-left de la card según badge principal.
-   Prioridad (mayor a menor): alerta > frio > bajon > vip.
+   Prioridad (mayor a menor): nuevo (v8.3) > alerta > frio > bajon > vip.
    Solo aplica a cards pendientes (no vendidas ni gestionadas). */
 .mr-opC-card.v82-bord-alerta { border-left-color: #C62828; border-left-width: 4px; }
 .mr-opC-card.v82-bord-frio   { border-left-color: #1565C0; border-left-width: 4px; }
 .mr-opC-card.v82-bord-bajon  { border-left-color: #E65100; border-left-width: 4px; }
 .mr-opC-card.v82-bord-vip    { border-left-color: #B8860B; border-left-width: 4px; }
+
+/* v8.3 — Card con derivación entrante: border violeta + tinte sutil de fondo
+   El degradado arranca en izq y se diluye rápido, para que el resto de la card
+   (histórico, botones) se vea normal sin "pegarse" al tinte. */
+.mr-opC-card.v83-bord-nuevo {
+  border-left-color: #7B3FD4;
+  border-left-width: 4px;
+  background: linear-gradient(90deg, #FBF7FF 0%, #FFFFFF 30%);
+}
+.mr-opC-card.v83-bord-nuevo:hover { border-left-color: #6B2FC4; }
 
 /* ── VARIANTE A (Miguel/Lisandro): histórico expandible ── */
 
@@ -16599,7 +16612,18 @@ var MR_V82_FRIO_FACTOR   = 1.5;  // sin pedir más de frec_prom × 1.5 → ⏰
 var MR_V82_BAJON_RATIO   = 0.70; // último pedido < 70% del ticket prom → 📉
 var MR_V82_VIP_TOP_PCT   = 0.20; // top 20% del vendedor por facturación → ⭐
 
-// Cache de cálculos (se invalida al recargar Mi Ronda)
+// ══ v8.3 — NOTIFICACIÓN DE DERIVACIÓN ENTRANTE ════════════════════════
+// Cuando otro vendedor deriva un cliente al vendedor actual (botón
+// "⤴ No es mío"), la traza queda en el campo `notas` con el formato:
+//   [Derivado de X a Y el DD/MM/YYYY HH:MM — motivo: ZZZ]
+// v8.3 lee esa nota y muestra un badge "⬇️ Nuevo de X" + border violeta
+// en la card receptora, y ordena esa card arriba del listado de su ruta.
+// Después de N días, el badge desaparece y la card vuelve a orden normal.
+var MR_V83_NUEVO_DIAS = 7;  // días que dura visible el badge "Nuevo de X"
+
+// Cache de derivaciones parseadas (se invalida junto con las de v8.2)
+var _miRondaDerivCache = null;  // { cliente_id: {de, fecha, motivo, dias} | null }
+
 var _miRondaHistCache = null;  // { cliente_id: {items, promedio, ultimoMonto, tickets} }
 var _miRondaVIPSet    = null;  // Set de cliente_id que son VIP
 
@@ -17183,6 +17207,8 @@ function miRondaCalcular() {
   // v8.2: invalidar caches al recalcular para reflejar pedidos nuevos
   _miRondaHistCache = null;
   _miRondaVIPSet = null;
+  // v8.3: también invalidamos el cache de derivaciones parseadas
+  _miRondaDerivCache = null;
 
   // Agrupar clientes por ruta_viaje
   var porRuta = {};
@@ -17575,6 +17601,18 @@ function miRondaRenderModalBody(filtroLocalidad) {
 
   // SECCIÓN: PENDIENTES (la principal, arriba)
   if (pendientes.length > 0) {
+    // v8.3: ordenar para que los clientes con derivación entrante (badge "Nuevo de X")
+    // aparezcan arriba. Dentro de las derivaciones, las más recientes primero.
+    pendientes.sort(function(a, b) {
+      var da = mrV83ParseDerivacion(a);
+      var db = mrV83ParseDerivacion(b);
+      var wa = da ? 1 : 0;
+      var wb = db ? 1 : 0;
+      if (wa !== wb) return wb - wa;  // derivados primero
+      if (da && db) return db.fecha - da.fecha;  // derivación más reciente arriba
+      return 0;  // mantener orden natural para el resto
+    });
+
     html += '<div class="mr-section-hdr" onclick="mrSeccionToggle(this)">' +
       '<span>Pendientes de gestión <span class="mr-section-hdr-badge">' + pendientes.length + '</span></span>' +
       '<span class="mr-section-hdr-toggle">▾</span>' +
@@ -17717,10 +17755,93 @@ function mrCalcVIPSet() {
   return _miRondaVIPSet;
 }
 
+// v8.3 — Parsea el campo `notas` del cliente buscando la última traza de
+// derivación entrante HACIA el vendedor actual, dentro de la ventana de
+// MR_V83_NUEVO_DIAS días. Devuelve {de, fecha, motivo, dias} o null.
+// Formato esperado: [Derivado de X a Y el DD/MM/YYYY HH:MM — motivo: ZZZ]
+function mrV83ParseDerivacion(c) {
+  if (_miRondaDerivCache && _miRondaDerivCache[c.cliente_id] !== undefined) {
+    return _miRondaDerivCache[c.cliente_id];
+  }
+  if (!_miRondaDerivCache) _miRondaDerivCache = {};
+
+  var notas = (c.notas || '').toString();
+  if (!notas || notas.indexOf('[Derivado de') === -1) {
+    _miRondaDerivCache[c.cliente_id] = null;
+    return null;
+  }
+
+  // Regex tolerante: fecha DD/MM/YYYY (año opcional por seguridad) + HH:MM opcional
+  var re = /\[Derivado de\s+([^\s]+?)\s+a\s+([^\s]+?)\s+el\s+(\d{1,2}\/\d{1,2}(?:\/\d{2,4})?)(?:\s+(\d{1,2}:\d{2}))?\s*[—\-]\s*motivo:\s*([^\]]+?)\]/gi;
+
+  var vendNorm = (vendedorActual || '').toString().toUpperCase().trim();
+  var mejorMatch = null;
+  var mejorFecha = null;
+  var m;
+
+  while ((m = re.exec(notas)) !== null) {
+    var destinoNorm = (m[2] || '').toUpperCase().trim();
+    // Normalizar comparación: algunas trazas tienen "POOL (sin vendedor)" o el nombre
+    // Matchea solo si el destino es el vendedor actual (palabra exacta al inicio)
+    if (destinoNorm.indexOf(vendNorm) !== 0) continue;
+
+    // Parsear fecha DD/MM/YYYY o DD/MM
+    var partes = m[3].split('/');
+    var dia = parseInt(partes[0], 10);
+    var mes = parseInt(partes[1], 10) - 1;
+    var anio = partes[2] ? parseInt(partes[2], 10) : new Date().getFullYear();
+    if (anio < 100) anio += 2000;
+    var f = new Date(anio, mes, dia);
+    if (isNaN(f)) continue;
+
+    // Nos quedamos con la derivación más reciente (por si hubo varias)
+    if (!mejorFecha || f > mejorFecha) {
+      mejorFecha = f;
+      mejorMatch = {
+        de: (m[1] || '').trim(),
+        fecha: f,
+        fechaTxt: m[3] + (m[4] ? ' ' + m[4] : ''),
+        motivo: (m[5] || '').trim()
+      };
+    }
+  }
+
+  if (!mejorMatch) {
+    _miRondaDerivCache[c.cliente_id] = null;
+    return null;
+  }
+
+  // Calcular días desde la derivación
+  var hoy = new Date();
+  var ms = hoy.getTime() - mejorMatch.fecha.getTime();
+  var dias = Math.floor(ms / 86400000);
+  mejorMatch.dias = dias;
+
+  // Solo retornamos si está dentro de la ventana de "nuevo"
+  if (dias > MR_V83_NUEVO_DIAS || dias < 0) {
+    _miRondaDerivCache[c.cliente_id] = null;
+    return null;
+  }
+
+  _miRondaDerivCache[c.cliente_id] = mejorMatch;
+  return mejorMatch;
+}
+
 // Decide qué badges mostrar en una card. Devuelve array de {tipo, txt}.
 // Tipos: 'frio' (azul), 'bajon' (naranja), 'vip' (dorado), 'alerta' (rojo, para combinados)
 function mrCalcBadges(c) {
   var badges = [];
+
+  // v8.3 — Derivación entrante (prioridad máxima, se muestra primero)
+  var deriv = mrV83ParseDerivacion(c);
+  if (deriv) {
+    badges.push({
+      tipo: 'nuevo',
+      txt: '⬇️ Nuevo de ' + deriv.de,
+      _deriv: deriv  // info para tooltip
+    });
+  }
+
   var vips = mrCalcVIPSet();
   var esVIP = vips.has(c.cliente_id);
   var hist = mrCalcHistoricoCliente(c);
@@ -17808,14 +17929,26 @@ function mrV82RenderHistInlineC(hist) {
 function mrV82RenderBadges(badges) {
   if (!badges.length) return '';
   return badges.map(function(b) {
-    return '<span class="v82-badge v82-badge-' + b.tipo + '">' + escapeHtml(b.txt) + '</span>';
+    // v8.3: badge 'nuevo' tiene tooltip con la info completa de la derivación
+    var extra = '';
+    if (b.tipo === 'nuevo' && b._deriv) {
+      var tip = 'Derivado de ' + b._deriv.de +
+                ' el ' + b._deriv.fechaTxt +
+                ' — motivo: ' + b._deriv.motivo;
+      extra = ' title="' + escapeHtml(tip) + '"';
+    }
+    return '<span class="v82-badge v82-badge-' + b.tipo + '"' + extra + '>' +
+             escapeHtml(b.txt) +
+           '</span>';
   }).join('');
 }
 
-// Clase de border-left según badge principal (prioridad: alerta > frio > bajon > vip)
+// Clase de border-left según badge principal.
+// Prioridad (mayor a menor): nuevo (v8.3) > alerta > frio > bajon > vip
 function mrV82BorderClass(badges) {
   if (!badges.length) return '';
   var tipos = badges.map(function(b) { return b.tipo; });
+  if (tipos.indexOf('nuevo')  !== -1) return 'v83-bord-nuevo';
   if (tipos.indexOf('alerta') !== -1) return 'v82-bord-alerta';
   if (tipos.indexOf('frio')   !== -1) return 'v82-bord-frio';
   if (tipos.indexOf('bajon')  !== -1) return 'v82-bord-bajon';
