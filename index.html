@@ -5178,6 +5178,208 @@ body {
 }
 @keyframes mr-spin { to { transform: rotate(360deg); } }
 
+/* ════════════════════════════════════════════════════════════════
+   OPCIÓN C — Sello TCK · Card de pendiente con identidad oficial
+   ════════════════════════════════════════════════════════════════ */
+.mr-opC-card {
+  background: #fff;
+  border-radius: 10px;
+  border: 1px solid #E0D2B8;
+  border-left: 3px solid #B0B0B0;
+  padding: 11px 13px;
+  margin-bottom: 7px;
+  transition: border-color .2s, box-shadow .2s, transform .3s, opacity .3s;
+  position: relative;
+}
+.mr-opC-card:hover { border-left-color: #D4A574; box-shadow: 0 2px 8px rgba(139,0,0,.06); }
+
+/* Animación de salida cuando marca vendido / sin venta */
+.mr-opC-card.mr-opC-leaving {
+  transform: translateX(40px);
+  opacity: 0;
+  pointer-events: none;
+  margin-bottom: 0;
+  max-height: 0;
+  padding-top: 0;
+  padding-bottom: 0;
+  border-width: 0;
+  overflow: hidden;
+}
+
+/* Fila info + WhatsApp */
+.mr-opC-row-info {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 8px;
+}
+.mr-opC-info { flex: 1; min-width: 0; }
+.mr-opC-nombre {
+  font-family: 'Barlow Condensed', sans-serif;
+  font-size: 14px;
+  font-weight: 800;
+  color: #1A0800;
+  text-transform: uppercase;
+  letter-spacing: .3px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.mr-opC-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 10px;
+  margin-top: 3px;
+  font-size: 11px;
+  color: #5C3A1E;
+}
+.mr-opC-meta span { display: inline-flex; align-items: center; gap: 3px; }
+
+/* Botón WhatsApp oficial — verde 25D366 */
+.mr-opC-wsp {
+  width: 32px;
+  height: 32px;
+  border-radius: 50%;
+  background: #25D366;
+  color: #fff;
+  border: none;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  box-shadow: 0 2px 6px rgba(37,211,102,.35);
+  transition: transform .12s;
+  -webkit-tap-highlight-color: transparent;
+  padding: 0;
+}
+.mr-opC-wsp:active { transform: scale(.88); }
+.mr-opC-wsp svg { width: 16px; height: 16px; fill: #fff; }
+.mr-opC-wsp-off {
+  background: #E8E1D5;
+  box-shadow: none;
+  cursor: not-allowed;
+}
+.mr-opC-wsp-off svg { fill: #B0A595; opacity: .55; }
+
+/* Fila de acciones (pendiente): sello principal + skip discreto */
+.mr-opC-row-acciones {
+  display: flex;
+  gap: 6px;
+}
+.mr-opC-btn-stamp {
+  flex: 1;
+  background: linear-gradient(135deg, #8B0000 0%, #6B0000 100%);
+  color: #FFD700;
+  border: 1px solid #4A0000;
+  border-radius: 7px;
+  padding: 9px 12px;
+  font-family: 'Barlow Condensed', sans-serif;
+  font-size: 13px;
+  font-weight: 800;
+  letter-spacing: 1.2px;
+  text-transform: uppercase;
+  cursor: pointer;
+  box-shadow: 0 2px 0 #4A0000, inset 0 1px 0 rgba(255,215,0,.2);
+  transition: transform .12s, box-shadow .12s;
+  -webkit-tap-highlight-color: transparent;
+  text-shadow: 0 1px 0 rgba(0,0,0,.3);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+}
+.mr-opC-btn-stamp:active {
+  transform: translateY(2px);
+  box-shadow: 0 0 0 #4A0000, inset 0 1px 0 rgba(255,215,0,.2);
+}
+.mr-opC-stamp-icon {
+  font-size: 14px;
+  font-weight: 800;
+}
+.mr-opC-btn-skip {
+  background: transparent;
+  color: #8B6F50;
+  border: 1px dashed #E0D2B8;
+  border-radius: 7px;
+  padding: 9px 14px;
+  font-family: 'Barlow Condensed', sans-serif;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: .6px;
+  text-transform: uppercase;
+  cursor: pointer;
+  transition: all .15s;
+  -webkit-tap-highlight-color: transparent;
+  flex-shrink: 0;
+  white-space: nowrap;
+}
+.mr-opC-btn-skip:hover, .mr-opC-btn-skip:active {
+  color: #EF6C00;
+  border-color: #EF6C00;
+  background: rgba(239,108,0,.04);
+}
+
+/* Estado: vendido — card verde con sello */
+.mr-opC-card.vendida {
+  background: #F4FAF5;
+  border-left-color: #2E7D32;
+  border-color: #C8E6C9;
+}
+.mr-opC-stamp-vendido {
+  background: rgba(46,125,50,.08);
+  border: 1.5px solid #2E7D32;
+  border-radius: 6px;
+  padding: 6px 10px;
+  text-align: center;
+  color: #1B5E20;
+  font-family: 'Barlow Condensed', sans-serif;
+  font-size: 12px;
+  font-weight: 800;
+  letter-spacing: 1px;
+  text-transform: uppercase;
+  transform: rotate(-1deg);
+}
+
+/* Estado: gestionado — card amber con sello dashed */
+.mr-opC-card.gestionada {
+  background: #FFFBF0;
+  border-left-color: #EF6C00;
+  border-color: #FFE082;
+}
+.mr-opC-stamp-gest {
+  background: rgba(239,108,0,.08);
+  border: 1.5px dashed #EF6C00;
+  border-radius: 6px;
+  padding: 6px 10px;
+  color: #C2410C;
+  font-family: 'Barlow Condensed', sans-serif;
+  font-size: 11.5px;
+  font-weight: 700;
+  letter-spacing: .4px;
+  text-transform: uppercase;
+  text-align: center;
+}
+.mr-opC-stamp-gest strong { font-weight: 900; }
+.mr-opC-undo {
+  background: transparent;
+  color: #8B6F50;
+  border: none;
+  padding: 6px 10px;
+  font-size: 10.5px;
+  font-family: 'Barlow Condensed', sans-serif;
+  font-weight: 700;
+  letter-spacing: .6px;
+  text-transform: uppercase;
+  cursor: pointer;
+  margin-top: 4px;
+  display: block;
+  margin-left: auto;
+  -webkit-tap-highlight-color: transparent;
+  transition: color .15s;
+}
+.mr-opC-undo:hover, .mr-opC-undo:active { color: #6B0000; }
+
 </style>
 </head>
 <body>
@@ -15130,8 +15332,10 @@ function miRondaCalcular() {
     clientes.forEach(function(c) {
       var nomNorm = mrNormNombre(c.nombre);
       var pidio = nombresPidieron.has(nomNorm);
-      c._mr_estado = pidio ? 'verde' : 'gris';
-      if (pidio) {
+      // También cuenta si fue marcado manualmente como vendido (persiste al recargar)
+      var ventaManual = !!_miRondaVentasManuales[c.cliente_id];
+      c._mr_estado = (pidio || ventaManual) ? 'verde' : 'gris';
+      if (pidio || ventaManual) {
         cubiertos++;
       } else if (_miRondaGestiones[c.cliente_id]) {
         // Ya fue gestionado sin venta esta ronda
@@ -15360,8 +15564,12 @@ if (typeof escapeHtml !== 'function') {
 
 // ── Modal de pendientes ──────────────────────────────────────────
 // _miRondaGestiones: cache de gestiones cargadas desde Supabase
-// Formato: { cliente_id: { estado, motivo, motivo_texto, fecha_ronda } }
+// Formato: { cliente_id: { estado, motivo, motivo_texto, fecha_ronda, ruta_key } }
 var _miRondaGestiones = {};
+// _miRondaVentasManuales: cliente_ids marcados como "Le vendí" desde el panel
+// Formato: { cliente_id: { fecha_ronda, ruta_key } }
+// Se usa para que las ventas marcadas a mano persistan al recargar (sin esperar al Sheet)
+var _miRondaVentasManuales = {};
 var _miRondaGestionesCargadas = false;
 var _mrMotivoClienteActual = null;
 var _mrMotivoRutaActual    = null;
@@ -15527,59 +15735,59 @@ function mrRenderCliente(c, tipo) {
   var ultPedidoTxt = c.ultimo_pedido
     ? 'Últ. hace ' + (diasDesde !== null && diasDesde !== undefined ? diasDesde : '?') + 'd'
     : 'Sin pedidos recientes';
+  var ritmoTxt = c.ritmo && c.ritmo !== 'sin_compras_recientes' ? c.ritmo : '';
   var nota = c.notas ? '<div class="mr-cli-nota">📝 ' + escapeHtml(c.notas) + '</div>' : '';
 
-  // Logo oficial WhatsApp
-  var waIconSvg = '<svg viewBox="0 0 24 24"><path d="M17.472 14.382c-.297-.149-1.758-.867-2.03-.967-.273-.099-.471-.148-.67.15-.197.297-.767.966-.94 1.164-.173.199-.347.223-.644.075-.297-.15-1.255-.463-2.39-1.475-.883-.788-1.48-1.761-1.653-2.059-.173-.297-.018-.458.13-.606.134-.133.298-.347.446-.52.149-.174.198-.298.298-.497.099-.198.05-.371-.025-.52-.075-.149-.669-1.612-.916-2.207-.242-.579-.487-.5-.669-.51-.173-.008-.371-.01-.57-.01-.198 0-.52.074-.792.372-.272.297-1.04 1.016-1.04 2.479 0 1.462 1.065 2.875 1.213 3.074.149.198 2.096 3.2 5.077 4.487.709.306 1.262.489 1.694.625.712.227 1.36.195 1.871.118.571-.085 1.758-.719 2.006-1.413.248-.694.248-1.289.173-1.413-.074-.124-.272-.198-.57-.347m-5.421 7.403h-.004a9.87 9.87 0 01-5.031-1.378l-.361-.214-3.741.982.998-3.648-.235-.374a9.86 9.86 0 01-1.51-5.26c.001-5.45 4.436-9.884 9.888-9.884 2.64 0 5.122 1.03 6.988 2.898a9.825 9.825 0 012.893 6.994c-.003 5.45-4.437 9.884-9.885 9.884m8.413-18.297A11.815 11.815 0 0012.05 0C5.495 0 .16 5.335.157 11.892c0 2.096.547 4.142 1.588 5.945L.057 24l6.305-1.654a11.882 11.882 0 005.683 1.448h.005c6.554 0 11.89-5.335 11.893-11.893a11.821 11.821 0 00-3.48-8.413z"/></svg>';
+  // Logo oficial WhatsApp (SVG)
+  var waIconSvg = '<svg viewBox="0 0 24 24" width="16" height="16" fill="currentColor"><path d="M17.472 14.382c-.297-.149-1.758-.867-2.03-.967-.273-.099-.471-.148-.67.15-.197.297-.767.966-.94 1.164-.173.199-.347.223-.644.075-.297-.15-1.255-.463-2.39-1.475-.883-.788-1.48-1.761-1.653-2.059-.173-.297-.018-.458.13-.606.134-.133.298-.347.446-.52.149-.174.198-.298.298-.497.099-.198.05-.371-.025-.52-.075-.149-.669-1.612-.916-2.207-.242-.579-.487-.5-.669-.51-.173-.008-.371-.01-.57-.01-.198 0-.52.074-.792.372-.272.297-1.04 1.016-1.04 2.479 0 1.462 1.065 2.875 1.213 3.074.149.198 2.096 3.2 5.077 4.487.709.306 1.262.489 1.694.625.712.227 1.36.195 1.871.118.571-.085 1.758-.719 2.006-1.413.248-.694.248-1.289.173-1.413-.074-.124-.272-.198-.57-.347m-5.421 7.403h-.004a9.87 9.87 0 01-5.031-1.378l-.361-.214-3.741.982.998-3.648-.235-.374a9.86 9.86 0 01-1.51-5.26c.001-5.45 4.436-9.884 9.888-9.884 2.64 0 5.122 1.03 6.988 2.898a9.825 9.825 0 012.893 6.994c-.003 5.45-4.437 9.884-9.885 9.884m8.413-18.297A11.815 11.815 0 0012.05 0C5.495 0 .16 5.335.157 11.892c0 2.096.547 4.142 1.588 5.945L.057 24l6.305-1.654a11.882 11.882 0 005.683 1.448h.005c6.554 0 11.89-5.335 11.893-11.893a11.821 11.821 0 00-3.48-8.413z"/></svg>';
   var btnWa = telOk
-    ? '<button class="mr-cli-btn mr-cli-btn-wa" onclick="event.stopPropagation();miRondaAbrirWa(\'' + tel + '\', &quot;' + encodeURIComponent(c.nombre || '') + '&quot;)" title="WhatsApp">' + waIconSvg + '</button>'
-    : '<button class="mr-cli-btn mr-cli-btn-none" title="Sin teléfono">' + waIconSvg + '</button>';
+    ? '<button class="mr-opC-wsp" onclick="event.stopPropagation();miRondaAbrirWa(\'' + tel + '\', &quot;' + encodeURIComponent(c.nombre || '') + '&quot;)" title="WhatsApp">' + waIconSvg + '</button>'
+    : '<button class="mr-opC-wsp mr-opC-wsp-off" title="Sin teléfono">' + waIconSvg + '</button>';
 
-  // Card base + clase según tipo
-  var claseCard = 'mr-cli-card';
+  // Card base + clase según tipo (Opción C — Sello TCK)
+  var claseCard = 'mr-opC-card';
   if (tipo === 'vendida') claseCard += ' vendida';
   if (tipo === 'gestionada') claseCard += ' gestionada';
+  // data-cid permite identificar la card para animaciones
+  var dataCid = ' data-cid="' + escapeHtml(c.cliente_id || '') + '"';
 
-  // Fila superior: info + WhatsApp
-  var extraInfo = '';
-  var extraAcciones = '';
-
+  // Bloque de acción según estado
+  var bloqueAccion = '';
   if (tipo === 'vendida') {
-    // Ya tiene pedido cargado: mostrar venta confirmada
-    extraInfo = '<div class="mr-cli-venta-info">✓ Vendido en esta ronda</div>';
+    // Sello vendido — estampa rotada estilo "remito sellado"
+    bloqueAccion = '<div class="mr-opC-stamp-vendido">★ Vendido en esta ronda ★</div>';
   } else if (tipo === 'gestionada') {
-    // Ya se gestionó sin venta: mostrar motivo + botón cambiar
+    // Sello gestionado con motivo + opción discreta para revertir
     var g = _miRondaGestiones[c.cliente_id];
     var motivoTxt = mrMotivoLabel(g.motivo, g.motivo_texto);
-    extraInfo = '<div class="mr-cli-gest-info">' +
-      '⚠ <span class="mr-cli-gest-motivo">' + escapeHtml(motivoTxt) + '</span>' +
-    '</div>';
-    extraAcciones = '<button class="mr-cli-gest-btn-cambiar" onclick="mrGestionRevertir(\'' + c.cliente_id + '\')">↩ Volver a pendiente</button>';
+    bloqueAccion =
+      '<div class="mr-opC-stamp-gest">✕ No compró · <strong>' + escapeHtml(motivoTxt) + '</strong></div>' +
+      '<button class="mr-opC-undo" onclick="mrGestionRevertir(\'' + c.cliente_id + '\')" title="Volver a pendiente">↩ Deshacer</button>';
   } else {
-    // Pendiente: mostrar botones Le vendí + Sin venta
-    extraAcciones =
-      '<div class="mr-cli-gest-row">' +
-        '<button class="mr-cli-gest-btn mr-cli-gest-btn-ok" onclick="mrGestionLeVendi(\'' + c.cliente_id + '\')">✓ Le vendí</button>' +
-        '<button class="mr-cli-gest-btn mr-cli-gest-btn-no" onclick="mrGestionSinVenta(\'' + c.cliente_id + '\')">✕ Sin venta</button>' +
+    // Pendiente — botón sello TCK + acción secundaria discreta
+    bloqueAccion =
+      '<div class="mr-opC-row-acciones">' +
+        '<button class="mr-opC-btn-stamp" onclick="mrGestionLeVendi(\'' + c.cliente_id + '\')">' +
+          '<span class="mr-opC-stamp-icon">✓</span> Le vendí' +
+        '</button>' +
+        '<button class="mr-opC-btn-skip" onclick="mrGestionSinVenta(\'' + c.cliente_id + '\')">No compró</button>' +
       '</div>';
   }
 
-  return '<div class="' + claseCard + '">' +
-    '<div class="mr-cli-row-top">' +
-      '<div class="mr-cli-dot"></div>' +
-      '<div class="mr-cli-info">' +
-        '<div class="mr-cli-nombre">' + nombre + '</div>' +
-        '<div class="mr-cli-meta">' +
-          '<span class="mr-cli-meta-item">📍 ' + loc + '</span>' +
-          '<span class="mr-cli-meta-item">⏱️ ' + escapeHtml(ultPedidoTxt) + '</span>' +
-          (c.ritmo && c.ritmo !== 'sin_compras_recientes' ? '<span class="mr-cli-meta-item">🔄 ' + escapeHtml(c.ritmo) + '</span>' : '') +
+  return '<div class="' + claseCard + '"' + dataCid + '>' +
+    '<div class="mr-opC-row-info">' +
+      '<div class="mr-opC-info">' +
+        '<div class="mr-opC-nombre">' + nombre + '</div>' +
+        '<div class="mr-opC-meta">' +
+          '<span>📍 ' + loc + '</span>' +
+          '<span>⏱️ ' + escapeHtml(ultPedidoTxt) + '</span>' +
+          (ritmoTxt ? '<span>🔄 ' + escapeHtml(ritmoTxt) + '</span>' : '') +
         '</div>' +
         nota +
-        extraInfo +
       '</div>' +
-      '<div class="mr-cli-actions">' + btnWa + '</div>' +
+      btnWa +
     '</div>' +
-    extraAcciones +
+    bloqueAccion +
   '</div>';
 }
 
@@ -15624,12 +15832,28 @@ function mrGestionLeVendi(clienteId) {
     motivo_texto:   null
   }, function(ok) {
     if (ok) {
-      // Marcar localmente como vendido
+      // Marcar localmente como vendido (en cache de venta manual + estado del cliente)
+      _miRondaVentasManuales[c.cliente_id] = {
+        fecha_ronda: mrFechaRonda(rutaKey),
+        ruta_key: rutaKey
+      };
       c._mr_estado = 'verde';
-      // Actualizar data de la ruta
-      miRondaRecalcularRuta(rutaKey);
-      miRondaRenderModalBody(null);
-      miRondaRenderCards();
+
+      // Animación de salida: la card se desliza a la derecha + fade out, después re-render
+      var cardEl = document.querySelector('.mr-opC-card[data-cid="' + c.cliente_id + '"]');
+      if (cardEl) {
+        cardEl.classList.add('mr-opC-leaving');
+        setTimeout(function() {
+          miRondaRecalcularRuta(rutaKey);
+          miRondaRenderModalBody(null);
+          miRondaRenderCards();
+        }, 320);
+      } else {
+        // Sin elemento DOM (race condition), render directo
+        miRondaRecalcularRuta(rutaKey);
+        miRondaRenderModalBody(null);
+        miRondaRenderCards();
+      }
       mrFeedback('✅ Venta registrada para ' + (c.nombre || 'cliente'));
     } else {
       mrFeedback('⚠️ No se pudo guardar, reintentá', true);
@@ -15721,7 +15945,8 @@ function mrMotivoGuardar(motivo, motivoTexto) {
       estado: 'sin_venta',
       motivo: motivo,
       motivo_texto: motivoTexto,
-      fecha_ronda: mrFechaRonda(rutaKey)
+      fecha_ronda: mrFechaRonda(rutaKey),
+      ruta_key: rutaKey
     };
 
     // Caso especial: CERRÓ → auto-archivar en clientes_activos
@@ -15731,10 +15956,23 @@ function mrMotivoGuardar(motivo, motivoTexto) {
       });
     }
 
-    miRondaRecalcularRuta(rutaKey);
-    miRondaRenderModalBody(null);
-    miRondaRenderCards();
+    // Cerrar modal de motivos primero
     mrMotivoCerrar();
+
+    // Animación de salida (la card baja a "Ya gestionados")
+    var cardEl = document.querySelector('.mr-opC-card[data-cid="' + c.cliente_id + '"]');
+    if (cardEl) {
+      cardEl.classList.add('mr-opC-leaving');
+      setTimeout(function() {
+        miRondaRecalcularRuta(rutaKey);
+        miRondaRenderModalBody(null);
+        miRondaRenderCards();
+      }, 320);
+    } else {
+      miRondaRecalcularRuta(rutaKey);
+      miRondaRenderModalBody(null);
+      miRondaRenderCards();
+    }
     mrFeedback('🟡 Guardado: ' + mrMotivoLabel(motivo, motivoTexto));
   });
 }
@@ -15748,6 +15986,10 @@ function mrGestionRevertir(clienteId) {
       return;
     }
     delete _miRondaGestiones[clienteId];
+    delete _miRondaVentasManuales[clienteId];
+    // Buscar el cliente y resetear su estado para que vuelva a pendientes
+    var c = _miRondaClientes.find(function(x) { return x.cliente_id == clienteId; });
+    if (c) c._mr_estado = 'gris';
     miRondaRecalcularRuta(_miRondaRutaSel);
     miRondaRenderModalBody(null);
     miRondaRenderCards();
@@ -15893,20 +16135,26 @@ function mrSupabaseCargarGestiones(cb) {
     '&select=cliente_id,estado,motivo,motivo_texto,fecha_ronda,ruta_key';
   sbFetch(path).then(function(rows) {
     _miRondaGestiones = {};
-    // Solo guardo las de tipo "sin_venta" (las ventas las detecta desde pedidos)
-    // Y solo las de la ronda ACTUAL (fecha_ronda que corresponda a cada ruta)
+    _miRondaVentasManuales = {};
+    // Cargo ambos tipos: sin_venta → _miRondaGestiones | venta → _miRondaVentasManuales
+    // Solo las gestiones de la ronda ACTUAL de cada ruta (fecha_ronda coincide)
     (rows || []).forEach(function(r) {
+      var fechaRondaActual = mrFechaRonda(r.ruta_key);
+      if (r.fecha_ronda !== fechaRondaActual) return;
       if (r.estado === 'sin_venta') {
-        // Chequear que la fecha_ronda coincida con la ronda activa de esa ruta
-        var fechaRondaActual = mrFechaRonda(r.ruta_key);
-        if (r.fecha_ronda === fechaRondaActual) {
-          _miRondaGestiones[r.cliente_id] = {
-            estado: r.estado,
-            motivo: r.motivo,
-            motivo_texto: r.motivo_texto,
-            fecha_ronda: r.fecha_ronda
-          };
-        }
+        _miRondaGestiones[r.cliente_id] = {
+          estado: r.estado,
+          motivo: r.motivo,
+          motivo_texto: r.motivo_texto,
+          fecha_ronda: r.fecha_ronda,
+          ruta_key: r.ruta_key
+        };
+      } else if (r.estado === 'venta') {
+        // Marca de venta manual hecha desde el panel
+        _miRondaVentasManuales[r.cliente_id] = {
+          fecha_ronda: r.fecha_ronda,
+          ruta_key: r.ruta_key
+        };
       }
     });
     _miRondaGestionesCargadas = true;
