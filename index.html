@@ -4934,6 +4934,87 @@ body {
   letter-spacing: .3px;
 }
 
+/* ══ Banner de felicitación motivacional (según rango de conversión) ══ */
+.mr-felicitacion-banner {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 12px 14px;
+  margin: 6px 0 12px;
+  border-radius: 12px;
+  border: 1px solid transparent;
+  border-left-width: 4px;
+  animation: mrFelicFadeIn .45s ease-out;
+  background: #FAF4EC;
+  box-shadow: 0 2px 8px rgba(26,8,0,.08);
+}
+@keyframes mrFelicFadeIn {
+  from { opacity: 0; transform: translateY(-6px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+.mr-felic-icon {
+  font-size: 28px;
+  flex-shrink: 0;
+  width: 40px;
+  text-align: center;
+  filter: drop-shadow(0 1px 2px rgba(0,0,0,.15));
+}
+.mr-felic-content {
+  flex: 1;
+  min-width: 0;
+}
+.mr-felic-msg {
+  font-family: 'Barlow', sans-serif;
+  font-size: 13.5px;
+  font-weight: 600;
+  line-height: 1.38;
+  color: var(--text);
+  letter-spacing: .1px;
+}
+.mr-felic-stats {
+  font-family: 'Barlow Condensed', sans-serif;
+  font-size: 11px;
+  font-weight: 700;
+  color: var(--text3);
+  margin-top: 4px;
+  text-transform: uppercase;
+  letter-spacing: .5px;
+}
+
+/* Variantes por rango — paleta progresiva coherente con identidad TCK */
+/* Rango 1 (<50%): rojo tenue — "arrancá" */
+.mr-felicitacion-banner.rango-1 {
+  background: linear-gradient(135deg, #FFF5F0 0%, #FAEAE0 100%);
+  border-color: #E8C8C0;
+  border-left-color: #C62828;
+}
+.mr-felicitacion-banner.rango-1 .mr-felic-stats { color: #8B4E3F; }
+
+/* Rango 2 (50-70%): naranja/ámbar — "vas bien" */
+.mr-felicitacion-banner.rango-2 {
+  background: linear-gradient(135deg, #FFF8EC 0%, #FFEFD0 100%);
+  border-color: #F5D9A0;
+  border-left-color: #EF6C00;
+}
+.mr-felicitacion-banner.rango-2 .mr-felic-stats { color: #9C5E10; }
+
+/* Rango 3 (70-90%): verde oliva — "casi ahí" */
+.mr-felicitacion-banner.rango-3 {
+  background: linear-gradient(135deg, #F4FAF0 0%, #E8F2DC 100%);
+  border-color: #C8DFA8;
+  border-left-color: #558B2F;
+}
+.mr-felicitacion-banner.rango-3 .mr-felic-stats { color: #4A6B2C; }
+
+/* Rango 4 (90-100%): dorado — "día grande" */
+.mr-felicitacion-banner.rango-4 {
+  background: linear-gradient(135deg, #FFF9E0 0%, #FFEFB8 100%);
+  border-color: #F5D76E;
+  border-left-color: #D4A574;
+}
+.mr-felicitacion-banner.rango-4 .mr-felic-stats { color: #6B5318; }
+.mr-felicitacion-banner.rango-4 .mr-felic-msg { font-weight: 700; }
+
 /* Section title */
 .mr-section-title {
   font-family: 'Barlow Condensed', sans-serif;
@@ -6786,6 +6867,15 @@ body {
       <div class="mr-hdr">
         <div class="mr-hdr-titulo">🎯 <span id="mr-hdr-nombre">Mi Ronda</span></div>
         <div class="mr-hdr-sub" id="mr-hdr-sub">Tus clientes pendientes de contactar</div>
+      </div>
+
+      <!-- Banner de felicitación motivacional (Sistema rotativo — activación programada) -->
+      <div id="mr-felicitacion-banner" class="mr-felicitacion-banner" style="display:none;">
+        <div class="mr-felic-icon" id="mr-felic-icon">💪</div>
+        <div class="mr-felic-content">
+          <div class="mr-felic-msg" id="mr-felic-msg"></div>
+          <div class="mr-felic-stats" id="mr-felic-stats"></div>
+        </div>
       </div>
 
       <!-- Cards container -->
@@ -16149,6 +16239,158 @@ var MR_RUTAS_CONFIG = {
   }
 };
 
+// ══ SISTEMA DE FELICITACIONES MOTIVACIONALES ════════════════════════
+// Banner rotativo según % de conversión de la ronda activa.
+// Rotación: (día del mes + hash del nombre) % 4 → mismo día+vendedor = mismo mensaje.
+// Activación programada: FELICITACIONES_DESDE — antes de esa fecha, no se muestra.
+//
+// Lógica de ronda activa según día:
+//   Juan       → Siempre TRENQUE (venta local continua, sin viaje)
+//   Lisandro   → Ruta del camión activa según día (dom/lun→MARTES, mar/mié→JUEVES_VIERNES,
+//                jue/vie/sáb→LUNES_MARTES)
+//   Miguel     → TRENQUE + ruta del camión activa (sumadas)
+var FELICITACIONES_DESDE = '2026-04-27';  // YYYY-MM-DD — se activa el lunes 27/4
+
+var MENSAJES_FELICITACION = {
+  rango1: [  // < 50% — arrancá
+    "Arrancar cuesta más que seguir. Pero cuando arrancás, todo se ordena. Dale con el primer llamado.",
+    "Hay días que cuestan. Eso no te define. Lo que te define es seguir marcando teléfonos cuando todo está cuesta arriba.",
+    "Todavía queda ronda. Cada 'no' te acerca al 'sí'. Dale una más.",
+    "Los grandes días no arrancan todos parejos. Lo que los define es no bajar los brazos temprano. Todavía hay tiempo."
+  ],
+  rango2: [  // 50-70% — vas bien
+    "Vas bien. Estás haciendo lo que hay que hacer. La segunda mitad de la ronda es donde se hacen los números del mes.",
+    "Ahí va el ritmo. Los clientes que quedan son los que más valoran que los llames. No te frenes.",
+    "Media ronda hecha con el pulmón. La segunda se hace con la cabeza. Vos sabés a quién insistir.",
+    "Este es el momento clave. Muchos aflojan acá. Vos no. Seguí."
+  ],
+  rango3: [  // 70-90% — casi ahí
+    "Esto ya es otro nivel. Pocos llegan a este punto sin bajar el pie. Vos estás ahí.",
+    "Ronda así se cuentan pocas. Te levantaste hoy para esto. No aflojes con los que faltan.",
+    "Tres de cada cuatro clientes diciéndote que sí. Eso no es suerte, es oficio.",
+    "Te falta poco para redondear. Los últimos son los más especiales porque los trabajaste cuando otros ya se habían ido."
+  ],
+  rango4: [  // 90-100% — día grande
+    "Ronda entera. Esto no se improvisa. Se trabaja. Hoy la trabajaste vos.",
+    "Días así es por lo que TCK sigue creciendo. Gracias por poner el cuerpo.",
+    "Casi perfecto. Estás haciendo la diferencia del equipo. Se nota.",
+    "Ronda completa. Esto es lo que los clientes van a recordar el mes que viene cuando pidan de nuevo."
+  ]
+};
+
+// Hash simple del nombre (suma de charCodes) — reproducible, sin depender de librerías
+function mrHashNombre(nombre) {
+  var h = 0;
+  for (var i = 0; i < (nombre || '').length; i++) {
+    h = (h + nombre.charCodeAt(i)) & 0xffff;
+  }
+  return h;
+}
+
+// Determina la ruta activa del vendedor hoy según día de la semana.
+// Devuelve array de rutas (una o más) cuyas conversiones hay que sumar.
+// Si devuelve [] → no hay ronda activa hoy (no mostrar banner).
+function mrRondaActivaHoy(vendedor, hoy) {
+  hoy = hoy || new Date();
+  var dow = hoy.getDay();  // 0=dom, 1=lun, 2=mar, 3=mié, 4=jue, 5=vie, 6=sáb
+
+  // Juan — solo Trenque, todos los días, sin viaje
+  if (vendedor === 'Juan') return ['TRENQUE'];
+
+  // Lisandro — ruta del camión según día
+  // Calendario:
+  //   Dom / Lun         → RUTA_MARTES (camión sale el martes)
+  //   Mar / Mié         → RUTA_JUEVES_VIERNES (camión sale el jueves)
+  //   Jue / Vie / Sáb   → RUTA_LUNES_MARTES (ya arranca ciclo siguiente)
+  if (vendedor === 'Lisandro') {
+    if (dow === 0 || dow === 1) return ['RUTA_MARTES'];
+    if (dow === 2 || dow === 3) return ['RUTA_JUEVES_VIERNES'];
+    return ['RUTA_LUNES_MARTES'];
+  }
+
+  // Miguel — Trenque siempre + ruta del camión activa
+  if (vendedor === 'Miguel') {
+    if (dow === 0 || dow === 1) return ['TRENQUE', 'RUTA_MARTES'];
+    if (dow === 2 || dow === 3) return ['TRENQUE', 'RUTA_JUEVES_VIERNES'];
+    return ['TRENQUE', 'RUTA_LUNES_MARTES'];
+  }
+
+  // Cualquier otro rol (admin, chofer, desconocido) → sin banner
+  return [];
+}
+
+// Calcula el mensaje del banner. Devuelve { texto, rango, pct, cubiertos, total } o null si no corresponde.
+function mrCalcularFelicitacion(vendedor, rondaData) {
+  // 1. Chequeo de activación por fecha
+  var hoy = new Date();
+  hoy.setHours(0,0,0,0);
+  var desde = new Date(FELICITACIONES_DESDE + 'T00:00:00');
+  if (hoy < desde) return null;  // no activado todavía
+
+  // 2. Rutas activas para este vendedor hoy
+  var rutas = mrRondaActivaHoy(vendedor, hoy);
+  if (!rutas.length) return null;
+
+  // 3. Sumar cubiertos + total de esas rutas desde rondaData
+  var cubiertos = 0, total = 0;
+  rutas.forEach(function(rk) {
+    var d = rondaData && rondaData[rk];
+    if (d) {
+      cubiertos += (d.cubiertos || 0);
+      total     += (d.total || 0);
+    }
+  });
+
+  // 4. Si no hay ronda (0 pendientes totales), no mostrar
+  if (total === 0) return null;
+
+  // 5. Calcular pct y elegir rango
+  var pct = cubiertos / total;
+  var rango, icon;
+  if (pct < 0.50)      { rango = 'rango1'; icon = '💪'; }
+  else if (pct < 0.70) { rango = 'rango2'; icon = '🔥'; }
+  else if (pct < 0.90) { rango = 'rango3'; icon = '🎯'; }
+  else                 { rango = 'rango4'; icon = '🏆'; }
+
+  // 6. Rotar texto: (día del mes + hash nombre) % 4 → índice dentro del rango
+  var idx = (hoy.getDate() + mrHashNombre(vendedor)) % 4;
+  var texto = MENSAJES_FELICITACION[rango][idx];
+
+  return {
+    texto: texto,
+    rango: rango,
+    rangoNum: parseInt(rango.replace('rango',''), 10),
+    icon: icon,
+    pct: Math.round(pct * 100),
+    cubiertos: cubiertos,
+    total: total
+  };
+}
+
+// Renderiza el banner. Llamar desde miRondaRender() después de calcular _miRondaData.
+function mrRenderFelicitacion() {
+  var banner = document.getElementById('mr-felicitacion-banner');
+  if (!banner) return;
+
+  var f = mrCalcularFelicitacion(vendedorActual, _miRondaData);
+  if (!f) {
+    banner.style.display = 'none';
+    return;
+  }
+
+  // Aplicar clase de rango (removiendo anteriores)
+  banner.className = 'mr-felicitacion-banner rango-' + f.rangoNum;
+
+  var iconEl  = document.getElementById('mr-felic-icon');
+  var msgEl   = document.getElementById('mr-felic-msg');
+  var statsEl = document.getElementById('mr-felic-stats');
+  if (iconEl)  iconEl.textContent = f.icon;
+  if (msgEl)   msgEl.textContent = f.texto;
+  if (statsEl) statsEl.textContent = f.pct + '% de conversión · ' + f.cubiertos + ' de ' + f.total + ' clientes';
+
+  banner.style.display = 'flex';
+}
+
 // ── Cálculo de próximo viaje ─────────────────────────────────────
 // Dada una ruta y la fecha de hoy, devuelve la fecha del próximo viaje.
 // Si hoy es el día del viaje, devuelve el de la próxima semana.
@@ -16460,6 +16702,10 @@ async function miRondaRender() {
 
   // Calcular data
   _miRondaData = miRondaCalcular();
+
+  // Renderizar banner de felicitación motivacional (según rango de conversión).
+  // Se activa solo a partir de FELICITACIONES_DESDE y si hay ronda activa hoy.
+  mrRenderFelicitacion();
 
   // Calcular totales (incluyendo gestionados)
   var totalClientes = 0, totalCubiertos = 0, totalGestionados = 0, totalPendientes = 0;
