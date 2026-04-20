@@ -6517,7 +6517,7 @@ body {
 
   <!-- TAB NAV -->
 <nav class="tab-nav" id="tab-nav">
-  <button class="tab-btn active" id="tab-btn-pedidos" onclick="cambiarTab('pedidos')">
+  <button class="tab-btn" id="tab-btn-pedidos" onclick="cambiarTab('pedidos')">
     <span class="tab-badge" id="tab-badge-pend"></span>
     <span class="tab-icon">📋</span>
     <span class="tab-label">Pedidos</span>
@@ -6526,7 +6526,7 @@ body {
     <span class="tab-icon">📊</span>
     <span class="tab-label">Mi día</span>
   </button>
-  <button class="tab-btn center" id="tab-btn-mironda" onclick="cambiarTab('mironda')">
+  <button class="tab-btn center active" id="tab-btn-mironda" onclick="cambiarTab('mironda')">
     <span class="tab-badge" id="tab-badge-mironda"></span>
     <span class="tab-icon">🎯</span>
     <span class="tab-label">Mi Ronda</span>
@@ -6534,6 +6534,14 @@ body {
   <button class="tab-btn" id="tab-btn-mapa" onclick="cambiarTab('mapa')">
     <span class="tab-icon"><svg viewBox="0 0 24 24" fill="currentColor" width="22" height="22"><path d="M20.5 3l-.16.03L15 5.1 9 3 3.36 4.9c-.21.07-.36.25-.36.48V20.5c0 .28.22.5.5.5l.16-.03L9 18.9l6 2.1 5.64-1.9c.21-.07.36-.25.36-.48V3.5c0-.28-.22-.5-.5-.5zM15 19l-6-2.11V5l6 2.11V19z"/></svg></span>
     <span class="tab-label">Mapa</span>
+  </button>
+  <button class="tab-btn" id="tab-btn-gps" onclick="cambiarTab('gps')">
+    <span class="tab-icon"><svg viewBox="0 0 24 24" fill="currentColor" width="22" height="22"><path d="M12 2C8.13 2 5 5.13 5 9c0 5.25 7 13 7 13s7-7.75 7-13c0-3.87-3.13-7-7-7zm0 9.5c-1.38 0-2.5-1.12-2.5-2.5s1.12-2.5 2.5-2.5 2.5 1.12 2.5 2.5-1.12 2.5-2.5 2.5z"/></svg></span>
+    <span class="tab-label">Visitas</span>
+  </button>
+  <button class="tab-btn" id="tab-btn-reportes" onclick="cambiarTab('reportes')">
+    <span class="tab-icon">📈</span>
+    <span class="tab-label">Reportes</span>
   </button>
   <button class="tab-btn" id="tab-btn-mas" onclick="abrirMenuMas()">
     <span class="tab-icon">⋯</span>
@@ -6543,14 +6551,6 @@ body {
   <button class="tab-btn" id="tab-btn-clientes" onclick="cambiarTab('clientes')" style="display:none !important;">
     <span class="tab-icon">⭐</span>
     <span class="tab-label">Clientes</span>
-  </button>
-  <button class="tab-btn" id="tab-btn-gps" onclick="cambiarTab('gps')" style="display:none !important;">
-    <span class="tab-icon"><svg viewBox="0 0 24 24" fill="currentColor" width="18" height="18"><path d="M12 2C8.13 2 5 5.13 5 9c0 5.25 7 13 7 13s7-7.75 7-13c0-3.87-3.13-7-7-7zm0 9.5c-1.38 0-2.5-1.12-2.5-2.5s1.12-2.5 2.5-2.5 2.5 1.12 2.5 2.5-1.12 2.5-2.5 2.5z"/></svg></span>
-    <span>Visitas</span>
-  </button>
-  <button class="tab-btn" id="tab-btn-reportes" onclick="cambiarTab('reportes')" style="display:none !important;">
-    <span class="tab-icon">📈</span>
-    <span class="tab-label">Reportes</span>
   </button>
   <button class="tab-btn" id="tab-btn-entregas" onclick="cambiarTab('entregas')" style="display:none !important;">
     <span class="tab-icon">🚚</span>
@@ -6562,7 +6562,7 @@ body {
   </button>
 </nav>
 
-<!-- MENÚ "MÁS" (sheet inferior) — Clientes + Visitas + Reportes -->
+<!-- MENÚ "MÁS" (sheet inferior) — Clientes + Reportes (este último solo para no-Miguel) -->
 <div class="menu-mas-backdrop" id="menu-mas-backdrop" onclick="cerrarMenuMasFondo(event)">
   <div class="menu-mas-sheet" onclick="event.stopPropagation()">
     <div class="menu-mas-pill"></div>
@@ -6572,11 +6572,7 @@ body {
         <div class="menu-mas-icon">⭐</div>
         <div class="menu-mas-lbl">Clientes</div>
       </button>
-      <button class="menu-mas-item" id="menu-mas-visitas" onclick="cambiarTab('gps');cerrarMenuMas()">
-        <div class="menu-mas-icon">📍</div>
-        <div class="menu-mas-lbl">Visitas</div>
-      </button>
-      <button class="menu-mas-item" onclick="cambiarTab('reportes');cerrarMenuMas()">
+      <button class="menu-mas-item" id="menu-mas-reportes" onclick="cambiarTab('reportes');cerrarMenuMas()">
         <div class="menu-mas-icon">📈</div>
         <div class="menu-mas-lbl">Reportes</div>
       </button>
@@ -7130,6 +7126,14 @@ function login(nombre) {
   mostrarTabs();
   mostrarBotonesManual();
   checkPrimeraVez();
+  // Pantalla de inicio según rol:
+  //   Vendedor real (Miguel/Juan/Lisandro) → Mi Ronda (es el flujo principal)
+  //   Admin → Pedidos (resumen del día)
+  //   Chofer → Entregas (ya se setea en mostrarTabs)
+  var _esVendedor = (nombre !== 'ADMIN' && !esChofer);
+  if (_esVendedor) {
+    cambiarTab('mironda');
+  }
   // Iniciar tracking GPS continuo (solo vendedores, no Admin ni Choferes)
   if (nombre !== 'ADMIN' && !esChofer) trackingIniciar();
   // Cargar objetivos (solo vendedores)
@@ -8211,9 +8215,11 @@ function cambiarTab(tab) {
     if (b) b.classList.toggle('active', t === tab);
   });
 
-  // El botón "Más" se marca activo si estás en un tab oculto (clientes/visitas/reportes)
+  // El botón "Más" se marca activo si estás en un tab oculto
+  // Clientes siempre va por Más; Reportes va por Más excepto para Miguel
   var btnMas = document.getElementById('tab-btn-mas');
-  if (btnMas) btnMas.classList.toggle('active', tab === 'clientes' || tab === 'gps' || tab === 'reportes');
+  var enMasReportes = (tab === 'reportes' && vendedorActual !== 'Miguel');
+  if (btnMas) btnMas.classList.toggle('active', tab === 'clientes' || enMasReportes);
 
   // Cuando se abre Mi Ronda, renderizar
   if (tab === 'mironda') {
@@ -8310,8 +8316,9 @@ function mostrarTabs() {
   if (tabBot) tabBot.style.display = 'none'; // siempre oculto en nav, accesible vía console
 
   // ── NAV PRO: 5 tabs visibles + Más ──
-  // Vendedor (Miguel/Juan/Lisandro): Pedidos · Mi día · Mi Ronda (centro) · Mapa (vacio en vendedor) · Más
-  // Admin si entra acá: Pedidos · Mi día · Mi Ronda · Mapa · Más
+  // Juan/Lisandro (campo): Pedidos · Mi día · Mi Ronda (centro) · Visitas · Más
+  // Miguel (no campo): Pedidos · Mi día · Mi Ronda (centro) · Reportes · Más
+  // Admin: Pedidos · Mi día · — · Mapa · Más
 
   // Tab Mi día — todos
   var tabMidia = document.getElementById('tab-btn-midia');
@@ -8321,23 +8328,31 @@ function mostrarTabs() {
   var tabMr = document.getElementById('tab-btn-mironda');
   if (tabMr) tabMr.style.display = esVendedor ? '' : 'none';
 
-  // Tab Mapa — solo Admin (vendedores no ven mapa)
+  // Tab Visitas — vendedores de campo (Juan/Lisandro) y admin
+  // Miguel NO ve Visitas (no visita clientes en campo)
+  var tabGps = document.getElementById('tab-btn-gps');
+  if (tabGps) tabGps.style.display = (esCampo || esAdmin) ? '' : 'none';
+
+  // Tab Reportes — solo Miguel (toma el slot 4 que dejó Visitas)
+  // Para Juan/Lisandro/Admin queda en el menú Más
+  var tabReportes = document.getElementById('tab-btn-reportes');
+  if (tabReportes) tabReportes.style.display = (vendedorActual === 'Miguel') ? '' : 'none';
+
+  // Tab Mapa — solo Admin (vendedores no ven mapa en el nav)
   var tabMapa = document.getElementById('tab-btn-mapa');
   if (tabMapa) tabMapa.style.display = esAdmin ? '' : 'none';
 
-  // Tab Más — siempre visible (contiene Clientes + Visitas + Reportes)
+  // Tab Más — siempre visible
   var tabMas = document.getElementById('tab-btn-mas');
   if (tabMas) tabMas.style.display = '';
 
-  // Tabs ocultos (accesibles vía menú Más, NUNCA visibles en nav)
-  ['clientes','gps','reportes'].forEach(function(t) {
-    var btn = document.getElementById('tab-btn-' + t);
-    if (btn) btn.style.display = 'none';
-  });
+  // Tabs ocultos en nav (accesibles vía menú Más)
+  var tabClientes = document.getElementById('tab-btn-clientes');
+  if (tabClientes) tabClientes.style.display = 'none';
 
-  // Visitas en menú Más: visible para campo (Juan/Lisandro) y Admin
-  var menuVis = document.getElementById('menu-mas-visitas');
-  if (menuVis) menuVis.style.display = (esCampo || esAdmin) ? 'flex' : 'none';
+  // Reportes en menú Más: visible para todos EXCEPTO Miguel (que lo tiene en el nav)
+  var menuRep = document.getElementById('menu-mas-reportes');
+  if (menuRep) menuRep.style.display = (vendedorActual === 'Miguel') ? 'none' : 'flex';
 
   if (_tabActual === 'gps' && !esCampo && !esAdmin) cambiarTab('pedidos');
   if (_tabActual === 'mapa' && !esAdmin) cambiarTab('pedidos');
