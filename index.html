@@ -6196,6 +6196,162 @@ body {
 }
 .mr-opC-undo:hover, .mr-opC-undo:active { color: #6B0000; }
 
+/* ════════════════════════════════════════════════════════════════
+   v8.2 — BADGES DE ENFRIAMIENTO + VIP + HISTÓRICO (panel/inline)
+   ════════════════════════════════════════════════════════════════ */
+
+/* Badges (a la izquierda del nombre del cliente) */
+.v82-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  font-family: 'Barlow Condensed', sans-serif;
+  font-size: 10px;
+  font-weight: 800;
+  padding: 2px 6px;
+  border-radius: 4px;
+  text-transform: uppercase;
+  letter-spacing: .3px;
+  margin-right: 5px;
+  vertical-align: middle;
+  line-height: 1.2;
+  white-space: nowrap;
+}
+.v82-badge-frio   { background: #E3F2FD; color: #1565C0; }
+.v82-badge-bajon  { background: #FFF3E0; color: #E65100; }
+.v82-badge-vip    { background: #FFF8DC; color: #B8860B; border: 1px solid #FFE4A0; }
+.v82-badge-alerta { background: #FFEBEE; color: #C62828; }
+
+/* Border-left de la card según badge principal.
+   Prioridad (mayor a menor): alerta > frio > bajon > vip.
+   Solo aplica a cards pendientes (no vendidas ni gestionadas). */
+.mr-opC-card.v82-bord-alerta { border-left-color: #C62828; border-left-width: 4px; }
+.mr-opC-card.v82-bord-frio   { border-left-color: #1565C0; border-left-width: 4px; }
+.mr-opC-card.v82-bord-bajon  { border-left-color: #E65100; border-left-width: 4px; }
+.mr-opC-card.v82-bord-vip    { border-left-color: #B8860B; border-left-width: 4px; }
+
+/* ── VARIANTE A (Miguel/Lisandro): histórico expandible ── */
+
+.v82-hist-toggle {
+  background: transparent;
+  border: none;
+  border-top: 1px dashed #E0D2B8;
+  color: #8B6F50;
+  font-family: 'Barlow Condensed', sans-serif;
+  font-size: 11px;
+  font-weight: 700;
+  padding: 7px 2px 3px;
+  margin-top: 6px;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  width: 100%;
+  text-transform: uppercase;
+  letter-spacing: .3px;
+  -webkit-tap-highlight-color: transparent;
+  transition: color .15s;
+}
+.v82-hist-toggle:hover, .v82-hist-toggle:active { color: #8B0000; }
+.v82-hist-chev {
+  font-size: 11px;
+  transition: transform .2s;
+  opacity: .7;
+}
+.mr-opC-card.v82-abierta .v82-hist-chev { transform: rotate(180deg); }
+
+.v82-hist-panel {
+  display: none;
+  margin-top: 6px;
+  padding: 8px 10px;
+  background: #FAF4EC;
+  border-radius: 8px;
+  border: 1px dashed #E0D2B8;
+}
+.mr-opC-card.v82-abierta .v82-hist-panel { display: block; }
+
+.v82-hist-item {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  font-size: 11px;
+  padding: 3px 0 1px;
+  color: #5C3A1E;
+}
+.v82-hist-fecha {
+  color: #8B6F50;
+  font-weight: 700;
+  font-family: 'Barlow Condensed', sans-serif;
+  font-size: 12px;
+}
+.v82-hist-monto {
+  color: #8B0000;
+  font-weight: 900;
+  font-family: 'Barlow Condensed', sans-serif;
+  font-size: 13px;
+}
+.v82-hist-prod {
+  font-size: 10.5px;
+  color: #8B6F50;
+  margin: 0 0 5px;
+  line-height: 1.35;
+  padding-left: 0;
+  word-break: break-word;
+}
+.v82-hist-panel > .v82-hist-prod:last-child { margin-bottom: 0; }
+
+.v82-hist-empty {
+  font-size: 11px;
+  color: #8B6F50;
+  text-align: center;
+  padding: 4px 0;
+  font-style: italic;
+}
+
+/* ── VARIANTE C (Juan): histórico inline siempre visible ── */
+
+.v82-hist-inline {
+  background: #FAF4EC;
+  border-left: 2px solid #D4A574;
+  border-radius: 0 6px 6px 0;
+  padding: 5px 8px;
+  margin: 0 0 8px;
+  font-size: 11px;
+  line-height: 1.45;
+  color: #5C3A1E;
+}
+.v82-hist-inline b {
+  color: #8B0000;
+  font-family: 'Barlow Condensed', sans-serif;
+  font-size: 13px;
+  font-weight: 900;
+  letter-spacing: .2px;
+}
+.v82-hist-inline-montos {
+  display: flex;
+  align-items: baseline;
+  gap: 4px;
+  flex-wrap: wrap;
+}
+.v82-hist-inline-prod {
+  color: #8B6F50;
+  font-size: 10.5px;
+  margin-top: 2px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.v82-hist-inline-empty {
+  font-style: italic;
+  color: #8B6F50;
+  text-align: center;
+  border-left-color: #B0A595;
+}
+
+/* Afinado en cards con variante C — el bloque inline reemplaza el toggle */
+.mr-opC-card.v82-var-C .v82-hist-toggle,
+.mr-opC-card.v82-var-C .v82-hist-panel { display: none !important; }
+
 </style>
 </head>
 <body>
@@ -16419,6 +16575,34 @@ var _miRondaData     = null;       // Datos calculados por ruta
 var _miRondaRutaSel  = null;       // Ruta seleccionada en el modal
 var _miRondaCargando = false;
 
+// ══════════════════════════════════════════════════════════════════════
+// v8.2 — HISTÓRICO + ALERTAS DE ENFRIAMIENTO + VIP IMPLÍCITO
+// ══════════════════════════════════════════════════════════════════════
+// Constantes fácilmente ajustables. Si las alertas saltan mucho o poco,
+// cambiar acá y recargar. Sin tablas Supabase nuevas: todo on-the-fly
+// cruzando clientes_activos con todosLosPedidos (Sheet).
+
+// Variante visual de la card por vendedor:
+//   A = badge + border-left + histórico expandible (compacto)
+//   C = badge + border-left + histórico inline siempre visible (denso)
+// Juan vende continuo en Trenque → necesita el dato al vuelo → C
+// Los demás tienen múltiples rutas → compacto importa más → A
+var MR_V82_VARIANTE_POR_VENDEDOR = {
+  'JUAN':     'C',
+  'MIGUEL':   'A',
+  'LISANDRO': 'A'
+};
+var MR_V82_VARIANTE_DEFAULT = 'A';
+
+// Umbrales de las alertas — ajustar según datos reales después de 1-2 semanas
+var MR_V82_FRIO_FACTOR   = 1.5;  // sin pedir más de frec_prom × 1.5 → ⏰
+var MR_V82_BAJON_RATIO   = 0.70; // último pedido < 70% del ticket prom → 📉
+var MR_V82_VIP_TOP_PCT   = 0.20; // top 20% del vendedor por facturación → ⭐
+
+// Cache de cálculos (se invalida al recargar Mi Ronda)
+var _miRondaHistCache = null;  // { cliente_id: {items, promedio, ultimoMonto, tickets} }
+var _miRondaVIPSet    = null;  // Set de cliente_id que son VIP
+
 // ── Config de rutas ──────────────────────────────────────────────
 // Cada ruta tiene: día de salida del camión y ventana de preparación.
 // Para Trenque no hay viaje, es semana corriente (lunes a domingo).
@@ -16996,6 +17180,10 @@ function miRondaCalcular() {
   var hoy = new Date(); hoy.setHours(0,0,0,0);
   var vendNorm = mrNormVendedor(vendedorActual);
 
+  // v8.2: invalidar caches al recalcular para reflejar pedidos nuevos
+  _miRondaHistCache = null;
+  _miRondaVIPSet = null;
+
   // Agrupar clientes por ruta_viaje
   var porRuta = {};
   _miRondaClientes.forEach(function(c) {
@@ -17451,6 +17639,190 @@ function mrSeccionToggle(hdrEl) {
   }
 }
 
+// ══════════════════════════════════════════════════════════════════════
+// v8.2 — HELPERS: histórico, VIPs implícitos, badges de enfriamiento
+// ══════════════════════════════════════════════════════════════════════
+
+// Calcula el histórico de un cliente a partir de todosLosPedidos.
+// Devuelve { items, promedio, ultimoMonto, tickets } o null si no hay datos.
+// - items: array de los últimos 3 pedidos {fecha, monto, productos}
+// - tickets: array de todos los montos (para calcular VIP del vendedor)
+function mrCalcHistoricoCliente(c) {
+  if (_miRondaHistCache && _miRondaHistCache[c.cliente_id] !== undefined) {
+    return _miRondaHistCache[c.cliente_id];
+  }
+  if (!_miRondaHistCache) _miRondaHistCache = {};
+
+  var nomNorm = mrNormNombre(c.nombre);
+  if (!nomNorm) { _miRondaHistCache[c.cliente_id] = null; return null; }
+
+  var vendNorm = mrNormVendedor(vendedorActual);
+  var miosDelCliente = [];
+
+  todosLosPedidos.forEach(function(p) {
+    if (!p || p.estado === 'Cancelado') return;
+    // Solo del vendedor actual (cada vendedor ve "su" histórico con ese cliente)
+    var pv = mrNormVendedor(p.vendedor);
+    if (pv !== vendNorm) return;
+    if (mrNormNombre(p.cliente) !== nomNorm) return;
+    var f = fechaPedido(p);
+    if (!f || isNaN(f)) return;
+    var total = parseInt((p.total || '').toString().replace(/[^\d]/g, ''), 10) || 0;
+    if (total <= 0) return;
+    miosDelCliente.push({
+      fecha: f,
+      monto: total,
+      productos: (p.items || p.resumen || '').toString().slice(0, 80)
+    });
+  });
+
+  if (!miosDelCliente.length) { _miRondaHistCache[c.cliente_id] = null; return null; }
+
+  miosDelCliente.sort(function(a, b) { return b.fecha - a.fecha; });
+  var tickets = miosDelCliente.map(function(x) { return x.monto; });
+  var prom = tickets.reduce(function(a, b) { return a + b; }, 0) / tickets.length;
+
+  var res = {
+    items: miosDelCliente.slice(0, 3),
+    promedio: Math.round(prom),
+    ultimoMonto: tickets[0],
+    tickets: tickets
+  };
+  _miRondaHistCache[c.cliente_id] = res;
+  return res;
+}
+
+// Calcula el Set de cliente_ids que son VIP (top 20% del vendedor por
+// facturación histórica total). Se llama una vez por render.
+function mrCalcVIPSet() {
+  if (_miRondaVIPSet) return _miRondaVIPSet;
+
+  // Facturación total de cada cliente con el vendedor actual
+  var totalPorCliente = [];
+  (_miRondaClientes || []).forEach(function(c) {
+    var h = mrCalcHistoricoCliente(c);
+    if (!h) return;
+    var total = h.tickets.reduce(function(a, b) { return a + b; }, 0);
+    if (total > 0) totalPorCliente.push({ id: c.cliente_id, total: total });
+  });
+
+  if (!totalPorCliente.length) {
+    _miRondaVIPSet = new Set();
+    return _miRondaVIPSet;
+  }
+
+  totalPorCliente.sort(function(a, b) { return b.total - a.total; });
+  var cutoff = Math.max(1, Math.ceil(totalPorCliente.length * MR_V82_VIP_TOP_PCT));
+  _miRondaVIPSet = new Set(totalPorCliente.slice(0, cutoff).map(function(x) { return x.id; }));
+  return _miRondaVIPSet;
+}
+
+// Decide qué badges mostrar en una card. Devuelve array de {tipo, txt}.
+// Tipos: 'frio' (azul), 'bajon' (naranja), 'vip' (dorado), 'alerta' (rojo, para combinados)
+function mrCalcBadges(c) {
+  var badges = [];
+  var vips = mrCalcVIPSet();
+  var esVIP = vips.has(c.cliente_id);
+  var hist = mrCalcHistoricoCliente(c);
+
+  // Frío: sin pedir más de frec_prom × FRIO_FACTOR
+  var diasDesde = parseInt(c.dias_desde_ult_pedido, 10);
+  var frecProm  = parseInt(c.frec_dias_prom, 10);
+  var esFrio = false;
+  if (!isNaN(diasDesde) && !isNaN(frecProm) && frecProm > 0) {
+    if (diasDesde > frecProm * MR_V82_FRIO_FACTOR) esFrio = true;
+  }
+
+  // Bajón: último pedido < BAJON_RATIO × promedio
+  var esBajon = false;
+  var bajonPct = 0;
+  if (hist && hist.promedio > 0 && hist.tickets.length >= 2) {
+    if (hist.ultimoMonto < hist.promedio * MR_V82_BAJON_RATIO) {
+      esBajon = true;
+      bajonPct = Math.round((1 - hist.ultimoMonto / hist.promedio) * 100);
+    }
+  }
+
+  // Armado en orden de prioridad visual: VIP primero (dorado pequeño), después crítico
+  if (esVIP) badges.push({ tipo: 'vip', txt: '★ VIP' });
+  if (esFrio) {
+    // Si es VIP frío, el badge de frío va en rojo (alerta) en vez de azul
+    badges.push({
+      tipo: esVIP ? 'alerta' : 'frio',
+      txt: '⏰ ' + diasDesde + 'd sin pedir'
+    });
+  }
+  if (esBajon && !esFrio) {
+    // Si ya es frío no mostramos bajón (evita 3 badges amontonados)
+    badges.push({ tipo: 'bajon', txt: '📉 bajó ' + bajonPct + '%' });
+  }
+  return badges;
+}
+
+// Devuelve la variante ('A' o 'C') según el vendedor logueado
+function mrV82Variante() {
+  var v = mrNormVendedor(vendedorActual);
+  return MR_V82_VARIANTE_POR_VENDEDOR[v] || MR_V82_VARIANTE_DEFAULT;
+}
+
+// Toggle del panel de histórico (para variante A). Click handler global.
+function mrV82ToggleHist(clienteId) {
+  var card = document.querySelector('.mr-opC-card[data-cid="' + clienteId + '"]');
+  if (card) card.classList.toggle('v82-abierta');
+}
+
+// HTML del histórico para la variante A (panel expandible)
+function mrV82RenderHistPanelA(hist) {
+  if (!hist || !hist.items.length) {
+    return '<div class="v82-hist-empty">Sin pedidos previos con este cliente</div>';
+  }
+  return hist.items.map(function(it) {
+    var d = it.fecha;
+    var fechaTxt = d.getDate() + '/' + (d.getMonth() + 1);
+    var montoTxt = '$' + it.monto.toLocaleString('es-AR');
+    var prods = escapeHtml(it.productos || '—');
+    return '<div class="v82-hist-item">' +
+             '<span class="v82-hist-fecha">' + fechaTxt + '</span>' +
+             '<span class="v82-hist-monto">' + montoTxt + '</span>' +
+           '</div>' +
+           '<div class="v82-hist-prod">' + prods + '</div>';
+  }).join('');
+}
+
+// HTML del histórico para la variante C (inline siempre visible, 1 línea)
+function mrV82RenderHistInlineC(hist) {
+  if (!hist || !hist.items.length) {
+    return '<div class="v82-hist-inline v82-hist-inline-empty">Sin pedidos previos</div>';
+  }
+  var montos = hist.items.map(function(it) {
+    return '<b>$' + Math.round(it.monto / 1000) + 'k</b>';
+  }).join(' · ');
+  var ultProd = escapeHtml(hist.items[0].productos || '—').slice(0, 60);
+  return '<div class="v82-hist-inline">' +
+           '<div class="v82-hist-inline-montos">Últ. 3: ' + montos + '</div>' +
+           '<div class="v82-hist-inline-prod">' + ultProd + '</div>' +
+         '</div>';
+}
+
+// Render de los badges inline dentro del nombre
+function mrV82RenderBadges(badges) {
+  if (!badges.length) return '';
+  return badges.map(function(b) {
+    return '<span class="v82-badge v82-badge-' + b.tipo + '">' + escapeHtml(b.txt) + '</span>';
+  }).join('');
+}
+
+// Clase de border-left según badge principal (prioridad: alerta > frio > bajon > vip)
+function mrV82BorderClass(badges) {
+  if (!badges.length) return '';
+  var tipos = badges.map(function(b) { return b.tipo; });
+  if (tipos.indexOf('alerta') !== -1) return 'v82-bord-alerta';
+  if (tipos.indexOf('frio')   !== -1) return 'v82-bord-frio';
+  if (tipos.indexOf('bajon')  !== -1) return 'v82-bord-bajon';
+  if (tipos.indexOf('vip')    !== -1) return 'v82-bord-vip';
+  return '';
+}
+
 // ── Render de una card individual según estado ────────────────────
 function mrRenderCliente(c, tipo) {
   var tel = (c.telefono || '').toString().replace(/\D/g, '');
@@ -17474,6 +17846,20 @@ function mrRenderCliente(c, tipo) {
   var claseCard = 'mr-opC-card';
   if (tipo === 'vendida') claseCard += ' vendida';
   if (tipo === 'gestionada') claseCard += ' gestionada';
+
+  // v8.2: calcular badges, variante por vendedor, histórico.
+  // Solo para cards pendientes — en vendidas/gestionadas ya hay sello propio.
+  var v82Badges = [];
+  var v82Hist = null;
+  var v82Variante = mrV82Variante();
+  if (tipo === 'pendiente') {
+    v82Badges = mrCalcBadges(c);
+    v82Hist = mrCalcHistoricoCliente(c);
+    var borderCls = mrV82BorderClass(v82Badges);
+    if (borderCls) claseCard += ' ' + borderCls;
+    claseCard += ' v82-var-' + v82Variante;
+  }
+
   // data-cid permite identificar la card para animaciones
   var dataCid = ' data-cid="' + escapeHtml(c.cliente_id || '') + '"';
 
@@ -17520,10 +17906,33 @@ function mrRenderCliente(c, tipo) {
       '</div>';
   }
 
+  // v8.2: badges van a la izquierda del nombre (ambas variantes)
+  var v82BadgesHtml = v82Badges.length ? mrV82RenderBadges(v82Badges) : '';
+
+  // v8.2: histórico: variante A = panel expandible; variante C = inline siempre visible
+  var v82HistInline  = '';
+  var v82HistPanel   = '';
+  var v82HistToggle  = '';
+  if (tipo === 'pendiente') {
+    if (v82Variante === 'C') {
+      v82HistInline = mrV82RenderHistInlineC(v82Hist);
+    } else {
+      v82HistToggle =
+        '<button class="v82-hist-toggle" onclick="event.stopPropagation();mrV82ToggleHist(\'' +
+          escapeHtml(c.cliente_id || '') + '\')">' +
+          '<span>📦 Ver últimos pedidos</span>' +
+          '<span class="v82-hist-chev">▾</span>' +
+        '</button>';
+      v82HistPanel = '<div class="v82-hist-panel">' +
+                       mrV82RenderHistPanelA(v82Hist) +
+                     '</div>';
+    }
+  }
+
   return '<div class="' + claseCard + '"' + dataCid + '>' +
     '<div class="mr-opC-row-info">' +
       '<div class="mr-opC-info">' +
-        '<div class="mr-opC-nombre">' + nombre + '</div>' +
+        '<div class="mr-opC-nombre">' + v82BadgesHtml + nombre + '</div>' +
         '<div class="mr-opC-meta">' +
           '<span>📍 ' + loc + '</span>' +
           '<span>⏱️ ' + escapeHtml(ultPedidoTxt) + '</span>' +
@@ -17533,7 +17942,10 @@ function mrRenderCliente(c, tipo) {
       '</div>' +
       btnWa +
     '</div>' +
+    v82HistInline +
     bloqueAccion +
+    v82HistToggle +
+    v82HistPanel +
   '</div>';
 }
 
