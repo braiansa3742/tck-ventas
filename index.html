@@ -4400,14 +4400,14 @@ body {
 .mr-hdr {
   background: linear-gradient(135deg, #4A0000 0%, #8B0000 60%, #B71C1C 100%);
   border-radius: 14px;
-  padding: 14px 16px;
-  margin-bottom: 14px;
+  padding: 12px 16px;
+  margin-bottom: 12px;
   color: #fff;
   box-shadow: 0 4px 14px rgba(139,0,0,.15);
 }
 .mr-hdr-titulo {
   font-family: 'Barlow Condensed', sans-serif;
-  font-size: 20px;
+  font-size: 18px;
   font-weight: 900;
   letter-spacing: .5px;
   color: var(--gold);
@@ -4418,37 +4418,8 @@ body {
 .mr-hdr-sub {
   font-size: 12px;
   color: rgba(255,255,255,.85);
-  margin-top: 2px;
-  letter-spacing: .3px;
-}
-.mr-hdr-stats {
-  display: grid;
-  grid-template-columns: repeat(3, 1fr);
-  gap: 8px;
-  margin-top: 12px;
-}
-.mr-hdr-stat {
-  background: rgba(255,255,255,.12);
-  border-radius: 10px;
-  padding: 8px 6px;
-  text-align: center;
-  border: 1px solid rgba(255,255,255,.15);
-}
-.mr-hdr-stat-num {
-  font-family: 'Barlow Condensed', sans-serif;
-  font-size: 22px;
-  font-weight: 900;
-  line-height: 1;
-  color: #fff;
-}
-.mr-hdr-stat-lbl {
-  font-size: 9px;
-  color: rgba(255,255,255,.75);
-  font-family: 'Barlow Condensed', sans-serif;
-  font-weight: 700;
-  text-transform: uppercase;
-  letter-spacing: .5px;
   margin-top: 3px;
+  letter-spacing: .3px;
 }
 
 /* Section title */
@@ -4786,8 +4757,8 @@ body {
   align-items: center;
 }
 .mr-cli-btn {
-  width: 34px;
-  height: 34px;
+  width: 40px;
+  height: 40px;
   border-radius: 50%;
   border: none;
   cursor: pointer;
@@ -4797,11 +4768,13 @@ body {
   font-size: 16px;
   -webkit-tap-highlight-color: transparent;
   transition: transform .1s;
+  padding: 0;
 }
 .mr-cli-btn:active { transform: scale(.9); }
 .mr-cli-btn-wa   { background: #25D366; color: #fff; }
-.mr-cli-btn-tel  { background: #1976D2; color: #fff; }
+.mr-cli-btn-wa svg { width: 22px; height: 22px; fill: #fff; }
 .mr-cli-btn-none { background: #E0E0E0; color: #9E9E9E; cursor: not-allowed; }
+.mr-cli-btn-none svg { width: 20px; height: 20px; fill: #9E9E9E; opacity: .6; }
 
 .mr-modal-empty {
   text-align: center;
@@ -5651,20 +5624,6 @@ body {
       <div class="mr-hdr">
         <div class="mr-hdr-titulo">🎯 <span id="mr-hdr-nombre">Mi Ronda</span></div>
         <div class="mr-hdr-sub" id="mr-hdr-sub">Tus clientes pendientes de contactar</div>
-        <div class="mr-hdr-stats" id="mr-hdr-stats" style="display:none;">
-          <div class="mr-hdr-stat">
-            <div class="mr-hdr-stat-num" id="mr-stat-total">—</div>
-            <div class="mr-hdr-stat-lbl">Clientes</div>
-          </div>
-          <div class="mr-hdr-stat">
-            <div class="mr-hdr-stat-num" id="mr-stat-cubiertos">—</div>
-            <div class="mr-hdr-stat-lbl">Cubiertos</div>
-          </div>
-          <div class="mr-hdr-stat">
-            <div class="mr-hdr-stat-num" id="mr-stat-pendientes" style="color:#FFD700">—</div>
-            <div class="mr-hdr-stat-lbl">Pendientes</div>
-          </div>
-        </div>
       </div>
 
       <!-- Cards container -->
@@ -14495,6 +14454,13 @@ var MR_RUTAS_CONFIG = {
     diaSalida: null,
     colorBase: '#5C3A1E',
     tipo: 'mostrador'
+  },
+  'SIN_RUTA': {
+    nombre: 'Sin ruta asignada',
+    descCorta: 'Clientes sin zona clara',
+    diaSalida: null,
+    colorBase: '#5C3A1E',
+    tipo: 'otros'
   }
 };
 
@@ -14569,8 +14535,16 @@ function mrEstadoVisual(rutaKey, diasHasta, cubiertos, total) {
   if (total === 0) return 'neutral';
   if (cubiertos >= total) return 'done';
 
+  // Rutas sin ruta fija (mostrador, sin_ruta, no configuradas): nunca urgentes
+  if (!cfg || cfg.tipo === 'mostrador' || cfg.tipo === 'otros') {
+    var pct0 = cubiertos / total;
+    if (pct0 >= 0.9) return 'done';
+    if (pct0 >= 0.5) return 'info';
+    return 'neutral';
+  }
+
   // Para rutas locales (Trenque): según cuántos pendientes quedan
-  if (!cfg || cfg.tipo !== 'viaje') {
+  if (cfg.tipo !== 'viaje') {
     var pct = cubiertos / total;
     if (pct >= 0.9) return 'done';
     if (pct >= 0.7) return 'info';
@@ -14589,6 +14563,16 @@ function mrEstadoVisual(rutaKey, diasHasta, cubiertos, total) {
 function mrTextoSubtitulo(rutaKey, diasHasta, pendientes) {
   var cfg = MR_RUTAS_CONFIG[rutaKey];
   if (!cfg) return '';
+
+  if (cfg.tipo === 'otros') {
+    if (pendientes === 0) return 'Todos gestionados';
+    return pendientes + ' cliente' + (pendientes === 1 ? '' : 's') + ' sin ruta asignada';
+  }
+
+  if (cfg.tipo === 'mostrador') {
+    if (pendientes === 0) return 'Todos gestionados esta semana';
+    return pendientes + ' cliente' + (pendientes === 1 ? '' : 's') + ' de mostrador sin compra reciente';
+  }
 
   if (cfg.tipo !== 'viaje') {
     if (pendientes === 0) return 'Todos cubiertos esta semana';
@@ -14770,8 +14754,6 @@ async function miRondaRender() {
         '<div class="mr-empty-sub">Hablá con Francisco para que te asigne tu cartera.</div>' +
       '</div>';
     }
-    var statsEl = document.getElementById('mr-hdr-stats');
-    if (statsEl) statsEl.style.display = 'none';
     var secTitle = document.getElementById('mr-section-title');
     if (secTitle) secTitle.style.display = 'none';
     return;
@@ -14780,7 +14762,7 @@ async function miRondaRender() {
   // Calcular data
   _miRondaData = miRondaCalcular();
 
-  // Actualizar stats del header
+  // Calcular totales
   var totalClientes = 0, totalCubiertos = 0, totalPendientes = 0;
   Object.keys(_miRondaData).forEach(function(k) {
     var d = _miRondaData[k];
@@ -14788,20 +14770,20 @@ async function miRondaRender() {
     totalCubiertos += d.cubiertos;
     totalPendientes += d.pendientesCount;
   });
-  document.getElementById('mr-stat-total').textContent = totalClientes;
-  document.getElementById('mr-stat-cubiertos').textContent = totalCubiertos;
-  document.getElementById('mr-stat-pendientes').textContent = totalPendientes;
-  var statsEl = document.getElementById('mr-hdr-stats');
-  if (statsEl) statsEl.style.display = 'grid';
+
+  // Mostrar section title
   var secTitle = document.getElementById('mr-section-title');
   if (secTitle) secTitle.style.display = 'block';
 
-  // Subtítulo con fecha
+  // Subtítulo con fecha y stats consolidadas
   var subEl = document.getElementById('mr-hdr-sub');
   if (subEl) {
     var d = new Date();
     var dias = ['Domingo','Lunes','Martes','Miércoles','Jueves','Viernes','Sábado'];
-    subEl.textContent = dias[d.getDay()] + ' ' + d.getDate() + ' · ' + totalPendientes + ' cliente' + (totalPendientes === 1 ? '' : 's') + ' pendiente' + (totalPendientes === 1 ? '' : 's');
+    var meses = ['ene','feb','mar','abr','may','jun','jul','ago','sep','oct','nov','dic'];
+    var fechaTxt = dias[d.getDay()] + ' ' + d.getDate() + ' ' + meses[d.getMonth()];
+    var statsTxt = totalCubiertos + ' de ' + totalClientes + ' cubiertos · ' + totalPendientes + ' pendiente' + (totalPendientes === 1 ? '' : 's');
+    subEl.textContent = fechaTxt + '  ·  ' + statsTxt;
   }
 
   // Badge en el tab
@@ -14821,17 +14803,22 @@ function miRondaRenderCards() {
   if (!cont || !_miRondaData) return;
 
   // Orden de prioridad visual:
-  // 1. Rutas urgent (<=1 día) primero
-  // 2. Luego alert (2 días)
-  // 3. Luego warning (3-4 días)
-  // 4. Luego info (resto)
-  // 5. Done / neutral al final
-  var ordenEstados = { urgent:1, alert:2, warning:3, info:4, neutral:5, done:6 };
+  // 1. Viajes urgentes/alert/warning/info (en ese orden)
+  // 2. Trenque (semana corriente)
+  // 3. Mostrador
+  // 4. Sin_ruta y otros al final
+  var tipoOrden  = { viaje:1, local:2, mostrador:3, otros:4 };
+  var estadoOrden = { urgent:1, alert:2, warning:3, info:4, neutral:5, done:6 };
   var rutas = Object.keys(_miRondaData).sort(function(a, b) {
-    var ea = ordenEstados[_miRondaData[a].estado] || 99;
-    var eb = ordenEstados[_miRondaData[b].estado] || 99;
+    var cfgA = MR_RUTAS_CONFIG[a] || { tipo: 'otros' };
+    var cfgB = MR_RUTAS_CONFIG[b] || { tipo: 'otros' };
+    var ta = tipoOrden[cfgA.tipo] || 5;
+    var tb = tipoOrden[cfgB.tipo] || 5;
+    if (ta !== tb) return ta - tb;
+    var ea = estadoOrden[_miRondaData[a].estado] || 99;
+    var eb = estadoOrden[_miRondaData[b].estado] || 99;
     if (ea !== eb) return ea - eb;
-    return b.localeCompare(a);
+    return a.localeCompare(b);
   });
 
   if (rutas.length === 0) {
@@ -15004,13 +14991,12 @@ function miRondaRenderModalBody(lista, filtroLocalidad) {
     var nota = c.notas ? '<div class="mr-cli-nota">📝 ' + escapeHtml(c.notas) + '</div>' : '';
     var dotColor = c._mr_estado === 'verde' ? '#2E7D32' : '#9E9E9E';
 
-    // Botones de acción
+    // Botón de acción: solo WhatsApp (el de llamar se sacó, el vendedor ya tiene los contactos)
+    // El logo oficial de WhatsApp va como SVG inline
+    var waIconSvg = '<svg viewBox="0 0 24 24"><path d="M17.472 14.382c-.297-.149-1.758-.867-2.03-.967-.273-.099-.471-.148-.67.15-.197.297-.767.966-.94 1.164-.173.199-.347.223-.644.075-.297-.15-1.255-.463-2.39-1.475-.883-.788-1.48-1.761-1.653-2.059-.173-.297-.018-.458.13-.606.134-.133.298-.347.446-.52.149-.174.198-.298.298-.497.099-.198.05-.371-.025-.52-.075-.149-.669-1.612-.916-2.207-.242-.579-.487-.5-.669-.51-.173-.008-.371-.01-.57-.01-.198 0-.52.074-.792.372-.272.297-1.04 1.016-1.04 2.479 0 1.462 1.065 2.875 1.213 3.074.149.198 2.096 3.2 5.077 4.487.709.306 1.262.489 1.694.625.712.227 1.36.195 1.871.118.571-.085 1.758-.719 2.006-1.413.248-.694.248-1.289.173-1.413-.074-.124-.272-.198-.57-.347m-5.421 7.403h-.004a9.87 9.87 0 01-5.031-1.378l-.361-.214-3.741.982.998-3.648-.235-.374a9.86 9.86 0 01-1.51-5.26c.001-5.45 4.436-9.884 9.888-9.884 2.64 0 5.122 1.03 6.988 2.898a9.825 9.825 0 012.893 6.994c-.003 5.45-4.437 9.884-9.885 9.884m8.413-18.297A11.815 11.815 0 0012.05 0C5.495 0 .16 5.335.157 11.892c0 2.096.547 4.142 1.588 5.945L.057 24l6.305-1.654a11.882 11.882 0 005.683 1.448h.005c6.554 0 11.89-5.335 11.893-11.893a11.821 11.821 0 00-3.48-8.413z"/></svg>';
     var btnWa = telOk
-      ? '<button class="mr-cli-btn mr-cli-btn-wa" onclick="miRondaAbrirWa(\'' + tel + '\', &quot;' + encodeURIComponent(c.nombre || '') + '&quot;)" title="WhatsApp">💬</button>'
-      : '<button class="mr-cli-btn mr-cli-btn-none" title="Sin teléfono">✕</button>';
-    var btnTel = telOk
-      ? '<button class="mr-cli-btn mr-cli-btn-tel" onclick="miRondaLlamar(\'' + tel + '\')" title="Llamar">📞</button>'
-      : '';
+      ? '<button class="mr-cli-btn mr-cli-btn-wa" onclick="miRondaAbrirWa(\'' + tel + '\', &quot;' + encodeURIComponent(c.nombre || '') + '&quot;)" title="WhatsApp">' + waIconSvg + '</button>'
+      : '<button class="mr-cli-btn mr-cli-btn-none" title="Sin teléfono">' + waIconSvg + '</button>';
 
     html += '<div class="mr-cli-card">' +
       '<div class="mr-cli-dot" style="background:' + dotColor + '"></div>' +
@@ -15023,7 +15009,7 @@ function miRondaRenderModalBody(lista, filtroLocalidad) {
         '</div>' +
         nota +
       '</div>' +
-      '<div class="mr-cli-actions">' + btnWa + btnTel + '</div>' +
+      '<div class="mr-cli-actions">' + btnWa + '</div>' +
     '</div>';
   });
 
@@ -15031,23 +15017,39 @@ function miRondaRenderModalBody(lista, filtroLocalidad) {
 }
 
 // ── Acciones del modal ───────────────────────────────────────────
+// Links del catálogo por vendedor (confirmados que funcionan)
+var MR_LINKS_CATALOGO = {
+  'MIGUEL':   'https://tckcatalogo.com?v=miguel',
+  'JUAN':     'https://tckcatalogo.com?v=juan',
+  'LISANDRO': 'https://tckcatalogo.com?v=lisandro'
+};
+
 function miRondaAbrirWa(tel, nombreEnc) {
   var nombre = nombreEnc ? decodeURIComponent(nombreEnc) : '';
   var num = tel.replace(/\D/g, '');
   if (!num) return;
   // Asegurar prefijo 54
   if (!num.startsWith('54')) num = '54' + num.replace(/^0/, '').replace(/^15/, '');
-  // Mensaje base (el vendedor lo puede editar antes de enviar)
-  var primerNombre = nombre.split(' ')[0] || '';
-  var msj = '¡Hola' + (primerNombre ? ' ' + primerNombre : '') + '! ¿Cómo andás? Te escribo de TCK. ¿Querés que te prepare algo para el próximo reparto?';
+  // Primer nombre del cliente
+  var primerNombre = (nombre.split(' ')[0] || '').replace(/[^A-Za-záéíóúñÁÉÍÓÚÑ]/g, '');
+  // Capitalizar primera letra
+  if (primerNombre.length > 1) {
+    primerNombre = primerNombre.charAt(0).toUpperCase() + primerNombre.slice(1).toLowerCase();
+  }
+  // Nombre y link del vendedor logueado
+  var vendNombre = vendedorActual || 'TCK';
+  var vendKey    = mrNormVendedor(vendedorActual);
+  var linkCat    = MR_LINKS_CATALOGO[vendKey] || 'https://tckcatalogo.com';
+  // Mensaje personalizado
+  var saludo = primerNombre ? '¡Hola ' + primerNombre + '!' : '¡Hola!';
+  var msj = saludo + ' ¿Cómo estás? Te escribe ' + vendNombre + ' de TCK.\n\n' +
+    'Pasé a saludarte y a recordarte que ya podés hacer tu pedido. Tenés dos opciones:\n\n' +
+    '• Entrá al catálogo y pedí directo: ' + linkCat + '\n' +
+    '• O envíame tu pedido por acá.\n\n' +
+    'Cualquier duda, escribime.\n' +
+    '¡Muchas gracias, saludos!';
   var url = 'https://wa.me/' + num + '?text=' + encodeURIComponent(msj);
   window.open(url, '_blank');
-}
-
-function miRondaLlamar(tel) {
-  var num = tel.replace(/\D/g, '');
-  if (!num) return;
-  window.location.href = 'tel:+54' + num.replace(/^54/, '').replace(/^0/, '').replace(/^15/, '');
 }
 
 function mrFormatTel(tel) {
