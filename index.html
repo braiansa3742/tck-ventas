@@ -4483,6 +4483,181 @@ body {
   letter-spacing: .5px;
 }
 /* ═══ fin v8.5 CSS ═══ */
+
+/* ═══ v8.6 · MODAL ELEGIR SUCURSAL ═══ */
+.suc-elegir-backdrop {
+  display: none;
+  position: fixed;
+  inset: 0;
+  background: rgba(40, 20, 20, 0.7);
+  backdrop-filter: blur(4px);
+  -webkit-backdrop-filter: blur(4px);
+  z-index: 720;
+  align-items: flex-end;
+  justify-content: center;
+}
+.suc-elegir-backdrop.on { display: flex; }
+.suc-elegir-sheet {
+  background: #FAF6EE;
+  width: 100%;
+  max-width: 500px;
+  max-height: 88vh;
+  border-radius: 18px 18px 0 0;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  box-shadow: 0 -8px 30px rgba(0,0,0,0.30);
+}
+.suc-elegir-hdr {
+  background: linear-gradient(135deg, #8B0000, #6B0000);
+  color: #FFD700;
+  padding: 16px 20px;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 10px;
+  flex-shrink: 0;
+}
+.suc-elegir-hdr-title {
+  font-family: 'Barlow Condensed', sans-serif;
+  font-size: 22px;
+  font-weight: 800;
+  letter-spacing: .3px;
+}
+.suc-elegir-hdr-sub {
+  font-size: 13px;
+  color: rgba(255,215,0,0.85);
+  margin-top: 3px;
+  font-weight: 600;
+}
+.suc-elegir-body {
+  padding: 16px 20px 20px;
+  overflow-y: auto;
+  flex: 1;
+}
+.suc-elegir-aviso {
+  font-size: 13px;
+  color: #5C3A1E;
+  background: #FFF8DC;
+  border-left: 3px solid #D4A574;
+  padding: 10px 12px;
+  border-radius: 6px;
+  margin-bottom: 12px;
+  line-height: 1.4;
+}
+.suc-elegir-opt {
+  background: #fff;
+  border: 1.5px solid #E8DFCB;
+  border-radius: 12px;
+  padding: 14px 16px;
+  margin-bottom: 10px;
+  cursor: pointer;
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  transition: border-color .15s, background .15s;
+  -webkit-tap-highlight-color: transparent;
+}
+.suc-elegir-opt:active { background: #FFF8DC; border-color: #D4A574; }
+.suc-elegir-opt.selected {
+  background: #FFF8DC;
+  border-color: #8B0000;
+  border-width: 2.5px;
+  padding: 12.5px 14.5px;
+}
+.suc-elegir-radio {
+  width: 22px;
+  height: 22px;
+  border: 2px solid #D4A574;
+  border-radius: 50%;
+  flex-shrink: 0;
+  margin-top: 2px;
+  position: relative;
+  background: #fff;
+}
+.suc-elegir-opt.selected .suc-elegir-radio { border-color: #8B0000; }
+.suc-elegir-opt.selected .suc-elegir-radio::after {
+  content: '';
+  position: absolute;
+  top: 4px; left: 4px;
+  width: 10px; height: 10px;
+  background: #8B0000;
+  border-radius: 50%;
+}
+.suc-elegir-info { flex: 1; min-width: 0; }
+.suc-elegir-nombre {
+  font-family: 'Barlow Condensed', sans-serif;
+  font-weight: 800;
+  font-size: 17px;
+  color: #1A0800;
+  margin-bottom: 3px;
+}
+.suc-elegir-dir {
+  font-size: 12px;
+  color: #5C3A1E;
+  line-height: 1.4;
+}
+.suc-elegir-notas {
+  font-size: 11px;
+  color: #8B6F50;
+  margin-top: 4px;
+  font-style: italic;
+}
+.suc-elegir-add {
+  width: 100%;
+  padding: 12px 14px;
+  background: #fff;
+  color: #8B0000;
+  border: 1.5px dashed #D4A574;
+  border-radius: 10px;
+  font-family: 'Barlow Condensed', sans-serif;
+  font-weight: 700;
+  font-size: 14px;
+  cursor: pointer;
+  margin-top: 6px;
+  -webkit-tap-highlight-color: transparent;
+}
+.suc-elegir-add:active { background: #FFF8DC; }
+.suc-elegir-footer {
+  padding: 14px 20px;
+  background: #F0E8D4;
+  border-top: 1px solid #E0D2B8;
+  display: flex;
+  gap: 10px;
+  flex-shrink: 0;
+}
+.suc-elegir-btn {
+  flex: 1;
+  padding: 12px;
+  border-radius: 10px;
+  font-family: 'Barlow Condensed', sans-serif;
+  font-weight: 800;
+  font-size: 15px;
+  cursor: pointer;
+  text-transform: uppercase;
+  letter-spacing: .3px;
+  border: 1.5px solid transparent;
+  -webkit-tap-highlight-color: transparent;
+}
+.suc-elegir-btn.cancelar {
+  background: #fff;
+  color: #5C3A1E;
+  border-color: #E0D2B8;
+}
+.suc-elegir-btn.cancelar:active { background: #F5EDDF; }
+.suc-elegir-btn.confirmar {
+  background: linear-gradient(135deg, #1B5E20, #2E7D32);
+  color: #fff;
+}
+.suc-elegir-btn.confirmar:disabled {
+  background: #BDBDBD;
+  cursor: not-allowed;
+  opacity: .7;
+}
+.suc-elegir-btn.confirmar:active:not(:disabled) {
+  background: linear-gradient(135deg, #1B5E20, #1B5E20);
+}
+/* ═══ fin v8.6 CSS ═══ */
 .dup-modal-sheet {
   background: #FAF6EE;
   width: 100%;
@@ -8167,6 +8342,143 @@ async function sucursalBorrar(id) {
     return false;
   }
 }
+
+// ═══════════════════════════════════════════════════════════════
+// v8.6 — VINCULACIÓN PEDIDO ↔ SUCURSAL (tabla pedido_sucursales)
+// Cuando un vendedor carga un pedido para un cliente con sucursales,
+// se guarda la relación pedidoId → sucursalId en Supabase.
+// El Sheet NO se toca (el comercio queda vacío como hoy).
+// ═══════════════════════════════════════════════════════════════
+
+// Crea el vínculo pedido ↔ sucursal. Usar DESPUÉS de guardar el pedido
+// en el Sheet, con el pedidoId generado. No bloquear el flujo del pedido
+// si falla: el pedido ya está guardado, el vínculo se puede recuperar manual.
+async function pedidoSucursalVincular(pedidoId, sucursalId) {
+  if (!pedidoId || !sucursalId) return false;
+  try {
+    await sbFetch('pedido_sucursales', {
+      method: 'POST',
+      body: JSON.stringify({
+        pedido_id: pedidoId,
+        sucursal_id: sucursalId
+      }),
+      prefer: 'return=minimal'
+    });
+    return true;
+  } catch (e) {
+    console.error('[v8.6] pedidoSucursalVincular error:', e);
+    // No mostrar alert — el pedido ya se guardó, el vínculo es secundario
+    return false;
+  }
+}
+
+// Actualiza el vínculo si el vendedor cambia la sucursal de un pedido ya cargado
+// (caso: editar pedido). Usa upsert-style: borra el anterior, crea el nuevo.
+async function pedidoSucursalActualizar(pedidoId, nuevaSucursalId) {
+  if (!pedidoId) return false;
+  try {
+    // Borrar vínculo anterior si existe
+    await sbFetch('pedido_sucursales?pedido_id=eq.' + encodeURIComponent(pedidoId), {
+      method: 'DELETE',
+      prefer: 'return=minimal'
+    });
+    // Si pasan null o vacío, solo borra (equivale a "quitar sucursal")
+    if (!nuevaSucursalId) return true;
+    return await pedidoSucursalVincular(pedidoId, nuevaSucursalId);
+  } catch (e) {
+    console.error('[v8.6] pedidoSucursalActualizar error:', e);
+    return false;
+  }
+}
+
+// Obtiene el vínculo de un pedido. Devuelve {sucursal_id, ...campos_sucursal} o null.
+// Útil para renderizar (sesión 3) y para editar pedido (saber la sucursal actual).
+async function pedidoSucursalObtener(pedidoId) {
+  if (!pedidoId) return null;
+  try {
+    var path = 'pedido_sucursales?pedido_id=eq.' + encodeURIComponent(pedidoId) + '&select=sucursal_id';
+    var data = await sbFetch(path);
+    if (!Array.isArray(data) || data.length === 0) return null;
+    var sucId = data[0].sucursal_id;
+    // Ahora traemos los datos de la sucursal
+    var sucPath = 'cliente_sucursales?id=eq.' + encodeURIComponent(sucId) + '&select=*';
+    var sucData = await sbFetch(sucPath);
+    return Array.isArray(sucData) && sucData.length > 0 ? sucData[0] : null;
+  } catch (e) {
+    console.error('[v8.6] pedidoSucursalObtener error:', e);
+    return null;
+  }
+}
+// ═══════════════════════════════════════════════════════════════
+// Fin v8.6 — VINCULACIÓN
+// ═══════════════════════════════════════════════════════════════
+
+// ═══════════════════════════════════════════════════════════════
+// v8.7 — MAPA pedidoId → sucursal (para card + detector duplicados)
+// Cargamos los vínculos de los pedidos visibles en UN SOLO query
+// y los tenemos en memoria para lookup instantáneo. Usamos PostgREST
+// embed para traer la sucursal completa en la misma query.
+// ═══════════════════════════════════════════════════════════════
+
+// Map pedidoId → { sucursal_id, nombre_suc, direccion, localidad, ... }
+var _pedidoSucursalesMap = {};
+
+// Carga el mapa completo de vínculos de pedidos recientes.
+// Se llama desde cargarPedidos() DESPUÉS del Sheet load.
+// Usa PostgREST embed para traer cliente_sucursales en la misma query.
+async function pedidoSucursalesMapCargar() {
+  try {
+    // Traer TODOS los vínculos (sin filtro de fecha — la tabla es chica).
+    // Incluye el JOIN con cliente_sucursales usando embed de PostgREST.
+    var path = 'pedido_sucursales?select=pedido_id,sucursal_id,cliente_sucursales(id,nombre_suc,direccion,localidad,cliente_norm)&limit=5000';
+    var data = await sbFetch(path);
+    if (!Array.isArray(data)) return;
+    var m = {};
+    data.forEach(function(row) {
+      var suc = row.cliente_sucursales || null;
+      if (!suc) return;
+      m[row.pedido_id] = {
+        sucursal_id:  row.sucursal_id,
+        nombre_suc:   suc.nombre_suc,
+        direccion:    suc.direccion,
+        localidad:    suc.localidad,
+        cliente_norm: suc.cliente_norm
+      };
+    });
+    _pedidoSucursalesMap = m;
+    console.log('[v8.7] Mapa pedido→sucursal cargado:', Object.keys(m).length, 'vínculos');
+  } catch (e) {
+    console.error('[v8.7] error cargando mapa pedido-sucursal:', e);
+    // No bloquear — el sistema funciona sin este dato, solo que no muestra 🏢
+  }
+}
+
+// Lookup rápido en memoria. Devuelve sucursalInfo o null.
+function pedidoSucursalDeMapa(pedidoId) {
+  if (!pedidoId) return null;
+  return _pedidoSucursalesMap[pedidoId] || null;
+}
+
+// v8.7 detector: ¿los pedidos del grupo van a sucursales DISTINTAS del mismo cliente?
+// Se usa en el detector de duplicados. Si todos los pedidos tienen sucursal vinculada
+// y todas son distintas → no es duplicado real, son pedidos legítimos a sucursales.
+// Si al menos un pedido NO tiene sucursal → no podemos afirmar → dejar pasar el match.
+function gruposVaSucursalesDistintas(grupoPedidos) {
+  if (!grupoPedidos || grupoPedidos.length < 2) return false;
+  var sucIds = [];
+  for (var i = 0; i < grupoPedidos.length; i++) {
+    var info = pedidoSucursalDeMapa(grupoPedidos[i].pedidoId);
+    if (!info || !info.sucursal_id) return false; // al menos uno sin sucursal
+    sucIds.push(info.sucursal_id);
+  }
+  // Todas distintas?
+  var unicas = {};
+  sucIds.forEach(function(id){ unicas[id] = true; });
+  return Object.keys(unicas).length === sucIds.length;
+}
+// ═══════════════════════════════════════════════════════════════
+// Fin v8.7 — MAPA
+// ═══════════════════════════════════════════════════════════════
 // ═══════════════════════════════════════════════════════════════
 // Fin v8.5 — SUCURSALES
 // ═══════════════════════════════════════════════════════════════
@@ -8614,8 +8926,12 @@ async function cargarPedidos(silencioso, _reintentos) {
       ahoraEl.style.color = 'var(--green2)';
     }
 
+    // v8.7: cargar mapa de vínculos pedido→sucursal para detector + render de cards
+    await pedidoSucursalesMapCargar();
+
     // Detectar duplicados — mismo cliente + mismo día, distinguir por productos comunes
     // 🔴 DUPLICADO = mismo producto · 🟠 PEDIDO DOBLE = productos distintos
+    // v8.7: si los pedidos del grupo van a sucursales DISTINTAS → NO marcar (son legítimos)
     var mapTotal = {};
     var _normProdVent = function(nombre) {
       return (nombre || '').toLowerCase()
@@ -8659,6 +8975,14 @@ async function cargarPedidos(silencioso, _reintentos) {
       var kCliente = (fechaDia + (p.cliente||'')).toLowerCase().replace(/\s/g,'');
       var grupo = mapTotal[kCliente];
       if (grupo && grupo.length > 1) {
+        // v8.7: si TODOS los pedidos del grupo van a sucursales distintas, NO marcar.
+        // Son pedidos legítimos del mismo cliente a direcciones distintas.
+        if (gruposVaSucursalesDistintas(grupo)) {
+          p.esDuplicado = false;
+          p.tipoDuplicado = null;
+          p.duplicadoCon = '';
+          return;
+        }
         // Hay 2+ del mismo cliente mismo día → siempre marcar
         var misProds = _setProdsVent(p);
         var otros = grupo.filter(function(x){ return x.pedidoId !== p.pedidoId; });
@@ -9045,7 +9369,11 @@ function renderCard(p) {
         '<div class="pedido-id">' + p.pedidoId + '</div>' +
         '<div class="pedido-cliente">' + origenIconHtml(p) + (p.cliente||'(sin nombre)') + '</div>' +
         (p.fechaEntrega ? '<div style="display:inline-flex;align-items:center;gap:4px;background:' + (p.turnoEntrega==='Mañana'?'#E3F2FD':'#FFF3E0') + ';color:' + (p.turnoEntrega==='Mañana'?'#1565C0':'#E65100') + ';border-radius:20px;padding:2px 8px;font-family:Barlow Condensed,sans-serif;font-size:11px;font-weight:800;margin-top:3px;">' + (p.turnoEntrega==='Mañana'?'🌅':'🌆') + ' ' + p.fechaEntrega + ' · ' + (p.turnoEntrega||'') + '</div>' : '') +
-        '<div class="pedido-comercio">' + (p.comercio ? '🏪 '+p.comercio+' · ' : '') + '📍 ' + p.localidad + '</div>' +
+        '<div class="pedido-comercio">' + (p.comercio ? '🏪 '+p.comercio+' · ' : '') + (function(){
+          // v8.7: si el pedido tiene sucursal vinculada, mostrarla antes de la localidad
+          var suc = pedidoSucursalDeMapa(p.pedidoId);
+          return suc && suc.nombre_suc ? '🏢 '+ escapeHtml(suc.nombre_suc) +' · ' : '';
+        })() + '📍 ' + p.localidad + '</div>' +
         buildProdsPreview(p) +
       '</div>' +
       '<div class="pedido-head-right">' +
@@ -9056,6 +9384,15 @@ function renderCard(p) {
     '</div>' +
     '<div class="pedido-body" id="body-' + id + '">' +
       vendedorRow +
+      (function(){
+        // v8.7: fila "Sucursal" en el detalle expandido si está vinculada
+        var suc = pedidoSucursalDeMapa(p.pedidoId);
+        if (!suc || !suc.nombre_suc) return '';
+        var dirLoc = [suc.direccion, suc.localidad].filter(Boolean).map(escapeHtml).join(' · ');
+        return '<div class="pedido-detalle-row"><span class="pdr-label">🏢 Sucursal</span><span class="pdr-val">' +
+          escapeHtml(suc.nombre_suc) + (dirLoc ? ' <span style="color:#8B6F50;font-size:12px;">· ' + dirLoc + '</span>' : '') +
+          '</span></div>';
+      })() +
       '<div class="pedido-detalle-row"><span class="pdr-label">Localidad</span><span class="pdr-val">' + p.localidad + '</span></div>' +
       '<div class="pedido-detalle-row"><span class="pdr-label">Productos</span><span class="pdr-val">' + p.items + ' unidades</span></div>' +
       '<div class="pedido-detalle-row"><span class="pdr-label">Total</span><span class="pdr-val" style="color:var(--red);font-family:\'Barlow Condensed\',sans-serif;font-size:18px;font-weight:900;">' + fmtTotal(p.total) + '</span></div>' +
@@ -13158,6 +13495,7 @@ const TOMADOR_SIN_STOCK = new Set(['Nuggets de Pollo Crocante','Ravioles de Cala
 var _tomadorQtys       = {}; // { nombreProducto: cantidad }
 var _tomadorCompetencia = {};
 var _tomadorDescuentos  = {}; // { nombreProducto: { pct: 5, motivo: 'volumen' } } // { nombreProducto: { precio, competencia } }
+var _tomadorSucursalElegida = null; // v8.6: sucursal elegida al confirmar, se vincula al pedido
 var _tomadorCatActual  = 'todos';
 
 // ══════════════════════════════════════════════════════
@@ -13575,10 +13913,25 @@ const IMGMAP = {
 
 function tomadorAbrir() {
   if (!_gpsCheckinActivo) { toast('Hacé check-in primero', 'err'); return; }
+  // v8.6: antes de abrir el tomador, chequeamos si el cliente tiene sucursales.
+  // Si tiene 2+, pedimos elegir una. Si tiene 1, la usa auto. Si 0, seguimos.
+  var clienteNombre = _gpsCheckinActivo.nombre_cliente || '';
+  sucElegirAbrir(clienteNombre, function(suc, modo) {
+    if (modo === 'cancelado') return; // vendedor canceló: no abrir tomador
+    // Guardar sucursal elegida (o null) en variable global que usa el confirmar
+    _tomadorSucursalElegida = suc || null;
+    _tomadorAbrirInterno();
+  });
+}
+
+// v8.6: extracción del contenido original del tomadorAbrir, sin check de sucursales.
+// Se llama desde tomadorAbrir() después de resolver la sucursal.
+function _tomadorAbrirInterno() {
   _tomadorQtys = {};
   _tomadorCompetencia = {};
   _tomadorDescuentos = {};
   _tomadorCatActual = 'todos';
+  // NO reseteamos _tomadorSucursalElegida acá — viene del callback de sucElegirAbrir
 
   // Crear overlay
   var overlay = document.createElement('div');
@@ -13627,11 +13980,17 @@ function tomadorHTML() {
     cats += '<button class="tomador-cat-btn" id="tcat-' + c.id + '" onclick="tomadorFiltrar(&quot;' + c.id + '&quot;)">' + c.sec.split(' ')[0] + '</button>';
   });
 
+  // v8.6: si hay sucursal elegida, la mostramos en el subtitle
+  var subInfo = 'Tomando pedido · ' + hora;
+  if (_tomadorSucursalElegida && _tomadorSucursalElegida.nombre_suc) {
+    subInfo = '🏢 ' + _tomadorSucursalElegida.nombre_suc + ' · ' + hora;
+  }
+
   return '<div class="tomador-hdr">'
     + '<button class="tomador-hdr-back" onclick="tomadorCerrar()">←</button>'
     + '<div class="tomador-hdr-info">'
     + '<div class="tomador-hdr-cliente">📦 ' + cliente + '</div>'
-    + '<div class="tomador-hdr-sub">Tomando pedido · ' + hora + '</div>'
+    + '<div class="tomador-hdr-sub">' + subInfo + '</div>'
     + '</div>'
     + '<div class="tomador-hdr-total" id="tomador-total">$0</div>'
     + '</div>'
@@ -13957,9 +14316,22 @@ async function tomadorConfirmarFinal() {
   var modal = document.getElementById('tomador-resumen-modal');
   if (modal) modal.remove();
 
-  // Abrir selector de entrega antes de guardar
-  abrirSelectorEntrega(function(entrega) {
-    tomadorConfirmarConEntrega(entrega);
+  // v8.6: preguntar sucursal si el cliente tiene varias registradas.
+  // Si no tiene o tiene 1 sola, el callback sigue directo al flujo de entrega.
+  var cliente = _gpsCheckinActivo ? _gpsCheckinActivo.nombre_cliente : '';
+  abrirSelectorSucursalSiAplica(cliente, function(res){
+    if (!res.continuar) {
+      // Usuario canceló el selector → volvemos al resumen (reabrimos)
+      // En la práctica: reabrimos la vista de resumen llamando a tomadorConfirmar de nuevo
+      tomadorConfirmar();
+      return;
+    }
+    // v8.6: guardamos la sucursal elegida en una variable accesible al confirmar
+    _tomadorSucursalElegida = res.sucursal; // null si el cliente no tiene
+    // Abrir selector de entrega (flujo original)
+    abrirSelectorEntrega(function(entrega) {
+      tomadorConfirmarConEntrega(entrega);
+    });
   });
 }
 
@@ -14055,6 +14427,12 @@ async function tomadorConfirmarConEntrega(entregaData) {
 
     fetch(APPS_SCRIPT_URL + '?' + params.toString(), {mode: 'no-cors'}).catch(function(){});
     if (tieneDescuento) { toast('⏳ Pedido enviado — esperando aprobación del admin', 'ok'); } else { toast('✅ Pedido registrado y enviado', 'ok'); }
+
+    // v8.6: si el vendedor eligió sucursal, vincular en Supabase (fire-and-forget).
+    // El pedido al Sheet ya se grabó arriba; esto es metadata secundaria.
+    if (_tomadorSucursalElegida && _tomadorSucursalElegida.id) {
+      pedidoSucursalVincular(pedidoId, _tomadorSucursalElegida.id);
+    }
 
     // Recargar pedidos silencioso — no borrar lista si aún no llegó al Sheet
     setTimeout(function() { cargarPedidos(true); }, 2000);
@@ -15463,6 +15841,8 @@ let _editarPedidoId   = null;
 let _editarCliente    = null;
 let _editarQtys       = {};  // nombre → cantidad
 let _editarFila       = null;
+let _editarSucursalOriginal = null; // v8.6: sucursal vinculada al abrir (para detectar cambios)
+let _editarSucursalActual   = null; // v8.6: sucursal vigente (puede cambiar al apretar "Cambiar sucursal")
 
 function editarPedidoBtn(btn, event) {
   event.stopPropagation();
@@ -15480,6 +15860,8 @@ function abrirEditarPedido(p, detalle) {
   _editarFila     = p.fila;
   _editarQtys     = {};
   _editarDescuentos = {};
+  _editarSucursalOriginal = null; // v8.6
+  _editarSucursalActual   = null; // v8.6
 
   // Parsear el detalle actual para pre-cargar cantidades
   if (detalle) {
@@ -15499,6 +15881,13 @@ function abrirEditarPedido(p, detalle) {
   document.body.style.overflow = 'hidden';
   editarRenderItems();
   editarActualizarTotal();
+
+  // v8.6: cargar sucursal vinculada (si tiene) para mostrarla y permitir cambiar
+  pedidoSucursalObtener(p.pedidoId).then(function(suc) {
+    _editarSucursalOriginal = suc || null;
+    _editarSucursalActual   = suc || null;
+    _editarRenderSucursalBloque();
+  }).catch(function(){});
 }
 
 function editarHTML(cliente) {
@@ -15506,14 +15895,65 @@ function editarHTML(cliente) {
     '<button class="editar-hdr-back" onclick="editarCerrar()">←</button>' +
     '<div class="editar-hdr-info">' +
       '<div class="editar-hdr-cliente">✏️ ' + cliente + '</div>' +
-      '<div class="editar-hdr-sub">Editando pedido</div>' +
+      '<div class="editar-hdr-sub" id="editar-hdr-sub">Editando pedido</div>' +
     '</div>' +
     '<div class="editar-hdr-total" id="editar-total">$0</div>' +
   '</div>' +
+  '<div id="editar-sucursal-bloque"></div>' + // v8.6: bloque de sucursal, se rellena async
   '<div class="editar-body" id="editar-body"></div>' +
   '<div class="editar-footer">' +
     '<button class="editar-confirmar-btn" id="editar-confirmar-btn" onclick="editarConfirmar()" disabled>Guardar cambios</button>' +
   '</div>';
+}
+
+// v8.6: renderiza bloque "Sucursal" en editar — con botón cambiar si aplica
+function _editarRenderSucursalBloque() {
+  var cont = document.getElementById('editar-sucursal-bloque');
+  if (!cont) return;
+  var suc = _editarSucursalActual;
+  var hdrSub = document.getElementById('editar-hdr-sub');
+
+  if (suc && suc.nombre_suc) {
+    // Mostrar sucursal actual + botón cambiar
+    var dir = suc.direccion ? ' · ' + escapeHtml(suc.direccion) : '';
+    var loc = suc.localidad ? ' · ' + escapeHtml(suc.localidad) : '';
+    cont.innerHTML =
+      '<div style="background:#FFF8DC;border-bottom:1px solid #E0D2B8;padding:10px 14px;display:flex;align-items:center;gap:10px;">' +
+        '<div style="flex:1;min-width:0;">' +
+          '<div style="font-size:10px;color:#8B6F50;text-transform:uppercase;letter-spacing:.5px;font-weight:700;">Sucursal</div>' +
+          '<div style="font-family:Barlow Condensed,sans-serif;font-weight:800;font-size:16px;color:#1A0800;">🏢 ' + escapeHtml(suc.nombre_suc) + '</div>' +
+          '<div style="font-size:11px;color:#5C3A1E;">' + (dir ? dir.substring(3) : '') + loc + '</div>' +
+        '</div>' +
+        '<button onclick="editarCambiarSucursal()" style="background:#fff;color:#8B0000;border:1.5px solid #D4A574;border-radius:8px;padding:6px 12px;font-family:Barlow Condensed,sans-serif;font-weight:800;font-size:12px;cursor:pointer;text-transform:uppercase;letter-spacing:.3px;">Cambiar</button>' +
+      '</div>';
+    if (hdrSub) hdrSub.textContent = 'Editando · 🏢 ' + suc.nombre_suc;
+  } else {
+    // Sin sucursal vinculada — ofrecer agregar solo si el cliente tiene sucursales registradas
+    sucursalesCargarPorCliente(_editarCliente).then(function(lista) {
+      if (!lista || lista.length === 0) {
+        cont.innerHTML = ''; // el cliente no tiene sucursales → no mostrar nada
+        return;
+      }
+      // Tiene sucursales pero este pedido no está vinculado a ninguna
+      cont.innerHTML =
+        '<div style="background:#FFF3E0;border-bottom:1px solid #FFB74D;padding:10px 14px;display:flex;align-items:center;gap:10px;">' +
+          '<div style="flex:1;">' +
+            '<div style="font-size:10px;color:#E65100;text-transform:uppercase;letter-spacing:.5px;font-weight:700;">Sin sucursal vinculada</div>' +
+            '<div style="font-size:12px;color:#5C3A1E;margin-top:2px;">Este cliente tiene ' + lista.length + ' sucursales registradas.</div>' +
+          '</div>' +
+          '<button onclick="editarCambiarSucursal()" style="background:linear-gradient(135deg,#8B0000,#6B0000);color:#FFD700;border:none;border-radius:8px;padding:6px 12px;font-family:Barlow Condensed,sans-serif;font-weight:800;font-size:12px;cursor:pointer;text-transform:uppercase;letter-spacing:.3px;">Asignar</button>' +
+        '</div>';
+    }).catch(function(){});
+  }
+}
+
+// v8.6: abre el selector para cambiar sucursal desde editar
+function editarCambiarSucursal() {
+  sucElegirAbrir(_editarCliente, function(suc, modo) {
+    if (modo === 'cancelado') return;
+    _editarSucursalActual = suc || null;
+    _editarRenderSucursalBloque();
+  });
 }
 
 function editarRenderItems() {
@@ -15688,6 +16128,13 @@ async function editarConfirmar() {
     const res = await fetch(APPS_SCRIPT_URL + '?' + params.toString());
     const data = await res.json();
     if (data.status === 'ok') {
+      // v8.6: si el vendedor cambió la sucursal, persistir el cambio en Supabase
+      var idOriginal = _editarSucursalOriginal ? _editarSucursalOriginal.id : null;
+      var idActual   = _editarSucursalActual   ? _editarSucursalActual.id   : null;
+      if (idOriginal !== idActual) {
+        // fire-and-forget: el pedido ya se actualizó en el Sheet
+        pedidoSucursalActualizar(_editarPedidoId, idActual);
+      }
       toast('✅ Pedido actualizado', 'ok');
       editarCerrar();
       cargarPedidos(false); // recargar para ver los cambios
@@ -16110,13 +16557,19 @@ function manualWAConfirmar() {
   if (!cliente) { toast('Ingresá el nombre del cliente', 'err'); return; }
   if (!Object.keys(_manualWAQtys).length) { toast('Agregá al menos un producto', 'err'); return; }
 
-  // Abrir selector de entrega
-  abrirSelectorEntrega(function(entrega) {
-    manualWAGuardar(cliente, localidad, entrega);
+  // v8.6: antes del selector de entrega, pedimos sucursal si corresponde.
+  // Si el cliente tiene 0, sigue como antes. Si tiene 1, se usa auto.
+  // Si cancela el vendedor el selector, NO avanzamos (queda en el form manual WA).
+  sucElegirAbrir(cliente, function(suc, modo) {
+    if (modo === 'cancelado') return;
+    // Abrir selector de entrega pasando la sucursal elegida
+    abrirSelectorEntrega(function(entrega) {
+      manualWAGuardar(cliente, localidad, entrega, suc);
+    });
   });
 }
 
-async function manualWAGuardar(cliente, localidad, entrega) {
+async function manualWAGuardar(cliente, localidad, entrega, sucursal) {
   const vendedor = vendedorActual || 'Vendedor';
   const hoy = new Date();
   const hh  = hoy.getHours().toString().padStart(2,'0');
@@ -16169,6 +16622,11 @@ async function manualWAGuardar(cliente, localidad, entrega) {
   if (tieneDesWA) { toast('⏳ Pedido enviado — esperando aprobación del admin', 'ok'); } else { toast('✅ Pedido de ' + cliente + ' registrado', 'ok'); }
   cerrarCargaManualWA();
 
+  // v8.6: si el vendedor eligió sucursal, vincular en Supabase (fire-and-forget).
+  // El pedido al Sheet ya se grabó; esto es metadata secundaria.
+  if (sucursal && sucursal.id) {
+    pedidoSucursalVincular(pedidoId, sucursal.id);
+  }
   // Pre-agregar al cache para que aparezca inmediatamente
   const nuevoPedido = {
     pedidoId:     pedidoId,
@@ -16953,6 +17411,177 @@ function escapeHtml(s) {
 }
 // ═══════════════════════════════════════════════════════════════
 // Fin v8.5 — modal sucursales
+// ═══════════════════════════════════════════════════════════════
+
+// ═══════════════════════════════════════════════════════════════
+// v8.6 — SELECTOR DE SUCURSAL (al tomar/editar pedido)
+// Flujo genérico reutilizable en las 3 vías (campo, WA, editar).
+// - Si el cliente tiene 0 sucursales: callback(null, 'ninguna')
+// - Si tiene 1: callback(sucursal, 'auto') — sin modal (va derecho)
+// - Si tiene 2+: modal con radios. Al confirmar: callback(sucursal, 'manual')
+// - Si cancela: callback(null, 'cancelado')
+// ═══════════════════════════════════════════════════════════════
+
+// Estado del modal de elección. {clienteNombre, lista, selectedId, callback}
+var _sucElegirState = null;
+
+// Función principal — usada por el tomador, WA y editar.
+// clienteNombre: string. callback: function(sucursalObjOrNull, modo).
+// modo: 'auto' | 'manual' | 'ninguna' | 'cancelado'
+async function sucElegirAbrir(clienteNombre, callback) {
+  if (!clienteNombre) { callback(null, 'ninguna'); return; }
+  if (typeof callback !== 'function') {
+    console.error('[v8.6] sucElegirAbrir sin callback');
+    return;
+  }
+
+  // Cargar sucursales del cliente
+  var lista;
+  try {
+    lista = await sucursalesCargarPorCliente(clienteNombre);
+  } catch (e) {
+    console.error('[v8.6] error cargando sucursales:', e);
+    callback(null, 'ninguna'); // no bloquear el flujo del pedido
+    return;
+  }
+
+  // 0 sucursales → flujo normal, sin modal
+  if (!lista || lista.length === 0) {
+    callback(null, 'ninguna');
+    return;
+  }
+
+  // 1 sucursal → selección automática, sin modal
+  if (lista.length === 1) {
+    callback(lista[0], 'auto');
+    return;
+  }
+
+  // 2+ sucursales → mostrar modal
+  _sucElegirState = {
+    clienteNombre: clienteNombre,
+    lista: lista,
+    selectedId: null,
+    callback: callback
+  };
+  document.getElementById('suc-elegir-cliente').textContent = (clienteNombre || '').toUpperCase();
+  _renderSucElegir();
+  document.getElementById('suc-elegir-backdrop').classList.add('on');
+  document.body.style.overflow = 'hidden';
+}
+
+function sucElegirCerrar() {
+  document.getElementById('suc-elegir-backdrop').classList.remove('on');
+  var s = _sucElegirState;
+  _sucElegirState = null;
+  // Si había callback pendiente, notificar cancelación
+  if (s && s.callback) {
+    try { s.callback(null, 'cancelado'); } catch(e) {}
+  }
+  // Solo resetear overflow si no hay otro modal abierto arriba
+  if (!document.getElementById('suc-modal-backdrop').classList.contains('on') &&
+      !document.getElementById('dup-modal-backdrop').classList.contains('on')) {
+    document.body.style.overflow = '';
+  }
+}
+
+function sucElegirCerrarFondo(event) {
+  if (event.target.id === 'suc-elegir-backdrop') sucElegirCerrar();
+}
+
+function _renderSucElegir() {
+  var s = _sucElegirState;
+  if (!s) return;
+  var html = '';
+
+  html += '<div class="suc-elegir-aviso">' +
+    'Este cliente tiene <b>' + s.lista.length + ' direcciones</b> de entrega registradas. ' +
+    'Elegí a cuál va este pedido.' +
+  '</div>';
+
+  s.lista.forEach(function(suc) {
+    var isSel = s.selectedId === suc.id;
+    var dir = suc.direccion ? escapeHtml(suc.direccion) : '<span style="color:#8B6F50">(sin dirección)</span>';
+    var loc = suc.localidad ? ' · ' + escapeHtml(suc.localidad) : '';
+    var notas = suc.notas ? '<div class="suc-elegir-notas">📝 ' + escapeHtml(suc.notas) + '</div>' : '';
+    html += '<div class="suc-elegir-opt' + (isSel ? ' selected' : '') + '" onclick="sucElegirSeleccionar(\'' + suc.id + '\')">' +
+      '<div class="suc-elegir-radio"></div>' +
+      '<div class="suc-elegir-info">' +
+        '<div class="suc-elegir-nombre">🏢 ' + escapeHtml(suc.nombre_suc) + '</div>' +
+        '<div class="suc-elegir-dir">📍 ' + dir + loc + '</div>' +
+        notas +
+      '</div>' +
+    '</div>';
+  });
+
+  html += '<button class="suc-elegir-add" onclick="sucElegirAgregarNueva()">➕ Agregar nueva sucursal</button>';
+
+  document.getElementById('suc-elegir-body').innerHTML = html;
+  // Habilitar/deshabilitar botón confirmar
+  var btn = document.getElementById('suc-elegir-btn-confirmar');
+  if (btn) btn.disabled = !s.selectedId;
+}
+
+function sucElegirSeleccionar(sucId) {
+  if (!_sucElegirState) return;
+  _sucElegirState.selectedId = sucId;
+  _renderSucElegir();
+}
+
+function sucElegirConfirmar() {
+  var s = _sucElegirState;
+  if (!s || !s.selectedId) return;
+  var suc = s.lista.find(function(x){ return x.id === s.selectedId; });
+  if (!suc) return;
+  var cb = s.callback;
+  // Cerrar sin disparar "cancelado"
+  document.getElementById('suc-elegir-backdrop').classList.remove('on');
+  _sucElegirState = null;
+  if (!document.getElementById('suc-modal-backdrop').classList.contains('on') &&
+      !document.getElementById('dup-modal-backdrop').classList.contains('on')) {
+    document.body.style.overflow = '';
+  }
+  // Invocar callback
+  try { cb(suc, 'manual'); } catch(e) { console.error('[v8.6] callback error:', e); }
+}
+
+// Abre el modal de gestión (v8.5) para agregar una sucursal nueva,
+// y cuando cierra vuelve al selector con la lista actualizada.
+async function sucElegirAgregarNueva() {
+  var s = _sucElegirState;
+  if (!s) return;
+  var clienteNombre = s.clienteNombre;
+  var callbackOriginal = s.callback;
+
+  // Cerrar selector temporalmente (sin disparar cancelación)
+  document.getElementById('suc-elegir-backdrop').classList.remove('on');
+  _sucElegirState = null;
+
+  // Abrir modal de gestión en modo "agregar directo"
+  await sucModalAbrir(clienteNombre);
+  // Esperar un tick para que termine de renderizar
+  setTimeout(function() {
+    if (_sucModalState) {
+      _sucModalState.mostrandoForm = true;
+      _sucModalState.editandoId = null;
+      _renderSucModal();
+    }
+  }, 100);
+
+  // Cuando el usuario cierre el modal de gestión, volver a abrir el selector
+  // Usamos un "hook" en sucModalCerrar mediante polling del estado
+  var esperarCierreGestion = function() {
+    if (_sucModalState === null) {
+      // El modal de gestión se cerró — reabrir selector
+      sucElegirAbrir(clienteNombre, callbackOriginal);
+    } else {
+      setTimeout(esperarCierreGestion, 300);
+    }
+  };
+  setTimeout(esperarCierreGestion, 500);
+}
+// ═══════════════════════════════════════════════════════════════
+// Fin v8.6 — SELECTOR DE SUCURSAL
 // ═══════════════════════════════════════════════════════════════
 
 function _renderDupModal() {
@@ -19638,6 +20267,26 @@ var _miRondaOrigCargarPedidos = null;
     </div>
     <div class="suc-modal-footer">
       Las sucursales aparecerán al tomar un pedido nuevo para este cliente
+    </div>
+  </div>
+</div>
+
+<!-- v8.6 · MODAL ELEGIR SUCURSAL (al tomar pedido) -->
+<div class="suc-elegir-backdrop" id="suc-elegir-backdrop" onclick="sucElegirCerrarFondo(event)">
+  <div class="suc-elegir-sheet" onclick="event.stopPropagation()">
+    <div class="suc-elegir-hdr">
+      <div>
+        <div class="suc-elegir-hdr-title">📍 ¿A qué sucursal?</div>
+        <div class="suc-elegir-hdr-sub" id="suc-elegir-cliente">—</div>
+      </div>
+      <button class="suc-modal-close" onclick="sucElegirCerrar()">✕</button>
+    </div>
+    <div class="suc-elegir-body" id="suc-elegir-body">
+      <div class="suc-loading">⏳ Cargando…</div>
+    </div>
+    <div class="suc-elegir-footer">
+      <button class="suc-elegir-btn cancelar" onclick="sucElegirCerrar()">Cancelar</button>
+      <button class="suc-elegir-btn confirmar" id="suc-elegir-btn-confirmar" onclick="sucElegirConfirmar()" disabled>Confirmar</button>
     </div>
   </div>
 </div>
