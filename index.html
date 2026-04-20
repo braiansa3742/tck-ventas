@@ -8999,6 +8999,34 @@ function cerrarMenuMasFondo(e) {
   if (e.target === document.getElementById('menu-mas-backdrop')) cerrarMenuMas();
 }
 
+// v8.1: helper con reintentos para evitar que Mi Ronda quede cargando infinito
+// cuando la función miRondaRender aún no está parseada (vive al final del archivo).
+// Reintenta cada 100ms hasta 4s. Si falla muestra un error visible en vez de
+// dejar la ruleta girando para siempre.
+function _mrIntentarRender(intentos) {
+  intentos = intentos || 0;
+  if (typeof miRondaRender === 'function') {
+    try { miRondaRender(); }
+    catch(e) { console.error('[MR v8.1] miRondaRender lanzó:', e); }
+    return;
+  }
+  if (intentos >= 40) {
+    console.error('[MR v8.1] miRondaRender nunca se definió tras 4s');
+    var cont = document.getElementById('view-mironda');
+    if (cont) {
+      var aviso = document.createElement('div');
+      aviso.style.cssText = 'padding:20px;margin:20px;background:#FFEBEE;border:2px solid #C62828;border-radius:12px;color:#8B0000;font-family:Barlow Condensed,sans-serif;text-align:center;';
+      aviso.innerHTML = '<div style="font-size:18px;font-weight:900;margin-bottom:8px;">⚠️ No se pudo cargar Mi Ronda</div>' +
+        '<div style="font-size:14px;margin-bottom:12px;color:#333;">Probá refrescar la página (tirá hacia abajo o Ctrl+R).</div>' +
+        '<button onclick="location.reload()" style="background:#8B0000;color:#FFD700;border:none;border-radius:8px;padding:10px 20px;font-family:Barlow Condensed,sans-serif;font-size:15px;font-weight:900;cursor:pointer;">Refrescar ahora</button>';
+      cont.innerHTML = '';
+      cont.appendChild(aviso);
+    }
+    return;
+  }
+  setTimeout(function(){ _mrIntentarRender(intentos + 1); }, 100);
+}
+
 function cambiarTab(tab) {
   if (_tabActual === tab) return;
   _tabActual = tab;
@@ -9019,17 +9047,14 @@ function cambiarTab(tab) {
 
   // Cuando se abre Mi Ronda, renderizar
   if (tab === 'mironda') {
-    // miRondaRender vive en un <script> posterior. Si cambiarTab se dispara
-    // durante la carga sincrónica (login de vendedor que entra a mironda como
-    // pantalla inicial), la función aún no existe en window — difiere con
-    // setTimeout hasta que los scripts terminen de parsearse.
-    if (typeof miRondaRender === 'function') {
-      miRondaRender();
-    } else {
-      setTimeout(function() {
-        if (typeof miRondaRender === 'function') miRondaRender();
-      }, 0);
-    }
+    // miRondaRender vive en un <script> posterior (L17049 aprox).
+    // Si cambiarTab se dispara durante la carga (login de vendedor que entra a
+    // mironda como pantalla inicial), la función aún no existe en window.
+    // v8.1: polling con reintentos — el fix anterior (setTimeout 0 único)
+    // fallaba en conexiones lentas donde el parse no completaba a tiempo,
+    // dejando la ruleta girando para siempre. Ahora reintenta cada 100ms
+    // hasta 4s máximo; si no se define, muestra un error accionable.
+    _mrIntentarRender(0);
     var v = document.getElementById('view-mironda'); if (v) v.scrollTop = 0;
     // Fix espacio vacío: forzar min-height compacto
     var p = document.getElementById('panel'); if (p) p.style.minHeight = 'unset';
@@ -15140,10 +15165,12 @@ function entregaConfirmar() {
 //  CARGA MANUAL DE PEDIDO POR WHATSAPP
 // ════════════════════════════════════════════════════════════════
 
-let _manualWAQtys  = {};
-let _manualWACliente = '';
-let _manualWALocalidad = '';
-let _manualWADescuentos = {}; // { nombreProducto: { pct, motivo } }
+// v8.1: cambio let → var para evitar TDZ cuando abrirCargaManualWA se llama
+// antes de que el motor JS procese estas declaraciones (bug Sentry reportado).
+var _manualWAQtys  = {};
+var _manualWACliente = '';
+var _manualWALocalidad = '';
+var _manualWADescuentos = {}; // { nombreProducto: { pct, motivo } }
 
 function abrirCargaManualWA() {
   _manualWAQtys = {};
@@ -15755,6 +15782,14 @@ async function botCargarConversaciones(){var el=document.getElementById('bot-con
     if (window.matchMedia('(display-mode: standalone)').matches) return;
     try { if (localStorage.getItem('tck_ped_no_inst')) return; } catch(e) {}
     if (document.getElementById('_ped_inst')) return;
+    // v8.1: no mostrar si el login está visible — el banner se monta en top:0
+    // con position:fixed y tapa los botones 1-3 del PIN. Reintentar cuando el
+    // vendedor ya haya logueado (cada 2s hasta que login-wrap esté oculto).
+    var lw = document.getElementById('login-wrap');
+    if (lw && lw.style.display !== 'none' && getComputedStyle(lw).display !== 'none') {
+      setTimeout(_showPedBanner, 2000);
+      return;
+    }
 
     var b = document.createElement('div');
     b.id = '_ped_inst';
@@ -15832,11 +15867,16 @@ async function botCargarConversaciones(){var el=document.getElementById('bot-con
     });
   }
 
-  if ('serviceWorker' in navigator) {
-    window.addEventListener('load', function() {
-      navigator.serviceWorker.register('/sw.js').catch(function() {});
-    });
-  }
+  // v8.1: registro de Service Worker deshabilitado — el archivo /sw.js no
+  // existe en el repo y genera 404 en cada carga. Para habilitarlo de nuevo,
+  // primero subir un sw.js válido a la raíz del repo (tck-ventas), después
+  // descomentar este bloque. Mientras tanto la PWA sigue siendo instalable
+  // (Chrome no requiere SW para beforeinstallprompt en dominios https).
+  // if ('serviceWorker' in navigator) {
+  //   window.addEventListener('load', function() {
+  //     navigator.serviceWorker.register('/sw.js').catch(function() {});
+  //   });
+  // }
 })();
 
 
