@@ -8209,6 +8209,8 @@ async function cargarPedidos(silencioso, _reintentos) {
         estado:         limpiar(cols[10]) || 'Pendiente',
         fechaEntrega:   limpiar(cols[11]) || '',
         turnoEntrega:   limpiar(cols[12]) || '',
+        origen:         limpiar(cols[13]) || '',   // v8.4.1: leer origen del Sheet
+        telefono:       limpiar(cols[14]) || '',   // v8.4.1: leer telefono/nota del Sheet
         fila:           i + 1
       });
     }
@@ -9247,8 +9249,27 @@ function cerrarMenuMasFondo(e) {
 // cuando la función miRondaRender aún no está parseada (vive al final del archivo).
 // Reintenta cada 100ms hasta 4s. Si falla muestra un error visible en vez de
 // dejar la ruleta girando para siempre.
+// v8.4.1: además ahora muestra un mensaje de carga visible desde el primer tick,
+// para que el vendedor no perciba "cuelgue" mientras se espera el fetch de datos.
 function _mrIntentarRender(intentos) {
   intentos = intentos || 0;
+
+  // v8.4.1: en el primer intento, si la vista está vacía, mostramos un mensaje
+  // de carga para que el vendedor sepa que algo está pasando. Se sobreescribe
+  // cuando miRondaRender() pinta los datos reales.
+  if (intentos === 0) {
+    var contInicial = document.getElementById('view-mironda');
+    if (contInicial && (!contInicial.children.length || contInicial.querySelector('.mr-loading-splash'))) {
+      contInicial.innerHTML =
+        '<div class="mr-loading-splash" style="padding:40px 20px;text-align:center;color:#8B6F50;font-family:Barlow Condensed,sans-serif;">' +
+          '<div style="font-size:40px;margin-bottom:10px;animation:mrSpin 1.2s linear infinite;display:inline-block;">⏳</div>' +
+          '<div style="font-size:18px;font-weight:800;color:#8B0000;">Cargando Mi Ronda…</div>' +
+          '<div style="font-size:13px;margin-top:6px;">Un segundo, preparando tus clientes del día.</div>' +
+        '</div>' +
+        '<style>@keyframes mrSpin{to{transform:rotate(360deg)}}</style>';
+    }
+  }
+
   if (typeof miRondaRender === 'function') {
     try { miRondaRender(); }
     catch(e) { console.error('[MR v8.1] miRondaRender lanzó:', e); }
