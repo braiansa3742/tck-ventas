@@ -15133,7 +15133,7 @@ function miRondaCalcular() {
       c._mr_estado = pidio ? 'verde' : 'gris';
       if (pidio) {
         cubiertos++;
-      } else if (_miRondaGestiones[c.id]) {
+      } else if (_miRondaGestiones[c.cliente_id]) {
         // Ya fue gestionado sin venta esta ronda
         gestionados++;
       } else {
@@ -15442,7 +15442,7 @@ function miRondaRenderModalBody(filtroLocalidad) {
   clientes.forEach(function(c) {
     if (c._mr_estado === 'verde') {
       vendidos.push(c);
-    } else if (_miRondaGestiones[c.id]) {
+    } else if (_miRondaGestiones[c.cliente_id]) {
       gestionados.push(c);
     } else {
       pendientes.push(c);
@@ -15549,18 +15549,18 @@ function mrRenderCliente(c, tipo) {
     extraInfo = '<div class="mr-cli-venta-info">✓ Vendido en esta ronda</div>';
   } else if (tipo === 'gestionada') {
     // Ya se gestionó sin venta: mostrar motivo + botón cambiar
-    var g = _miRondaGestiones[c.id];
+    var g = _miRondaGestiones[c.cliente_id];
     var motivoTxt = mrMotivoLabel(g.motivo, g.motivo_texto);
     extraInfo = '<div class="mr-cli-gest-info">' +
       '⚠ <span class="mr-cli-gest-motivo">' + escapeHtml(motivoTxt) + '</span>' +
     '</div>';
-    extraAcciones = '<button class="mr-cli-gest-btn-cambiar" onclick="mrGestionRevertir(' + c.id + ')">↩ Volver a pendiente</button>';
+    extraAcciones = '<button class="mr-cli-gest-btn-cambiar" onclick="mrGestionRevertir(' + c.cliente_id + ')">↩ Volver a pendiente</button>';
   } else {
     // Pendiente: mostrar botones Le vendí + Sin venta
     extraAcciones =
       '<div class="mr-cli-gest-row">' +
-        '<button class="mr-cli-gest-btn mr-cli-gest-btn-ok" onclick="mrGestionLeVendi(' + c.id + ')">✓ Le vendí</button>' +
-        '<button class="mr-cli-gest-btn mr-cli-gest-btn-no" onclick="mrGestionSinVenta(' + c.id + ')">✕ Sin venta</button>' +
+        '<button class="mr-cli-gest-btn mr-cli-gest-btn-ok" onclick="mrGestionLeVendi(' + c.cliente_id + ')">✓ Le vendí</button>' +
+        '<button class="mr-cli-gest-btn mr-cli-gest-btn-no" onclick="mrGestionSinVenta(' + c.cliente_id + ')">✕ Sin venta</button>' +
       '</div>';
   }
 
@@ -15599,13 +15599,22 @@ function mrMotivoLabel(motivo, motivoTexto) {
 
 // ── Acciones de gestión: Le vendí / Sin venta / Revertir ──────────
 function mrGestionLeVendi(clienteId) {
-  var c = _miRondaClientes.find(function(x) { return x.id === clienteId; });
-  if (!c) return;
+  var c = _miRondaClientes.find(function(x) { return x.cliente_id == clienteId; });
+  if (!c) {
+    console.error('mrGestionLeVendi: cliente no encontrado, clienteId=', clienteId);
+    mrFeedback('⚠️ Cliente no encontrado', true);
+    return;
+  }
+  if (!c.cliente_id) {
+    console.error('mrGestionLeVendi: cliente sin cliente_id', c);
+    mrFeedback('⚠️ Cliente sin ID — avisá a Braian', true);
+    return;
+  }
 
   // Guardar en Supabase como estado='venta' (queda histórico)
   var rutaKey = _miRondaRutaSel || '';
   mrSupabaseGuardarGestion({
-    cliente_id:     clienteId,
+    cliente_id:     c.cliente_id,
     cliente_nombre: c.nombre,
     vendedor:       mrNormVendedor(vendedorActual),
     fecha_ronda:    mrFechaRonda(rutaKey),
@@ -15629,9 +15638,18 @@ function mrGestionLeVendi(clienteId) {
 }
 
 function mrGestionSinVenta(clienteId) {
-  var c = _miRondaClientes.find(function(x) { return x.id === clienteId; });
-  if (!c) return;
-  _mrMotivoClienteActual = clienteId;
+  var c = _miRondaClientes.find(function(x) { return x.cliente_id == clienteId; });
+  if (!c) {
+    console.error('mrGestionSinVenta: cliente no encontrado, clienteId=', clienteId);
+    mrFeedback('⚠️ Cliente no encontrado', true);
+    return;
+  }
+  if (!c.cliente_id) {
+    console.error('mrGestionSinVenta: cliente sin cliente_id', c);
+    mrFeedback('⚠️ Cliente sin ID — avisá a Braian', true);
+    return;
+  }
+  _mrMotivoClienteActual = c.cliente_id;
   _mrMotivoRutaActual    = _miRondaRutaSel;
   // Mostrar nombre del cliente en el modal
   var nomEl = document.getElementById('mr-motivo-cliente');
@@ -15669,12 +15687,24 @@ function mrMotivoGuardarOtro() {
 function mrMotivoGuardar(motivo, motivoTexto) {
   var clienteId = _mrMotivoClienteActual;
   var rutaKey = _mrMotivoRutaActual;
-  if (!clienteId) return;
-  var c = _miRondaClientes.find(function(x) { return x.id === clienteId; });
-  if (!c) return;
+  if (!clienteId) {
+    console.error('mrMotivoGuardar: sin clienteId actual');
+    return;
+  }
+  var c = _miRondaClientes.find(function(x) { return x.cliente_id == clienteId; });
+  if (!c) {
+    console.error('mrMotivoGuardar: cliente no encontrado', clienteId);
+    mrFeedback('⚠️ Cliente no encontrado', true);
+    return;
+  }
+  if (!c.cliente_id) {
+    console.error('mrMotivoGuardar: cliente sin cliente_id', c);
+    mrFeedback('⚠️ Cliente sin ID — avisá a Braian', true);
+    return;
+  }
 
   mrSupabaseGuardarGestion({
-    cliente_id:     clienteId,
+    cliente_id:     c.cliente_id,
     cliente_nombre: c.nombre,
     vendedor:       mrNormVendedor(vendedorActual),
     fecha_ronda:    mrFechaRonda(rutaKey),
@@ -15687,7 +15717,7 @@ function mrMotivoGuardar(motivo, motivoTexto) {
       mrFeedback('⚠️ No se pudo guardar, reintentá', true);
       return;
     }
-    _miRondaGestiones[clienteId] = {
+    _miRondaGestiones[c.cliente_id] = {
       estado: 'sin_venta',
       motivo: motivo,
       motivo_texto: motivoTexto,
@@ -15696,7 +15726,7 @@ function mrMotivoGuardar(motivo, motivoTexto) {
 
     // Caso especial: CERRÓ → auto-archivar en clientes_activos
     if (motivo === 'cerro') {
-      mrSupabaseArchivarCliente(clienteId, function(ok2) {
+      mrSupabaseArchivarCliente(c.cliente_id, function(ok2) {
         if (ok2) mrFeedback('🗂 Cliente archivado — no vuelve a aparecer');
       });
     }
@@ -15777,13 +15807,13 @@ function miRondaRecalcularRuta(rutaKey) {
   var cubiertos = 0, gestionados = 0;
   d.clientes.forEach(function(c) {
     if (c._mr_estado === 'verde') cubiertos++;
-    else if (_miRondaGestiones[c.id]) gestionados++;
+    else if (_miRondaGestiones[c.cliente_id]) gestionados++;
   });
   d.cubiertos        = cubiertos;
   d.gestionados      = gestionados;
   d.pendientesCount  = d.total - cubiertos - gestionados;
   d.pendientes       = d.clientes.filter(function(c) {
-    return c._mr_estado !== 'verde' && !_miRondaGestiones[c.id];
+    return c._mr_estado !== 'verde' && !_miRondaGestiones[c.cliente_id];
   });
   // Recalcular estado visual de la card
   d.estado = mrEstadoVisual(rutaKey, d.diasHasta, cubiertos + gestionados, d.total);
