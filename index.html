@@ -8537,7 +8537,17 @@ function cambiarTab(tab) {
 
   // Cuando se abre Mi Ronda, renderizar
   if (tab === 'mironda') {
-    miRondaRender();
+    // miRondaRender vive en un <script> posterior. Si cambiarTab se dispara
+    // durante la carga sincrónica (login de vendedor que entra a mironda como
+    // pantalla inicial), la función aún no existe en window — difiere con
+    // setTimeout hasta que los scripts terminen de parsearse.
+    if (typeof miRondaRender === 'function') {
+      miRondaRender();
+    } else {
+      setTimeout(function() {
+        if (typeof miRondaRender === 'function') miRondaRender();
+      }, 0);
+    }
     var v = document.getElementById('view-mironda'); if (v) v.scrollTop = 0;
     // Fix espacio vacío: forzar min-height compacto
     var p = document.getElementById('panel'); if (p) p.style.minHeight = 'unset';
