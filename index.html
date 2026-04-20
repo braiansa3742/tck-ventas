@@ -545,6 +545,26 @@ body {
   overflow: hidden;
   text-overflow: ellipsis;
 }
+/* v8.4: ícono de origen del pedido (🌐 catálogo / WA verde / 📍 visita) */
+.pedido-origen-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 20px;
+  height: 20px;
+  font-size: 14px;
+  line-height: 1;
+  margin-right: 5px;
+  vertical-align: -2px;
+  cursor: help;
+  border-radius: 4px;
+  background: rgba(0,0,0,0.04);
+  flex-shrink: 0;
+  -webkit-tap-highlight-color: transparent;
+}
+.pedido-origen-icon:hover { background: rgba(0,0,0,0.08); }
+.pedido-origen-wa { background: rgba(37,211,102,0.10); }
+.pedido-origen-wa:hover { background: rgba(37,211,102,0.18); }
 .pedido-comercio {
   font-size: 12px;
   color: var(--text2);
@@ -6565,6 +6585,12 @@ body {
         <button class="filtro-btn" onclick="setFiltro('duplicado',this)">⚠️ Duplicados</button>
         <button class="filtro-btn" onclick="setFiltro('Cancelado',this)">❌ Cancelados</button>
       </div>
+      <div class="filtros filter-row" id="filtros-origen">
+        <button class="filtro-btn on"  onclick="setFiltroOrigen('todos',this)">Todos</button>
+        <button class="filtro-btn"     onclick="setFiltroOrigen('catalogo',this)" title="Catálogo web">🌐 Catálogo</button>
+        <button class="filtro-btn"     onclick="setFiltroOrigen('whatsapp',this)" title="WhatsApp">💬 WA</button>
+        <button class="filtro-btn"     onclick="setFiltroOrigen('campo',this)"    title="Visita con check-in">📍 Visita</button>
+      </div>
       </div>
     </div>
     <div id="lista-pedidos"></div>
@@ -7769,6 +7795,7 @@ var _estadosCambiados = {}; // pedidoId -> {estado, ts}
 let filtroActual = 'todos';
 let filtroFecha = 'hoy';
 let filtroVendedor = 'todos';
+let filtroOrigen = 'todos'; // v8.4: filtro por origen (catalogo/whatsapp/campo)
 let pinVendedorTemp = null;
 let pinActual = '';
 const duplicadosNotificados = new Set();
@@ -8392,6 +8419,49 @@ function setFiltro(f, btn) {
   btn.classList.add('on'); filtrar();
 }
 
+// v8.4: filtro por origen del pedido (catalogo web / WhatsApp / campo)
+function setFiltroOrigen(f, btn) {
+  filtroOrigen = f;
+  document.querySelectorAll('#filtros-origen .filtro-btn').forEach(function(b){b.classList.remove('on');});
+  btn.classList.add('on'); filtrar();
+}
+
+// v8.4: normaliza el valor de p.origen del Sheet a una de 4 categorías.
+// Valores conocidos en el Sheet (columna 13):
+//   'Catalogo Web TCK' / 'web_cliente' → catalogo
+//   'whatsapp' / cualquier cosa con "whatsapp"/"wa" → whatsapp
+//   'campo' / 'check-in' / 'visita' → campo
+//   vacío / no reconocido → null (no se muestra ícono)
+function pedidoOrigen(p) {
+  var o = (p && p.origen || '').toString().toLowerCase().trim();
+  if (!o) return null;
+  if (o.indexOf('catalog') !== -1 || o.indexOf('web') !== -1) return 'catalogo';
+  if (o.indexOf('whatsapp') !== -1 || o === 'wa') return 'whatsapp';
+  if (o.indexOf('campo') !== -1 || o.indexOf('check') !== -1 || o.indexOf('visita') !== -1) return 'campo';
+  return null;
+}
+
+// v8.4: HTML del ícono de origen para mostrar al lado del nombre del cliente.
+// Devuelve '' si el origen no está reconocido (pedidos viejos sin campo origen).
+function origenIconHtml(p) {
+  var o = pedidoOrigen(p);
+  if (!o) return '';
+  var labels = {
+    'catalogo': { icon: '🌐', txt: 'Pedido por catálogo web' },
+    'whatsapp': { icon: '',   txt: 'Pedido cargado por WhatsApp', svg: true },
+    'campo':    { icon: '📍', txt: 'Pedido tomado en visita (check-in)' }
+  };
+  var m = labels[o];
+  if (!m) return '';
+  if (m.svg) {
+    // Logo oficial WhatsApp (verde)
+    return '<span class="pedido-origen-icon pedido-origen-wa" title="' + m.txt + '" role="img" aria-label="' + m.txt + '">' +
+      '<svg viewBox="0 0 24 24" width="14" height="14" fill="#25D366" style="vertical-align:-2px;"><path d="M17.472 14.382c-.297-.149-1.758-.867-2.03-.967-.273-.099-.471-.148-.67.15-.197.297-.767.966-.94 1.164-.173.199-.347.223-.644.075-.297-.15-1.255-.463-2.39-1.475-.883-.788-1.48-1.761-1.653-2.059-.173-.297-.018-.458.13-.606.134-.133.298-.347.446-.52.149-.174.198-.298.298-.497.099-.198.05-.371-.025-.52-.075-.149-.669-1.612-.916-2.207-.242-.579-.487-.5-.669-.51-.173-.008-.371-.01-.57-.01-.198 0-.52.074-.792.372-.272.297-1.04 1.016-1.04 2.479 0 1.462 1.065 2.875 1.213 3.074.149.198 2.096 3.2 5.077 4.487.709.306 1.262.489 1.694.625.712.227 1.36.195 1.871.118.571-.085 1.758-.719 2.006-1.413.248-.694.248-1.289.173-1.413-.074-.124-.272-.198-.57-.347m-5.421 7.403h-.004a9.87 9.87 0 01-5.031-1.378l-.361-.214-3.741.982.998-3.648-.235-.374a9.86 9.86 0 01-1.51-5.26c.001-5.45 4.436-9.884 9.888-9.884 2.64 0 5.122 1.03 6.988 2.898a9.825 9.825 0 012.893 6.994c-.003 5.45-4.437 9.884-9.885 9.884m8.413-18.297A11.815 11.815 0 0012.05 0C5.495 0 .16 5.335.157 11.892c0 2.096.547 4.142 1.588 5.945L.057 24l6.305-1.654a11.882 11.882 0 005.683 1.448h.005c6.554 0 11.89-5.335 11.893-11.893a11.821 11.821 0 00-3.48-8.413z"/></svg>' +
+    '</span>';
+  }
+  return '<span class="pedido-origen-icon" title="' + m.txt + '" role="img" aria-label="' + m.txt + '">' + m.icon + '</span>';
+}
+
 function filtrar() { renderPedidos(); }
 
 function fechaPedido(p) {
@@ -8445,6 +8515,11 @@ function pedidosFiltrados() {
   else if (filtroActual === 'Cancelado') lista = lista.filter(function(p){return p.estado==='Cancelado';});
   else if (filtroActual !== 'todos') lista = lista.filter(function(p){return p.estado===filtroActual;});
   else lista = lista.filter(function(p){return p.estado !== 'Cancelado';}); // "Todos" oculta cancelados
+
+  // v8.4: filtro por origen (si está activo)
+  if (filtroOrigen !== 'todos') {
+    lista = lista.filter(function(p){ return pedidoOrigen(p) === filtroOrigen; });
+  }
 
   if (q) lista = lista.filter(function(p){
     return p.cliente.toLowerCase().includes(q) || p.comercio.toLowerCase().includes(q) ||
@@ -8578,7 +8653,7 @@ function renderCard(p) {
     '<div class="pedido-head" onclick="toggleCard(\'' + id + '\')">' +
       '<div class="pedido-head-left">' +
         '<div class="pedido-id">' + p.pedidoId + '</div>' +
-        '<div class="pedido-cliente">' + (p.cliente||'(sin nombre)') + '</div>' +
+        '<div class="pedido-cliente">' + origenIconHtml(p) + (p.cliente||'(sin nombre)') + '</div>' +
         (p.fechaEntrega ? '<div style="display:inline-flex;align-items:center;gap:4px;background:' + (p.turnoEntrega==='Mañana'?'#E3F2FD':'#FFF3E0') + ';color:' + (p.turnoEntrega==='Mañana'?'#1565C0':'#E65100') + ';border-radius:20px;padding:2px 8px;font-family:Barlow Condensed,sans-serif;font-size:11px;font-weight:800;margin-top:3px;">' + (p.turnoEntrega==='Mañana'?'🌅':'🌆') + ' ' + p.fechaEntrega + ' · ' + (p.turnoEntrega||'') + '</div>' : '') +
         '<div class="pedido-comercio">' + (p.comercio ? '🏪 '+p.comercio+' · ' : '') + '📍 ' + p.localidad + '</div>' +
         buildProdsPreview(p) +
