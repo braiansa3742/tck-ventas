@@ -5188,22 +5188,27 @@ body {
   border-left: 3px solid #B0B0B0;
   padding: 11px 13px;
   margin-bottom: 7px;
-  transition: border-color .2s, box-shadow .2s, transform .3s, opacity .3s;
+  max-height: 300px;
+  transition: border-color .2s, box-shadow .2s,
+              transform .3s ease, opacity .3s ease,
+              max-height .3s ease, margin-bottom .3s ease,
+              padding-top .3s ease, padding-bottom .3s ease;
   position: relative;
+  overflow: hidden;
 }
 .mr-opC-card:hover { border-left-color: #D4A574; box-shadow: 0 2px 8px rgba(139,0,0,.06); }
 
 /* Animación de salida cuando marca vendido / sin venta */
 .mr-opC-card.mr-opC-leaving {
-  transform: translateX(40px);
+  transform: translateX(60px);
   opacity: 0;
   pointer-events: none;
   margin-bottom: 0;
   max-height: 0;
   padding-top: 0;
   padding-bottom: 0;
-  border-width: 0;
-  overflow: hidden;
+  border-top-width: 0;
+  border-bottom-width: 0;
 }
 
 /* Fila info + WhatsApp */
