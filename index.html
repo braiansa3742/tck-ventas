@@ -9302,6 +9302,14 @@ function renderCard(p) {
     btns += '<button class="btn-estado" style="background:#FFF8E1;color:#E65100;border-color:#E65100;" data-pid="' + p.pedidoId + '" data-cliente="' + (p.cliente||'').replace(/"/g,'') + '" data-detalle="' + encodeURIComponent(p.detalle||'') + '" onclick="editarPedidoBtn(this,event)">✏️ Editar pedido</button>';
   }
 
+  // v8.7: botón "Tiene sucursales" para vendedores cuando el pedido es duplicado.
+  // Abre el modal de gestión v8.5 para registrar las sucursales del cliente.
+  // Una vez registradas, la próxima vez que tome pedido para este cliente
+  // el tomador le preguntará cuál, y el detector dejará de marcar duplicados.
+  if (!esAdmin && !esChofer && p.esDuplicado) {
+    btns += '<button class="btn-estado" style="background:#FFF8DC;color:#8B6F50;border-color:#D4A574;" onclick="event.stopPropagation();sucModalAbrir(\'' + (p.cliente||'').replace(/'/g,"\\'").replace(/"/g,'&quot;') + '\')">⛔ Tiene sucursales</button>';
+  }
+
   // Definir/cambiar fecha de entrega — todos los vendedores (no choferes)
   if (!esChofer && (p.estado === 'Pendiente' || p.estado === 'Confirmado')) {
     // Solo mostrar fecha si es una fecha real (ej: "Lunes 14 de abril"), no el origen del pedido
@@ -15983,7 +15991,7 @@ function editarRenderItems() {
           '<div class="editar-qty-num" id="editar-qty-' + item.n.replace(/[^a-zA-Z0-9]/g,'-') + '">' + (qty || 0) + '</div>' +
           '<button class="editar-qty-btn" data-nombre="' + item.n.replace(/"/g,'&quot;') + '" onclick="editarQty(this,1)" ' + (sinStock ? 'disabled' : '') + '>+</button>' +
         '</div>' +
-        (function(){ var d=_editarDescuentos[item.n]; var sn=item.n.replace(/"/g,'&quot;'); var pr=item.pr||0; return pr>0 ? '<button class="tomador-dto-btn'+(d?' tiene-dto':'')+'" onclick="editarAbrirDescuento(&quot;'+sn+'&quot;)" title="Aplicar descuento">'+(d?(d.pct===100?'🎁':'-'+d.pct+'%'):'%')+'</button>' : ''; })()
+        (function(){ var d=_editarDescuentos[item.n]; var sn=item.n.replace(/"/g,'&quot;'); var pr=item.pr||0; return pr>0 ? '<button class="tomador-dto-btn'+(d?' tiene-dto':'')+'" onclick="editarAbrirDescuento(&quot;'+sn+'&quot;)" title="Aplicar descuento">'+(d?(d.pct===100?'🎁':'-'+d.pct+'%'):'%')+'</button>' : ''; })() +
       '</div>';
     });
   });
