@@ -2451,286 +2451,28 @@ body {
   align-items: center;
   gap: 6px;
 }
-/* Fila dedicada bajo el header del card Resumen — los 5 botones de período */
-.rep-periodo-row {
-  padding: 8px 12px 10px;
-  border-bottom: 1px solid var(--cream3);
-  background: linear-gradient(180deg, #FFFCF6, #fff);
-}
-.rep-periodo-row .rep-periodo-btns {
-  display: flex;
-  gap: 6px;
-  flex-wrap: nowrap;
-  overflow-x: auto;
-  scrollbar-width: none;
-  -ms-overflow-style: none;
-  padding: 1px;
-}
-.rep-periodo-row .rep-periodo-btns::-webkit-scrollbar { display: none; }
-.rep-periodo-row .rep-periodo-btn {
-  flex: 1 1 auto;
-  min-width: 0;
-  padding: 7px 8px;
-  font-size: 12.5px;
-  min-height: 32px;
-  text-align: center;
-  justify-content: center;
-  display: flex;
-  align-items: center;
-}
-.rep-periodo-row .rep-periodo-btn-mas {
-  flex: 1.3 0 auto;
-  min-width: 78px;
-  background: linear-gradient(135deg, #fff, var(--cream2));
-  border-color: var(--cream4);
-  color: var(--red);
-  position: relative;
-}
-.rep-periodo-row .rep-periodo-btn-mas.on {
-  background: linear-gradient(135deg, var(--red), var(--red3)) !important;
-  border-color: var(--red) !important;
-  color: #fff !important;
-}
-#rep-periodo-mas-btn.on {
-  background: linear-gradient(135deg, #8B0000, #6B0000) !important;
-  background-image: linear-gradient(135deg, #8B0000, #6B0000) !important;
-  border-color: #8B0000 !important;
-  color: #fff !important;
-}
-@media (min-width: 520px) {
-  .rep-periodo-row .rep-periodo-btn {
-    padding: 8px 14px;
-    font-size: 13px;
-  }
-}
-
 .rep-periodo-btns {
   display: flex;
   gap: 4px;
-  flex-wrap: nowrap;
-  overflow-x: auto;
-  scrollbar-width: none;
-  -ms-overflow-style: none;
-  padding: 1px;
 }
-.rep-periodo-btns::-webkit-scrollbar { display: none; }
 .rep-periodo-btn {
-  padding: 4px 11px;
+  padding: 3px 9px;
   border-radius: 20px;
   border: 1.5px solid var(--cream3);
   background: #fff;
   font-family: 'Barlow Condensed', sans-serif;
-  font-size: 11.5px;
+  font-size: 11px;
   font-weight: 700;
   color: var(--text3);
   cursor: pointer;
   touch-action: manipulation;
   -webkit-tap-highlight-color: transparent;
   transition: all .12s;
-  white-space: nowrap;
-  flex-shrink: 0;
-  min-height: 26px;
 }
 .rep-periodo-btn.on {
   background: var(--red);
   border-color: var(--red);
   color: #fff;
-}
-.rep-periodo-btn-mas.on::after {
-  content: '•';
-  position: absolute;
-  top: -3px;
-  right: -3px;
-  width: 10px;
-  height: 10px;
-  background: var(--gold3);
-  border-radius: 50%;
-  border: 1.5px solid #fff;
-  color: transparent;
-  line-height: 0;
-}
-
-/* Chip destacado del período activo cuando viene del menú "Más" */
-.rep-periodo-activo-chip {
-  display: inline-block;
-  margin-left: 8px;
-  padding: 2px 9px;
-  background: linear-gradient(135deg, var(--red), var(--red3));
-  color: var(--gold3);
-  font-family: 'Barlow Condensed', sans-serif;
-  font-size: 11px;
-  font-weight: 800;
-  letter-spacing: 0.5px;
-  border-radius: 10px;
-  text-transform: uppercase;
-  vertical-align: middle;
-  box-shadow: 0 2px 6px rgba(139,0,0,0.25);
-  border: 1px solid rgba(212,165,116,0.4);
-}
-
-/* ══ Sheet "Más períodos" ══════════════════════════════════ */
-.rep-periodo-mas-backdrop {
-  position: fixed;
-  inset: 0;
-  background: rgba(0,0,0,0.5);
-  z-index: 9998;
-  opacity: 0;
-  pointer-events: none;
-  transition: opacity .2s ease;
-  backdrop-filter: blur(3px);
-  -webkit-backdrop-filter: blur(3px);
-}
-.rep-periodo-mas-backdrop.on {
-  opacity: 1;
-  pointer-events: auto;
-}
-.rep-periodo-mas-sheet {
-  position: fixed;
-  left: 0;
-  right: 0;
-  bottom: 0;
-  background: #fff;
-  z-index: 9999;
-  border-radius: 20px 20px 0 0;
-  box-shadow: 0 -8px 32px rgba(0,0,0,0.25);
-  transform: translateY(100%);
-  transition: transform .28s cubic-bezier(.4,0,.2,1);
-  padding-bottom: env(safe-area-inset-bottom, 8px);
-  max-height: 85vh;
-  overflow-y: auto;
-}
-.rep-periodo-mas-sheet.on {
-  transform: translateY(0);
-}
-@media (min-width: 720px) {
-  .rep-periodo-mas-sheet {
-    left: 50%;
-    right: auto;
-    bottom: 50%;
-    transform: translate(-50%, 50%) scale(0.92);
-    width: 420px;
-    max-width: 90vw;
-    border-radius: 14px;
-    max-height: 78vh;
-    opacity: 0;
-    transition: opacity .22s ease, transform .22s cubic-bezier(.4,0,.2,1);
-  }
-  .rep-periodo-mas-sheet.on {
-    transform: translate(-50%, 50%) scale(1);
-    opacity: 1;
-  }
-  .rep-periodo-mas-handle { display: none; }
-}
-.rep-periodo-mas-handle {
-  width: 38px;
-  height: 4px;
-  background: var(--cream4);
-  border-radius: 2px;
-  margin: 8px auto 4px;
-}
-.rep-periodo-mas-hdr {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  padding: 6px 16px 10px;
-  border-bottom: 1px solid var(--cream3);
-}
-.rep-periodo-mas-titulo {
-  font-family: 'Barlow Condensed', sans-serif;
-  font-weight: 900;
-  font-size: 16px;
-  color: var(--red);
-  letter-spacing: 0.5px;
-  text-transform: uppercase;
-}
-.rep-periodo-mas-cerrar {
-  background: var(--cream2);
-  border: none;
-  width: 30px;
-  height: 30px;
-  border-radius: 50%;
-  font-size: 22px;
-  font-weight: 700;
-  line-height: 1;
-  color: var(--text2);
-  cursor: pointer;
-  touch-action: manipulation;
-  -webkit-tap-highlight-color: transparent;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  padding: 0;
-}
-.rep-periodo-mas-cerrar:active { background: var(--cream3); transform: scale(0.94); }
-.rep-periodo-mas-body { padding: 8px; }
-.rep-periodo-mas-opt {
-  width: 100%;
-  display: flex;
-  align-items: center;
-  gap: 12px;
-  padding: 12px 12px;
-  background: #fff;
-  border: 1.5px solid var(--cream3);
-  border-radius: 11px;
-  margin-bottom: 6px;
-  cursor: pointer;
-  touch-action: manipulation;
-  -webkit-tap-highlight-color: transparent;
-  transition: all .12s;
-  text-align: left;
-  font-family: 'Barlow', sans-serif;
-  min-height: 54px;
-}
-.rep-periodo-mas-opt:active {
-  transform: scale(0.985);
-  background: var(--cream2);
-}
-.rep-periodo-mas-opt.on {
-  background: linear-gradient(135deg, #FFF8E1, #FFFEFA);
-  border-color: var(--gold);
-  box-shadow: 0 2px 8px rgba(212,165,116,0.25);
-}
-.rep-periodo-mas-opt-ico {
-  font-size: 22px;
-  width: 36px;
-  height: 36px;
-  background: var(--cream2);
-  border-radius: 9px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  flex-shrink: 0;
-}
-.rep-periodo-mas-opt.on .rep-periodo-mas-opt-ico {
-  background: linear-gradient(135deg, var(--gold3), var(--gold));
-}
-.rep-periodo-mas-opt-txt {
-  flex: 1;
-  display: flex;
-  flex-direction: column;
-  gap: 1px;
-}
-.rep-periodo-mas-opt-txt strong {
-  font-family: 'Barlow Condensed', sans-serif;
-  font-size: 14.5px;
-  font-weight: 800;
-  color: var(--text);
-  letter-spacing: 0.3px;
-  line-height: 1.1;
-}
-.rep-periodo-mas-opt-txt small {
-  font-size: 11px;
-  color: var(--text3);
-  line-height: 1.2;
-}
-.rep-periodo-mas-divider {
-  height: 1px;
-  background: var(--cream3);
-  margin: 8px 4px;
-}
-.rep-periodo-mas-opt-custom {
-  background: linear-gradient(135deg, #FFF8E1, #fff);
-  border-color: var(--cream4);
 }
 .rep-card-body { padding: 12px 16px; }
 
@@ -6400,20 +6142,14 @@ body {
       <!-- Filtros período -->
       <div class="rep-card" style="margin-top:0">
         <div class="rep-card-hdr">
-          <div class="rep-card-titulo">
-            📈 Resumen
-            <span class="rep-periodo-activo-chip" id="rep-periodo-activo-chip" style="display:none;"></span>
-          </div>
-          <button class="rep-filtros-btn" id="rep-filtros-toggle" onclick="toggleFiltrosAvanzados()">⚙️ Filtros</button>
-        </div>
-        <!-- Fila dedicada para los botones de período -->
-        <div class="rep-periodo-row">
-          <div class="rep-periodo-btns" id="rep-periodo-btns">
-            <button class="rep-periodo-btn on" data-per="hoy" onclick="setRepPeriodo('hoy',this)">Hoy</button>
-            <button class="rep-periodo-btn" data-per="ayer" onclick="setRepPeriodo('ayer',this)">Ayer</button>
-            <button class="rep-periodo-btn" data-per="semana" onclick="setRepPeriodo('semana',this)">Semana</button>
-            <button class="rep-periodo-btn" data-per="mes" onclick="setRepPeriodo('mes',this)">Mes</button>
-            <button class="rep-periodo-btn rep-periodo-btn-mas" id="rep-periodo-mas-btn" onclick="abrirMenuPeriodoMas()">▾ Más</button>
+          <div class="rep-card-titulo">📈 Resumen</div>
+          <div style="display:flex;gap:6px;align-items:center;">
+            <button class="rep-filtros-btn" id="rep-filtros-toggle" onclick="toggleFiltrosAvanzados()">⚙️ Filtros</button>
+            <div class="rep-periodo-btns" id="rep-periodo-btns">
+              <button class="rep-periodo-btn on" onclick="setRepPeriodo('semana',this)">Semana</button>
+              <button class="rep-periodo-btn" onclick="setRepPeriodo('mes',this)">Mes</button>
+              <button class="rep-periodo-btn" onclick="setRepPeriodo('todos',this)">Todo</button>
+            </div>
           </div>
         </div>
         <!-- Filtro vendedor — solo Admin -->
@@ -6461,7 +6197,7 @@ body {
       </div>
 
       <!-- Evolución diaria -->
-      <div class="rep-card" id="rep-evolucion-card">
+      <div class="rep-card">
         <div class="rep-card-hdr">
           <div class="rep-card-titulo">📅 Evolución de ventas</div>
           <div id="rep-chart-comp" style="font-family:'Barlow Condensed',sans-serif;font-size:12px;color:var(--text3);"></div>
@@ -8753,93 +8489,15 @@ function checkPrimeraVez() {
 
 
 // ── SECCIÓN REPORTES ──────────────────────────────────────────────
-var _repPeriodo  = 'hoy';
+var _repPeriodo  = 'semana';
 var _repVendedor = 'todos';
-
-// Estado: _repPeriodo guarda el período activo. Puede ser uno de:
-// 'hoy' | 'ayer' | 'semana' | '15dias' | 'mes' | 'mespasado' | 'anio' | 'todos' | 'custom'
-// Los 4 primeros son botones rápidos. El resto sale del menú "Más".
-var _REP_PERIODOS_RAPIDOS = ['hoy','ayer','semana','mes'];
-var _REP_PERIODO_LABELS = {
-  hoy:'Hoy', ayer:'Ayer', semana:'Semana', '15dias':'15 días',
-  mes:'Mes', mespasado:'Mes pasado', anio:'Año', todos:'Histórico', custom:'Rango custom'
-};
 
 function setRepPeriodo(periodo, btn) {
   _repPeriodo = periodo;
-  // Limpia inputs de rango custom si cambio a un período no-custom
-  if (periodo !== 'custom') {
-    var di = document.getElementById('rep-filtro-desde');
-    var hi = document.getElementById('rep-filtro-hasta');
-    if (di) di.value = '';
-    if (hi) hi.value = '';
-  }
-  sincronizarBotonesPeriodo(periodo, btn);
-  renderReportes();
-}
-
-// Actualiza qué botón de la fila rápida está activo + estado del botón "Más" + chip indicador
-function sincronizarBotonesPeriodo(periodo, btnClicked) {
+  // Only reset buttons inside rep-periodo-btns (not the vendor filter)
   document.querySelectorAll('#rep-periodo-btns .rep-periodo-btn').forEach(function(b) { b.classList.remove('on'); });
-  var chip = document.getElementById('rep-periodo-activo-chip');
-  if (_REP_PERIODOS_RAPIDOS.indexOf(periodo) !== -1) {
-    var btn = btnClicked || document.querySelector('#rep-periodo-btns .rep-periodo-btn[data-per="' + periodo + '"]');
-    if (btn) btn.classList.add('on');
-    var mas = document.getElementById('rep-periodo-mas-btn');
-    if (mas) mas.textContent = '▾ Más';
-    if (chip) chip.style.display = 'none';
-  } else {
-    var mas = document.getElementById('rep-periodo-mas-btn');
-    if (mas) {
-      mas.classList.add('on');
-      mas.textContent = '▾ ' + (_REP_PERIODO_LABELS[periodo] || 'Más');
-    }
-    if (chip) {
-      chip.textContent = _REP_PERIODO_LABELS[periodo] || '';
-      chip.style.display = 'inline-block';
-    }
-  }
-}
-
-function abrirMenuPeriodoMas() {
-  var sheet = document.getElementById('rep-periodo-mas-sheet');
-  var back  = document.getElementById('rep-periodo-mas-backdrop');
-  if (!sheet || !back) return;
-  sheet.querySelectorAll('.rep-periodo-mas-opt').forEach(function(o) {
-    o.classList.toggle('on', o.getAttribute('data-per') === _repPeriodo);
-  });
-  back.classList.add('on');
-  requestAnimationFrame(function() { sheet.classList.add('on'); });
-}
-
-function cerrarMenuPeriodoMas() {
-  var sheet = document.getElementById('rep-periodo-mas-sheet');
-  var back  = document.getElementById('rep-periodo-mas-backdrop');
-  if (sheet) sheet.classList.remove('on');
-  if (back)  back.classList.remove('on');
-}
-
-function setRepPeriodoDesdeMenu(periodo) {
-  cerrarMenuPeriodoMas();
-  if (periodo === 'custom') {
-    var avz = document.getElementById('rep-filtros-avanzados');
-    if (avz && !avz.classList.contains('on')) {
-      if (typeof toggleFiltrosAvanzados === 'function') {
-        toggleFiltrosAvanzados();
-      } else {
-        avz.classList.add('on');
-      }
-    }
-    _repPeriodo = 'custom';
-    sincronizarBotonesPeriodo('custom');
-    setTimeout(function() {
-      var desde = document.getElementById('rep-filtro-desde');
-      if (desde) desde.focus();
-    }, 300);
-    renderReportes();
-    return;
-  }
-  setRepPeriodo(periodo);
+  if (btn) btn.classList.add('on');
+  renderReportes();
 }
 
 function setRepVendedor(vendedor, btn) {
@@ -8867,44 +8525,14 @@ function getRepDatos(periodo) {
   }
 
   // Filtrar por período
-  // Periodos soportados: 'hoy', 'ayer', 'semana', '15dias', 'mes', 'mespasado',
-  // 'anio', 'todos', 'custom'. Los rangos se calculan desde hoy (00:00).
   var hoy = new Date(); hoy.setHours(0,0,0,0);
-  var finDia = function(d) { var x = new Date(d); x.setHours(23,59,59,999); return x; };
-
-  if (periodo === 'hoy') {
-    var fin = finDia(hoy);
-    todos = todos.filter(function(p) { var f = fechaPedido(p); return f >= hoy && f <= fin; });
-  } else if (periodo === 'ayer') {
-    var ayer = new Date(hoy); ayer.setDate(ayer.getDate() - 1);
-    var finAyer = finDia(ayer);
-    todos = todos.filter(function(p) { var f = fechaPedido(p); return f >= ayer && f <= finAyer; });
-  } else if (periodo === 'semana') {
+  if (periodo === 'semana') {
     var desde = new Date(hoy); desde.setDate(desde.getDate() - 7);
-    todos = todos.filter(function(p) { return fechaPedido(p) >= desde; });
-  } else if (periodo === '15dias') {
-    var desde = new Date(hoy); desde.setDate(desde.getDate() - 15);
     todos = todos.filter(function(p) { return fechaPedido(p) >= desde; });
   } else if (periodo === 'mes') {
     var desde = new Date(hoy); desde.setDate(desde.getDate() - 30);
     todos = todos.filter(function(p) { return fechaPedido(p) >= desde; });
-  } else if (periodo === 'mespasado') {
-    // Mes calendario anterior: del día 1 al último día del mes pasado
-    var inicioMesPas = new Date(hoy.getFullYear(), hoy.getMonth() - 1, 1);
-    var finMesPas    = new Date(hoy.getFullYear(), hoy.getMonth(), 0);
-    var finMesPasD   = finDia(finMesPas);
-    todos = todos.filter(function(p) {
-      var f = fechaPedido(p);
-      return f >= inicioMesPas && f <= finMesPasD;
-    });
-  } else if (periodo === 'anio') {
-    var desde = new Date(hoy); desde.setDate(desde.getDate() - 365);
-    todos = todos.filter(function(p) { return fechaPedido(p) >= desde; });
-  } else if (periodo === 'custom') {
-    // No filtra acá — el filtrado por desde/hasta lo hace getRepDatosFiltrados
-    // con los inputs del DOM.
   }
-  // 'todos' → sin filtro
 
   return todos;
 }
@@ -9036,12 +8664,7 @@ function renderReportes() {
   el = document.getElementById('rep-stat-pedidos'); if (el) el.textContent = totalPedidos;
   el = document.getElementById('rep-stat-ticket');  if (el) el.textContent = ticket ? fmt(ticket) : '—';
 
-  // Gráfico de evolución: no tiene sentido para períodos de 1 día
-  var evoCard = document.getElementById('rep-evolucion-card');
-  var mostrarEvo = _repPeriodo !== 'hoy' && _repPeriodo !== 'ayer';
-  if (evoCard) evoCard.style.display = mostrarEvo ? '' : 'none';
-  if (mostrarEvo) renderGrafico(datos);
-
+  renderGrafico(datos);
   renderComparativa(datos, anterior);
 
   var vendCard = document.getElementById('rep-vend-card');
@@ -9080,17 +8703,7 @@ function renderGrafico(datos) {
 
   // Generar rango de días según período
   var hoy = new Date(); hoy.setHours(0,0,0,0);
-  var dias;
-  switch (_repPeriodo) {
-    case 'semana':    dias = 14; break;
-    case '15dias':    dias = 15; break;
-    case 'mes':       dias = 30; break;
-    case 'mespasado': dias = 30; break;
-    case 'anio':      dias = 60; break;
-    case 'todos':     dias = 60; break;
-    case 'custom':    dias = 30; break;
-    default:          dias = 14;
-  }
+  var dias = _repPeriodo === 'mes' ? 30 : _repPeriodo === 'todos' ? 60 : 14;
   var labels = [];
   for (var i = dias-1; i >= 0; i--) {
     var d = new Date(hoy); d.setDate(d.getDate() - i);
@@ -9099,10 +8712,8 @@ function renderGrafico(datos) {
   }
 
   // SVG dimensions
-  var barW, gap;
-  if (dias <= 15)      { barW = 22; gap = 8; }
-  else if (dias <= 30) { barW = 14; gap = 4; }
-  else                 { barW = 10; gap = 3; }
+  var barW    = _repPeriodo === 'mes' ? 14 : _repPeriodo === 'todos' ? 10 : 22;
+  var gap     = _repPeriodo === 'mes' ? 4  : _repPeriodo === 'todos' ? 3  : 8;
   var padL    = 44;
   var padR    = 8;
   var padT    = 10;
@@ -9623,56 +9234,10 @@ function getDatosAnteriores() {
   }
 
   var hoy  = new Date(); hoy.setHours(0,0,0,0);
+  var dias = _repPeriodo === 'mes' ? 30 : _repPeriodo === 'todos' ? 365 : 7;
 
-  // Para cada período, calcular los mismos días en el período inmediatamente anterior.
-  var ant, desde;
-  var finDia = function(d) { var x = new Date(d); x.setHours(23,59,59,999); return x; };
-
-  if (_repPeriodo === 'hoy') {
-    desde = new Date(hoy); desde.setDate(desde.getDate() - 1);
-    return todos.filter(function(p) {
-      var f = fechaPedido(p);
-      return f >= desde && f <= finDia(desde);
-    });
-  } else if (_repPeriodo === 'ayer') {
-    ant = new Date(hoy); ant.setDate(ant.getDate() - 2);
-    return todos.filter(function(p) {
-      var f = fechaPedido(p);
-      return f >= ant && f <= finDia(ant);
-    });
-  } else if (_repPeriodo === 'mespasado') {
-    var iniAnt = new Date(hoy.getFullYear(), hoy.getMonth() - 2, 1);
-    var finAnt = new Date(hoy.getFullYear(), hoy.getMonth() - 1, 0);
-    return todos.filter(function(p) {
-      var f = fechaPedido(p);
-      return f >= iniAnt && f <= finDia(finAnt);
-    });
-  } else if (_repPeriodo === 'custom') {
-    var dIn = document.getElementById('rep-filtro-desde');
-    var hIn = document.getElementById('rep-filtro-hasta');
-    if (dIn && dIn.value && hIn && hIn.value) {
-      var d1 = new Date(dIn.value + 'T00:00:00');
-      var d2 = new Date(hIn.value + 'T23:59:59');
-      var diff = Math.round((d2 - d1) / 86400000) + 1;
-      var antFin = new Date(d1); antFin.setDate(antFin.getDate() - 1); antFin.setHours(23,59,59,999);
-      var antIni = new Date(antFin); antIni.setDate(antIni.getDate() - diff + 1); antIni.setHours(0,0,0,0);
-      return todos.filter(function(p) {
-        var f = fechaPedido(p);
-        return f >= antIni && f <= antFin;
-      });
-    }
-    return [];
-  }
-
-  // Periodos "últimos N días": semana, 15dias, mes, anio, todos
-  var dias = _repPeriodo === 'mes' ? 30
-           : _repPeriodo === '15dias' ? 15
-           : _repPeriodo === 'anio' ? 365
-           : _repPeriodo === 'todos' ? 365
-           : 7;
-
-  desde = new Date(hoy); desde.setDate(desde.getDate() - dias);
-  ant   = new Date(desde); ant.setDate(ant.getDate() - dias);
+  var desde = new Date(hoy); desde.setDate(desde.getDate() - dias);
+  var ant   = new Date(desde); ant.setDate(ant.getDate() - dias);
 
   return todos.filter(function(p) {
     var f = fechaPedido(p);
@@ -9690,18 +9255,7 @@ function renderComparativa(actual, anterior) {
   var pedAct    = actual.length;
   var pedAnt    = anterior.length;
 
-  var labelPer;
-  switch (_repPeriodo) {
-    case 'hoy':       labelPer = 'vs ayer'; break;
-    case 'ayer':      labelPer = 'vs anteayer'; break;
-    case 'semana':    labelPer = 'vs semana ant.'; break;
-    case '15dias':    labelPer = 'vs 15 días ant.'; break;
-    case 'mes':       labelPer = 'vs mes ant.'; break;
-    case 'mespasado': labelPer = 'vs mes previo'; break;
-    case 'anio':      labelPer = 'vs año ant.'; break;
-    case 'custom':    labelPer = 'vs período ant.'; break;
-    default:          labelPer = 'vs período ant.';
-  }
+  var labelPer = _repPeriodo === 'mes' ? 'vs mes ant.' : 'vs semana ant.';
 
   function compChip(act, ant, label) {
     if (!ant) return '';
@@ -17105,39 +16659,6 @@ var _miRondaOrigCargarPedidos = null;
       <button class="dup-modal-close" onclick="dupModalCerrar()">✕</button>
     </div>
     <div class="dup-modal-body" id="dup-modal-body"></div>
-  </div>
-</div>
-
-<!-- ══ SHEET: MÁS PERÍODOS (Reportes) ══════════════════════════ -->
-<div class="rep-periodo-mas-backdrop" id="rep-periodo-mas-backdrop" onclick="cerrarMenuPeriodoMas()"></div>
-<div class="rep-periodo-mas-sheet" id="rep-periodo-mas-sheet" role="dialog" aria-modal="true" aria-label="Más períodos">
-  <div class="rep-periodo-mas-handle"></div>
-  <div class="rep-periodo-mas-hdr">
-    <div class="rep-periodo-mas-titulo">Más períodos</div>
-    <button class="rep-periodo-mas-cerrar" onclick="cerrarMenuPeriodoMas()" aria-label="Cerrar">×</button>
-  </div>
-  <div class="rep-periodo-mas-body">
-    <button class="rep-periodo-mas-opt" data-per="15dias"   onclick="setRepPeriodoDesdeMenu('15dias')">
-      <span class="rep-periodo-mas-opt-ico">📆</span>
-      <span class="rep-periodo-mas-opt-txt"><strong>Últimos 15 días</strong><small>Quincena cerrada</small></span>
-    </button>
-    <button class="rep-periodo-mas-opt" data-per="mespasado" onclick="setRepPeriodoDesdeMenu('mespasado')">
-      <span class="rep-periodo-mas-opt-ico">🗓️</span>
-      <span class="rep-periodo-mas-opt-txt"><strong>Mes pasado</strong><small>Comparar contra el anterior</small></span>
-    </button>
-    <button class="rep-periodo-mas-opt" data-per="anio"      onclick="setRepPeriodoDesdeMenu('anio')">
-      <span class="rep-periodo-mas-opt-ico">📊</span>
-      <span class="rep-periodo-mas-opt-txt"><strong>Año</strong><small>Últimos 365 días</small></span>
-    </button>
-    <button class="rep-periodo-mas-opt" data-per="todos"     onclick="setRepPeriodoDesdeMenu('todos')">
-      <span class="rep-periodo-mas-opt-ico">∞</span>
-      <span class="rep-periodo-mas-opt-txt"><strong>Histórico completo</strong><small>Todos los pedidos</small></span>
-    </button>
-    <div class="rep-periodo-mas-divider"></div>
-    <button class="rep-periodo-mas-opt rep-periodo-mas-opt-custom" data-per="custom" onclick="setRepPeriodoDesdeMenu('custom')">
-      <span class="rep-periodo-mas-opt-ico">🎯</span>
-      <span class="rep-periodo-mas-opt-txt"><strong>Rango personalizado</strong><small>Elegí desde / hasta</small></span>
-    </button>
   </div>
 </div>
 
