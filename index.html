@@ -16439,6 +16439,25 @@ var MR_RUTAS_CONFIG = {
 //   Miguel     → TRENQUE + ruta del camión activa (sumadas)
 var FELICITACIONES_DESDE = '2026-04-27';  // YYYY-MM-DD — se activa el lunes 27/4
 
+// ══ BOTÓN "LE VENDÍ" — TRANSICIÓN HACIA SISTEMA PURO ═══════════════
+// El botón "Le vendí" permite marcar manualmente una venta sin que pase por
+// el sistema (sin Sheet, sin pedido real). Se usó mientras no todo pasaba
+// por la app. A partir del 27/4 se deshabilita para que Mi Ronda refleje
+// solo ventas reales (catálogo web + WhatsApp + tomador de campo).
+//
+// Los clientes marcados manualmente ANTES de la fecha de corte se mantienen
+// visibles como vendidos; solo se impide agregar nuevos después.
+var MR_BOTON_LE_VENDI_HASTA = '2026-04-26';  // YYYY-MM-DD inclusive
+
+// Devuelve true si hoy todavía se puede mostrar/usar el botón "Le vendí"
+function mrBotonLeVendiHabilitado() {
+  var hoy = new Date();
+  hoy.setHours(0,0,0,0);
+  var hasta = new Date(MR_BOTON_LE_VENDI_HASTA + 'T23:59:59');
+  return hoy <= hasta;
+}
+
+
 var MENSAJES_FELICITACION = {
   rango1: [  // < 50% — arrancá
     "Arrancar cuesta más que seguir. Pero cuando arrancás, todo se ordena. Dale con el primer llamado.",
@@ -17431,19 +17450,31 @@ function mrRenderCliente(c, tipo) {
       '<div class="mr-opC-stamp-gest">✕ No compró · <strong>' + escapeHtml(motivoTxt) + '</strong></div>' +
       '<button class="mr-opC-undo" onclick="mrGestionRevertir(\'' + c.cliente_id + '\')" title="Volver a pendiente">↩ Deshacer</button>';
   } else {
-    // Pendiente — botón sello TCK + acción secundaria discreta + derivar
-    // Detectar si es cliente SIN_RUTA para mostrar botón "Asignar zona" arriba
+    // Pendiente — hasta el 26/4 hay 3 botones (con Le vendí), desde el 27/4 hay 2
+    // El botón "Le vendí" se elimina porque las ventas reales entran por:
+    //   - Catálogo web (autogestión) → Sheet
+    //   - WhatsApp (carga manual) → Sheet
+    //   - Campo (tomador con check-in) → Sheet
+    // Mi Ronda matchea esas ventas por cliente_id automáticamente.
     var rutaKey = c.ruta_viaje || 'SIN_RUTA';
     var esSinRuta = (rutaKey === 'SIN_RUTA' || !MR_RUTAS_CONFIG[rutaKey]);
     var btnZonaHtml = esSinRuta
       ? '<button class="mr-opC-btn-zona" onclick="mrZonaAbrir(\'' + c.cliente_id + '\')" title="Asignar ruta y ciudad">📍 Asignar zona</button>'
       : '';
+
+    var mostrarLeVendi = mrBotonLeVendiHabilitado();
+    var rowClass = mostrarLeVendi ? 'mr-opC-row-acciones mr-opC-row-acciones-3' : 'mr-opC-row-acciones';
+
+    var btnLeVendi = mostrarLeVendi
+      ? '<button class="mr-opC-btn-stamp" onclick="mrGestionLeVendi(\'' + c.cliente_id + '\')">' +
+          '<span class="mr-opC-stamp-icon">✓</span> Le vendí' +
+        '</button>'
+      : '';
+
     bloqueAccion =
       btnZonaHtml +
-      '<div class="mr-opC-row-acciones mr-opC-row-acciones-3">' +
-        '<button class="mr-opC-btn-stamp" onclick="mrGestionLeVendi(\'' + c.cliente_id + '\')">' +
-          '<span class="mr-opC-stamp-icon">✓</span> Le vendí' +
-        '</button>' +
+      '<div class="' + rowClass + '">' +
+        btnLeVendi +
         '<button class="mr-opC-btn-skip" onclick="mrGestionSinVenta(\'' + c.cliente_id + '\')">No compró</button>' +
         '<button class="mr-opC-btn-derivar" onclick="mrDerivarAbrir(\'' + c.cliente_id + '\')" title="Derivar a otro vendedor">⤴ No es mío</button>' +
       '</div>';
@@ -17482,6 +17513,14 @@ function mrMotivoLabel(motivo, motivoTexto) {
 
 // ── Acciones de gestión: Le vendí / Sin venta / Revertir ──────────
 function mrGestionLeVendi(clienteId) {
+  // ══ v7: bloqueo global desde 2026-04-27 ══
+  // El botón "Le vendí" se deprecó porque las ventas reales deben pasar por:
+  // catálogo web, WhatsApp, o tomador de campo.
+  if (!mrBotonLeVendiHabilitado()) {
+    mrFeedback('ℹ️ Cargá la venta desde Tomar pedido / WhatsApp / Catálogo — Mi Ronda la marca sola', true);
+    return;
+  }
+
   var c = _miRondaClientes.find(function(x) { return x.cliente_id == clienteId; });
   if (!c) {
     console.error('mrGestionLeVendi: cliente no encontrado, clienteId=', clienteId);
