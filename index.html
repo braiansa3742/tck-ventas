@@ -1911,6 +1911,9 @@ body {
   padding-bottom: env(safe-area-inset-bottom);
 }
 .tab-nav.visible { display: grid; }
+.tab-nav.cols-5 { grid-template-columns: repeat(5, 1fr); }
+.tab-nav.cols-6 { grid-template-columns: repeat(6, 1fr); }
+.tab-nav.cols-7 { grid-template-columns: repeat(7, 1fr); }
 .tab-btn {
   display: flex;
   flex-direction: column;
@@ -4389,6 +4392,450 @@ body {
   margin: 0 !important;
 }
 
+/* ══════════════════════════════════════════════════════════════
+   MI RONDA — Sprint 1
+   ══════════════════════════════════════════════════════════════ */
+.mr-wrap { padding: 14px 14px 20px; }
+
+.mr-hdr {
+  background: linear-gradient(135deg, #4A0000 0%, #8B0000 60%, #B71C1C 100%);
+  border-radius: 14px;
+  padding: 14px 16px;
+  margin-bottom: 14px;
+  color: #fff;
+  box-shadow: 0 4px 14px rgba(139,0,0,.15);
+}
+.mr-hdr-titulo {
+  font-family: 'Barlow Condensed', sans-serif;
+  font-size: 20px;
+  font-weight: 900;
+  letter-spacing: .5px;
+  color: var(--gold);
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.mr-hdr-sub {
+  font-size: 12px;
+  color: rgba(255,255,255,.85);
+  margin-top: 2px;
+  letter-spacing: .3px;
+}
+.mr-hdr-stats {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 8px;
+  margin-top: 12px;
+}
+.mr-hdr-stat {
+  background: rgba(255,255,255,.12);
+  border-radius: 10px;
+  padding: 8px 6px;
+  text-align: center;
+  border: 1px solid rgba(255,255,255,.15);
+}
+.mr-hdr-stat-num {
+  font-family: 'Barlow Condensed', sans-serif;
+  font-size: 22px;
+  font-weight: 900;
+  line-height: 1;
+  color: #fff;
+}
+.mr-hdr-stat-lbl {
+  font-size: 9px;
+  color: rgba(255,255,255,.75);
+  font-family: 'Barlow Condensed', sans-serif;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: .5px;
+  margin-top: 3px;
+}
+
+/* Section title */
+.mr-section-title {
+  font-family: 'Barlow Condensed', sans-serif;
+  font-size: 12px;
+  font-weight: 800;
+  color: var(--text3);
+  text-transform: uppercase;
+  letter-spacing: 1px;
+  margin: 4px 2px 10px;
+}
+
+/* Ruta cards */
+.mr-ruta-card {
+  background: #fff;
+  border-radius: 14px;
+  padding: 14px 16px;
+  margin-bottom: 12px;
+  box-shadow: 0 3px 12px rgba(0,0,0,.06);
+  border: 1px solid var(--border);
+  position: relative;
+  overflow: hidden;
+}
+.mr-ruta-card::before {
+  content: '';
+  position: absolute;
+  left: 0; top: 0; bottom: 0;
+  width: 4px;
+  background: var(--text3);
+}
+/* Estados por gradualidad */
+.mr-ruta-card.st-info     { background: #EBF4FF; border-color: #B5D4F4; }
+.mr-ruta-card.st-info::before     { background: #378ADD; }
+.mr-ruta-card.st-warning  { background: #FAEEDA; border-color: #FAC775; }
+.mr-ruta-card.st-warning::before  { background: #BA7517; }
+.mr-ruta-card.st-alert    { background: #FFF3E0; border-color: #FFB74D; }
+.mr-ruta-card.st-alert::before    { background: #E65100; }
+.mr-ruta-card.st-urgent   { background: #FCEBEB; border-color: #F7C1C1; }
+.mr-ruta-card.st-urgent::before   { background: #C62828; }
+.mr-ruta-card.st-neutral  { background: #fff; }
+.mr-ruta-card.st-neutral::before  { background: var(--text3); }
+.mr-ruta-card.st-done     { background: #E8F5E9; border-color: #A5D6A7; }
+.mr-ruta-card.st-done::before     { background: #2E7D32; }
+
+.mr-ruta-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 10px;
+  margin-bottom: 8px;
+}
+.mr-ruta-info { flex: 1; }
+.mr-ruta-label {
+  font-family: 'Barlow Condensed', sans-serif;
+  font-size: 11px;
+  font-weight: 800;
+  text-transform: uppercase;
+  letter-spacing: .8px;
+  color: var(--text3);
+}
+.mr-ruta-card.st-urgent .mr-ruta-label { color: #B71C1C; }
+.mr-ruta-card.st-alert  .mr-ruta-label { color: #E65100; }
+.mr-ruta-card.st-warning .mr-ruta-label { color: #8B5A00; }
+.mr-ruta-card.st-info   .mr-ruta-label { color: #1565C0; }
+.mr-ruta-card.st-done   .mr-ruta-label { color: #1B5E20; }
+
+.mr-ruta-titulo {
+  font-family: 'Barlow Condensed', sans-serif;
+  font-size: 18px;
+  font-weight: 900;
+  color: var(--text);
+  margin-top: 2px;
+  line-height: 1.15;
+}
+.mr-ruta-badge {
+  font-family: 'Barlow Condensed', sans-serif;
+  font-size: 10px;
+  font-weight: 900;
+  padding: 4px 9px;
+  border-radius: 12px;
+  text-transform: uppercase;
+  letter-spacing: .6px;
+  white-space: nowrap;
+}
+.mr-ruta-badge.urgent  { background: #C62828; color: #fff; }
+.mr-ruta-badge.alert   { background: #E65100; color: #fff; }
+.mr-ruta-badge.warning { background: #BA7517; color: #fff; }
+.mr-ruta-badge.info    { background: #378ADD; color: #fff; }
+.mr-ruta-badge.neutral { background: var(--cream2); color: var(--text2); }
+.mr-ruta-badge.done    { background: #2E7D32; color: #fff; }
+
+/* Barra de progreso */
+.mr-progress-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin: 10px 0 8px;
+}
+.mr-progress-bar {
+  flex: 1;
+  height: 8px;
+  background: rgba(0,0,0,.06);
+  border-radius: 4px;
+  overflow: hidden;
+}
+.mr-progress-fill {
+  height: 100%;
+  border-radius: 4px;
+  transition: width .3s ease;
+}
+.mr-ruta-card.st-urgent  .mr-progress-fill { background: #C62828; }
+.mr-ruta-card.st-alert   .mr-progress-fill { background: #E65100; }
+.mr-ruta-card.st-warning .mr-progress-fill { background: #BA7517; }
+.mr-ruta-card.st-info    .mr-progress-fill { background: #378ADD; }
+.mr-ruta-card.st-neutral .mr-progress-fill { background: var(--text3); }
+.mr-ruta-card.st-done    .mr-progress-fill { background: #2E7D32; }
+
+.mr-progress-txt {
+  font-family: 'Barlow Condensed', sans-serif;
+  font-size: 15px;
+  font-weight: 900;
+  color: var(--text);
+  min-width: 55px;
+  text-align: right;
+}
+
+.mr-ruta-subtxt {
+  font-size: 12px;
+  color: var(--text2);
+  margin-bottom: 10px;
+  line-height: 1.3;
+}
+
+.mr-ruta-btn {
+  width: 100%;
+  padding: 11px 14px;
+  border-radius: 10px;
+  font-family: 'Barlow Condensed', sans-serif;
+  font-size: 14px;
+  font-weight: 900;
+  letter-spacing: .5px;
+  cursor: pointer;
+  border: none;
+  transition: transform .1s, filter .15s;
+  -webkit-tap-highlight-color: transparent;
+}
+.mr-ruta-btn:active { transform: scale(.98); }
+.mr-ruta-btn-primary {
+  background: var(--red);
+  color: #fff;
+}
+.mr-ruta-btn-primary:hover { filter: brightness(1.1); }
+.mr-ruta-btn-outline {
+  background: transparent;
+  color: var(--text);
+  border: 1.5px solid rgba(0,0,0,.12);
+}
+.mr-ruta-card.st-urgent  .mr-ruta-btn-outline { border-color: #C62828; color: #B71C1C; }
+.mr-ruta-card.st-alert   .mr-ruta-btn-outline { border-color: #E65100; color: #BF360C; }
+.mr-ruta-card.st-warning .mr-ruta-btn-outline { border-color: #BA7517; color: #633806; }
+.mr-ruta-card.st-info    .mr-ruta-btn-outline { border-color: #378ADD; color: #0C447C; }
+.mr-ruta-card.st-done    .mr-ruta-btn-outline { border-color: #2E7D32; color: #1B5E20; }
+
+.mr-empty {
+  background: #fff;
+  border-radius: 14px;
+  padding: 40px 20px;
+  text-align: center;
+  border: 1px dashed var(--cream3);
+}
+.mr-empty-icon { font-size: 42px; opacity: .5; margin-bottom: 10px; }
+.mr-empty-txt {
+  font-family: 'Barlow Condensed', sans-serif;
+  font-size: 15px;
+  font-weight: 700;
+  color: var(--text2);
+}
+.mr-empty-sub { font-size: 12px; color: var(--text3); margin-top: 4px; }
+
+/* Modal pendientes */
+.mr-modal-backdrop {
+  position: fixed;
+  inset: 0;
+  background: rgba(0,0,0,.6);
+  z-index: 700;
+  display: none;
+  align-items: flex-end;
+  justify-content: center;
+}
+.mr-modal-backdrop.on { display: flex; }
+.mr-modal-sheet {
+  background: var(--cream);
+  width: 100%;
+  max-width: 600px;
+  max-height: 92vh;
+  border-radius: 16px 16px 0 0;
+  display: flex;
+  flex-direction: column;
+  animation: mr-slide-up .2s ease;
+}
+@keyframes mr-slide-up {
+  from { transform: translateY(100%); }
+  to { transform: translateY(0); }
+}
+.mr-modal-pill {
+  width: 36px;
+  height: 4px;
+  background: rgba(0,0,0,.15);
+  border-radius: 2px;
+  margin: 8px auto 0;
+  flex-shrink: 0;
+}
+.mr-modal-hdr {
+  padding: 10px 16px 12px;
+  border-bottom: 1px solid var(--cream3);
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 12px;
+  flex-shrink: 0;
+}
+.mr-modal-titulo {
+  font-family: 'Barlow Condensed', sans-serif;
+  font-size: 18px;
+  font-weight: 900;
+  color: var(--red);
+}
+.mr-modal-sub {
+  font-size: 11px;
+  color: var(--text3);
+  margin-top: 1px;
+}
+.mr-modal-close {
+  background: var(--cream2);
+  border: none;
+  border-radius: 50%;
+  width: 32px;
+  height: 32px;
+  font-size: 16px;
+  color: var(--text2);
+  cursor: pointer;
+  flex-shrink: 0;
+}
+
+.mr-modal-chips {
+  padding: 10px 14px;
+  display: flex;
+  gap: 6px;
+  overflow-x: auto;
+  border-bottom: 1px solid var(--cream3);
+  flex-shrink: 0;
+  scrollbar-width: none;
+}
+.mr-modal-chips::-webkit-scrollbar { display: none; }
+.mr-chip {
+  background: #fff;
+  border: 1px solid var(--cream3);
+  border-radius: 14px;
+  padding: 5px 11px;
+  font-family: 'Barlow Condensed', sans-serif;
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--text2);
+  white-space: nowrap;
+  cursor: pointer;
+  transition: all .12s;
+  -webkit-tap-highlight-color: transparent;
+}
+.mr-chip.on {
+  background: var(--red);
+  color: #fff;
+  border-color: var(--red);
+}
+
+.mr-modal-body {
+  flex: 1;
+  overflow-y: auto;
+  padding: 10px 14px calc(20px + env(safe-area-inset-bottom));
+}
+
+.mr-cli-card {
+  background: #fff;
+  border-radius: 12px;
+  padding: 11px 13px;
+  margin-bottom: 8px;
+  border: 1px solid var(--cream3);
+  display: flex;
+  gap: 10px;
+  align-items: flex-start;
+}
+.mr-cli-dot {
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  background: #9E9E9E;
+  margin-top: 6px;
+  flex-shrink: 0;
+}
+.mr-cli-info { flex: 1; min-width: 0; }
+.mr-cli-nombre {
+  font-family: 'Barlow Condensed', sans-serif;
+  font-size: 15px;
+  font-weight: 900;
+  color: var(--text);
+  line-height: 1.2;
+}
+.mr-cli-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 3px;
+  font-size: 11px;
+  color: var(--text2);
+}
+.mr-cli-meta-item {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+}
+.mr-cli-nota {
+  font-size: 11px;
+  color: #8B5A00;
+  background: #FFF8E1;
+  padding: 3px 7px;
+  border-radius: 6px;
+  margin-top: 5px;
+  display: inline-block;
+  line-height: 1.3;
+}
+.mr-cli-actions {
+  display: flex;
+  gap: 6px;
+  flex-shrink: 0;
+  align-items: center;
+}
+.mr-cli-btn {
+  width: 34px;
+  height: 34px;
+  border-radius: 50%;
+  border: none;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 16px;
+  -webkit-tap-highlight-color: transparent;
+  transition: transform .1s;
+}
+.mr-cli-btn:active { transform: scale(.9); }
+.mr-cli-btn-wa   { background: #25D366; color: #fff; }
+.mr-cli-btn-tel  { background: #1976D2; color: #fff; }
+.mr-cli-btn-none { background: #E0E0E0; color: #9E9E9E; cursor: not-allowed; }
+
+.mr-modal-empty {
+  text-align: center;
+  padding: 40px 20px;
+  color: var(--text3);
+}
+.mr-modal-empty-icon { font-size: 48px; opacity: .3; margin-bottom: 10px; }
+.mr-modal-empty-txt {
+  font-family: 'Barlow Condensed', sans-serif;
+  font-size: 16px;
+  font-weight: 700;
+  color: var(--green2);
+}
+.mr-modal-empty-sub { font-size: 12px; margin-top: 4px; color: var(--text3); }
+
+.mr-loading {
+  text-align: center;
+  padding: 40px 20px;
+  color: var(--text3);
+  font-family: 'Barlow Condensed', sans-serif;
+  font-size: 14px;
+}
+.mr-loading-spinner {
+  display: inline-block;
+  width: 24px;
+  height: 24px;
+  border: 3px solid var(--cream2);
+  border-top-color: var(--red);
+  border-radius: 50%;
+  animation: mr-spin .7s linear infinite;
+  margin-bottom: 8px;
+}
+@keyframes mr-spin { to { transform: rotate(360deg); } }
+
 </style>
 </head>
 <body>
@@ -5196,6 +5643,58 @@ body {
     </div>
   </div>
 
+  <!-- ══ VIEW: MI RONDA ══ -->
+  <div class="view" id="view-mironda">
+    <div class="mr-wrap">
+
+      <!-- Header -->
+      <div class="mr-hdr">
+        <div class="mr-hdr-titulo">🎯 <span id="mr-hdr-nombre">Mi Ronda</span></div>
+        <div class="mr-hdr-sub" id="mr-hdr-sub">Tus clientes pendientes de contactar</div>
+        <div class="mr-hdr-stats" id="mr-hdr-stats" style="display:none;">
+          <div class="mr-hdr-stat">
+            <div class="mr-hdr-stat-num" id="mr-stat-total">—</div>
+            <div class="mr-hdr-stat-lbl">Clientes</div>
+          </div>
+          <div class="mr-hdr-stat">
+            <div class="mr-hdr-stat-num" id="mr-stat-cubiertos">—</div>
+            <div class="mr-hdr-stat-lbl">Cubiertos</div>
+          </div>
+          <div class="mr-hdr-stat">
+            <div class="mr-hdr-stat-num" id="mr-stat-pendientes" style="color:#FFD700">—</div>
+            <div class="mr-hdr-stat-lbl">Pendientes</div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Cards container -->
+      <div class="mr-section-title" id="mr-section-title" style="display:none;">Tus rutas activas</div>
+      <div id="mr-cards-container">
+        <div class="mr-loading">
+          <div class="mr-loading-spinner"></div>
+          <div>Cargando tu ronda...</div>
+        </div>
+      </div>
+
+    </div>
+  </div>
+
+  <!-- MODAL PENDIENTES MI RONDA -->
+  <div class="mr-modal-backdrop" id="mr-modal-backdrop" onclick="mrModalCerrarFondo(event)">
+    <div class="mr-modal-sheet">
+      <div class="mr-modal-pill"></div>
+      <div class="mr-modal-hdr">
+        <div>
+          <div class="mr-modal-titulo" id="mr-modal-titulo">Clientes pendientes</div>
+          <div class="mr-modal-sub" id="mr-modal-sub">—</div>
+        </div>
+        <button class="mr-modal-close" onclick="mrModalCerrar()">✕</button>
+      </div>
+      <div class="mr-modal-chips" id="mr-modal-chips"></div>
+      <div class="mr-modal-body" id="mr-modal-body"></div>
+    </div>
+  </div>
+
   <!-- TAB NAV -->
 <nav class="tab-nav" id="tab-nav">
   <button class="tab-btn active" id="tab-btn-pedidos" onclick="cambiarTab('pedidos')">
@@ -5206,6 +5705,11 @@ body {
   <button class="tab-btn" id="tab-btn-midia" onclick="cambiarTab('midia')">
     <span class="tab-icon">📊</span>
     <span class="tab-label">Mi día</span>
+  </button>
+  <button class="tab-btn" id="tab-btn-mironda" onclick="cambiarTab('mironda')">
+    <span class="tab-icon">🎯</span>
+    <span class="tab-label">Mi Ronda</span>
+    <span class="tab-badge" id="tab-badge-mironda"></span>
   </button>
   <button class="tab-btn" id="tab-btn-clientes" onclick="cambiarTab('clientes')">
     <span class="tab-icon">⭐</span>
@@ -6808,13 +7312,19 @@ function cambiarTab(tab) {
   if (_tabActual === tab) return;
   _tabActual = tab;
 
-  // Views — incluye entregas para choferes
-  ['pedidos','midia','clientes','gps','mapa','reportes','bot','entregas'].forEach(function(t) {
+  // Views — incluye entregas para choferes y mironda para vendedores
+  ['pedidos','midia','clientes','gps','mapa','reportes','bot','entregas','mironda'].forEach(function(t) {
     var v = document.getElementById('view-' + t);
     var b = document.getElementById('tab-btn-' + t);
     if (v) v.classList.toggle('active', t === tab);
     if (b) b.classList.toggle('active', t === tab);
   });
+
+  // Cuando se abre Mi Ronda, renderizar
+  if (tab === 'mironda') {
+    miRondaRender();
+    var v = document.getElementById('view-mironda'); if (v) v.scrollTop = 0;
+  }
 
   // Cuando se abre Mi Día, renderizar
   if (tab === 'clientes') {
@@ -6877,7 +7387,7 @@ function mostrarTabs() {
 
   // Choferes: solo ven tab Entregas
   if (esChofer) {
-    ['pedidos','midia','clientes','gps','mapa','bot','reportes'].forEach(function(t) {
+    ['pedidos','midia','clientes','gps','mapa','bot','reportes','mironda'].forEach(function(t) {
       var btn = document.getElementById('tab-btn-' + t);
       if (btn) btn.style.display = 'none';
     });
@@ -6910,8 +7420,26 @@ function mostrarTabs() {
   var tabMapa = document.getElementById('tab-btn-mapa');
   if (tabMapa) tabMapa.style.display = esAdmin ? '' : 'none';
 
+  // Tab Mi Ronda — solo vendedores reales (Miguel, Juan, Lisandro), no Admin
+  var tabMr = document.getElementById('tab-btn-mironda');
+  if (tabMr) tabMr.style.display = esVendedor ? '' : 'none';
+
   if (_tabActual === 'gps' && !esCampo && !esAdmin) cambiarTab('pedidos');
   if (_tabActual === 'mapa' && !esAdmin) cambiarTab('pedidos');
+  if (_tabActual === 'mironda' && !esVendedor) cambiarTab('pedidos');
+
+  // Ajustar grid según cantidad de tabs visibles
+  if (nav) {
+    var visibles = 0;
+    ['pedidos','midia','mironda','clientes','gps','mapa','bot','reportes'].forEach(function(t) {
+      var btn = document.getElementById('tab-btn-' + t);
+      if (btn && btn.style.display !== 'none') visibles++;
+    });
+    nav.classList.remove('cols-5','cols-6','cols-7');
+    if (visibles <= 5) nav.classList.add('cols-5');
+    else if (visibles === 6) nav.classList.add('cols-6');
+    else nav.classList.add('cols-7');
+  }
 }
 
 function ocultarTabs() {
@@ -13913,6 +14441,649 @@ async function dupUnirPedidos() {
     toast('❌ Error al unir pedidos', 'err');
   }
 }
+
+
+// ═══════════════════════════════════════════════════════════════════
+// MI RONDA — Sprint 1
+// ═══════════════════════════════════════════════════════════════════
+// Sistema de cobertura de clientes antes de cada viaje del camión.
+// Lee Clientes_Activos de Supabase y cruza con todosLosPedidos para
+// determinar qué clientes del vendedor logueado están cubiertos o
+// pendientes en la ventana de preparación del próximo viaje.
+// ═══════════════════════════════════════════════════════════════════
+
+var _miRondaClientes = [];         // Lista completa desde Supabase (solo los del vendedor)
+var _miRondaData     = null;       // Datos calculados por ruta
+var _miRondaRutaSel  = null;       // Ruta seleccionada en el modal
+var _miRondaCargando = false;
+
+// ── Config de rutas ──────────────────────────────────────────────
+// Cada ruta tiene: día de salida del camión y ventana de preparación.
+// Para Trenque no hay viaje, es semana corriente (lunes a domingo).
+var MR_RUTAS_CONFIG = {
+  'RUTA_LUNES_MARTES': {
+    nombre: 'Lunes · Martes',
+    descCorta: 'Viaje Lunes',
+    diaSalida: 1, // 0=dom, 1=lun, 2=mar, ...
+    colorBase: '#8B0000',
+    tipo: 'viaje'
+  },
+  'RUTA_MARTES': {
+    nombre: 'Martes · América',
+    descCorta: 'Viaje Martes',
+    diaSalida: 2,
+    colorBase: '#8B0000',
+    tipo: 'viaje'
+  },
+  'RUTA_JUEVES_VIERNES': {
+    nombre: 'Jueves · Viernes',
+    descCorta: 'Viaje Jueves',
+    diaSalida: 4,
+    colorBase: '#8B0000',
+    tipo: 'viaje'
+  },
+  'TRENQUE': {
+    nombre: 'Trenque Lauquen',
+    descCorta: 'Semana corriente',
+    diaSalida: null,
+    colorBase: '#5C3A1E',
+    tipo: 'local'
+  },
+  'MOSTRADOR': {
+    nombre: 'Mostrador',
+    descCorta: 'Venta en sede',
+    diaSalida: null,
+    colorBase: '#5C3A1E',
+    tipo: 'mostrador'
+  }
+};
+
+// ── Cálculo de próximo viaje ─────────────────────────────────────
+// Dada una ruta y la fecha de hoy, devuelve la fecha del próximo viaje.
+// Si hoy es el día del viaje, devuelve el de la próxima semana.
+function mrProximoViaje(rutaKey, hoy) {
+  hoy = hoy || new Date();
+  hoy.setHours(0,0,0,0);
+  var cfg = MR_RUTAS_CONFIG[rutaKey];
+  if (!cfg || cfg.diaSalida === null) return null;
+
+  var dSem = hoy.getDay();
+  var diasHasta = (cfg.diaSalida - dSem + 7) % 7;
+  if (diasHasta === 0) diasHasta = 7; // si hoy es el día, siguiente semana
+  var prox = new Date(hoy);
+  prox.setDate(hoy.getDate() + diasHasta);
+  return prox;
+}
+
+// Días restantes hasta el próximo viaje
+function mrDiasHasta(fechaProxViaje, hoy) {
+  if (!fechaProxViaje) return null;
+  hoy = hoy || new Date();
+  hoy.setHours(0,0,0,0);
+  var diff = Math.round((fechaProxViaje - hoy) / 86400000);
+  return diff;
+}
+
+// ── Ventana de preparación ───────────────────────────────────────
+// Para viajes: desde el día después del viaje anterior hasta el día antes del próximo
+// Para Trenque: semana calendario (lunes a domingo de la semana corriente)
+function mrVentanaPreparacion(rutaKey, hoy) {
+  hoy = hoy || new Date();
+  hoy.setHours(0,0,0,0);
+  var cfg = MR_RUTAS_CONFIG[rutaKey];
+  if (!cfg) return null;
+
+  if (cfg.tipo === 'local' || cfg.tipo === 'mostrador') {
+    // Semana corriente: lunes a domingo
+    var dSem = hoy.getDay(); // 0=dom
+    var diasAlLunes = dSem === 0 ? 6 : dSem - 1;
+    var inicio = new Date(hoy);
+    inicio.setDate(hoy.getDate() - diasAlLunes);
+    var fin = new Date(inicio);
+    fin.setDate(inicio.getDate() + 6);
+    fin.setHours(23,59,59,999);
+    return { inicio: inicio, fin: fin };
+  }
+
+  // Para viajes: desde el día después del viaje anterior
+  var prox = mrProximoViaje(rutaKey, hoy);
+  if (!prox) return null;
+  var viajeAnterior = new Date(prox);
+  viajeAnterior.setDate(prox.getDate() - 7);
+  var inicio = new Date(viajeAnterior);
+  inicio.setDate(viajeAnterior.getDate() + 1); // día después del viaje anterior
+  var fin = new Date(prox);
+  fin.setDate(prox.getDate() - 1); // día antes del próximo
+  fin.setHours(23,59,59,999);
+  return { inicio: inicio, fin: fin };
+}
+
+// ── Estado visual según días restantes ───────────────────────────
+// - Sin clientes pendientes → done (verde)
+// - 6-5 días o local → info (azul)
+// - 4-3 días → warning (amarillo/ámbar)
+// - 2 días → alert (naranja)
+// - 1-0 días → urgent (rojo)
+function mrEstadoVisual(rutaKey, diasHasta, cubiertos, total) {
+  var cfg = MR_RUTAS_CONFIG[rutaKey];
+  if (total === 0) return 'neutral';
+  if (cubiertos >= total) return 'done';
+
+  // Para rutas locales (Trenque): según cuántos pendientes quedan
+  if (!cfg || cfg.tipo !== 'viaje') {
+    var pct = cubiertos / total;
+    if (pct >= 0.9) return 'done';
+    if (pct >= 0.7) return 'info';
+    if (pct >= 0.5) return 'warning';
+    return 'alert';
+  }
+
+  // Para viajes: según días restantes
+  if (diasHasta === null || diasHasta > 4) return 'info';
+  if (diasHasta >= 3) return 'warning';
+  if (diasHasta >= 2) return 'alert';
+  return 'urgent';
+}
+
+// ── Texto del subtítulo según estado ─────────────────────────────
+function mrTextoSubtitulo(rutaKey, diasHasta, pendientes) {
+  var cfg = MR_RUTAS_CONFIG[rutaKey];
+  if (!cfg) return '';
+
+  if (cfg.tipo !== 'viaje') {
+    if (pendientes === 0) return 'Todos cubiertos esta semana';
+    return 'Te faltan ' + pendientes + ' cliente' + (pendientes === 1 ? '' : 's') + ' esta semana';
+  }
+
+  if (pendientes === 0) return 'Ruta completa — excelente trabajo';
+  if (diasHasta === null || diasHasta <= 0) return 'Hoy sale el camión';
+  if (diasHasta === 1) return 'Mañana sale el camión · últimas horas';
+  if (diasHasta === 2) return 'Pasado sale el camión · no dejes pendientes';
+  if (diasHasta <= 4) return 'Faltan ' + diasHasta + ' días · tiempo de contactar';
+  return 'Faltan ' + diasHasta + ' días · podés empezar a revisar';
+}
+
+// ── Badge label según estado ─────────────────────────────────────
+function mrTextoBadge(estado, diasHasta) {
+  if (estado === 'done') return '✓ Completo';
+  if (estado === 'urgent') return '🔥 Urgente';
+  if (estado === 'alert') return 'Apurate';
+  if (estado === 'warning') return 'Activo';
+  if (estado === 'info') return 'A tiempo';
+  if (estado === 'neutral') return 'Sin clientes';
+  return '';
+}
+
+// ── Normalizar nombres de vendedor ───────────────────────────────
+// En Pedidos el vendedor viene como "Miguel", en Clientes_Activos como "MIGUEL"
+function mrNormVendedor(v) {
+  return (v || '').toString().trim().toUpperCase();
+}
+
+// ── Extraer productos de un pedido (para identificar si pidió) ───
+// Un pedido cuenta como "cliente cubierto" si tiene cualquier estado
+// distinto de "Cancelado".
+function mrPedidoCuenta(p) {
+  var estado = (p.estado || '').toLowerCase();
+  return estado !== 'cancelado';
+}
+
+// ── Cargar clientes del vendedor desde Supabase ──────────────────
+async function miRondaCargarClientes(force) {
+  force = force || false;
+  if (_miRondaCargando) return;
+  if (_miRondaClientes.length > 0 && !force) return;
+
+  _miRondaCargando = true;
+  try {
+    var vend = mrNormVendedor(vendedorActual);
+    // Filtro: solo clientes activos del vendedor logueado
+    // En Supabase usamos PostgREST: activo_en_ronda=eq.true & vendedor=eq.MIGUEL
+    var path = 'clientes_activos?' +
+      'activo_en_ronda=eq.true' +
+      '&vendedor=eq.' + encodeURIComponent(vend) +
+      '&select=cliente_id,nombre,telefono,localidad,vendedor,ruta_viaje,ritmo,ultimo_pedido,dias_desde_ult_pedido,frec_dias_prom,notas' +
+      '&order=nombre.asc' +
+      '&limit=2000';
+    var data = await sbFetch(path);
+    _miRondaClientes = Array.isArray(data) ? data : [];
+  } catch(e) {
+    console.error('Mi Ronda — error cargando clientes:', e);
+    _miRondaClientes = [];
+    toast('❌ No se pudo cargar tu ronda. Revisá tu conexión.', 'err');
+  } finally {
+    _miRondaCargando = false;
+  }
+}
+
+// ── Calcular estado por ruta ─────────────────────────────────────
+// Agrupa los clientes por ruta, cruza con pedidos para determinar
+// verdes (cubiertos) vs grises (pendientes) en la ventana de preparación.
+function miRondaCalcular() {
+  var hoy = new Date(); hoy.setHours(0,0,0,0);
+  var vendNorm = mrNormVendedor(vendedorActual);
+
+  // Agrupar clientes por ruta_viaje
+  var porRuta = {};
+  _miRondaClientes.forEach(function(c) {
+    var r = c.ruta_viaje || 'SIN_RUTA';
+    if (!porRuta[r]) porRuta[r] = [];
+    porRuta[r].push(c);
+  });
+
+  // Para cada ruta, calcular ventana, cruzar con pedidos y marcar estado
+  var resultado = {};
+  Object.keys(porRuta).forEach(function(rutaKey) {
+    var clientes = porRuta[rutaKey];
+    var ventana = mrVentanaPreparacion(rutaKey, hoy);
+    var prox    = mrProximoViaje(rutaKey, hoy);
+    var diasHasta = mrDiasHasta(prox, hoy);
+
+    // Set de nombres normalizados de clientes que pidieron en la ventana
+    var nombresPidieron = new Set();
+    if (ventana) {
+      todosLosPedidos.forEach(function(p) {
+        if (!mrPedidoCuenta(p)) return;
+        // Filtrar por vendedor
+        var pvend = mrNormVendedor(p.vendedor);
+        if (pvend !== vendNorm) return;
+        // Filtrar por fecha en la ventana
+        var fp = fechaPedido(p);
+        if (!fp || isNaN(fp)) return;
+        fp = new Date(fp); fp.setHours(0,0,0,0);
+        if (fp < ventana.inicio || fp > ventana.fin) return;
+        // Normalizar nombre del cliente para matching
+        var nomNorm = mrNormNombre(p.cliente);
+        if (nomNorm) nombresPidieron.add(nomNorm);
+      });
+    }
+
+    // Marcar cada cliente
+    var cubiertos = 0, pendientes = [];
+    clientes.forEach(function(c) {
+      var nomNorm = mrNormNombre(c.nombre);
+      var pidio = nombresPidieron.has(nomNorm);
+      c._mr_estado = pidio ? 'verde' : 'gris';
+      if (pidio) cubiertos++;
+      else pendientes.push(c);
+    });
+
+    // Ordenar pendientes por localidad y nombre
+    pendientes.sort(function(a, b) {
+      var la = (a.localidad || 'zzz').toUpperCase();
+      var lb = (b.localidad || 'zzz').toUpperCase();
+      if (la !== lb) return la < lb ? -1 : 1;
+      return (a.nombre || '').localeCompare(b.nombre || '');
+    });
+
+    resultado[rutaKey] = {
+      ruta: rutaKey,
+      clientes: clientes,
+      total: clientes.length,
+      cubiertos: cubiertos,
+      pendientes: pendientes,
+      pendientesCount: pendientes.length,
+      ventana: ventana,
+      proxViaje: prox,
+      diasHasta: diasHasta,
+      estado: mrEstadoVisual(rutaKey, diasHasta, cubiertos, clientes.length)
+    };
+  });
+
+  return resultado;
+}
+
+// ── Normalizar nombre de cliente para matching ───────────────────
+// Similar al que usa el Apps Script
+function mrNormNombre(n) {
+  return (n || '').toString().trim().toLowerCase()
+    .normalize('NFKD').replace(/[\u0300-\u036f]/g, '')
+    .replace(/[^\w\s]/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+// ── Render principal ─────────────────────────────────────────────
+async function miRondaRender() {
+  // Solo vendedores reales
+  var esAdmin = vendedorActual === 'ADMIN';
+  var esChofer = vendedorActual === 'Joan' || vendedorActual === 'Luis';
+  if (esAdmin || esChofer) {
+    cambiarTab('pedidos');
+    return;
+  }
+
+  // Cargar clientes si no están
+  await miRondaCargarClientes();
+
+  // Actualizar header
+  var nombreEl = document.getElementById('mr-hdr-nombre');
+  if (nombreEl) nombreEl.textContent = 'Ronda de ' + vendedorActual;
+
+  // Si no hay clientes, mostrar vacío
+  if (_miRondaClientes.length === 0) {
+    var cont = document.getElementById('mr-cards-container');
+    if (cont) {
+      cont.innerHTML = '<div class="mr-empty">' +
+        '<div class="mr-empty-icon">📋</div>' +
+        '<div class="mr-empty-txt">Sin clientes asignados</div>' +
+        '<div class="mr-empty-sub">Hablá con Francisco para que te asigne tu cartera.</div>' +
+      '</div>';
+    }
+    var statsEl = document.getElementById('mr-hdr-stats');
+    if (statsEl) statsEl.style.display = 'none';
+    var secTitle = document.getElementById('mr-section-title');
+    if (secTitle) secTitle.style.display = 'none';
+    return;
+  }
+
+  // Calcular data
+  _miRondaData = miRondaCalcular();
+
+  // Actualizar stats del header
+  var totalClientes = 0, totalCubiertos = 0, totalPendientes = 0;
+  Object.keys(_miRondaData).forEach(function(k) {
+    var d = _miRondaData[k];
+    totalClientes += d.total;
+    totalCubiertos += d.cubiertos;
+    totalPendientes += d.pendientesCount;
+  });
+  document.getElementById('mr-stat-total').textContent = totalClientes;
+  document.getElementById('mr-stat-cubiertos').textContent = totalCubiertos;
+  document.getElementById('mr-stat-pendientes').textContent = totalPendientes;
+  var statsEl = document.getElementById('mr-hdr-stats');
+  if (statsEl) statsEl.style.display = 'grid';
+  var secTitle = document.getElementById('mr-section-title');
+  if (secTitle) secTitle.style.display = 'block';
+
+  // Subtítulo con fecha
+  var subEl = document.getElementById('mr-hdr-sub');
+  if (subEl) {
+    var d = new Date();
+    var dias = ['Domingo','Lunes','Martes','Miércoles','Jueves','Viernes','Sábado'];
+    subEl.textContent = dias[d.getDay()] + ' ' + d.getDate() + ' · ' + totalPendientes + ' cliente' + (totalPendientes === 1 ? '' : 's') + ' pendiente' + (totalPendientes === 1 ? '' : 's');
+  }
+
+  // Badge en el tab
+  var badge = document.getElementById('tab-badge-mironda');
+  if (badge) {
+    badge.textContent = totalPendientes > 0 ? (totalPendientes > 99 ? '99+' : totalPendientes) : '';
+    badge.classList.toggle('on', totalPendientes > 0);
+  }
+
+  // Renderizar cards
+  miRondaRenderCards();
+}
+
+// ── Render de cards por ruta ─────────────────────────────────────
+function miRondaRenderCards() {
+  var cont = document.getElementById('mr-cards-container');
+  if (!cont || !_miRondaData) return;
+
+  // Orden de prioridad visual:
+  // 1. Rutas urgent (<=1 día) primero
+  // 2. Luego alert (2 días)
+  // 3. Luego warning (3-4 días)
+  // 4. Luego info (resto)
+  // 5. Done / neutral al final
+  var ordenEstados = { urgent:1, alert:2, warning:3, info:4, neutral:5, done:6 };
+  var rutas = Object.keys(_miRondaData).sort(function(a, b) {
+    var ea = ordenEstados[_miRondaData[a].estado] || 99;
+    var eb = ordenEstados[_miRondaData[b].estado] || 99;
+    if (ea !== eb) return ea - eb;
+    return b.localeCompare(a);
+  });
+
+  if (rutas.length === 0) {
+    cont.innerHTML = '<div class="mr-empty">' +
+      '<div class="mr-empty-icon">🎯</div>' +
+      '<div class="mr-empty-txt">Sin rutas asignadas</div>' +
+    '</div>';
+    return;
+  }
+
+  var html = '';
+  rutas.forEach(function(rutaKey) {
+    var d = _miRondaData[rutaKey];
+    var cfg = MR_RUTAS_CONFIG[rutaKey] || { nombre: rutaKey, descCorta: '', tipo: 'viaje' };
+
+    var pct = d.total === 0 ? 0 : Math.round(d.cubiertos * 100 / d.total);
+    var subtxt = mrTextoSubtitulo(rutaKey, d.diasHasta, d.pendientesCount);
+    var badgeTxt = mrTextoBadge(d.estado, d.diasHasta);
+    var badgeCls = d.estado === 'urgent' ? 'urgent' :
+                   d.estado === 'alert'  ? 'alert' :
+                   d.estado === 'warning' ? 'warning' :
+                   d.estado === 'info'    ? 'info' :
+                   d.estado === 'done'    ? 'done' : 'neutral';
+
+    var tituloSub = cfg.descCorta;
+    if (cfg.tipo === 'viaje' && d.proxViaje) {
+      var diasNombre = ['domingo','lunes','martes','miércoles','jueves','viernes','sábado'];
+      tituloSub = 'Próximo ' + diasNombre[d.proxViaje.getDay()] + ' ' + d.proxViaje.getDate() + '/' + (d.proxViaje.getMonth()+1);
+    }
+
+    var btnTxt = d.pendientesCount === 0
+      ? 'Ver clientes cubiertos'
+      : 'Ver ' + d.pendientesCount + ' pendiente' + (d.pendientesCount === 1 ? '' : 's') + ' →';
+    var btnCls = d.estado === 'urgent' || d.estado === 'alert' ? 'mr-ruta-btn-primary' : 'mr-ruta-btn-outline';
+    if (d.pendientesCount === 0) btnCls = 'mr-ruta-btn-outline';
+
+    html += '<div class="mr-ruta-card st-' + d.estado + '">' +
+      '<div class="mr-ruta-head">' +
+        '<div class="mr-ruta-info">' +
+          '<div class="mr-ruta-label">' + escapeHtml(cfg.nombre) + '</div>' +
+          '<div class="mr-ruta-titulo">' + escapeHtml(tituloSub) + '</div>' +
+        '</div>' +
+        (badgeTxt ? '<div class="mr-ruta-badge ' + badgeCls + '">' + badgeTxt + '</div>' : '') +
+      '</div>' +
+      '<div class="mr-progress-row">' +
+        '<div class="mr-progress-bar"><div class="mr-progress-fill" style="width:' + pct + '%"></div></div>' +
+        '<div class="mr-progress-txt">' + d.cubiertos + '/' + d.total + '</div>' +
+      '</div>' +
+      '<div class="mr-ruta-subtxt">' + escapeHtml(subtxt) + '</div>' +
+      '<button class="mr-ruta-btn ' + btnCls + '" onclick="miRondaAbrirModal(\'' + rutaKey + '\')">' + btnTxt + '</button>' +
+    '</div>';
+  });
+
+  cont.innerHTML = html;
+}
+
+// ── Helper de escape HTML (por si no existe ya en el archivo) ────
+if (typeof escapeHtml !== 'function') {
+  window.escapeHtml = function(s) {
+    return (s || '').toString()
+      .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+      .replace(/"/g, '&quot;').replace(/'/g, '&#39;');
+  };
+}
+
+// ── Modal de pendientes ──────────────────────────────────────────
+function miRondaAbrirModal(rutaKey) {
+  if (!_miRondaData || !_miRondaData[rutaKey]) return;
+  _miRondaRutaSel = rutaKey;
+  var d = _miRondaData[rutaKey];
+  var cfg = MR_RUTAS_CONFIG[rutaKey] || { nombre: rutaKey };
+
+  // Decidir qué mostrar: pendientes si hay, cubiertos si todo OK
+  var mostrarPendientes = d.pendientesCount > 0;
+  var lista = mostrarPendientes ? d.pendientes : d.clientes.filter(function(c) { return c._mr_estado === 'verde'; });
+
+  document.getElementById('mr-modal-titulo').textContent = mostrarPendientes
+    ? d.pendientesCount + ' pendientes · ' + cfg.nombre
+    : d.cubiertos + ' cubiertos · ' + cfg.nombre;
+
+  var subtxt = mostrarPendientes
+    ? 'Clientes que todavía no pidieron esta ronda'
+    : 'Clientes que ya pidieron esta ronda';
+  document.getElementById('mr-modal-sub').textContent = subtxt;
+
+  // Generar chips de localidades
+  miRondaRenderChips(lista);
+
+  // Renderizar body
+  miRondaRenderModalBody(lista, null);
+
+  // Abrir
+  document.getElementById('mr-modal-backdrop').classList.add('on');
+}
+
+function miRondaRenderChips(lista) {
+  var chipsEl = document.getElementById('mr-modal-chips');
+  if (!chipsEl) return;
+
+  // Contar por localidad
+  var loc = {};
+  lista.forEach(function(c) {
+    var l = c.localidad || 'Sin ciudad';
+    loc[l] = (loc[l] || 0) + 1;
+  });
+  var localidades = Object.keys(loc).sort();
+
+  if (localidades.length <= 1) {
+    chipsEl.style.display = 'none';
+    return;
+  }
+  chipsEl.style.display = 'flex';
+
+  var html = '<button class="mr-chip on" onclick="miRondaFiltrarChip(null, this)">Todas (' + lista.length + ')</button>';
+  localidades.forEach(function(l) {
+    html += '<button class="mr-chip" onclick="miRondaFiltrarChip(&quot;' + encodeURIComponent(l) + '&quot;, this)">' +
+      escapeHtml(l) + ' (' + loc[l] + ')' +
+    '</button>';
+  });
+  chipsEl.innerHTML = html;
+}
+
+function miRondaFiltrarChip(localidadEnc, btnEl) {
+  if (!_miRondaRutaSel || !_miRondaData) return;
+  var d = _miRondaData[_miRondaRutaSel];
+  if (!d) return;
+
+  // Marcar chip activo
+  document.querySelectorAll('#mr-modal-chips .mr-chip').forEach(function(el) { el.classList.remove('on'); });
+  if (btnEl) btnEl.classList.add('on');
+
+  var mostrarPendientes = d.pendientesCount > 0;
+  var lista = mostrarPendientes ? d.pendientes : d.clientes.filter(function(c) { return c._mr_estado === 'verde'; });
+  var localidad = localidadEnc ? decodeURIComponent(localidadEnc) : null;
+
+  miRondaRenderModalBody(lista, localidad);
+}
+
+function miRondaRenderModalBody(lista, filtroLocalidad) {
+  var body = document.getElementById('mr-modal-body');
+  if (!body) return;
+
+  var filtrada = filtroLocalidad
+    ? lista.filter(function(c) { return (c.localidad || 'Sin ciudad') === filtroLocalidad; })
+    : lista;
+
+  if (filtrada.length === 0) {
+    body.innerHTML = '<div class="mr-modal-empty">' +
+      '<div class="mr-modal-empty-icon">🎉</div>' +
+      '<div class="mr-modal-empty-txt">¡Todos cubiertos!</div>' +
+      '<div class="mr-modal-empty-sub">No hay pendientes en este filtro.</div>' +
+    '</div>';
+    return;
+  }
+
+  var html = '';
+  filtrada.forEach(function(c) {
+    var tel = (c.telefono || '').toString().replace(/\D/g, '');
+    var telOk = tel.length >= 8;
+    var telFmt = telOk ? mrFormatTel(tel) : '';
+    var nombre = escapeHtml(c.nombre || '—');
+    var loc = escapeHtml(c.localidad || 'Sin ciudad');
+    var diasDesde = c.dias_desde_ult_pedido;
+    var ultPedidoTxt = '';
+    if (c.ultimo_pedido) {
+      ultPedidoTxt = 'Últ. pedido hace ' + (diasDesde !== null && diasDesde !== undefined ? diasDesde : '?') + 'd';
+    } else {
+      ultPedidoTxt = 'Sin pedidos recientes';
+    }
+    var nota = c.notas ? '<div class="mr-cli-nota">📝 ' + escapeHtml(c.notas) + '</div>' : '';
+    var dotColor = c._mr_estado === 'verde' ? '#2E7D32' : '#9E9E9E';
+
+    // Botones de acción
+    var btnWa = telOk
+      ? '<button class="mr-cli-btn mr-cli-btn-wa" onclick="miRondaAbrirWa(\'' + tel + '\', &quot;' + encodeURIComponent(c.nombre || '') + '&quot;)" title="WhatsApp">💬</button>'
+      : '<button class="mr-cli-btn mr-cli-btn-none" title="Sin teléfono">✕</button>';
+    var btnTel = telOk
+      ? '<button class="mr-cli-btn mr-cli-btn-tel" onclick="miRondaLlamar(\'' + tel + '\')" title="Llamar">📞</button>'
+      : '';
+
+    html += '<div class="mr-cli-card">' +
+      '<div class="mr-cli-dot" style="background:' + dotColor + '"></div>' +
+      '<div class="mr-cli-info">' +
+        '<div class="mr-cli-nombre">' + nombre + '</div>' +
+        '<div class="mr-cli-meta">' +
+          '<span class="mr-cli-meta-item">📍 ' + loc + '</span>' +
+          '<span class="mr-cli-meta-item">⏱️ ' + escapeHtml(ultPedidoTxt) + '</span>' +
+          (c.ritmo && c.ritmo !== 'sin_compras_recientes' ? '<span class="mr-cli-meta-item">🔄 ' + escapeHtml(c.ritmo) + '</span>' : '') +
+        '</div>' +
+        nota +
+      '</div>' +
+      '<div class="mr-cli-actions">' + btnWa + btnTel + '</div>' +
+    '</div>';
+  });
+
+  body.innerHTML = html;
+}
+
+// ── Acciones del modal ───────────────────────────────────────────
+function miRondaAbrirWa(tel, nombreEnc) {
+  var nombre = nombreEnc ? decodeURIComponent(nombreEnc) : '';
+  var num = tel.replace(/\D/g, '');
+  if (!num) return;
+  // Asegurar prefijo 54
+  if (!num.startsWith('54')) num = '54' + num.replace(/^0/, '').replace(/^15/, '');
+  // Mensaje base (el vendedor lo puede editar antes de enviar)
+  var primerNombre = nombre.split(' ')[0] || '';
+  var msj = '¡Hola' + (primerNombre ? ' ' + primerNombre : '') + '! ¿Cómo andás? Te escribo de TCK. ¿Querés que te prepare algo para el próximo reparto?';
+  var url = 'https://wa.me/' + num + '?text=' + encodeURIComponent(msj);
+  window.open(url, '_blank');
+}
+
+function miRondaLlamar(tel) {
+  var num = tel.replace(/\D/g, '');
+  if (!num) return;
+  window.location.href = 'tel:+54' + num.replace(/^54/, '').replace(/^0/, '').replace(/^15/, '');
+}
+
+function mrFormatTel(tel) {
+  var t = tel.replace(/\D/g, '');
+  // Formato aproximado para visualización: 2392-449725 o similar
+  if (t.length === 10) return t.slice(0,4) + '-' + t.slice(4);
+  if (t.length === 11) return t.slice(0,3) + '-' + t.slice(3,6) + '-' + t.slice(6);
+  return t;
+}
+
+function mrModalCerrar() {
+  document.getElementById('mr-modal-backdrop').classList.remove('on');
+  _miRondaRutaSel = null;
+}
+function mrModalCerrarFondo(e) {
+  if (e && e.target !== document.getElementById('mr-modal-backdrop')) return;
+  mrModalCerrar();
+}
+
+// ── Re-render cuando cambian los pedidos (refresh manual) ────────
+// Hook: si el usuario está en Mi Ronda, al cargar pedidos también
+// recalculamos el estado (los verdes pueden cambiar si llegan pedidos
+// nuevos durante la ventana).
+var _miRondaOrigCargarPedidos = null;
+(function() {
+  if (typeof cargarPedidos === 'function' && !_miRondaOrigCargarPedidos) {
+    _miRondaOrigCargarPedidos = cargarPedidos;
+    window.cargarPedidos = async function(silencioso, _reintentos) {
+      var r = await _miRondaOrigCargarPedidos(silencioso, _reintentos);
+      if (_tabActual === 'mironda' && vendedorActual && vendedorActual !== 'ADMIN') {
+        miRondaRender();
+      }
+      return r;
+    };
+  }
+})();
 
 </script>
 
