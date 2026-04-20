@@ -5015,6 +5015,170 @@ body {
 .mr-felicitacion-banner.rango-4 .mr-felic-stats { color: #6B5318; }
 .mr-felicitacion-banner.rango-4 .mr-felic-msg { font-weight: 700; }
 
+/* ══ KPI STRIP (4 cards de métricas del día) ═════════════════════ */
+.mr-kpi-strip {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 6px;
+  padding: 10px 0 4px;
+}
+.mr-kpi-card {
+  background: #fff;
+  border: 1px solid var(--cream3, #E8D4B8);
+  border-radius: 10px;
+  padding: 9px 6px;
+  text-align: center;
+  box-shadow: 0 1px 3px rgba(26,8,0,.06);
+  position: relative;
+  overflow: hidden;
+  min-width: 0;
+}
+.mr-kpi-card.hl      { border-top: 3px solid #8B0000; }
+.mr-kpi-card.warn    { border-top: 3px solid #EF6C00; }
+.mr-kpi-card.alert   { border-top: 3px solid #C62828; background: #FFF5F0; }
+.mr-kpi-card.success { border-top: 3px solid #558B2F; }
+.mr-kpi-label {
+  font-family: 'Barlow Condensed', sans-serif;
+  font-size: 9.5px;
+  font-weight: 700;
+  color: #8B6F50;
+  letter-spacing: .6px;
+  text-transform: uppercase;
+  margin-bottom: 2px;
+  line-height: 1.1;
+}
+.mr-kpi-value {
+  font-family: 'Barlow Condensed', sans-serif;
+  font-size: 24px;
+  font-weight: 900;
+  color: #2A1810;
+  line-height: 1;
+  letter-spacing: -.5px;
+}
+.mr-kpi-card.hl    .mr-kpi-value { color: #8B0000; }
+.mr-kpi-card.alert .mr-kpi-value { color: #C62828; }
+.mr-kpi-card.success .mr-kpi-value { color: #558B2F; }
+.mr-kpi-suffix {
+  font-size: 11px;
+  font-weight: 700;
+  color: #8B6F50;
+}
+.mr-kpi-sub {
+  font-size: 8.5px;
+  color: #8B6F50;
+  margin-top: 2px;
+  font-family: 'Barlow Condensed', sans-serif;
+  letter-spacing: .4px;
+  text-transform: uppercase;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* ══ RUTA CARD — Estados nuevos (5 estados + orden por prioridad) ═ */
+/* Eyebrow con zona/localidad arriba del título */
+.mr-ruta-eyebrow {
+  font-family: 'Barlow Condensed', sans-serif;
+  font-size: 10px;
+  font-weight: 700;
+  color: #8B6F50;
+  letter-spacing: 1px;
+  text-transform: uppercase;
+  margin-bottom: 2px;
+}
+
+/* Estado PROXIMA — rojo, la ruta del próximo viaje */
+.mr-ruta-card.estado-proxima {
+  border-left: 5px solid #C62828;
+  background: linear-gradient(135deg, #FFFFFF 0%, #FFF5F0 100%);
+}
+.mr-ruta-card.estado-proxima .mr-ruta-badge {
+  background: #C62828;
+  color: #fff;
+}
+
+/* Estado ACTIVA — naranja, viene después de la próxima */
+.mr-ruta-card.estado-activa {
+  border-left: 5px solid #EF6C00;
+  background: linear-gradient(135deg, #FFFFFF 0%, #FFF8EC 100%);
+}
+.mr-ruta-card.estado-activa .mr-ruta-badge {
+  background: #EF6C00;
+  color: #fff;
+}
+
+/* Estado ESPECIAL — dorado, Trenque Lauquen */
+.mr-ruta-card.estado-especial {
+  border-left: 5px solid #D4A574;
+  background: linear-gradient(135deg, #FFFFFF 0%, #FFF9E0 100%);
+}
+.mr-ruta-card.estado-especial .mr-ruta-badge {
+  background: #D4A574;
+  color: #fff;
+}
+.mr-ruta-card.estado-especial::before {
+  content: '⭐';
+  position: absolute;
+  top: 10px;
+  right: 10px;
+  font-size: 14px;
+  opacity: .5;
+}
+
+/* Estado RESULTADO — gris, el camión ya salió */
+.mr-ruta-card.estado-resultado {
+  border-left: 5px solid #9E9E9E;
+  background: #F5F5F5;
+  opacity: .78;
+}
+.mr-ruta-card.estado-resultado .mr-ruta-badge {
+  background: #9E9E9E;
+  color: #fff;
+}
+.mr-ruta-card.estado-resultado .mr-ruta-titulo { color: #8B6F50; }
+.mr-ruta-card.estado-resultado::after {
+  content: '🚛 Camión en ruta';
+  position: absolute;
+  top: 12px;
+  right: 12px;
+  font-family: 'Barlow Condensed', sans-serif;
+  font-size: 9.5px;
+  font-weight: 700;
+  color: #8B6F50;
+  letter-spacing: .4px;
+  text-transform: uppercase;
+}
+
+/* Estado SIN_RUTA — rojo punteado, clientes huérfanos */
+.mr-ruta-card.estado-sin-ruta {
+  border-left: 5px dashed #C62828;
+  background: linear-gradient(135deg, #FFFFFF 0%, #FFF5F0 100%);
+}
+.mr-ruta-card.estado-sin-ruta .mr-ruta-badge {
+  background: #fff;
+  color: #C62828;
+  border: 1px dashed #C62828;
+}
+
+/* Barra de progreso adaptada por estado */
+.mr-ruta-card.estado-proxima .mr-ruta-barra-fill   { background: linear-gradient(90deg, #C62828, #EF5350); }
+.mr-ruta-card.estado-activa .mr-ruta-barra-fill    { background: linear-gradient(90deg, #EF6C00, #FFA726); }
+.mr-ruta-card.estado-especial .mr-ruta-barra-fill  { background: linear-gradient(90deg, #D4A574, #FFD54F); }
+.mr-ruta-card.estado-resultado .mr-ruta-barra-fill { background: #9E9E9E; opacity: .6; }
+
+/* Badge actualizado para el sistema de 5 estados */
+.mr-ruta-badge {
+  display: inline-block;
+  padding: 3px 8px;
+  border-radius: 5px;
+  font-family: 'Barlow Condensed', sans-serif;
+  font-size: 10px;
+  font-weight: 900;
+  letter-spacing: 1px;
+  text-transform: uppercase;
+  flex-shrink: 0;
+}
+
 /* Section title */
 .mr-section-title {
   font-family: 'Barlow Condensed', sans-serif;
@@ -6867,6 +7031,30 @@ body {
       <div class="mr-hdr">
         <div class="mr-hdr-titulo">🎯 <span id="mr-hdr-nombre">Mi Ronda</span></div>
         <div class="mr-hdr-sub" id="mr-hdr-sub">Tus clientes pendientes de contactar</div>
+      </div>
+
+      <!-- KPIs strip (4 cards con métricas clave del día) -->
+      <div class="mr-kpi-strip" id="mr-kpi-strip" style="display:none;">
+        <div class="mr-kpi-card hl">
+          <div class="mr-kpi-label">Conv hoy</div>
+          <div class="mr-kpi-value"><span id="mr-kpi-conv">0</span><span class="mr-kpi-suffix">%</span></div>
+          <div class="mr-kpi-sub">Del día</div>
+        </div>
+        <div class="mr-kpi-card success">
+          <div class="mr-kpi-label">Vendidos</div>
+          <div class="mr-kpi-value" id="mr-kpi-vend">0</div>
+          <div class="mr-kpi-sub">clientes hoy</div>
+        </div>
+        <div class="mr-kpi-card warn">
+          <div class="mr-kpi-label">A gestionar</div>
+          <div class="mr-kpi-value" id="mr-kpi-gest">0</div>
+          <div class="mr-kpi-sub">próxima ronda</div>
+        </div>
+        <div class="mr-kpi-card alert">
+          <div class="mr-kpi-label">Sin ruta ⚠️</div>
+          <div class="mr-kpi-value" id="mr-kpi-huer">0</div>
+          <div class="mr-kpi-sub">huérfanos</div>
+        </div>
       </div>
 
       <!-- Banner de felicitación motivacional (Sistema rotativo — activación programada) -->
@@ -16391,6 +16579,181 @@ function mrRenderFelicitacion() {
   banner.style.display = 'flex';
 }
 
+// ══ LÓGICA DE ESTADOS HORARIOS PARA RUTAS ═══════════════════════════
+// Determina el estado de una ruta según el día de hoy:
+//   - 'especial'  → Trenque Lauquen (venta local continua)
+//   - 'resultado' → hoy ES el día del viaje (camión ya salió — gris, solo lectura con límite 5)
+//   - 'proxima'   → es la ruta del próximo viaje en el tiempo
+//   - 'activa'    → las demás rutas futuras
+//   - 'sin_ruta'  → clientes sin ruta asignada (caso especial del container)
+//
+// `estadosRutas` recibe un array de { key, info } ya calculados y:
+//   1. Marca Trenque como 'especial'
+//   2. Marca ruta cuyo día == hoy como 'resultado'
+//   3. De las demás, la de diasHasta más chico es 'proxima', el resto 'activa'
+//
+function mrCalcularEstadoRuta(rutaKey, hoy) {
+  hoy = hoy || new Date();
+  var cfg = MR_RUTAS_CONFIG[rutaKey];
+  if (!cfg) return { estado: 'activa', diasHasta: null };
+
+  // Trenque / Mostrador / Sin ruta → especiales
+  if (rutaKey === 'TRENQUE')   return { estado: 'especial', diasHasta: null };
+  if (rutaKey === 'MOSTRADOR') return { estado: 'especial', diasHasta: null };
+  if (rutaKey === 'SIN_RUTA')  return { estado: 'sin_ruta', diasHasta: null };
+
+  // Si la ruta no tiene día de salida, es "activa" genérica
+  if (cfg.diaSalida === null || cfg.diaSalida === undefined) {
+    return { estado: 'activa', diasHasta: null };
+  }
+
+  var dow = hoy.getDay();
+
+  // Si hoy ES el día del viaje → el camión ya salió (después de las 04am se asume)
+  // Nota: la regla decimos "después de las 04am del día del viaje".
+  // A esta hora (cualquier hora real), si dow === diaSalida, asumimos que ya salió.
+  if (dow === cfg.diaSalida) {
+    return { estado: 'resultado', diasHasta: 0 };
+  }
+
+  // Calcular días hasta el próximo día de salida
+  var diasHasta = (cfg.diaSalida - dow + 7) % 7;
+  // diasHasta es 1..6 acá (porque dow !== diaSalida)
+  return { estado: 'pendiente', diasHasta: diasHasta };
+}
+
+// Segundo paso: de las rutas marcadas como 'pendiente', la más cercana en días
+// se promueve a 'proxima' y el resto a 'activa'.
+function mrAsignarProximidad(estados) {
+  var pendientes = estados.filter(function(e) {
+    return e.info.estado === 'pendiente';
+  });
+  if (!pendientes.length) return;
+  pendientes.sort(function(a, b) {
+    return (a.info.diasHasta || 99) - (b.info.diasHasta || 99);
+  });
+  pendientes.forEach(function(e, i) {
+    e.info.estado = (i === 0) ? 'proxima' : 'activa';
+  });
+}
+
+// Ordenar rutas por prioridad visual:
+//   1. proxima (arriba del todo)
+//   2. activa
+//   3. especial (Trenque)
+//   4. resultado (al final)
+//   5. sin_ruta siempre al fondo (se agrega como card especial)
+function mrOrdenarPorPrioridad(estados) {
+  var prio = { proxima: 1, activa: 2, especial: 3, resultado: 4, sin_ruta: 5 };
+  return estados.slice().sort(function(a, b) {
+    var pa = prio[a.info.estado] || 9;
+    var pb = prio[b.info.estado] || 9;
+    if (pa !== pb) return pa - pb;
+    // Dentro del mismo estado, ordenar por diasHasta ascendente
+    var da = a.info.diasHasta !== null ? a.info.diasHasta : 99;
+    var db = b.info.diasHasta !== null ? b.info.diasHasta : 99;
+    return da - db;
+  });
+}
+
+// ══ LÍMITE DE GESTIONES EN RUTA "RESULTADO" ════════════════════════
+// Cuando el camión ya salió, permitir marcar hasta MAX_GESTIONES_TARDIAS
+// pedidos tardíos por día y por ruta. Al alcanzar el límite, bloquea con aviso.
+var MR_MAX_GESTIONES_TARDIAS = 5;
+
+// Devuelve cuántas gestiones tardías hay hoy en una ruta (leídas de
+// _miRondaGestiones). Como _miRondaGestiones es un map por cliente_id
+// con la última gestión de la ronda, contamos las que pertenecen a la ruta.
+function mrContarGestionesTardiasHoy(rutaKey) {
+  if (!_miRondaGestiones) return 0;
+  var hoyYMD = new Date().toISOString().slice(0,10);
+  var count = 0;
+  Object.keys(_miRondaGestiones).forEach(function(cid) {
+    var g = _miRondaGestiones[cid];
+    // La gestión debe ser de hoy y de esta ruta específica
+    if (g && g.ruta_key === rutaKey && g.created_at && g.created_at.slice(0,10) === hoyYMD) {
+      count++;
+    }
+  });
+  return count;
+}
+
+// Chequea si se puede marcar una gestión más en la ruta dada.
+// Devuelve { puede: true } o { puede: false, motivo: '...' }
+function mrPuedeGestionarEnResultado(rutaKey) {
+  var estado = mrCalcularEstadoRuta(rutaKey, new Date()).estado;
+  // Solo aplica el límite en estado 'resultado'
+  if (estado !== 'resultado') return { puede: true };
+  var count = mrContarGestionesTardiasHoy(rutaKey);
+  if (count >= MR_MAX_GESTIONES_TARDIAS) {
+    return {
+      puede: false,
+      motivo: 'Ya cargaste ' + MR_MAX_GESTIONES_TARDIAS + ' pedidos tardíos en esta ruta. El resto esperá al próximo viaje.'
+    };
+  }
+  return { puede: true };
+}
+
+// ══ RENDER DEL KPI STRIP ════════════════════════════════════════════
+// Llamar después de calcular _miRondaData en miRondaRender()
+function mrRenderKPIs() {
+  var strip = document.getElementById('mr-kpi-strip');
+  if (!strip) return;
+
+  // Admin y chofer no ven KPIs (no son vendedores)
+  var esVendedor = (vendedorActual === 'Miguel' || vendedorActual === 'Juan' || vendedorActual === 'Lisandro');
+  if (!esVendedor) {
+    strip.style.display = 'none';
+    return;
+  }
+
+  // Totales del día
+  var totalClientes = 0, totalCubiertos = 0, totalGest = 0, totalPend = 0;
+  var pendProxima = 0, totalSinRuta = 0;
+
+  // Calcular estados de todas las rutas
+  var estados = [];
+  Object.keys(_miRondaData || {}).forEach(function(rk) {
+    var d = _miRondaData[rk];
+    totalClientes += d.total;
+    totalCubiertos += d.cubiertos;
+    totalGest += (d.gestionados || 0);
+    totalPend += d.pendientesCount;
+
+    if (rk === 'SIN_RUTA') {
+      totalSinRuta += d.pendientesCount;
+      return;
+    }
+    estados.push({ key: rk, info: mrCalcularEstadoRuta(rk, new Date()) });
+  });
+
+  // Asignar "próxima" entre las pendientes
+  mrAsignarProximidad(estados);
+
+  // Pendientes de la ruta Próxima (para KPI "A gestionar próxima")
+  estados.forEach(function(e) {
+    if (e.info.estado === 'proxima') {
+      var d = _miRondaData[e.key];
+      if (d) pendProxima += d.pendientesCount;
+    }
+  });
+
+  // Conversión del día (0% si no hay total)
+  var conv = totalClientes > 0 ? Math.round(totalCubiertos * 100 / totalClientes) : 0;
+
+  // Poblar DOM
+  var elConv = document.getElementById('mr-kpi-conv');
+  var elVend = document.getElementById('mr-kpi-vend');
+  var elGest = document.getElementById('mr-kpi-gest');
+  var elHuer = document.getElementById('mr-kpi-huer');
+  if (elConv) elConv.textContent = conv;
+  if (elVend) elVend.textContent = totalCubiertos;
+  if (elGest) elGest.textContent = pendProxima;
+  if (elHuer) elHuer.textContent = totalSinRuta;
+
+  strip.style.display = 'grid';
+}
+
 // ── Cálculo de próximo viaje ─────────────────────────────────────
 // Dada una ruta y la fecha de hoy, devuelve la fecha del próximo viaje.
 // Si hoy es el día del viaje, devuelve el de la próxima semana.
@@ -16707,7 +17070,10 @@ async function miRondaRender() {
   // Se activa solo a partir de FELICITACIONES_DESDE y si hay ronda activa hoy.
   mrRenderFelicitacion();
 
-  // Calcular totales (incluyendo gestionados)
+  // ══ NUEVO v6: KPIs strip (reemplaza stats del subtítulo) ══
+  mrRenderKPIs();
+
+  // Calcular totales (incluyendo gestionados) — usado para badge y lógica interna
   var totalClientes = 0, totalCubiertos = 0, totalGestionados = 0, totalPendientes = 0;
   Object.keys(_miRondaData).forEach(function(k) {
     var d = _miRondaData[k];
@@ -16721,17 +17087,14 @@ async function miRondaRender() {
   var secTitle = document.getElementById('mr-section-title');
   if (secTitle) secTitle.style.display = 'block';
 
-  // Subtítulo con fecha y stats consolidadas
+  // Subtítulo: solo la fecha + día (las stats pasaron al KPI strip)
   var subEl = document.getElementById('mr-hdr-sub');
   if (subEl) {
     var d = new Date();
     var dias = ['Domingo','Lunes','Martes','Miércoles','Jueves','Viernes','Sábado'];
     var meses = ['ene','feb','mar','abr','may','jun','jul','ago','sep','oct','nov','dic'];
     var fechaTxt = dias[d.getDay()] + ' ' + d.getDate() + ' ' + meses[d.getMonth()];
-    var statsTxt = totalCubiertos + ' vendidos';
-    if (totalGestionados > 0) statsTxt += ' · ' + totalGestionados + ' gestionados';
-    statsTxt += ' · ' + totalPendientes + ' pendiente' + (totalPendientes === 1 ? '' : 's');
-    subEl.textContent = fechaTxt + '  ·  ' + statsTxt;
+    subEl.textContent = fechaTxt + ' · Organizá tu día por ruta';
   }
 
   // Badge en el tab
@@ -16745,31 +17108,32 @@ async function miRondaRender() {
   miRondaRenderCards();
 }
 
-// ── Render de cards por ruta ─────────────────────────────────────
+// ── Render de cards por ruta (v6 — 5 estados + orden por prioridad) ──
 function miRondaRenderCards() {
   var cont = document.getElementById('mr-cards-container');
   if (!cont || !_miRondaData) return;
 
-  // Orden de prioridad visual:
-  // 1. Viajes urgentes/alert/warning/info (en ese orden)
-  // 2. Trenque (semana corriente)
-  // 3. Mostrador
-  // 4. Sin_ruta y otros al final
-  var tipoOrden  = { viaje:1, local:2, mostrador:3, otros:4 };
-  var estadoOrden = { urgent:1, alert:2, warning:3, info:4, neutral:5, done:6 };
-  var rutas = Object.keys(_miRondaData).sort(function(a, b) {
-    var cfgA = MR_RUTAS_CONFIG[a] || { tipo: 'otros' };
-    var cfgB = MR_RUTAS_CONFIG[b] || { tipo: 'otros' };
-    var ta = tipoOrden[cfgA.tipo] || 5;
-    var tb = tipoOrden[cfgB.tipo] || 5;
-    if (ta !== tb) return ta - tb;
-    var ea = estadoOrden[_miRondaData[a].estado] || 99;
-    var eb = estadoOrden[_miRondaData[b].estado] || 99;
-    if (ea !== eb) return ea - eb;
-    return a.localeCompare(b);
+  // Paso 1: construir lista de rutas con su info base
+  var rutasConInfo = [];
+  Object.keys(_miRondaData).forEach(function(rutaKey) {
+    var d = _miRondaData[rutaKey];
+    // DECISIÓN 2: ocultar rutas con 0 clientes (no ensuciar pantalla)
+    if (d.total === 0) return;
+    rutasConInfo.push({
+      key: rutaKey,
+      data: d,
+      cfg: MR_RUTAS_CONFIG[rutaKey] || { nombre: rutaKey, descCorta: '', tipo: 'viaje' },
+      info: mrCalcularEstadoRuta(rutaKey, new Date())
+    });
   });
 
-  if (rutas.length === 0) {
+  // Paso 2: asignar proxima/activa entre las pendientes
+  mrAsignarProximidad(rutasConInfo);
+
+  // Paso 3: ordenar por prioridad visual (proxima → activa → especial → resultado → sin_ruta)
+  rutasConInfo = mrOrdenarPorPrioridad(rutasConInfo);
+
+  if (rutasConInfo.length === 0) {
     cont.innerHTML = '<div class="mr-empty">' +
       '<div class="mr-empty-icon">🎯</div>' +
       '<div class="mr-empty-txt">Sin rutas asignadas</div>' +
@@ -16777,52 +17141,59 @@ function miRondaRenderCards() {
     return;
   }
 
+  // Paso 4: render cards con nuevas clases de estado
   var html = '';
-  rutas.forEach(function(rutaKey) {
-    var d = _miRondaData[rutaKey];
-    var cfg = MR_RUTAS_CONFIG[rutaKey] || { nombre: rutaKey, descCorta: '', tipo: 'viaje' };
+  rutasConInfo.forEach(function(r) {
+    var d = r.data;
+    var cfg = r.cfg;
+    var estadoV6 = r.info.estado; // 'proxima' | 'activa' | 'especial' | 'resultado' | 'sin_ruta'
 
     var gest = d.gestionados || 0;
     var pctOk   = d.total === 0 ? 0 : Math.round(d.cubiertos * 100 / d.total);
     var pctGest = d.total === 0 ? 0 : Math.round(gest * 100 / d.total);
-    var subtxt = mrTextoSubtitulo(rutaKey, d.diasHasta, d.pendientesCount);
-    var badgeTxt = mrTextoBadge(d.estado, d.diasHasta);
-    var badgeCls = d.estado === 'urgent' ? 'urgent' :
-                   d.estado === 'alert'  ? 'alert' :
-                   d.estado === 'warning' ? 'warning' :
-                   d.estado === 'info'    ? 'info' :
-                   d.estado === 'done'    ? 'done' : 'neutral';
+    var subtxt = mrTextoSubtitulo(r.key, d.diasHasta, d.pendientesCount);
+    var badgeLbl = mrBadgeV6(estadoV6, r.info.diasHasta);
 
+    // Subtítulo: zona (descCorta) o "Próximo X Y/M"
     var tituloSub = cfg.descCorta;
     if (cfg.tipo === 'viaje' && d.proxViaje) {
       var diasNombre = ['domingo','lunes','martes','miércoles','jueves','viernes','sábado'];
       tituloSub = 'Próximo ' + diasNombre[d.proxViaje.getDay()] + ' ' + d.proxViaje.getDate() + '/' + (d.proxViaje.getMonth()+1);
     }
 
-    var btnTxt = d.pendientesCount === 0
-      ? 'Ver clientes cubiertos'
-      : 'Gestionar ' + d.pendientesCount + ' pendiente' + (d.pendientesCount === 1 ? '' : 's') + ' →';
-    var btnCls = d.estado === 'urgent' || d.estado === 'alert' ? 'mr-ruta-btn-primary' : 'mr-ruta-btn-outline';
-    if (d.pendientesCount === 0) btnCls = 'mr-ruta-btn-outline';
+    // Texto del botón (considera límite en 'resultado')
+    var btnTxt;
+    if (estadoV6 === 'resultado') {
+      var gestionesHoy = mrContarGestionesTardiasHoy(r.key);
+      var quedan = Math.max(0, MR_MAX_GESTIONES_TARDIAS - gestionesHoy);
+      btnTxt = d.pendientesCount === 0
+        ? 'Ver resultado del día'
+        : 'Ver resultado · ' + quedan + ' tardíos restantes';
+    } else {
+      btnTxt = d.pendientesCount === 0
+        ? 'Ver clientes cubiertos'
+        : 'Gestionar ' + d.pendientesCount + ' pendiente' + (d.pendientesCount === 1 ? '' : 's') + ' →';
+    }
+
+    // Clase del botón (siempre outline, mantenemos el look actual)
+    var btnCls = (estadoV6 === 'proxima') ? 'mr-ruta-btn-primary' : 'mr-ruta-btn-outline';
 
     // Texto de progreso: si hay gestionados, mostrar "X+Y/Z"
-    var progTxt = gest > 0
-      ? d.cubiertos + '+' + gest + '/' + d.total
-      : d.cubiertos + '/' + d.total;
+    var progTxt = gest > 0 ? d.cubiertos + '+' + gest + '/' + d.total : d.cubiertos + '/' + d.total;
 
-    // Barra tricolor
+    // Barra tricolor (mantiene look existente)
     var barraHtml = '<div class="mr-ruta-progress-tri">' +
       '<div class="mr-ruta-progress-tri-ok" style="width:' + pctOk + '%"></div>' +
       '<div class="mr-ruta-progress-tri-gest" style="width:' + pctGest + '%"></div>' +
     '</div>';
 
-    html += '<div class="mr-ruta-card st-' + d.estado + '">' +
+    html += '<div class="mr-ruta-card estado-' + estadoV6 + '" onclick="miRondaAbrirModal(\'' + r.key + '\')">' +
       '<div class="mr-ruta-head">' +
         '<div class="mr-ruta-info">' +
           '<div class="mr-ruta-label">' + escapeHtml(cfg.nombre) + '</div>' +
           '<div class="mr-ruta-titulo">' + escapeHtml(tituloSub) + '</div>' +
         '</div>' +
-        (badgeTxt ? '<div class="mr-ruta-badge ' + badgeCls + '">' + badgeTxt + '</div>' : '') +
+        (badgeLbl ? '<div class="mr-ruta-badge">' + badgeLbl + '</div>' : '') +
       '</div>' +
       barraHtml +
       '<div class="mr-progress-row" style="margin-top:2px;">' +
@@ -16832,11 +17203,21 @@ function miRondaRenderCards() {
         '<div class="mr-progress-txt">' + progTxt + '</div>' +
       '</div>' +
       '<div class="mr-ruta-subtxt">' + escapeHtml(subtxt) + '</div>' +
-      '<button class="mr-ruta-btn ' + btnCls + '" onclick="miRondaAbrirModal(\'' + rutaKey + '\')">' + btnTxt + '</button>' +
+      '<button class="mr-ruta-btn ' + btnCls + '" onclick="event.stopPropagation(); miRondaAbrirModal(\'' + r.key + '\')">' + btnTxt + '</button>' +
     '</div>';
   });
 
   cont.innerHTML = html;
+}
+
+// Helper: label del badge según estado v6
+function mrBadgeV6(estado, diasHasta) {
+  if (estado === 'proxima')   return 'Próxima';
+  if (estado === 'activa')    return (diasHasta ? diasHasta + 'd' : 'Activa');
+  if (estado === 'especial')  return 'Especial';
+  if (estado === 'resultado') return 'Resultado';
+  if (estado === 'sin_ruta')  return 'Sin ruta';
+  return '';
 }
 
 // ── Helper de escape HTML (por si no existe ya en el archivo) ────
@@ -17113,6 +17494,14 @@ function mrGestionLeVendi(clienteId) {
     return;
   }
 
+  // ══ v6: chequeo de límite en rutas 'resultado' (camión ya salió) ══
+  var rutaCheck = _miRondaRutaSel || '';
+  var chk = mrPuedeGestionarEnResultado(rutaCheck);
+  if (!chk.puede) {
+    mrFeedback('🚛 ' + chk.motivo, true);
+    return;
+  }
+
   // Guardar en Supabase como estado='venta' (queda histórico)
   var rutaKey = _miRondaRutaSel || '';
   mrSupabaseGuardarGestion({
@@ -17167,6 +17556,14 @@ function mrGestionSinVenta(clienteId) {
     mrFeedback('⚠️ Cliente sin ID — avisá a Braian', true);
     return;
   }
+
+  // ══ v6: chequeo de límite en rutas 'resultado' (camión ya salió) ══
+  var chk = mrPuedeGestionarEnResultado(_miRondaRutaSel || '');
+  if (!chk.puede) {
+    mrFeedback('🚛 ' + chk.motivo, true);
+    return;
+  }
+
   _mrMotivoClienteActual = c.cliente_id;
   _mrMotivoRutaActual    = _miRondaRutaSel;
   // Mostrar nombre del cliente en el modal
