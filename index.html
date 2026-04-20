@@ -8537,17 +8537,7 @@ function cambiarTab(tab) {
 
   // Cuando se abre Mi Ronda, renderizar
   if (tab === 'mironda') {
-    // miRondaRender vive en un <script> posterior. Si cambiarTab se dispara
-    // durante la carga sincrónica (auto-login desde localStorage), la función
-    // aún no existe en window — difiere con setTimeout hasta que los scripts
-    // terminen de parsearse.
-    if (typeof miRondaRender === 'function') {
-      miRondaRender();
-    } else {
-      setTimeout(function() {
-        if (typeof miRondaRender === 'function') miRondaRender();
-      }, 0);
-    }
+    miRondaRender();
     var v = document.getElementById('view-mironda'); if (v) v.scrollTop = 0;
     // Fix espacio vacío: forzar min-height compacto
     var p = document.getElementById('panel'); if (p) p.style.minHeight = 'unset';
@@ -8769,6 +8759,11 @@ var _repVendedor = 'todos';
 // Estado: _repPeriodo guarda el período activo. Puede ser uno de:
 // 'hoy' | 'ayer' | 'semana' | '15dias' | 'mes' | 'mespasado' | 'anio' | 'todos' | 'custom'
 // Los 4 primeros son botones rápidos. El resto sale del menú "Más".
+var _REP_PERIODOS_RAPIDOS = ['hoy','ayer','semana','mes'];
+var _REP_PERIODO_LABELS = {
+  hoy:'Hoy', ayer:'Ayer', semana:'Semana', '15dias':'15 días',
+  mes:'Mes', mespasado:'Mes pasado', anio:'Año', todos:'Histórico', custom:'Rango custom'
+};
 
 function setRepPeriodo(periodo, btn) {
   _repPeriodo = periodo;
@@ -8783,17 +8778,11 @@ function setRepPeriodo(periodo, btn) {
   renderReportes();
 }
 
-// Actualiza qué botón de la fila rápida está activo + estado del botón "Más" + chip indicador.
-// Constantes inline (antes vivían en top-level; quedaban undefined en producción — ver Sentry).
+// Actualiza qué botón de la fila rápida está activo + estado del botón "Más" + chip indicador
 function sincronizarBotonesPeriodo(periodo, btnClicked) {
-  var rapidos = ['hoy','ayer','semana','mes'];
-  var labels = {
-    hoy:'Hoy', ayer:'Ayer', semana:'Semana', '15dias':'15 días',
-    mes:'Mes', mespasado:'Mes pasado', anio:'Año', todos:'Histórico', custom:'Rango custom'
-  };
   document.querySelectorAll('#rep-periodo-btns .rep-periodo-btn').forEach(function(b) { b.classList.remove('on'); });
   var chip = document.getElementById('rep-periodo-activo-chip');
-  if (rapidos.indexOf(periodo) !== -1) {
+  if (_REP_PERIODOS_RAPIDOS.indexOf(periodo) !== -1) {
     var btn = btnClicked || document.querySelector('#rep-periodo-btns .rep-periodo-btn[data-per="' + periodo + '"]');
     if (btn) btn.classList.add('on');
     var mas = document.getElementById('rep-periodo-mas-btn');
@@ -8803,10 +8792,10 @@ function sincronizarBotonesPeriodo(periodo, btnClicked) {
     var mas = document.getElementById('rep-periodo-mas-btn');
     if (mas) {
       mas.classList.add('on');
-      mas.textContent = '▾ ' + (labels[periodo] || 'Más');
+      mas.textContent = '▾ ' + (_REP_PERIODO_LABELS[periodo] || 'Más');
     }
     if (chip) {
-      chip.textContent = labels[periodo] || '';
+      chip.textContent = _REP_PERIODO_LABELS[periodo] || '';
       chip.style.display = 'inline-block';
     }
   }
