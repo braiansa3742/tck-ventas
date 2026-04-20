@@ -65,68 +65,135 @@ body {
 
 /* ── HEADER ── */
 .hdr {
-  background: linear-gradient(135deg, #4A0000 0%, #8B0000 60%, #B71C1C 100%);
-  padding: 12px 16px;
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 12px;
+  background: linear-gradient(135deg, #6B0000 0%, #4D0000 100%);
+  padding: 16px 16px 14px;
   position: sticky;
   top: 0;
   z-index: 100;
-  box-shadow: 0 2px 16px rgba(0,0,0,.35);
+  box-shadow: 0 4px 16px rgba(0,0,0,.35);
+  overflow: hidden;
 }
-.hdr-right {
+.hdr::before {
+  content: '';
+  position: absolute;
+  top: -60px; right: -60px;
+  width: 200px; height: 200px;
+  background: radial-gradient(circle, rgba(212,165,116,0.18), transparent 65%);
+  pointer-events: none;
+}
+.hdr::after {
+  content: '';
+  position: absolute;
+  bottom: 0; left: 0;
+  width: 100%; height: 3px;
+  background: linear-gradient(90deg, #FFD700, #D4A574, #B8860B, #D4A574, #FFD700);
+}
+.hdr-row {
   display: flex;
-  flex-direction: column;
-  align-items: flex-end;
-  gap: 3px;
-  flex-shrink: 0;
-}
-.hdr-ayuda-btn {
-  display: none;
   align-items: center;
-  gap: 5px;
-  background: rgba(255,255,255,.12);
-  border: 1px solid rgba(255,255,255,.25);
-  border-radius: 20px;
-  padding: 4px 10px;
-  color: rgba(255,255,255,.85);
-  font-family: 'Barlow Condensed', sans-serif;
-  font-size: 11px;
-  font-weight: 700;
-  letter-spacing: .4px;
-  cursor: pointer;
-  touch-action: manipulation;
-  -webkit-tap-highlight-color: transparent;
-  transition: background .15s;
-  white-space: nowrap;
-  margin-top: 2px;
+  gap: 12px;
+  position: relative;
+  z-index: 2;
 }
-.hdr-ayuda-btn:active { background: rgba(255,255,255,.22); }
-.hdr-ayuda-btn.visible { display: flex; }
+.hdr-logo-box {
+  width: 58px; height: 58px;
+  background: linear-gradient(135deg, #FFD700 0%, #D4A574 50%, #B8860B 100%);
+  border-radius: 14px;
+  display: flex; align-items: center; justify-content: center;
+  flex-shrink: 0;
+  box-shadow: 0 4px 14px rgba(0,0,0,0.4), inset 0 -3px 8px rgba(0,0,0,0.2);
+  border: 2px solid rgba(255,215,0,0.5);
+  transform: rotate(-3deg);
+  overflow: hidden;
+}
+.hdr-logo-box img {
+  width: 90%;
+  height: 90%;
+  object-fit: contain;
+  filter: drop-shadow(0 1px 3px rgba(0,0,0,0.3));
+}
+.hdr-logo-box .logo-emoji {
+  font-size: 34px;
+  line-height: 1;
+}
+.hdr-text { flex: 1; min-width: 0; }
 .hdr-logo {
   font-family: 'Barlow Condensed', sans-serif;
-  font-size: 22px;
+  font-size: 26px; font-weight: 900;
+  color: #fff;
+  margin: 0; line-height: 1;
+  letter-spacing: 0.6px;
+  text-transform: uppercase;
+}
+.hdr-logo strong {
+  color: #FFD700;
   font-weight: 900;
-  color: var(--gold);
-  letter-spacing: 1px;
-  text-shadow: 0 1px 4px rgba(0,0,0,.4);
 }
 .hdr-sub {
+  display: block;
   font-size: 10px;
-  color: rgba(255,215,0,.65);
-  letter-spacing: 2px;
-  text-transform: uppercase;
-  font-weight: 600;
-}
-.hdr-fecha {
+  color: rgba(255,255,255,0.7);
   font-family: 'Barlow Condensed', sans-serif;
-  font-size: 13px;
-  color: rgba(255,255,255,.85);
-  text-align: right;
-  line-height: 1.4;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 1.4px;
+  margin-top: 4px;
 }
+.hdr-actions {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-shrink: 0;
+}
+.hdr-icon-btn {
+  width: 36px; height: 36px;
+  border-radius: 50%;
+  background: rgba(255,255,255,0.1);
+  border: 1.5px solid rgba(255,255,255,0.2);
+  color: #fff;
+  font-size: 16px;
+  cursor: pointer;
+  display: flex; align-items: center; justify-content: center;
+  transition: all .15s;
+  touch-action: manipulation;
+  -webkit-tap-highlight-color: transparent;
+}
+.hdr-icon-btn:active {
+  background: rgba(255,255,255,0.25);
+  transform: scale(0.94);
+}
+.hdr-icon-btn.salir { background: rgba(255,255,255,0.15); }
+.hdr-meta {
+  display: flex;
+  gap: 8px;
+  margin-top: 12px;
+  padding-top: 12px;
+  border-top: 1px solid rgba(255,255,255,0.12);
+  position: relative; z-index: 2;
+}
+.hdr-meta-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 4px 10px;
+  background: rgba(255,255,255,0.08);
+  border: 1px solid rgba(255,255,255,0.12);
+  border-radius: 12px;
+  font-family: 'Barlow Condensed', sans-serif;
+  font-size: 11.5px;
+  color: rgba(255,255,255,0.85);
+  font-weight: 700;
+  letter-spacing: 0.3px;
+}
+.hdr-meta-chip strong { color: #FFD700; font-weight: 800; }
+.hdr-meta-chip.sync { font-size: 10.5px; color: rgba(255,255,255,0.65); }
+
+/* Mantener compatibilidad con código viejo */
+.hdr-right { display: none !important; }
+.hdr-fecha, .hdr-ayuda-btn { display: none; }
+
+/* Ocultar barra "Bienvenida" — info absorbida en header */
+.bienvenida { display: none !important; }
 
 /* ── LOGIN ── */
 .login-wrap {
@@ -5390,19 +5457,23 @@ body {
 <body>
 
 <div class="hdr">
-  <div>
-    <div style="display:flex;align-items:center;gap:10px;">
-      <img src="https://tckcatalogo.com/img/logo.png" alt="TCK" style="height:52px;width:auto;object-fit:contain;filter:drop-shadow(0 1px 8px rgba(0,0,0,.6))" onerror="this.style.display='none'">
-      <div>
-        <div class="hdr-logo" style="font-size:20px;line-height:1.1">TCK Ventas</div>
-        <div class="hdr-sub">Panel de vendedores</div>
-      </div>
+  <div class="hdr-row">
+    <div class="hdr-logo-box">
+      <img src="https://tckcatalogo.com/img/logo.png" alt="TCK" onerror="this.style.display='none';this.parentNode.innerHTML='<span class=&quot;logo-emoji&quot;>🐔</span>'">
+    </div>
+    <div class="hdr-text">
+      <div class="hdr-logo">TCK <strong id="hdr-rol-label">Ventas</strong></div>
+      <div class="hdr-sub" id="hdr-rol-sub">Panel de vendedores</div>
+    </div>
+    <div class="hdr-actions">
+      <button id="hdr-help-btn" class="hdr-icon-btn" onclick="abrirManual()" title="Cómo usar">📖</button>
+      <button id="btn-instalar-app" class="hdr-icon-btn" onclick="instalarApp()" style="display:none;background:rgba(67,160,71,0.5);border-color:rgba(67,160,71,0.7);" title="Instalar app">📲</button>
+      <button id="hdr-btn-salir" class="hdr-icon-btn salir" onclick="salir()" title="Salir" style="display:none;">⏻</button>
     </div>
   </div>
-  <div class="hdr-right">
-    <div class="hdr-fecha" id="hdr-fecha"></div>
-    <div id="ultima-actualizacion" style="font-size:10px;color:rgba(255,255,255,.5);text-align:right;letter-spacing:.3px;"></div>
-    <button id="hdr-help-btn" class="hdr-ayuda-btn" onclick="abrirManual()">📖 Cómo usar</button><button id="btn-instalar-app" class="hdr-ayuda-btn" onclick="instalarApp()" style="display:none;background:var(--green2);color:#fff;border-color:var(--green2)">📲 Instalar app</button>
+  <div class="hdr-meta">
+    <span class="hdr-meta-chip" id="hdr-fecha-chip"><strong id="hdr-fecha"></strong></span>
+    <span class="hdr-meta-chip sync" id="hdr-sync-chip" style="margin-left:auto;"><span id="ultima-actualizacion"></span></span>
   </div>
 </div>
 
@@ -6839,6 +6910,23 @@ function login(nombre) {
 
   document.getElementById('bienvenida-nombre').textContent = esAdmin ? '👑 Administración' : nombre;
   var choferHdr = document.getElementById('chofer-nombre-hdr'); if (choferHdr) choferHdr.textContent = esChofer ? '🚚 ' + nombre : '';
+
+  // ── Actualizar header pro: nombre del rol + subtítulo dinámico ──
+  var rolLabelEl = document.getElementById('hdr-rol-label');
+  var rolSubEl   = document.getElementById('hdr-rol-sub');
+  var btnSalirHdrEl = document.getElementById('hdr-btn-salir');
+  if (rolLabelEl) {
+    rolLabelEl.textContent = esAdmin ? 'Francisco' : nombre;
+  }
+  if (rolSubEl) {
+    rolSubEl.textContent = esAdmin
+      ? 'Administración'
+      : esChofer
+        ? 'Logística — Ruta del día'
+        : 'Tus pedidos del día';
+  }
+  if (btnSalirHdrEl) btnSalirHdrEl.style.display = 'flex';
+
   // Mostrar foto del vendedor en bienvenida
   const fotoEl = document.getElementById('bienvenida-foto');
   const FOTOS_VEND = { 'Miguel': 'https://tckcatalogo.com/img/miguel.jpg', 'Juan': 'https://tckcatalogo.com/img/juan.jpg', 'Lisandro': 'https://tckcatalogo.com/img/lisandro.jpg' };
@@ -6906,6 +6994,13 @@ function salir() {
   setFiltro('todos', document.querySelector('#filtros-estado .filtro-btn'));
   ocultarTabs();
   var hb = document.getElementById('hdr-help-btn'); if (hb) hb.classList.remove('visible');
+  // Resetear header pro al estado inicial (sin login)
+  var rolLabelEl = document.getElementById('hdr-rol-label');
+  var rolSubEl   = document.getElementById('hdr-rol-sub');
+  var btnSalirHdrEl = document.getElementById('hdr-btn-salir');
+  if (rolLabelEl) rolLabelEl.textContent = 'Ventas';
+  if (rolSubEl)   rolSubEl.textContent   = 'Panel de vendedores';
+  if (btnSalirHdrEl) btnSalirHdrEl.style.display = 'none';
 }
 
 // ── CARGAR PEDIDOS ───────────────────────────────────────────────
