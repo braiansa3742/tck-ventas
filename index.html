@@ -221,6 +221,8 @@ body {
 .panel { display: none; max-width: 900px; margin: 0 auto; }
 .panel.on { display: block; min-height: calc(100vh - 56px); }
 .panel.on.chofer-mode { min-height: unset; padding: 0; }
+/* Mi Ronda: no queremos min-height porque genera espacio vacío arriba */
+.panel.on:has(#view-mironda.active) { min-height: unset; }
 
 /* ── BIENVENIDA ── */
 .bienvenida {
@@ -4707,6 +4709,18 @@ body {
   padding: 11px 13px;
   margin-bottom: 8px;
   border: 1px solid var(--cream3);
+  transition: background .15s, border-color .15s;
+}
+.mr-cli-card.vendida {
+  background: #E8F5E9;
+  border-color: #A5D6A7;
+  opacity: .85;
+}
+.mr-cli-card.gestionada {
+  background: #FFF8E1;
+  border-color: #FFE082;
+}
+.mr-cli-row-top {
   display: flex;
   gap: 10px;
   align-items: flex-start;
@@ -4719,6 +4733,8 @@ body {
   margin-top: 6px;
   flex-shrink: 0;
 }
+.mr-cli-card.vendida .mr-cli-dot { background: #2E7D32; }
+.mr-cli-card.gestionada .mr-cli-dot { background: #F57C00; }
 .mr-cli-info { flex: 1; min-width: 0; }
 .mr-cli-nombre {
   font-family: 'Barlow Condensed', sans-serif;
@@ -4750,6 +4766,35 @@ body {
   display: inline-block;
   line-height: 1.3;
 }
+.mr-cli-gest-info {
+  font-size: 11px;
+  color: #8B5A00;
+  background: rgba(245,124,0,.1);
+  padding: 4px 8px;
+  border-radius: 6px;
+  margin-top: 6px;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  line-height: 1.3;
+}
+.mr-cli-gest-motivo {
+  font-weight: 700;
+  color: #E65100;
+}
+.mr-cli-venta-info {
+  font-size: 11px;
+  color: #1B5E20;
+  background: rgba(46,125,50,.1);
+  padding: 4px 8px;
+  border-radius: 6px;
+  margin-top: 6px;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  line-height: 1.3;
+  font-weight: 700;
+}
 .mr-cli-actions {
   display: flex;
   gap: 6px;
@@ -4775,6 +4820,269 @@ body {
 .mr-cli-btn-wa svg { width: 22px; height: 22px; fill: #fff; }
 .mr-cli-btn-none { background: #E0E0E0; color: #9E9E9E; cursor: not-allowed; }
 .mr-cli-btn-none svg { width: 20px; height: 20px; fill: #9E9E9E; opacity: .6; }
+
+/* Botones de gestión: Le vendí / Sin venta */
+.mr-cli-gest-row {
+  display: flex;
+  gap: 6px;
+  margin-top: 10px;
+}
+.mr-cli-gest-btn {
+  flex: 1;
+  padding: 10px 8px;
+  border: none;
+  border-radius: 8px;
+  font-family: 'Barlow Condensed', sans-serif;
+  font-size: 13px;
+  font-weight: 800;
+  letter-spacing: .3px;
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+  transition: transform .1s, filter .1s;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+}
+.mr-cli-gest-btn:active { transform: scale(.97); }
+.mr-cli-gest-btn-ok {
+  background: linear-gradient(135deg, #2E7D32, #1B5E20);
+  color: #fff;
+}
+.mr-cli-gest-btn-no {
+  background: linear-gradient(135deg, #F57C00, #E65100);
+  color: #fff;
+}
+.mr-cli-gest-btn-cambiar {
+  background: rgba(0,0,0,.06);
+  color: #5C3A1E;
+  padding: 6px 12px;
+  border: none;
+  border-radius: 6px;
+  font-size: 11px;
+  font-weight: 700;
+  cursor: pointer;
+  font-family: 'Barlow Condensed', sans-serif;
+  letter-spacing: .3px;
+  -webkit-tap-highlight-color: transparent;
+}
+.mr-cli-gest-btn-cambiar:active { transform: scale(.95); }
+
+/* Secciones dentro del modal */
+.mr-section-hdr {
+  font-family: 'Barlow Condensed', sans-serif;
+  font-size: 13px;
+  font-weight: 800;
+  color: var(--text2);
+  letter-spacing: .5px;
+  text-transform: uppercase;
+  padding: 14px 0 8px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+}
+.mr-section-hdr-toggle {
+  font-size: 14px;
+  color: var(--text3);
+  transition: transform .2s;
+}
+.mr-section-hdr.collapsed .mr-section-hdr-toggle {
+  transform: rotate(-90deg);
+}
+.mr-section-hdr-badge {
+  background: rgba(0,0,0,.08);
+  color: var(--text2);
+  padding: 2px 9px;
+  border-radius: 10px;
+  font-size: 11px;
+  font-weight: 800;
+  letter-spacing: .4px;
+}
+.mr-section-hdr.vendidos .mr-section-hdr-badge {
+  background: rgba(46,125,50,.15);
+  color: #1B5E20;
+}
+.mr-section-hdr.gestionados .mr-section-hdr-badge {
+  background: rgba(245,124,0,.15);
+  color: #E65100;
+}
+.mr-section-body {
+  max-height: 5000px;
+  overflow: hidden;
+  transition: max-height .3s;
+}
+.mr-section-body.collapsed {
+  max-height: 0;
+}
+
+/* Barra de progreso bicolor (verde + naranja + gris) */
+.mr-ruta-progress-tri {
+  display: flex;
+  height: 7px;
+  background: rgba(139,0,0,.12);
+  border-radius: 4px;
+  overflow: hidden;
+  margin: 8px 0 4px;
+}
+.mr-ruta-progress-tri-ok { background: #2E7D32; }
+.mr-ruta-progress-tri-gest { background: #F57C00; }
+
+/* Modal de motivos para "Sin venta" */
+.mr-motivo-backdrop {
+  position: fixed;
+  inset: 0;
+  background: rgba(0,0,0,.6);
+  z-index: 10002;
+  display: none;
+  align-items: flex-end;
+  justify-content: center;
+  -webkit-backdrop-filter: blur(4px);
+  backdrop-filter: blur(4px);
+}
+.mr-motivo-backdrop.on { display: flex; }
+.mr-motivo-sheet {
+  background: #FFF8F0;
+  width: 100%;
+  max-width: 460px;
+  max-height: 85vh;
+  border-radius: 16px 16px 0 0;
+  padding: 14px 16px calc(20px + env(safe-area-inset-bottom));
+  overflow-y: auto;
+  box-shadow: 0 -12px 36px rgba(0,0,0,.35);
+  animation: mrMotivoUp .25s;
+}
+@keyframes mrMotivoUp {
+  from { transform: translateY(100%); }
+  to   { transform: translateY(0); }
+}
+.mr-motivo-pill {
+  width: 36px;
+  height: 4px;
+  background: rgba(0,0,0,.2);
+  border-radius: 2px;
+  margin: 0 auto 10px;
+}
+.mr-motivo-hdr {
+  font-family: 'Barlow Condensed', sans-serif;
+  font-size: 18px;
+  font-weight: 900;
+  color: #8B0000;
+  margin-bottom: 4px;
+}
+.mr-motivo-sub {
+  font-size: 12px;
+  color: var(--text2);
+  margin-bottom: 14px;
+  line-height: 1.35;
+}
+.mr-motivo-sub strong { color: var(--text); }
+.mr-motivo-btn {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 12px 14px;
+  background: #fff;
+  border: 1.5px solid var(--cream3);
+  border-radius: 10px;
+  margin-bottom: 8px;
+  font-family: 'Barlow Condensed', sans-serif;
+  font-size: 14px;
+  font-weight: 700;
+  color: var(--text);
+  text-align: left;
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+  transition: transform .1s, border-color .15s, background .15s;
+  letter-spacing: .3px;
+}
+.mr-motivo-btn:active { transform: scale(.98); }
+.mr-motivo-btn:hover { border-color: #8B0000; background: #FFF5F0; }
+.mr-motivo-btn.danger { border-color: #FFCDD2; background: #FFF5F5; }
+.mr-motivo-btn.danger:hover { border-color: #C62828; background: #FFEBEE; }
+.mr-motivo-btn-icon {
+  font-size: 20px;
+  flex-shrink: 0;
+  width: 30px;
+  text-align: center;
+}
+.mr-motivo-btn-txt {
+  flex: 1;
+}
+.mr-motivo-btn-desc {
+  font-size: 10px;
+  font-weight: 500;
+  color: var(--text3);
+  margin-top: 1px;
+  letter-spacing: .2px;
+}
+
+.mr-motivo-otro-box {
+  display: none;
+  background: #fff;
+  border: 1.5px solid #FFD700;
+  border-radius: 10px;
+  padding: 10px;
+  margin-top: 6px;
+}
+.mr-motivo-otro-box.on { display: block; }
+.mr-motivo-otro-box textarea {
+  width: 100%;
+  min-height: 60px;
+  border: 1px solid var(--cream3);
+  border-radius: 6px;
+  padding: 8px 10px;
+  font-family: inherit;
+  font-size: 13px;
+  resize: vertical;
+  box-sizing: border-box;
+  outline: none;
+}
+.mr-motivo-otro-box textarea:focus { border-color: #8B0000; }
+.mr-motivo-otro-actions {
+  display: flex;
+  gap: 6px;
+  margin-top: 8px;
+}
+.mr-motivo-otro-actions button {
+  flex: 1;
+  padding: 8px;
+  border: none;
+  border-radius: 6px;
+  font-family: 'Barlow Condensed', sans-serif;
+  font-size: 13px;
+  font-weight: 800;
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+}
+.mr-motivo-otro-actions button:active { transform: scale(.97); }
+.mr-motivo-otro-cancelar { background: rgba(0,0,0,.06); color: var(--text2); }
+.mr-motivo-otro-guardar { background: #8B0000; color: #fff; }
+
+/* Feedback visual toast para gestiones */
+.mr-feedback {
+  position: fixed;
+  bottom: 100px;
+  left: 50%;
+  transform: translateX(-50%) translateY(20px);
+  background: #2E7D32;
+  color: #fff;
+  padding: 10px 16px;
+  border-radius: 10px;
+  font-family: 'Barlow Condensed', sans-serif;
+  font-size: 14px;
+  font-weight: 800;
+  box-shadow: 0 4px 16px rgba(0,0,0,.3);
+  z-index: 10003;
+  opacity: 0;
+  transition: opacity .2s, transform .2s;
+  pointer-events: none;
+  letter-spacing: .3px;
+}
+.mr-feedback.show { opacity: 1; transform: translateX(-50%) translateY(0); }
+.mr-feedback.warn { background: #F57C00; }
 
 .mr-modal-empty {
   text-align: center;
@@ -5653,6 +5961,75 @@ body {
       <div class="mr-modal-body" id="mr-modal-body"></div>
     </div>
   </div>
+
+  <!-- MODAL MOTIVOS "SIN VENTA" -->
+  <div class="mr-motivo-backdrop" id="mr-motivo-backdrop" onclick="mrMotivoCerrarFondo(event)">
+    <div class="mr-motivo-sheet">
+      <div class="mr-motivo-pill"></div>
+      <div class="mr-motivo-hdr">¿Por qué no te compró?</div>
+      <div class="mr-motivo-sub" id="mr-motivo-sub">Seleccioná el motivo para <strong id="mr-motivo-cliente">—</strong></div>
+
+      <button class="mr-motivo-btn" onclick="mrMotivoElegir('tiene_mercaderia')">
+        <span class="mr-motivo-btn-icon">📦</span>
+        <span class="mr-motivo-btn-txt">Tiene mercadería
+          <div class="mr-motivo-btn-desc">Todavía tiene stock</div>
+        </span>
+      </button>
+
+      <button class="mr-motivo-btn" onclick="mrMotivoElegir('ya_compro')">
+        <span class="mr-motivo-btn-icon">🏪</span>
+        <span class="mr-motivo-btn-txt">Ya compró
+          <div class="mr-motivo-btn-desc">Le vendió otro proveedor esta semana</div>
+        </span>
+      </button>
+
+      <button class="mr-motivo-btn" onclick="mrMotivoElegir('mas_barato')">
+        <span class="mr-motivo-btn-icon">💰</span>
+        <span class="mr-motivo-btn-txt">Consigue más barato
+          <div class="mr-motivo-btn-desc">Tiene un precio que no podemos igualar</div>
+        </span>
+      </button>
+
+      <button class="mr-motivo-btn" onclick="mrMotivoElegir('mas_adelante')">
+        <span class="mr-motivo-btn-icon">🕐</span>
+        <span class="mr-motivo-btn-txt">Pide pasar después
+          <div class="mr-motivo-btn-desc">Dijo que más adelante</div>
+        </span>
+      </button>
+
+      <button class="mr-motivo-btn" onclick="mrMotivoElegir('no_atiende')">
+        <span class="mr-motivo-btn-icon">📞</span>
+        <span class="mr-motivo-btn-txt">No atiende
+          <div class="mr-motivo-btn-desc">No contesta llamadas ni mensajes</div>
+        </span>
+      </button>
+
+      <button class="mr-motivo-btn" onclick="mrMotivoMostrarOtro()">
+        <span class="mr-motivo-btn-icon">✏️</span>
+        <span class="mr-motivo-btn-txt">Otro motivo
+          <div class="mr-motivo-btn-desc">Escribir un detalle corto</div>
+        </span>
+      </button>
+
+      <div class="mr-motivo-otro-box" id="mr-motivo-otro-box">
+        <textarea id="mr-motivo-otro-texto" placeholder="Escribí el motivo en pocas palabras..." maxlength="120"></textarea>
+        <div class="mr-motivo-otro-actions">
+          <button class="mr-motivo-otro-cancelar" onclick="mrMotivoOcultarOtro()">Cancelar</button>
+          <button class="mr-motivo-otro-guardar" onclick="mrMotivoGuardarOtro()">Guardar</button>
+        </div>
+      </div>
+
+      <button class="mr-motivo-btn danger" onclick="mrMotivoElegir('cerro')">
+        <span class="mr-motivo-btn-icon">❌</span>
+        <span class="mr-motivo-btn-txt">Cerró definitivamente
+          <div class="mr-motivo-btn-desc">No aparecerá más en Mi Ronda</div>
+        </span>
+      </button>
+    </div>
+  </div>
+
+  <!-- Feedback toast para Mi Ronda -->
+  <div class="mr-feedback" id="mr-feedback">✓ Gestión guardada</div>
 
   <!-- TAB NAV -->
 <nav class="tab-nav" id="tab-nav">
@@ -7283,6 +7660,11 @@ function cambiarTab(tab) {
   if (tab === 'mironda') {
     miRondaRender();
     var v = document.getElementById('view-mironda'); if (v) v.scrollTop = 0;
+    // Fix espacio vacío: forzar min-height compacto
+    var p = document.getElementById('panel'); if (p) p.style.minHeight = 'unset';
+  } else {
+    // Restaurar min-height para otros tabs
+    var p = document.getElementById('panel'); if (p) p.style.minHeight = '';
   }
 
   // Cuando se abre Mi Día, renderizar
@@ -14683,13 +15065,19 @@ function miRondaCalcular() {
     }
 
     // Marcar cada cliente
-    var cubiertos = 0, pendientes = [];
+    var cubiertos = 0, gestionados = 0, pendientes = [];
     clientes.forEach(function(c) {
       var nomNorm = mrNormNombre(c.nombre);
       var pidio = nombresPidieron.has(nomNorm);
       c._mr_estado = pidio ? 'verde' : 'gris';
-      if (pidio) cubiertos++;
-      else pendientes.push(c);
+      if (pidio) {
+        cubiertos++;
+      } else if (_miRondaGestiones[c.id]) {
+        // Ya fue gestionado sin venta esta ronda
+        gestionados++;
+      } else {
+        pendientes.push(c);
+      }
     });
 
     // Ordenar pendientes por localidad y nombre
@@ -14705,12 +15093,13 @@ function miRondaCalcular() {
       clientes: clientes,
       total: clientes.length,
       cubiertos: cubiertos,
+      gestionados: gestionados,
       pendientes: pendientes,
       pendientesCount: pendientes.length,
       ventana: ventana,
       proxViaje: prox,
       diasHasta: diasHasta,
-      estado: mrEstadoVisual(rutaKey, diasHasta, cubiertos, clientes.length)
+      estado: mrEstadoVisual(rutaKey, diasHasta, cubiertos + gestionados, clientes.length)
     };
   });
 
@@ -14740,6 +15129,11 @@ async function miRondaRender() {
   // Cargar clientes si no están
   await miRondaCargarClientes();
 
+  // Cargar gestiones desde Supabase (una vez por sesión o al refrescar)
+  await new Promise(function(resolve) {
+    mrSupabaseCargarGestiones(resolve);
+  });
+
   // Actualizar header
   var nombreEl = document.getElementById('mr-hdr-nombre');
   if (nombreEl) nombreEl.textContent = 'Ronda de ' + vendedorActual;
@@ -14762,12 +15156,13 @@ async function miRondaRender() {
   // Calcular data
   _miRondaData = miRondaCalcular();
 
-  // Calcular totales
-  var totalClientes = 0, totalCubiertos = 0, totalPendientes = 0;
+  // Calcular totales (incluyendo gestionados)
+  var totalClientes = 0, totalCubiertos = 0, totalGestionados = 0, totalPendientes = 0;
   Object.keys(_miRondaData).forEach(function(k) {
     var d = _miRondaData[k];
     totalClientes += d.total;
     totalCubiertos += d.cubiertos;
+    totalGestionados += (d.gestionados || 0);
     totalPendientes += d.pendientesCount;
   });
 
@@ -14782,7 +15177,9 @@ async function miRondaRender() {
     var dias = ['Domingo','Lunes','Martes','Miércoles','Jueves','Viernes','Sábado'];
     var meses = ['ene','feb','mar','abr','may','jun','jul','ago','sep','oct','nov','dic'];
     var fechaTxt = dias[d.getDay()] + ' ' + d.getDate() + ' ' + meses[d.getMonth()];
-    var statsTxt = totalCubiertos + ' de ' + totalClientes + ' cubiertos · ' + totalPendientes + ' pendiente' + (totalPendientes === 1 ? '' : 's');
+    var statsTxt = totalCubiertos + ' vendidos';
+    if (totalGestionados > 0) statsTxt += ' · ' + totalGestionados + ' gestionados';
+    statsTxt += ' · ' + totalPendientes + ' pendiente' + (totalPendientes === 1 ? '' : 's');
     subEl.textContent = fechaTxt + '  ·  ' + statsTxt;
   }
 
@@ -14834,7 +15231,9 @@ function miRondaRenderCards() {
     var d = _miRondaData[rutaKey];
     var cfg = MR_RUTAS_CONFIG[rutaKey] || { nombre: rutaKey, descCorta: '', tipo: 'viaje' };
 
-    var pct = d.total === 0 ? 0 : Math.round(d.cubiertos * 100 / d.total);
+    var gest = d.gestionados || 0;
+    var pctOk   = d.total === 0 ? 0 : Math.round(d.cubiertos * 100 / d.total);
+    var pctGest = d.total === 0 ? 0 : Math.round(gest * 100 / d.total);
     var subtxt = mrTextoSubtitulo(rutaKey, d.diasHasta, d.pendientesCount);
     var badgeTxt = mrTextoBadge(d.estado, d.diasHasta);
     var badgeCls = d.estado === 'urgent' ? 'urgent' :
@@ -14851,9 +15250,20 @@ function miRondaRenderCards() {
 
     var btnTxt = d.pendientesCount === 0
       ? 'Ver clientes cubiertos'
-      : 'Ver ' + d.pendientesCount + ' pendiente' + (d.pendientesCount === 1 ? '' : 's') + ' →';
+      : 'Gestionar ' + d.pendientesCount + ' pendiente' + (d.pendientesCount === 1 ? '' : 's') + ' →';
     var btnCls = d.estado === 'urgent' || d.estado === 'alert' ? 'mr-ruta-btn-primary' : 'mr-ruta-btn-outline';
     if (d.pendientesCount === 0) btnCls = 'mr-ruta-btn-outline';
+
+    // Texto de progreso: si hay gestionados, mostrar "X+Y/Z"
+    var progTxt = gest > 0
+      ? d.cubiertos + '+' + gest + '/' + d.total
+      : d.cubiertos + '/' + d.total;
+
+    // Barra tricolor
+    var barraHtml = '<div class="mr-ruta-progress-tri">' +
+      '<div class="mr-ruta-progress-tri-ok" style="width:' + pctOk + '%"></div>' +
+      '<div class="mr-ruta-progress-tri-gest" style="width:' + pctGest + '%"></div>' +
+    '</div>';
 
     html += '<div class="mr-ruta-card st-' + d.estado + '">' +
       '<div class="mr-ruta-head">' +
@@ -14863,9 +15273,12 @@ function miRondaRenderCards() {
         '</div>' +
         (badgeTxt ? '<div class="mr-ruta-badge ' + badgeCls + '">' + badgeTxt + '</div>' : '') +
       '</div>' +
-      '<div class="mr-progress-row">' +
-        '<div class="mr-progress-bar"><div class="mr-progress-fill" style="width:' + pct + '%"></div></div>' +
-        '<div class="mr-progress-txt">' + d.cubiertos + '/' + d.total + '</div>' +
+      barraHtml +
+      '<div class="mr-progress-row" style="margin-top:2px;">' +
+        '<div style="flex:1;font-size:11px;color:var(--text3);">' +
+          (gest > 0 ? '<span style="color:#2E7D32;font-weight:800;">✅ ' + d.cubiertos + '</span> · <span style="color:#E65100;font-weight:800;">🟡 ' + gest + '</span> · <span style="color:var(--text3);">⚪ ' + d.pendientesCount + '</span>' : '') +
+        '</div>' +
+        '<div class="mr-progress-txt">' + progTxt + '</div>' +
       '</div>' +
       '<div class="mr-ruta-subtxt">' + escapeHtml(subtxt) + '</div>' +
       '<button class="mr-ruta-btn ' + btnCls + '" onclick="miRondaAbrirModal(\'' + rutaKey + '\')">' + btnTxt + '</button>' +
@@ -14885,30 +15298,29 @@ if (typeof escapeHtml !== 'function') {
 }
 
 // ── Modal de pendientes ──────────────────────────────────────────
+// _miRondaGestiones: cache de gestiones cargadas desde Supabase
+// Formato: { cliente_id: { estado, motivo, motivo_texto, fecha_ronda } }
+var _miRondaGestiones = {};
+var _miRondaGestionesCargadas = false;
+var _mrMotivoClienteActual = null;
+var _mrMotivoRutaActual    = null;
+
 function miRondaAbrirModal(rutaKey) {
   if (!_miRondaData || !_miRondaData[rutaKey]) return;
   _miRondaRutaSel = rutaKey;
   var d = _miRondaData[rutaKey];
   var cfg = MR_RUTAS_CONFIG[rutaKey] || { nombre: rutaKey };
 
-  // Decidir qué mostrar: pendientes si hay, cubiertos si todo OK
-  var mostrarPendientes = d.pendientesCount > 0;
-  var lista = mostrarPendientes ? d.pendientes : d.clientes.filter(function(c) { return c._mr_estado === 'verde'; });
+  // Título y subtítulo
+  var totalClientes = d.clientes.length;
+  document.getElementById('mr-modal-titulo').textContent = cfg.nombre + ' · ' + totalClientes + ' clientes';
+  document.getElementById('mr-modal-sub').textContent = 'Gestioná tu ronda: marcá vendidos y los que no compraron';
 
-  document.getElementById('mr-modal-titulo').textContent = mostrarPendientes
-    ? d.pendientesCount + ' pendientes · ' + cfg.nombre
-    : d.cubiertos + ' cubiertos · ' + cfg.nombre;
+  // Generar chips con TODOS los clientes de la ruta
+  miRondaRenderChips(d.clientes);
 
-  var subtxt = mostrarPendientes
-    ? 'Clientes que todavía no pidieron esta ronda'
-    : 'Clientes que ya pidieron esta ronda';
-  document.getElementById('mr-modal-sub').textContent = subtxt;
-
-  // Generar chips de localidades
-  miRondaRenderChips(lista);
-
-  // Renderizar body
-  miRondaRenderModalBody(lista, null);
+  // Renderizar body con secciones
+  miRondaRenderModalBody(null);
 
   // Abrir
   document.getElementById('mr-modal-backdrop').classList.add('on');
@@ -14943,63 +15355,157 @@ function miRondaRenderChips(lista) {
 
 function miRondaFiltrarChip(localidadEnc, btnEl) {
   if (!_miRondaRutaSel || !_miRondaData) return;
-  var d = _miRondaData[_miRondaRutaSel];
-  if (!d) return;
-
   // Marcar chip activo
   document.querySelectorAll('#mr-modal-chips .mr-chip').forEach(function(el) { el.classList.remove('on'); });
   if (btnEl) btnEl.classList.add('on');
-
-  var mostrarPendientes = d.pendientesCount > 0;
-  var lista = mostrarPendientes ? d.pendientes : d.clientes.filter(function(c) { return c._mr_estado === 'verde'; });
   var localidad = localidadEnc ? decodeURIComponent(localidadEnc) : null;
-
-  miRondaRenderModalBody(lista, localidad);
+  miRondaRenderModalBody(localidad);
 }
 
-function miRondaRenderModalBody(lista, filtroLocalidad) {
+// ── Render del body: 3 secciones (vendidos / gestionados / pendientes) ──
+function miRondaRenderModalBody(filtroLocalidad) {
   var body = document.getElementById('mr-modal-body');
   if (!body) return;
+  if (!_miRondaRutaSel || !_miRondaData[_miRondaRutaSel]) return;
 
-  var filtrada = filtroLocalidad
-    ? lista.filter(function(c) { return (c.localidad || 'Sin ciudad') === filtroLocalidad; })
-    : lista;
+  var d = _miRondaData[_miRondaRutaSel];
+  var clientes = d.clientes.slice();
 
-  if (filtrada.length === 0) {
-    body.innerHTML = '<div class="mr-modal-empty">' +
-      '<div class="mr-modal-empty-icon">🎉</div>' +
-      '<div class="mr-modal-empty-txt">¡Todos cubiertos!</div>' +
-      '<div class="mr-modal-empty-sub">No hay pendientes en este filtro.</div>' +
-    '</div>';
-    return;
+  // Filtro por localidad
+  if (filtroLocalidad) {
+    clientes = clientes.filter(function(c) { return (c.localidad || 'Sin ciudad') === filtroLocalidad; });
   }
 
-  var html = '';
-  filtrada.forEach(function(c) {
-    var tel = (c.telefono || '').toString().replace(/\D/g, '');
-    var telOk = tel.length >= 8;
-    var telFmt = telOk ? mrFormatTel(tel) : '';
-    var nombre = escapeHtml(c.nombre || '—');
-    var loc = escapeHtml(c.localidad || 'Sin ciudad');
-    var diasDesde = c.dias_desde_ult_pedido;
-    var ultPedidoTxt = '';
-    if (c.ultimo_pedido) {
-      ultPedidoTxt = 'Últ. pedido hace ' + (diasDesde !== null && diasDesde !== undefined ? diasDesde : '?') + 'd';
+  // Clasificar: vendidos (_mr_estado='verde'), gestionados (en _miRondaGestiones), pendientes (el resto)
+  var vendidos = [], gestionados = [], pendientes = [];
+  clientes.forEach(function(c) {
+    if (c._mr_estado === 'verde') {
+      vendidos.push(c);
+    } else if (_miRondaGestiones[c.id]) {
+      gestionados.push(c);
     } else {
-      ultPedidoTxt = 'Sin pedidos recientes';
+      pendientes.push(c);
     }
-    var nota = c.notas ? '<div class="mr-cli-nota">📝 ' + escapeHtml(c.notas) + '</div>' : '';
-    var dotColor = c._mr_estado === 'verde' ? '#2E7D32' : '#9E9E9E';
+  });
 
-    // Botón de acción: solo WhatsApp (el de llamar se sacó, el vendedor ya tiene los contactos)
-    // El logo oficial de WhatsApp va como SVG inline
-    var waIconSvg = '<svg viewBox="0 0 24 24"><path d="M17.472 14.382c-.297-.149-1.758-.867-2.03-.967-.273-.099-.471-.148-.67.15-.197.297-.767.966-.94 1.164-.173.199-.347.223-.644.075-.297-.15-1.255-.463-2.39-1.475-.883-.788-1.48-1.761-1.653-2.059-.173-.297-.018-.458.13-.606.134-.133.298-.347.446-.52.149-.174.198-.298.298-.497.099-.198.05-.371-.025-.52-.075-.149-.669-1.612-.916-2.207-.242-.579-.487-.5-.669-.51-.173-.008-.371-.01-.57-.01-.198 0-.52.074-.792.372-.272.297-1.04 1.016-1.04 2.479 0 1.462 1.065 2.875 1.213 3.074.149.198 2.096 3.2 5.077 4.487.709.306 1.262.489 1.694.625.712.227 1.36.195 1.871.118.571-.085 1.758-.719 2.006-1.413.248-.694.248-1.289.173-1.413-.074-.124-.272-.198-.57-.347m-5.421 7.403h-.004a9.87 9.87 0 01-5.031-1.378l-.361-.214-3.741.982.998-3.648-.235-.374a9.86 9.86 0 01-1.51-5.26c.001-5.45 4.436-9.884 9.888-9.884 2.64 0 5.122 1.03 6.988 2.898a9.825 9.825 0 012.893 6.994c-.003 5.45-4.437 9.884-9.885 9.884m8.413-18.297A11.815 11.815 0 0012.05 0C5.495 0 .16 5.335.157 11.892c0 2.096.547 4.142 1.588 5.945L.057 24l6.305-1.654a11.882 11.882 0 005.683 1.448h.005c6.554 0 11.89-5.335 11.893-11.893a11.821 11.821 0 00-3.48-8.413z"/></svg>';
-    var btnWa = telOk
-      ? '<button class="mr-cli-btn mr-cli-btn-wa" onclick="miRondaAbrirWa(\'' + tel + '\', &quot;' + encodeURIComponent(c.nombre || '') + '&quot;)" title="WhatsApp">' + waIconSvg + '</button>'
-      : '<button class="mr-cli-btn mr-cli-btn-none" title="Sin teléfono">' + waIconSvg + '</button>';
+  var html = '';
 
-    html += '<div class="mr-cli-card">' +
-      '<div class="mr-cli-dot" style="background:' + dotColor + '"></div>' +
+  // SECCIÓN: PENDIENTES (la principal, arriba)
+  if (pendientes.length > 0) {
+    html += '<div class="mr-section-hdr" onclick="mrSeccionToggle(this)">' +
+      '<span>⚪ Pendientes <span class="mr-section-hdr-badge">' + pendientes.length + '</span></span>' +
+      '<span class="mr-section-hdr-toggle">▾</span>' +
+    '</div>';
+    html += '<div class="mr-section-body">';
+    pendientes.forEach(function(c) {
+      html += mrRenderCliente(c, 'pendiente');
+    });
+    html += '</div>';
+  } else if (clientes.length > 0 && !filtroLocalidad) {
+    // Si no hay pendientes pero sí clientes, mostrar mensaje de éxito
+    html += '<div class="mr-modal-empty" style="padding:20px;">' +
+      '<div class="mr-modal-empty-icon">🎉</div>' +
+      '<div class="mr-modal-empty-txt">Ronda completa</div>' +
+      '<div class="mr-modal-empty-sub">Todos los clientes están gestionados.</div>' +
+    '</div>';
+  }
+
+  // SECCIÓN: VENDIDOS
+  if (vendidos.length > 0) {
+    html += '<div class="mr-section-hdr vendidos" onclick="mrSeccionToggle(this)">' +
+      '<span>✅ Le vendí <span class="mr-section-hdr-badge">' + vendidos.length + '</span></span>' +
+      '<span class="mr-section-hdr-toggle">▾</span>' +
+    '</div>';
+    html += '<div class="mr-section-body">';
+    vendidos.forEach(function(c) {
+      html += mrRenderCliente(c, 'vendida');
+    });
+    html += '</div>';
+  }
+
+  // SECCIÓN: GESTIONADOS SIN VENTA
+  if (gestionados.length > 0) {
+    html += '<div class="mr-section-hdr gestionados" onclick="mrSeccionToggle(this)">' +
+      '<span>🟡 Ya gestionados <span class="mr-section-hdr-badge">' + gestionados.length + '</span></span>' +
+      '<span class="mr-section-hdr-toggle">▾</span>' +
+    '</div>';
+    html += '<div class="mr-section-body">';
+    gestionados.forEach(function(c) {
+      html += mrRenderCliente(c, 'gestionada');
+    });
+    html += '</div>';
+  }
+
+  if (clientes.length === 0) {
+    html = '<div class="mr-modal-empty">' +
+      '<div class="mr-modal-empty-icon">📋</div>' +
+      '<div class="mr-modal-empty-txt">Sin clientes</div>' +
+      '<div class="mr-modal-empty-sub">No hay clientes en este filtro.</div>' +
+    '</div>';
+  }
+
+  body.innerHTML = html;
+}
+
+function mrSeccionToggle(hdrEl) {
+  if (!hdrEl) return;
+  hdrEl.classList.toggle('collapsed');
+  var body = hdrEl.nextElementSibling;
+  if (body && body.classList.contains('mr-section-body')) {
+    body.classList.toggle('collapsed');
+  }
+}
+
+// ── Render de una card individual según estado ────────────────────
+function mrRenderCliente(c, tipo) {
+  var tel = (c.telefono || '').toString().replace(/\D/g, '');
+  var telOk = tel.length >= 8;
+  var nombre = escapeHtml(c.nombre || '—');
+  var loc = escapeHtml(c.localidad || 'Sin ciudad');
+  var diasDesde = c.dias_desde_ult_pedido;
+  var ultPedidoTxt = c.ultimo_pedido
+    ? 'Últ. hace ' + (diasDesde !== null && diasDesde !== undefined ? diasDesde : '?') + 'd'
+    : 'Sin pedidos recientes';
+  var nota = c.notas ? '<div class="mr-cli-nota">📝 ' + escapeHtml(c.notas) + '</div>' : '';
+
+  // Logo oficial WhatsApp
+  var waIconSvg = '<svg viewBox="0 0 24 24"><path d="M17.472 14.382c-.297-.149-1.758-.867-2.03-.967-.273-.099-.471-.148-.67.15-.197.297-.767.966-.94 1.164-.173.199-.347.223-.644.075-.297-.15-1.255-.463-2.39-1.475-.883-.788-1.48-1.761-1.653-2.059-.173-.297-.018-.458.13-.606.134-.133.298-.347.446-.52.149-.174.198-.298.298-.497.099-.198.05-.371-.025-.52-.075-.149-.669-1.612-.916-2.207-.242-.579-.487-.5-.669-.51-.173-.008-.371-.01-.57-.01-.198 0-.52.074-.792.372-.272.297-1.04 1.016-1.04 2.479 0 1.462 1.065 2.875 1.213 3.074.149.198 2.096 3.2 5.077 4.487.709.306 1.262.489 1.694.625.712.227 1.36.195 1.871.118.571-.085 1.758-.719 2.006-1.413.248-.694.248-1.289.173-1.413-.074-.124-.272-.198-.57-.347m-5.421 7.403h-.004a9.87 9.87 0 01-5.031-1.378l-.361-.214-3.741.982.998-3.648-.235-.374a9.86 9.86 0 01-1.51-5.26c.001-5.45 4.436-9.884 9.888-9.884 2.64 0 5.122 1.03 6.988 2.898a9.825 9.825 0 012.893 6.994c-.003 5.45-4.437 9.884-9.885 9.884m8.413-18.297A11.815 11.815 0 0012.05 0C5.495 0 .16 5.335.157 11.892c0 2.096.547 4.142 1.588 5.945L.057 24l6.305-1.654a11.882 11.882 0 005.683 1.448h.005c6.554 0 11.89-5.335 11.893-11.893a11.821 11.821 0 00-3.48-8.413z"/></svg>';
+  var btnWa = telOk
+    ? '<button class="mr-cli-btn mr-cli-btn-wa" onclick="event.stopPropagation();miRondaAbrirWa(\'' + tel + '\', &quot;' + encodeURIComponent(c.nombre || '') + '&quot;)" title="WhatsApp">' + waIconSvg + '</button>'
+    : '<button class="mr-cli-btn mr-cli-btn-none" title="Sin teléfono">' + waIconSvg + '</button>';
+
+  // Card base + clase según tipo
+  var claseCard = 'mr-cli-card';
+  if (tipo === 'vendida') claseCard += ' vendida';
+  if (tipo === 'gestionada') claseCard += ' gestionada';
+
+  // Fila superior: info + WhatsApp
+  var extraInfo = '';
+  var extraAcciones = '';
+
+  if (tipo === 'vendida') {
+    // Ya tiene pedido cargado: mostrar "✅ Vendí hoy" + botón cambiar
+    extraInfo = '<div class="mr-cli-venta-info">✅ Le vendiste · ya tiene pedido cargado</div>';
+  } else if (tipo === 'gestionada') {
+    // Ya se gestionó sin venta: mostrar motivo + botón cambiar
+    var g = _miRondaGestiones[c.id];
+    var motivoTxt = mrMotivoLabel(g.motivo, g.motivo_texto);
+    extraInfo = '<div class="mr-cli-gest-info">' +
+      '🟡 <span class="mr-cli-gest-motivo">' + escapeHtml(motivoTxt) + '</span>' +
+    '</div>';
+    extraAcciones = '<button class="mr-cli-gest-btn-cambiar" onclick="mrGestionRevertir(' + c.id + ')">↩ Deshacer</button>';
+  } else {
+    // Pendiente: mostrar botones Le vendí + Sin venta
+    extraAcciones =
+      '<div class="mr-cli-gest-row">' +
+        '<button class="mr-cli-gest-btn mr-cli-gest-btn-ok" onclick="mrGestionLeVendi(' + c.id + ')">✅ Le vendí</button>' +
+        '<button class="mr-cli-gest-btn mr-cli-gest-btn-no" onclick="mrGestionSinVenta(' + c.id + ')">🟡 Sin venta</button>' +
+      '</div>';
+  }
+
+  return '<div class="' + claseCard + '">' +
+    '<div class="mr-cli-row-top">' +
+      '<div class="mr-cli-dot"></div>' +
       '<div class="mr-cli-info">' +
         '<div class="mr-cli-nombre">' + nombre + '</div>' +
         '<div class="mr-cli-meta">' +
@@ -15008,12 +15514,337 @@ function miRondaRenderModalBody(lista, filtroLocalidad) {
           (c.ritmo && c.ritmo !== 'sin_compras_recientes' ? '<span class="mr-cli-meta-item">🔄 ' + escapeHtml(c.ritmo) + '</span>' : '') +
         '</div>' +
         nota +
+        extraInfo +
       '</div>' +
       '<div class="mr-cli-actions">' + btnWa + '</div>' +
-    '</div>';
-  });
+    '</div>' +
+    extraAcciones +
+  '</div>';
+}
 
-  body.innerHTML = html;
+// ── Helper: label legible de un motivo ────────────────────────────
+function mrMotivoLabel(motivo, motivoTexto) {
+  var labels = {
+    'tiene_mercaderia': 'Tiene mercadería',
+    'ya_compro':        'Ya compró',
+    'mas_barato':       'Consigue más barato',
+    'cerro':            'Cerró definitivamente',
+    'mas_adelante':     'Pide pasar después',
+    'no_atiende':       'No atiende',
+    'otro':             motivoTexto || 'Otro motivo'
+  };
+  return labels[motivo] || motivo;
+}
+
+// ── Acciones de gestión: Le vendí / Sin venta / Revertir ──────────
+function mrGestionLeVendi(clienteId) {
+  var c = _miRondaClientes.find(function(x) { return x.id === clienteId; });
+  if (!c) return;
+
+  // Guardar en Supabase como estado='venta' (queda histórico)
+  var rutaKey = _miRondaRutaSel || '';
+  mrSupabaseGuardarGestion({
+    cliente_id:     clienteId,
+    cliente_nombre: c.nombre,
+    vendedor:       mrNormVendedor(vendedorActual),
+    fecha_ronda:    mrFechaRonda(rutaKey),
+    ruta_key:       rutaKey,
+    estado:         'venta',
+    motivo:         null,
+    motivo_texto:   null
+  }, function(ok) {
+    if (ok) {
+      // Marcar localmente como vendido
+      c._mr_estado = 'verde';
+      // Actualizar data de la ruta
+      miRondaRecalcularRuta(rutaKey);
+      miRondaRenderModalBody(null);
+      miRondaRenderCards();
+      mrFeedback('✅ Venta registrada para ' + (c.nombre || 'cliente'));
+    } else {
+      mrFeedback('⚠️ No se pudo guardar, reintentá', true);
+    }
+  });
+}
+
+function mrGestionSinVenta(clienteId) {
+  var c = _miRondaClientes.find(function(x) { return x.id === clienteId; });
+  if (!c) return;
+  _mrMotivoClienteActual = clienteId;
+  _mrMotivoRutaActual    = _miRondaRutaSel;
+  // Mostrar nombre del cliente en el modal
+  var nomEl = document.getElementById('mr-motivo-cliente');
+  if (nomEl) nomEl.textContent = c.nombre || '—';
+  // Ocultar textarea de "otro" si estaba abierto
+  mrMotivoOcultarOtro();
+  // Abrir modal
+  document.getElementById('mr-motivo-backdrop').classList.add('on');
+}
+
+function mrMotivoElegir(motivo) {
+  if (!_mrMotivoClienteActual) return;
+  mrMotivoGuardar(motivo, null);
+}
+
+function mrMotivoMostrarOtro() {
+  var box = document.getElementById('mr-motivo-otro-box');
+  if (box) box.classList.add('on');
+  var ta = document.getElementById('mr-motivo-otro-texto');
+  if (ta) { ta.value = ''; setTimeout(function(){ ta.focus(); }, 100); }
+}
+
+function mrMotivoOcultarOtro() {
+  var box = document.getElementById('mr-motivo-otro-box');
+  if (box) box.classList.remove('on');
+}
+
+function mrMotivoGuardarOtro() {
+  var ta = document.getElementById('mr-motivo-otro-texto');
+  var texto = ta ? ta.value.trim() : '';
+  if (!texto) { mrFeedback('⚠️ Escribí el motivo', true); return; }
+  mrMotivoGuardar('otro', texto);
+}
+
+function mrMotivoGuardar(motivo, motivoTexto) {
+  var clienteId = _mrMotivoClienteActual;
+  var rutaKey = _mrMotivoRutaActual;
+  if (!clienteId) return;
+  var c = _miRondaClientes.find(function(x) { return x.id === clienteId; });
+  if (!c) return;
+
+  mrSupabaseGuardarGestion({
+    cliente_id:     clienteId,
+    cliente_nombre: c.nombre,
+    vendedor:       mrNormVendedor(vendedorActual),
+    fecha_ronda:    mrFechaRonda(rutaKey),
+    ruta_key:       rutaKey,
+    estado:         'sin_venta',
+    motivo:         motivo,
+    motivo_texto:   motivoTexto
+  }, function(ok) {
+    if (!ok) {
+      mrFeedback('⚠️ No se pudo guardar, reintentá', true);
+      return;
+    }
+    _miRondaGestiones[clienteId] = {
+      estado: 'sin_venta',
+      motivo: motivo,
+      motivo_texto: motivoTexto,
+      fecha_ronda: mrFechaRonda(rutaKey)
+    };
+
+    // Caso especial: CERRÓ → auto-archivar en clientes_activos
+    if (motivo === 'cerro') {
+      mrSupabaseArchivarCliente(clienteId, function(ok2) {
+        if (ok2) mrFeedback('🗂 Cliente archivado — no vuelve a aparecer');
+      });
+    }
+
+    miRondaRecalcularRuta(rutaKey);
+    miRondaRenderModalBody(null);
+    miRondaRenderCards();
+    mrMotivoCerrar();
+    mrFeedback('🟡 Guardado: ' + mrMotivoLabel(motivo, motivoTexto));
+  });
+}
+
+function mrGestionRevertir(clienteId) {
+  if (!confirm('¿Deshacer esta gestión? El cliente volverá a pendientes.')) return;
+
+  mrSupabaseEliminarGestion(clienteId, function(ok) {
+    if (!ok) {
+      mrFeedback('⚠️ No se pudo deshacer', true);
+      return;
+    }
+    delete _miRondaGestiones[clienteId];
+    miRondaRecalcularRuta(_miRondaRutaSel);
+    miRondaRenderModalBody(null);
+    miRondaRenderCards();
+    mrFeedback('↩ Gestión deshecha');
+  });
+}
+
+function mrMotivoCerrar() {
+  document.getElementById('mr-motivo-backdrop').classList.remove('on');
+  _mrMotivoClienteActual = null;
+  _mrMotivoRutaActual    = null;
+  mrMotivoOcultarOtro();
+}
+
+function mrMotivoCerrarFondo(e) {
+  if (e.target && e.target.id === 'mr-motivo-backdrop') mrMotivoCerrar();
+}
+
+// ── Fecha de ronda: determina el ciclo ────────────────────────────
+// Para rutas con viaje fijo: fecha del próximo viaje
+// Para Trenque/otros: lunes de la semana actual
+function mrFechaRonda(rutaKey) {
+  var cfg = MR_RUTAS_CONFIG[rutaKey];
+  var hoy = new Date();
+  hoy.setHours(0, 0, 0, 0);
+
+  if (cfg && cfg.tipo === 'viaje' && cfg.diaSalida !== null) {
+    // Buscar el próximo día de salida
+    var diaHoy = hoy.getDay();
+    var diaSalida = cfg.diaSalida; // 1=lunes, 2=martes, etc
+    var dif = (diaSalida - diaHoy + 7) % 7;
+    if (dif === 0) dif = 0; // hoy mismo
+    var fechaViaje = new Date(hoy);
+    fechaViaje.setDate(hoy.getDate() + dif);
+    return mrFormatoFechaISO(fechaViaje);
+  }
+
+  // Para Trenque y demás: lunes de la semana actual
+  var lunes = new Date(hoy);
+  var diaHoy = hoy.getDay();
+  var difLunes = diaHoy === 0 ? -6 : (1 - diaHoy); // Domingo = -6, resto = 1-dia
+  lunes.setDate(hoy.getDate() + difLunes);
+  return mrFormatoFechaISO(lunes);
+}
+
+function mrFormatoFechaISO(d) {
+  var yyyy = d.getFullYear();
+  var mm = String(d.getMonth() + 1).padStart(2, '0');
+  var dd = String(d.getDate()).padStart(2, '0');
+  return yyyy + '-' + mm + '-' + dd;
+}
+
+// ── Recalcular conteos de una ruta tras cambio ────────────────────
+function miRondaRecalcularRuta(rutaKey) {
+  if (!_miRondaData || !_miRondaData[rutaKey]) return;
+  var d = _miRondaData[rutaKey];
+  var cubiertos = 0, gestionados = 0;
+  d.clientes.forEach(function(c) {
+    if (c._mr_estado === 'verde') cubiertos++;
+    else if (_miRondaGestiones[c.id]) gestionados++;
+  });
+  d.cubiertos        = cubiertos;
+  d.gestionados      = gestionados;
+  d.pendientesCount  = d.total - cubiertos - gestionados;
+  d.pendientes       = d.clientes.filter(function(c) {
+    return c._mr_estado !== 'verde' && !_miRondaGestiones[c.id];
+  });
+  // Recalcular estado visual de la card
+  d.estado = mrEstadoVisual(rutaKey, d.diasHasta, cubiertos + gestionados, d.total);
+}
+
+// ── Feedback toast (éxito/error) ──────────────────────────────────
+function mrFeedback(msg, esError) {
+  var el = document.getElementById('mr-feedback');
+  if (!el) return;
+  el.textContent = msg;
+  el.classList.toggle('warn', !!esError);
+  el.classList.add('show');
+  clearTimeout(el._tid);
+  el._tid = setTimeout(function() { el.classList.remove('show'); }, 2500);
+}
+
+// ── Supabase: guardar/eliminar gestiones y archivar cliente ───────
+function mrSupabaseGuardarGestion(gestion, cb) {
+  // UPSERT por constraint única (vendedor, cliente_id, fecha_ronda)
+  var url = SUPABASE_URL + '/rest/v1/mironda_gestiones?on_conflict=vendedor,cliente_id,fecha_ronda';
+  fetch(url, {
+    method: 'POST',
+    headers: {
+      'apikey': SUPABASE_KEY,
+      'Authorization': 'Bearer ' + SUPABASE_KEY,
+      'Content-Type': 'application/json',
+      'Prefer': 'resolution=merge-duplicates,return=minimal'
+    },
+    body: JSON.stringify(gestion)
+  }).then(function(res) {
+    if (cb) cb(res.ok);
+    if (!res.ok) console.warn('mrSupabaseGuardarGestion fail:', res.status);
+  }).catch(function(err) {
+    console.error('mrSupabaseGuardarGestion error:', err);
+    if (cb) cb(false);
+  });
+}
+
+function mrSupabaseEliminarGestion(clienteId, cb) {
+  var vendedor = mrNormVendedor(vendedorActual);
+  var fecha = mrFechaRonda(_miRondaRutaSel);
+  var url = SUPABASE_URL + '/rest/v1/mironda_gestiones' +
+    '?vendedor=eq.' + encodeURIComponent(vendedor) +
+    '&cliente_id=eq.' + clienteId +
+    '&fecha_ronda=eq.' + fecha;
+  fetch(url, {
+    method: 'DELETE',
+    headers: {
+      'apikey': SUPABASE_KEY,
+      'Authorization': 'Bearer ' + SUPABASE_KEY,
+      'Prefer': 'return=minimal'
+    }
+  }).then(function(res) {
+    if (cb) cb(res.ok);
+  }).catch(function(err) {
+    console.error('mrSupabaseEliminarGestion error:', err);
+    if (cb) cb(false);
+  });
+}
+
+function mrSupabaseArchivarCliente(clienteId, cb) {
+  var url = SUPABASE_URL + '/rest/v1/clientes_activos?id=eq.' + clienteId;
+  fetch(url, {
+    method: 'PATCH',
+    headers: {
+      'apikey': SUPABASE_KEY,
+      'Authorization': 'Bearer ' + SUPABASE_KEY,
+      'Content-Type': 'application/json',
+      'Prefer': 'return=minimal'
+    },
+    body: JSON.stringify({ activo_en_ronda: false })
+  }).then(function(res) {
+    if (cb) cb(res.ok);
+  }).catch(function(err) {
+    console.error('mrSupabaseArchivarCliente error:', err);
+    if (cb) cb(false);
+  });
+}
+
+// ── Cargar gestiones del vendedor para la ronda actual ────────────
+function mrSupabaseCargarGestiones(cb) {
+  var vendedor = mrNormVendedor(vendedorActual);
+  if (!vendedor) { if (cb) cb(); return; }
+  // Traigo gestiones de los últimos 10 días (para cubrir cualquier ronda activa)
+  var hace10d = new Date();
+  hace10d.setDate(hace10d.getDate() - 10);
+  var desde = mrFormatoFechaISO(hace10d);
+
+  var url = SUPABASE_URL + '/rest/v1/mironda_gestiones' +
+    '?vendedor=eq.' + encodeURIComponent(vendedor) +
+    '&fecha_ronda=gte.' + desde +
+    '&select=cliente_id,estado,motivo,motivo_texto,fecha_ronda,ruta_key';
+  fetch(url, {
+    headers: {
+      'apikey': SUPABASE_KEY,
+      'Authorization': 'Bearer ' + SUPABASE_KEY
+    }
+  }).then(function(res) { return res.ok ? res.json() : []; })
+    .then(function(rows) {
+      _miRondaGestiones = {};
+      // Solo guardo las de tipo "sin_venta" (las ventas las detecta desde pedidos)
+      // Y solo las de la ronda ACTUAL (fecha_ronda que corresponda a cada ruta)
+      (rows || []).forEach(function(r) {
+        if (r.estado === 'sin_venta') {
+          // Chequear que la fecha_ronda coincida con la ronda activa de esa ruta
+          var fechaRondaActual = mrFechaRonda(r.ruta_key);
+          if (r.fecha_ronda === fechaRondaActual) {
+            _miRondaGestiones[r.cliente_id] = {
+              estado: r.estado,
+              motivo: r.motivo,
+              motivo_texto: r.motivo_texto,
+              fecha_ronda: r.fecha_ronda
+            };
+          }
+        }
+      });
+      _miRondaGestionesCargadas = true;
+      if (cb) cb();
+    }).catch(function(err) {
+      console.error('mrSupabaseCargarGestiones error:', err);
+      if (cb) cb();
+    });
 }
 
 // ── Acciones del modal ───────────────────────────────────────────
