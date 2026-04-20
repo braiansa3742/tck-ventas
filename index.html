@@ -1973,62 +1973,106 @@ body {
   right: 0;
   z-index: 200;
   background: #fff;
-  border-top: 1.5px solid var(--cream3);
+  border-top: 1px solid var(--cream3);
   display: none;
-  grid-template-columns: repeat(6, 1fr);
+  align-items: end;
   box-shadow: 0 -4px 20px rgba(0,0,0,.08);
-  padding-bottom: env(safe-area-inset-bottom);
+  padding: 8px 4px calc(8px + env(safe-area-inset-bottom));
 }
-.tab-nav.visible { display: grid; }
-.tab-nav.cols-5 { grid-template-columns: repeat(5, 1fr); }
-.tab-nav.cols-6 { grid-template-columns: repeat(6, 1fr); }
-.tab-nav.cols-7 { grid-template-columns: repeat(7, 1fr); }
+.tab-nav.visible { display: flex; }
+/* Compat: clases de columnas viejas ya no se usan pero las dejo por si algún JS las setea */
+.tab-nav.cols-5, .tab-nav.cols-6, .tab-nav.cols-7 { grid-template-columns: none; }
 .tab-btn {
+  flex: 1;
   display: flex;
   flex-direction: column;
   align-items: center;
   justify-content: center;
-  padding: 9px 4px 8px;
+  padding: 6px 2px 4px;
   gap: 3px;
   cursor: pointer;
   background: none;
   border: none;
   position: relative;
-  transition: background .12s;
+  color: var(--text3);
+  font-family: 'Barlow Condensed', sans-serif;
   -webkit-tap-highlight-color: transparent;
+  transition: color .15s;
 }
-.tab-btn:active { background: var(--cream2); }
-.tab-btn.active .tab-icon { filter: none; opacity: 1; }
-.tab-btn.active .tab-label { color: var(--red); font-weight: 800; }
-.tab-btn.active::after {
-  content: '';
-  position: absolute;
-  top: 0; left: 20%; right: 20%;
-  height: 2.5px;
-  background: var(--red);
-  border-radius: 0 0 3px 3px;
-}
+.tab-btn:active { transform: scale(0.94); }
+.tab-btn.active { color: var(--red); }
+.tab-btn.active .tab-icon { transform: scale(1.12); }
 .tab-icon {
-  font-size: 20px;
+  font-size: 22px;
   line-height: 1;
-  opacity: .5;
+  transition: transform .15s;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  opacity: 1;
 }
-.tab-btn.active .tab-icon { opacity: 1; }
+.tab-btn .tab-icon svg {
+  width: 22px;
+  height: 22px;
+  fill: currentColor;
+}
 .tab-label {
   font-family: 'Barlow Condensed', sans-serif;
-  font-size: 11px;
-  font-weight: 700;
-  color: var(--text3);
-  letter-spacing: .3px;
+  font-size: 10px;
+  font-weight: 800;
+  letter-spacing: 0.4px;
   text-transform: uppercase;
+  white-space: nowrap;
+  line-height: 1;
+  color: inherit;
 }
+.tab-btn.active .tab-label { color: var(--red); font-weight: 800; }
+
+/* Botón central destacado (Mi Ronda en ventas) */
+.tab-btn.center {
+  flex: 0 0 auto;
+  background: linear-gradient(135deg, var(--red) 0%, #6B0000 100%);
+  color: #fff !important;
+  border-radius: 50%;
+  width: 58px; height: 58px;
+  margin: -22px 8px 0;
+  box-shadow: 0 6px 18px rgba(139,0,0,0.45), inset 0 -2px 6px rgba(0,0,0,0.2);
+  border: 3px solid #fff;
+  align-items: center;
+  justify-content: center;
+  gap: 1px;
+  padding: 0;
+  position: relative;
+  overflow: visible;
+}
+.tab-btn.center::before {
+  content: '';
+  position: absolute;
+  inset: -3px;
+  border-radius: 50%;
+  background: linear-gradient(135deg, #FFD700, #D4A574);
+  z-index: -1;
+}
+.tab-btn.center .tab-icon { font-size: 26px; }
+.tab-btn.center .tab-icon svg { width: 26px; height: 26px; }
+.tab-btn.center .tab-label {
+  font-size: 8.5px;
+  margin-top: -1px;
+  color: #fff;
+}
+.tab-btn.center:active { transform: scale(0.92); }
+.tab-btn.center.active { transform: none; }
+.tab-btn.center.active .tab-icon { transform: scale(1); }
+.tab-btn.center.active .tab-label { color: #fff; }
+
+/* Badge (notificaciones tipo "7" en Pedidos) */
 .tab-badge {
   position: absolute;
-  top: 6px;
-  right: calc(50% - 20px);
+  top: 0;
+  right: calc(50% - 22px);
   background: var(--red);
   color: #fff;
-  font-size: 10px;
+  font-size: 9.5px;
   font-weight: 900;
   font-family: 'Barlow Condensed', sans-serif;
   min-width: 16px;
@@ -2038,8 +2082,109 @@ body {
   align-items: center;
   justify-content: center;
   padding: 0 4px;
+  border: 1.5px solid #fff;
+  box-shadow: 0 2px 6px rgba(139,0,0,0.4);
 }
 .tab-badge.on { display: flex; }
+.tab-btn.center .tab-badge {
+  top: -4px;
+  right: -4px;
+}
+
+/* ── MENÚ "MÁS" (sheet inferior) ── */
+.menu-mas-backdrop {
+  display: none;
+  position: fixed;
+  inset: 0;
+  background: rgba(40, 20, 20, 0.55);
+  backdrop-filter: blur(3px);
+  -webkit-backdrop-filter: blur(3px);
+  z-index: 800;
+  align-items: flex-end;
+  justify-content: center;
+}
+.menu-mas-backdrop.on { display: flex; }
+.menu-mas-sheet {
+  background: #FAF6EE;
+  width: 100%;
+  max-width: 600px;
+  border-radius: 24px 24px 0 0;
+  padding: 8px 16px calc(20px + env(safe-area-inset-bottom));
+  box-shadow: 0 -10px 40px rgba(0,0,0,0.3);
+  animation: menuMasSlideUp .28s cubic-bezier(.2,.9,.3,1);
+}
+@keyframes menuMasSlideUp {
+  from { transform: translateY(100%); opacity: 0; }
+  to { transform: translateY(0); opacity: 1; }
+}
+.menu-mas-pill {
+  width: 48px; height: 4px;
+  background: var(--cream3);
+  border-radius: 3px;
+  margin: 6px auto 12px;
+}
+.menu-mas-titulo {
+  font-family: 'Barlow Condensed', sans-serif;
+  font-size: 13px;
+  font-weight: 800;
+  color: var(--text2);
+  text-transform: uppercase;
+  letter-spacing: 0.8px;
+  text-align: center;
+  margin-bottom: 14px;
+}
+.menu-mas-grid {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 10px;
+  margin-bottom: 12px;
+}
+.menu-mas-item {
+  background: #fff;
+  border: 1.5px solid var(--cream3);
+  border-radius: 14px;
+  padding: 18px 12px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+  cursor: pointer;
+  font-family: 'Barlow Condensed', sans-serif;
+  -webkit-tap-highlight-color: transparent;
+  touch-action: manipulation;
+  transition: all .15s;
+  box-shadow: 0 2px 6px rgba(0,0,0,0.03);
+}
+.menu-mas-item:active {
+  transform: scale(0.97);
+  background: var(--cream2);
+  border-color: var(--gold);
+}
+.menu-mas-icon {
+  font-size: 30px;
+  line-height: 1;
+}
+.menu-mas-lbl {
+  font-size: 13px;
+  font-weight: 800;
+  color: var(--text);
+  text-transform: uppercase;
+  letter-spacing: 0.4px;
+}
+.menu-mas-cerrar {
+  width: 100%;
+  background: var(--cream2);
+  border: 1.5px solid var(--cream3);
+  color: var(--text2);
+  padding: 12px;
+  border-radius: 12px;
+  font-family: 'Barlow Condensed', sans-serif;
+  font-size: 14px;
+  font-weight: 800;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  cursor: pointer;
+}
 
 /* ── VIEWS (secciones) ── */
 .view {
@@ -6373,37 +6518,72 @@ body {
   <!-- TAB NAV -->
 <nav class="tab-nav" id="tab-nav">
   <button class="tab-btn active" id="tab-btn-pedidos" onclick="cambiarTab('pedidos')">
+    <span class="tab-badge" id="tab-badge-pend"></span>
     <span class="tab-icon">📋</span>
     <span class="tab-label">Pedidos</span>
-    <span class="tab-badge" id="tab-badge-pend"></span>
   </button>
   <button class="tab-btn" id="tab-btn-midia" onclick="cambiarTab('midia')">
     <span class="tab-icon">📊</span>
     <span class="tab-label">Mi día</span>
   </button>
-  <button class="tab-btn" id="tab-btn-mironda" onclick="cambiarTab('mironda')">
+  <button class="tab-btn center" id="tab-btn-mironda" onclick="cambiarTab('mironda')">
+    <span class="tab-badge" id="tab-badge-mironda"></span>
     <span class="tab-icon">🎯</span>
     <span class="tab-label">Mi Ronda</span>
-    <span class="tab-badge" id="tab-badge-mironda"></span>
   </button>
-  <button class="tab-btn" id="tab-btn-clientes" onclick="cambiarTab('clientes')">
+  <button class="tab-btn" id="tab-btn-mapa" onclick="cambiarTab('mapa')">
+    <span class="tab-icon"><svg viewBox="0 0 24 24" fill="currentColor" width="22" height="22"><path d="M20.5 3l-.16.03L15 5.1 9 3 3.36 4.9c-.21.07-.36.25-.36.48V20.5c0 .28.22.5.5.5l.16-.03L9 18.9l6 2.1 5.64-1.9c.21-.07.36-.25.36-.48V3.5c0-.28-.22-.5-.5-.5zM15 19l-6-2.11V5l6 2.11V19z"/></svg></span>
+    <span class="tab-label">Mapa</span>
+  </button>
+  <button class="tab-btn" id="tab-btn-mas" onclick="abrirMenuMas()">
+    <span class="tab-icon">⋯</span>
+    <span class="tab-label">Más</span>
+  </button>
+  <!-- Tabs ocultos accesibles vía menú "Más" — display:none real para que NO aparezcan en el nav -->
+  <button class="tab-btn" id="tab-btn-clientes" onclick="cambiarTab('clientes')" style="display:none !important;">
     <span class="tab-icon">⭐</span>
     <span class="tab-label">Clientes</span>
   </button>
-  <button class="tab-btn" id="tab-btn-gps" onclick="cambiarTab('gps')">
-    <svg viewBox="0 0 24 24" fill="currentColor" width="18" height="18"><path d="M12 2C8.13 2 5 5.13 5 9c0 5.25 7 13 7 13s7-7.75 7-13c0-3.87-3.13-7-7-7zm0 9.5c-1.38 0-2.5-1.12-2.5-2.5s1.12-2.5 2.5-2.5 2.5 1.12 2.5 2.5-1.12 2.5-2.5 2.5z"/></svg>
+  <button class="tab-btn" id="tab-btn-gps" onclick="cambiarTab('gps')" style="display:none !important;">
+    <span class="tab-icon"><svg viewBox="0 0 24 24" fill="currentColor" width="18" height="18"><path d="M12 2C8.13 2 5 5.13 5 9c0 5.25 7 13 7 13s7-7.75 7-13c0-3.87-3.13-7-7-7zm0 9.5c-1.38 0-2.5-1.12-2.5-2.5s1.12-2.5 2.5-2.5 2.5 1.12 2.5 2.5-1.12 2.5-2.5 2.5z"/></svg></span>
     <span>Visitas</span>
   </button>
-  <button class="tab-btn" id="tab-btn-mapa" onclick="cambiarTab('mapa')">
-    <svg viewBox="0 0 24 24" fill="currentColor" width="18" height="18"><path d="M20.5 3l-.16.03L15 5.1 9 3 3.36 4.9c-.21.07-.36.25-.36.48V20.5c0 .28.22.5.5.5l.16-.03L9 18.9l6 2.1 5.64-1.9c.21-.07.36-.25.36-.48V3.5c0-.28-.22-.5-.5-.5zM15 19l-6-2.11V5l6 2.11V19z"/></svg>
-    <span>Mapa</span>
-  </button>
-  <button class="tab-btn" id="tab-btn-entregas" onclick="cambiarTab('entregas')" style="display:none;"><span class="tab-icon">🚚</span><span class="tab-label">Entregas</span></button>
-  <button class="tab-btn" id="tab-btn-bot" onclick="cambiarTab('bot')" style="display:none;"><span class="tab-icon">🤖</span><span class="tab-label">Bot</span></button> <button class="tab-btn" id="tab-btn-reportes" onclick="cambiarTab('reportes')">
+  <button class="tab-btn" id="tab-btn-reportes" onclick="cambiarTab('reportes')" style="display:none !important;">
     <span class="tab-icon">📈</span>
     <span class="tab-label">Reportes</span>
   </button>
+  <button class="tab-btn" id="tab-btn-entregas" onclick="cambiarTab('entregas')" style="display:none !important;">
+    <span class="tab-icon">🚚</span>
+    <span class="tab-label">Entregas</span>
+  </button>
+  <button class="tab-btn" id="tab-btn-bot" onclick="cambiarTab('bot')" style="display:none !important;">
+    <span class="tab-icon">🤖</span>
+    <span class="tab-label">Bot</span>
+  </button>
 </nav>
+
+<!-- MENÚ "MÁS" (sheet inferior) — Clientes + Visitas + Reportes -->
+<div class="menu-mas-backdrop" id="menu-mas-backdrop" onclick="cerrarMenuMasFondo(event)">
+  <div class="menu-mas-sheet" onclick="event.stopPropagation()">
+    <div class="menu-mas-pill"></div>
+    <div class="menu-mas-titulo">Más opciones</div>
+    <div class="menu-mas-grid">
+      <button class="menu-mas-item" onclick="cambiarTab('clientes');cerrarMenuMas()">
+        <div class="menu-mas-icon">⭐</div>
+        <div class="menu-mas-lbl">Clientes</div>
+      </button>
+      <button class="menu-mas-item" id="menu-mas-visitas" onclick="cambiarTab('gps');cerrarMenuMas()">
+        <div class="menu-mas-icon">📍</div>
+        <div class="menu-mas-lbl">Visitas</div>
+      </button>
+      <button class="menu-mas-item" onclick="cambiarTab('reportes');cerrarMenuMas()">
+        <div class="menu-mas-icon">📈</div>
+        <div class="menu-mas-lbl">Reportes</div>
+      </button>
+    </div>
+    <button class="menu-mas-cerrar" onclick="cerrarMenuMas()">Cerrar</button>
+  </div>
+</div>
 
 <!-- MODAL MANUAL DE USO -->
 <div class="export-backdrop" id="manual-backdrop" onclick="cerrarManualFondo(event)" style="z-index:600;">
@@ -8007,6 +8187,18 @@ function actualizarMiDiaSiAbierto() {
 // ── NAVEGACIÓN POR TABS ───────────────────────────────────────────
 var _tabActual = 'pedidos';
 
+function abrirMenuMas() {
+  var b = document.getElementById('menu-mas-backdrop');
+  if (b) b.classList.add('on');
+}
+function cerrarMenuMas() {
+  var b = document.getElementById('menu-mas-backdrop');
+  if (b) b.classList.remove('on');
+}
+function cerrarMenuMasFondo(e) {
+  if (e.target === document.getElementById('menu-mas-backdrop')) cerrarMenuMas();
+}
+
 function cambiarTab(tab) {
   if (_tabActual === tab) return;
   _tabActual = tab;
@@ -8018,6 +8210,10 @@ function cambiarTab(tab) {
     if (v) v.classList.toggle('active', t === tab);
     if (b) b.classList.toggle('active', t === tab);
   });
+
+  // El botón "Más" se marca activo si estás en un tab oculto (clientes/visitas/reportes)
+  var btnMas = document.getElementById('tab-btn-mas');
+  if (btnMas) btnMas.classList.toggle('active', tab === 'clientes' || tab === 'gps' || tab === 'reportes');
 
   // Cuando se abre Mi Ronda, renderizar
   if (tab === 'mironda') {
@@ -8091,14 +8287,13 @@ function mostrarTabs() {
 
   // Choferes: solo ven tab Entregas
   if (esChofer) {
-    ['pedidos','midia','clientes','gps','mapa','bot','reportes','mironda'].forEach(function(t) {
+    ['pedidos','midia','clientes','gps','mapa','bot','reportes','mironda','mas'].forEach(function(t) {
       var btn = document.getElementById('tab-btn-' + t);
       if (btn) btn.style.display = 'none';
     });
     var tabEnt = document.getElementById('tab-btn-entregas');
     if (tabEnt) tabEnt.style.display = '';
     cambiarTab('entregas');
-    // Scroll al top inmediatamente
     window.scrollTo(0, 0);
     document.documentElement.scrollTop = 0;
     document.body.scrollTop = 0;
@@ -8110,40 +8305,43 @@ function mostrarTabs() {
   var tabEnt = document.getElementById('tab-btn-entregas');
   if (tabEnt) tabEnt.style.display = 'none';
 
-  // Tab Visitas — Juan, Lisandro y Admin
-  var tabGps = document.getElementById('tab-btn-gps');
-  if (tabGps) {
-    tabGps.style.display = (esCampo || esAdmin) ? '' : 'none';
-    var lbl = tabGps.querySelector('span:last-child');
-    if (lbl) lbl.textContent = 'Visitas';
-  }
-
+  // Tab Bot — solo Miguel
   var tabBot = document.getElementById('tab-btn-bot');
-  if (tabBot) tabBot.style.display = (vendedorActual === 'Miguel') ? '' : 'none';
+  if (tabBot) tabBot.style.display = 'none'; // siempre oculto en nav, accesible vía console
 
+  // ── NAV PRO: 5 tabs visibles + Más ──
+  // Vendedor (Miguel/Juan/Lisandro): Pedidos · Mi día · Mi Ronda (centro) · Mapa (vacio en vendedor) · Más
+  // Admin si entra acá: Pedidos · Mi día · Mi Ronda · Mapa · Más
+
+  // Tab Mi día — todos
+  var tabMidia = document.getElementById('tab-btn-midia');
+  if (tabMidia) tabMidia.style.display = '';
+
+  // Tab Mi Ronda — vendedores reales (NO admin, NO chofer)
+  var tabMr = document.getElementById('tab-btn-mironda');
+  if (tabMr) tabMr.style.display = esVendedor ? '' : 'none';
+
+  // Tab Mapa — solo Admin (vendedores no ven mapa)
   var tabMapa = document.getElementById('tab-btn-mapa');
   if (tabMapa) tabMapa.style.display = esAdmin ? '' : 'none';
 
-  // Tab Mi Ronda — solo vendedores reales (Miguel, Juan, Lisandro), no Admin
-  var tabMr = document.getElementById('tab-btn-mironda');
-  if (tabMr) tabMr.style.display = esVendedor ? '' : 'none';
+  // Tab Más — siempre visible (contiene Clientes + Visitas + Reportes)
+  var tabMas = document.getElementById('tab-btn-mas');
+  if (tabMas) tabMas.style.display = '';
+
+  // Tabs ocultos (accesibles vía menú Más, NUNCA visibles en nav)
+  ['clientes','gps','reportes'].forEach(function(t) {
+    var btn = document.getElementById('tab-btn-' + t);
+    if (btn) btn.style.display = 'none';
+  });
+
+  // Visitas en menú Más: visible para campo (Juan/Lisandro) y Admin
+  var menuVis = document.getElementById('menu-mas-visitas');
+  if (menuVis) menuVis.style.display = (esCampo || esAdmin) ? 'flex' : 'none';
 
   if (_tabActual === 'gps' && !esCampo && !esAdmin) cambiarTab('pedidos');
   if (_tabActual === 'mapa' && !esAdmin) cambiarTab('pedidos');
   if (_tabActual === 'mironda' && !esVendedor) cambiarTab('pedidos');
-
-  // Ajustar grid según cantidad de tabs visibles
-  if (nav) {
-    var visibles = 0;
-    ['pedidos','midia','mironda','clientes','gps','mapa','bot','reportes'].forEach(function(t) {
-      var btn = document.getElementById('tab-btn-' + t);
-      if (btn && btn.style.display !== 'none') visibles++;
-    });
-    nav.classList.remove('cols-5','cols-6','cols-7');
-    if (visibles <= 5) nav.classList.add('cols-5');
-    else if (visibles === 6) nav.classList.add('cols-6');
-    else nav.classList.add('cols-7');
-  }
 }
 
 function ocultarTabs() {
