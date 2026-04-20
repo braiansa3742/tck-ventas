@@ -5835,6 +5835,62 @@ body {
   background: rgba(239,108,0,.04);
 }
 
+/* Botón "No es mío" (derivar) — discreto, similar al skip pero con acento */
+.mr-opC-btn-derivar {
+  background: transparent;
+  color: #8B6F50;
+  border: 1px dashed #D4A574;
+  border-radius: 7px;
+  padding: 9px 12px;
+  font-family: 'Barlow Condensed', sans-serif;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: .6px;
+  text-transform: uppercase;
+  cursor: pointer;
+  transition: all .15s;
+  -webkit-tap-highlight-color: transparent;
+  flex-shrink: 0;
+  white-space: nowrap;
+}
+.mr-opC-btn-derivar:hover, .mr-opC-btn-derivar:active {
+  color: #6B0000;
+  border-color: #8B0000;
+  background: rgba(139,0,0,.04);
+}
+
+/* Fila con 3 botones — ajuste proporcional para que no se desborden en mobile */
+.mr-opC-row-acciones-3 .mr-opC-btn-stamp { flex: 1.4; min-width: 0; }
+.mr-opC-row-acciones-3 .mr-opC-btn-skip { padding: 9px 10px; font-size: 10.5px; }
+.mr-opC-row-acciones-3 .mr-opC-btn-derivar { padding: 9px 10px; font-size: 10.5px; }
+
+/* Botón "Asignar zona" (solo cards SIN_RUTA) — aparece arriba de la fila de acciones */
+.mr-opC-btn-zona {
+  display: block;
+  width: 100%;
+  padding: 8px 12px;
+  margin-bottom: 7px;
+  background: linear-gradient(135deg, #FFF8E1 0%, #FFECB3 100%);
+  border: 1px solid #D4A574;
+  border-left: 3px solid #D4A574;
+  border-radius: 7px;
+  color: #6B4423;
+  font-family: 'Barlow Condensed', sans-serif;
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: .6px;
+  text-transform: uppercase;
+  cursor: pointer;
+  transition: all .15s;
+  -webkit-tap-highlight-color: transparent;
+  text-align: center;
+}
+.mr-opC-btn-zona:hover, .mr-opC-btn-zona:active {
+  background: linear-gradient(135deg, #FFECB3 0%, #FFD54F 100%);
+  border-left-color: #F57F17;
+  transform: translateY(-1px);
+}
+
 /* Estado: vendido — card verde con sello */
 .mr-opC-card.vendida {
   background: #F4FAF5;
@@ -6823,6 +6879,154 @@ body {
           <div class="mr-motivo-btn-desc">No aparecerá más en Mi Ronda</div>
         </span>
       </button>
+    </div>
+  </div>
+
+  <!-- ══ MODAL: DERIVAR CLIENTE (No es mío) ══════════════════════════════ -->
+  <div class="mr-motivo-backdrop" id="mr-deriva-backdrop" onclick="mrDerivarCerrarFondo(event)">
+    <div class="mr-motivo-sheet">
+      <div class="mr-motivo-pill"></div>
+      <div class="mr-motivo-hdr">¿A QUIÉN SE LO DERIVÁS?</div>
+      <div class="mr-motivo-sub" id="mr-deriva-sub">Cliente: <strong id="mr-deriva-cliente-nombre">—</strong></div>
+
+      <!-- PASO 1: Elegir destino -->
+      <div id="mr-deriva-paso-destino">
+        <div style="font-family:'Barlow Condensed',sans-serif;font-size:13px;font-weight:700;color:#6B0000;letter-spacing:.5px;text-transform:uppercase;margin-bottom:8px;">1. Destino</div>
+
+        <button class="mr-motivo-btn" id="mr-deriva-btn-miguel" onclick="mrDerivarElegirDestino('Miguel')">
+          <span class="mr-motivo-btn-icon">👤</span>
+          <span class="mr-motivo-btn-txt">Miguel
+            <div class="mr-motivo-btn-desc">Vendedor · Trenque + ruta</div>
+          </span>
+        </button>
+
+        <button class="mr-motivo-btn" id="mr-deriva-btn-juan" onclick="mrDerivarElegirDestino('Juan')">
+          <span class="mr-motivo-btn-icon">👤</span>
+          <span class="mr-motivo-btn-txt">Juan
+            <div class="mr-motivo-btn-desc">Vendedor · Campo</div>
+          </span>
+        </button>
+
+        <button class="mr-motivo-btn" id="mr-deriva-btn-lisandro" onclick="mrDerivarElegirDestino('Lisandro')">
+          <span class="mr-motivo-btn-icon">👤</span>
+          <span class="mr-motivo-btn-txt">Lisandro
+            <div class="mr-motivo-btn-desc">Vendedor · Campo</div>
+          </span>
+        </button>
+
+        <button class="mr-motivo-btn" onclick="mrDerivarElegirDestino('__POOL__')" style="border-left-color:#D4A574;">
+          <span class="mr-motivo-btn-icon">📥</span>
+          <span class="mr-motivo-btn-txt">No sé a quién corresponde
+            <div class="mr-motivo-btn-desc">Lo envía al pool — Admin decide</div>
+          </span>
+        </button>
+      </div>
+
+      <!-- PASO 2: Elegir motivo (se muestra tras elegir destino) -->
+      <div id="mr-deriva-paso-motivo" style="display:none;">
+        <div style="font-family:'Barlow Condensed',sans-serif;font-size:13px;font-weight:700;color:#6B0000;letter-spacing:.5px;text-transform:uppercase;margin-bottom:4px;">2. Motivo <span style="color:#C62828;">*</span></div>
+        <div style="font-size:11px;color:var(--text2);margin-bottom:10px;">Derivando a: <strong id="mr-deriva-destino-elegido" style="color:#6B0000;">—</strong>  <button onclick="mrDerivarVolverDestino()" style="background:none;border:none;color:#8B0000;font-size:11px;text-decoration:underline;cursor:pointer;padding:0;margin-left:6px;">Cambiar</button></div>
+
+        <button class="mr-motivo-btn" onclick="mrDerivarElegirMotivo('zona_equivocada')">
+          <span class="mr-motivo-btn-icon">📍</span>
+          <span class="mr-motivo-btn-txt">Zona equivocada
+            <div class="mr-motivo-btn-desc">No está en mi zona habitual</div>
+          </span>
+        </button>
+
+        <button class="mr-motivo-btn" onclick="mrDerivarElegirMotivo('no_es_mi_cliente')">
+          <span class="mr-motivo-btn-icon">🙅</span>
+          <span class="mr-motivo-btn-txt">No es mi cliente
+            <div class="mr-motivo-btn-desc">Nunca lo atendí / no me corresponde</div>
+          </span>
+        </button>
+
+        <button class="mr-motivo-btn" onclick="mrDerivarElegirMotivo('no_paga')">
+          <span class="mr-motivo-btn-icon">💸</span>
+          <span class="mr-motivo-btn-txt">No paga
+            <div class="mr-motivo-btn-desc">Tiene deuda o mal historial</div>
+          </span>
+        </button>
+
+        <button class="mr-motivo-btn" onclick="mrDerivarElegirMotivo('no_quiere_comprar')">
+          <span class="mr-motivo-btn-icon">🚫</span>
+          <span class="mr-motivo-btn-txt">No me quiere comprar
+            <div class="mr-motivo-btn-desc">Cliente dice que prefiere otro vendedor</div>
+          </span>
+        </button>
+
+        <button class="mr-motivo-btn" onclick="mrDerivarMostrarOtro()">
+          <span class="mr-motivo-btn-icon">✏️</span>
+          <span class="mr-motivo-btn-txt">Otro motivo
+            <div class="mr-motivo-btn-desc">Escribir un detalle corto</div>
+          </span>
+        </button>
+
+        <div class="mr-motivo-otro-box" id="mr-deriva-otro-box">
+          <textarea id="mr-deriva-otro-texto" placeholder="Escribí el motivo en pocas palabras..." maxlength="120"></textarea>
+          <div class="mr-motivo-otro-actions">
+            <button class="mr-motivo-otro-cancelar" onclick="mrDerivarOcultarOtro()">Cancelar</button>
+            <button class="mr-motivo-otro-guardar" onclick="mrDerivarGuardarOtro()">Guardar</button>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ══ MODAL: ASIGNAR ZONA (solo clientes SIN_RUTA) ══════════════════ -->
+  <div class="mr-motivo-backdrop" id="mr-zona-backdrop" onclick="mrZonaCerrarFondo(event)">
+    <div class="mr-motivo-sheet">
+      <div class="mr-motivo-pill"></div>
+      <div class="mr-motivo-hdr">ASIGNAR ZONA</div>
+      <div class="mr-motivo-sub">Cliente: <strong id="mr-zona-cliente-nombre">—</strong></div>
+
+      <div style="font-family:'Barlow Condensed',sans-serif;font-size:13px;font-weight:700;color:#6B0000;letter-spacing:.5px;text-transform:uppercase;margin-bottom:8px;">1. Ruta</div>
+
+      <button class="mr-motivo-btn" onclick="mrZonaElegirRuta('RUTA_LUNES_MARTES')">
+        <span class="mr-motivo-btn-icon">🚚</span>
+        <span class="mr-motivo-btn-txt">Lunes · Martes
+          <div class="mr-motivo-btn-desc">Viaje del lunes</div>
+        </span>
+      </button>
+
+      <button class="mr-motivo-btn" onclick="mrZonaElegirRuta('RUTA_MARTES')">
+        <span class="mr-motivo-btn-icon">🚚</span>
+        <span class="mr-motivo-btn-txt">Martes · América
+          <div class="mr-motivo-btn-desc">Viaje del martes</div>
+        </span>
+      </button>
+
+      <button class="mr-motivo-btn" onclick="mrZonaElegirRuta('RUTA_JUEVES_VIERNES')">
+        <span class="mr-motivo-btn-icon">🚚</span>
+        <span class="mr-motivo-btn-txt">Jueves · Viernes
+          <div class="mr-motivo-btn-desc">Viaje del jueves</div>
+        </span>
+      </button>
+
+      <button class="mr-motivo-btn" onclick="mrZonaElegirRuta('TRENQUE')">
+        <span class="mr-motivo-btn-icon">🏠</span>
+        <span class="mr-motivo-btn-txt">Trenque Lauquen
+          <div class="mr-motivo-btn-desc">Semana corriente — local</div>
+        </span>
+      </button>
+
+      <button class="mr-motivo-btn" onclick="mrZonaElegirRuta('MOSTRADOR')">
+        <span class="mr-motivo-btn-icon">🏪</span>
+        <span class="mr-motivo-btn-txt">Mostrador
+          <div class="mr-motivo-btn-desc">Venta en sede</div>
+        </span>
+      </button>
+
+      <div id="mr-zona-paso-ciudad" style="display:none;margin-top:14px;padding-top:14px;border-top:1px solid rgba(139,0,0,.1);">
+        <div style="font-family:'Barlow Condensed',sans-serif;font-size:13px;font-weight:700;color:#6B0000;letter-spacing:.5px;text-transform:uppercase;margin-bottom:4px;">2. Ciudad</div>
+        <div style="font-size:11px;color:var(--text2);margin-bottom:10px;">Ruta: <strong id="mr-zona-ruta-elegida" style="color:#6B0000;">—</strong></div>
+        <input type="text" id="mr-zona-ciudad-input" placeholder="Ej: Pehuajó, Lincoln, Guaminí..." maxlength="60"
+               style="width:100%;padding:10px 12px;border:1px solid var(--cream3);border-radius:8px;font-family:inherit;font-size:14px;box-sizing:border-box;outline:none;margin-bottom:10px;" />
+        <div style="display:flex;gap:8px;">
+          <button onclick="mrZonaCerrar()" style="flex:1;padding:10px;background:#fff;border:1px solid var(--cream3);border-radius:8px;font-family:'Barlow Condensed',sans-serif;font-weight:700;color:var(--text2);cursor:pointer;letter-spacing:.5px;text-transform:uppercase;font-size:13px;">Cancelar</button>
+          <button onclick="mrZonaGuardar()" style="flex:2;padding:10px;background:linear-gradient(135deg,#8B0000,#6B0000);border:none;border-radius:8px;font-family:'Barlow Condensed',sans-serif;font-weight:800;color:#FFD700;cursor:pointer;letter-spacing:.5px;text-transform:uppercase;font-size:13px;">Guardar zona</button>
+        </div>
+      </div>
     </div>
   </div>
 
@@ -16600,13 +16804,21 @@ function mrRenderCliente(c, tipo) {
       '<div class="mr-opC-stamp-gest">✕ No compró · <strong>' + escapeHtml(motivoTxt) + '</strong></div>' +
       '<button class="mr-opC-undo" onclick="mrGestionRevertir(\'' + c.cliente_id + '\')" title="Volver a pendiente">↩ Deshacer</button>';
   } else {
-    // Pendiente — botón sello TCK + acción secundaria discreta
+    // Pendiente — botón sello TCK + acción secundaria discreta + derivar
+    // Detectar si es cliente SIN_RUTA para mostrar botón "Asignar zona" arriba
+    var rutaKey = c.ruta_viaje || 'SIN_RUTA';
+    var esSinRuta = (rutaKey === 'SIN_RUTA' || !MR_RUTAS_CONFIG[rutaKey]);
+    var btnZonaHtml = esSinRuta
+      ? '<button class="mr-opC-btn-zona" onclick="mrZonaAbrir(\'' + c.cliente_id + '\')" title="Asignar ruta y ciudad">📍 Asignar zona</button>'
+      : '';
     bloqueAccion =
-      '<div class="mr-opC-row-acciones">' +
+      btnZonaHtml +
+      '<div class="mr-opC-row-acciones mr-opC-row-acciones-3">' +
         '<button class="mr-opC-btn-stamp" onclick="mrGestionLeVendi(\'' + c.cliente_id + '\')">' +
           '<span class="mr-opC-stamp-icon">✓</span> Le vendí' +
         '</button>' +
         '<button class="mr-opC-btn-skip" onclick="mrGestionSinVenta(\'' + c.cliente_id + '\')">No compró</button>' +
+        '<button class="mr-opC-btn-derivar" onclick="mrDerivarAbrir(\'' + c.cliente_id + '\')" title="Derivar a otro vendedor">⤴ No es mío</button>' +
       '</div>';
   }
 
@@ -16953,6 +17165,291 @@ function mrSupabaseArchivarCliente(clienteId, cb) {
   }).catch(function(err) {
     console.error('mrSupabaseArchivarCliente error:', err);
     if (cb) cb(false);
+  });
+}
+
+// ── DERIVAR CLIENTE (No es mío) ─────────────────────────────────────
+// Estado temporal del modal de derivación
+var _mrDerivarClienteId = null;
+var _mrDerivarDestino   = null;   // 'Miguel' | 'Juan' | 'Lisandro' | '__POOL__'
+
+function mrDerivarAbrir(clienteId) {
+  var c = _miRondaClientes.find(function(x) { return x.cliente_id == clienteId; });
+  if (!c) { console.error('mrDerivarAbrir: cliente no encontrado', clienteId); return; }
+  _mrDerivarClienteId = clienteId;
+  _mrDerivarDestino   = null;
+
+  // Reset UI a paso 1
+  var nomEl = document.getElementById('mr-deriva-cliente-nombre');
+  if (nomEl) nomEl.textContent = c.nombre || '—';
+  var pasoDest = document.getElementById('mr-deriva-paso-destino');
+  var pasoMot  = document.getElementById('mr-deriva-paso-motivo');
+  var otroBox  = document.getElementById('mr-deriva-otro-box');
+  var otroTxt  = document.getElementById('mr-deriva-otro-texto');
+  if (pasoDest) pasoDest.style.display = '';
+  if (pasoMot)  pasoMot.style.display  = 'none';
+  if (otroBox)  otroBox.classList.remove('on');
+  if (otroTxt)  otroTxt.value = '';
+
+  // Ocultar el botón del vendedor actual (no puede derivarse a sí mismo)
+  var actual = (vendedorActual || '').toLowerCase();
+  var btnMig = document.getElementById('mr-deriva-btn-miguel');
+  var btnJua = document.getElementById('mr-deriva-btn-juan');
+  var btnLis = document.getElementById('mr-deriva-btn-lisandro');
+  if (btnMig) btnMig.style.display = (actual === 'miguel')   ? 'none' : '';
+  if (btnJua) btnJua.style.display = (actual === 'juan')     ? 'none' : '';
+  if (btnLis) btnLis.style.display = (actual === 'lisandro') ? 'none' : '';
+
+  var back = document.getElementById('mr-deriva-backdrop');
+  if (back) back.classList.add('on');
+}
+
+function mrDerivarCerrar() {
+  var back = document.getElementById('mr-deriva-backdrop');
+  if (back) back.classList.remove('on');
+  _mrDerivarClienteId = null;
+  _mrDerivarDestino   = null;
+}
+
+function mrDerivarCerrarFondo(ev) {
+  if (ev && ev.target === ev.currentTarget) mrDerivarCerrar();
+}
+
+function mrDerivarElegirDestino(destino) {
+  _mrDerivarDestino = destino;
+  var destEl = document.getElementById('mr-deriva-destino-elegido');
+  if (destEl) {
+    destEl.textContent = (destino === '__POOL__') ? 'Pool (Admin decide)' : destino;
+  }
+  var pasoDest = document.getElementById('mr-deriva-paso-destino');
+  var pasoMot  = document.getElementById('mr-deriva-paso-motivo');
+  if (pasoDest) pasoDest.style.display = 'none';
+  if (pasoMot)  pasoMot.style.display  = '';
+}
+
+function mrDerivarVolverDestino() {
+  var pasoDest = document.getElementById('mr-deriva-paso-destino');
+  var pasoMot  = document.getElementById('mr-deriva-paso-motivo');
+  var otroBox  = document.getElementById('mr-deriva-otro-box');
+  if (pasoDest) pasoDest.style.display = '';
+  if (pasoMot)  pasoMot.style.display  = 'none';
+  if (otroBox)  otroBox.classList.remove('on');
+  _mrDerivarDestino = null;
+}
+
+function mrDerivarMostrarOtro() {
+  var box = document.getElementById('mr-deriva-otro-box');
+  if (box) box.classList.add('on');
+  var txt = document.getElementById('mr-deriva-otro-texto');
+  if (txt) setTimeout(function() { txt.focus(); }, 50);
+}
+
+function mrDerivarOcultarOtro() {
+  var box = document.getElementById('mr-deriva-otro-box');
+  if (box) box.classList.remove('on');
+  var txt = document.getElementById('mr-deriva-otro-texto');
+  if (txt) txt.value = '';
+}
+
+function mrDerivarElegirMotivo(motivo) {
+  mrDerivarGuardar(motivo, null);
+}
+
+function mrDerivarGuardarOtro() {
+  var txt = document.getElementById('mr-deriva-otro-texto');
+  var texto = (txt && txt.value || '').trim();
+  if (!texto) {
+    alert('Escribí un motivo antes de guardar.');
+    return;
+  }
+  mrDerivarGuardar('otro', texto);
+}
+
+// Label legible de motivos de derivación
+function mrDerivarMotivoLabel(motivo, motivoTexto) {
+  var labels = {
+    'zona_equivocada':    'Zona equivocada',
+    'no_es_mi_cliente':   'No es mi cliente',
+    'no_paga':            'No paga',
+    'no_quiere_comprar':  'No me quiere comprar',
+    'otro':               motivoTexto || 'Otro motivo'
+  };
+  return labels[motivo] || motivo;
+}
+
+function mrDerivarGuardar(motivo, motivoTexto) {
+  if (!_mrDerivarClienteId || !_mrDerivarDestino) {
+    console.error('mrDerivarGuardar: falta cliente o destino');
+    return;
+  }
+  var clienteId = _mrDerivarClienteId;
+  var destino   = _mrDerivarDestino;   // 'Miguel' | 'Juan' | 'Lisandro' | '__POOL__'
+  var c = _miRondaClientes.find(function(x) { return x.cliente_id == clienteId; });
+  if (!c) {
+    console.error('mrDerivarGuardar: cliente no encontrado', clienteId);
+    return;
+  }
+
+  // Construir nota de trazabilidad
+  var hoy = new Date();
+  var fechaStr = hoy.getDate() + '/' + (hoy.getMonth() + 1) + '/' + hoy.getFullYear();
+  var horaStr  = String(hoy.getHours()).padStart(2, '0') + ':' + String(hoy.getMinutes()).padStart(2, '0');
+  var motivoLbl = mrDerivarMotivoLabel(motivo, motivoTexto);
+  var destinoLbl = (destino === '__POOL__') ? 'POOL (sin vendedor)' : destino;
+  var notaTraza = '[Derivado de ' + (vendedorActual || '?') + ' a ' + destinoLbl +
+                  ' el ' + fechaStr + ' ' + horaStr + ' — motivo: ' + motivoLbl + ']';
+  var notasActuales = (c.notas || '').trim();
+  var notasNuevas = notasActuales ? (notasActuales + ' ' + notaTraza) : notaTraza;
+
+  // Payload del PATCH
+  var nuevoVendedor = (destino === '__POOL__') ? null : destino;
+  var payload = {
+    vendedor: nuevoVendedor,
+    notas:    notasNuevas
+  };
+
+  // Guardar ruta de origen ANTES de remover el cliente (para recalcular la card)
+  var rutaKey = c.ruta_viaje || 'SIN_RUTA';
+
+  // PATCH a Supabase
+  sbFetch('clientes_activos?cliente_id=eq.' + encodeURIComponent(clienteId), {
+    method: 'PATCH',
+    body: JSON.stringify(payload),
+    prefer: 'return=minimal'
+  }).then(function() {
+    // Actualizar en memoria local: quitar el cliente del array
+    // (ya no es del vendedor actual, no debe aparecer más en Mi Ronda)
+    _miRondaClientes = _miRondaClientes.filter(function(x) {
+      return x.cliente_id != clienteId;
+    });
+
+    // Cerrar modal de derivación
+    mrDerivarCerrar();
+
+    // Animación de salida si la card está en el DOM (modal abierto)
+    var cardEl = document.querySelector('.mr-opC-card[data-cid="' + clienteId + '"]');
+    if (cardEl) {
+      cardEl.classList.add('mr-opC-leaving');
+      setTimeout(function() {
+        miRondaRecalcularRuta(rutaKey);
+        miRondaRenderModalBody(null);
+        miRondaRenderCards();
+      }, 320);
+    } else {
+      miRondaRecalcularRuta(rutaKey);
+      miRondaRenderCards();
+    }
+
+    // Feedback
+    var msg = (destino === '__POOL__')
+      ? '📥 Enviado al pool — Admin lo reasignará'
+      : '↗ Derivado a ' + destino;
+    mrFeedback(msg);
+  }).catch(function(err) {
+    console.error('mrDerivarGuardar error:', err);
+    alert('No se pudo derivar el cliente. Revisá la conexión e intentá de nuevo.');
+  });
+}
+
+// ── ASIGNAR ZONA (clientes SIN_RUTA) ───────────────────────────────
+var _mrZonaClienteId = null;
+var _mrZonaRuta      = null;
+
+function mrZonaAbrir(clienteId) {
+  var c = _miRondaClientes.find(function(x) { return x.cliente_id == clienteId; });
+  if (!c) { console.error('mrZonaAbrir: cliente no encontrado', clienteId); return; }
+  _mrZonaClienteId = clienteId;
+  _mrZonaRuta      = null;
+
+  var nomEl = document.getElementById('mr-zona-cliente-nombre');
+  if (nomEl) nomEl.textContent = c.nombre || '—';
+  var pasoCiudad = document.getElementById('mr-zona-paso-ciudad');
+  if (pasoCiudad) pasoCiudad.style.display = 'none';
+  var input = document.getElementById('mr-zona-ciudad-input');
+  if (input) input.value = (c.localidad && c.localidad !== 'Sin ciudad' && c.localidad !== 'Campo') ? c.localidad : '';
+
+  var back = document.getElementById('mr-zona-backdrop');
+  if (back) back.classList.add('on');
+}
+
+function mrZonaCerrar() {
+  var back = document.getElementById('mr-zona-backdrop');
+  if (back) back.classList.remove('on');
+  _mrZonaClienteId = null;
+  _mrZonaRuta      = null;
+}
+
+function mrZonaCerrarFondo(ev) {
+  if (ev && ev.target === ev.currentTarget) mrZonaCerrar();
+}
+
+function mrZonaElegirRuta(rutaKey) {
+  _mrZonaRuta = rutaKey;
+  var cfg = MR_RUTAS_CONFIG[rutaKey] || { nombre: rutaKey };
+  var lbl = document.getElementById('mr-zona-ruta-elegida');
+  if (lbl) lbl.textContent = cfg.nombre;
+  var pasoCiudad = document.getElementById('mr-zona-paso-ciudad');
+  if (pasoCiudad) pasoCiudad.style.display = '';
+  var input = document.getElementById('mr-zona-ciudad-input');
+  if (input) setTimeout(function() { input.focus(); }, 50);
+}
+
+function mrZonaGuardar() {
+  if (!_mrZonaClienteId || !_mrZonaRuta) {
+    console.error('mrZonaGuardar: falta cliente o ruta');
+    return;
+  }
+  var input = document.getElementById('mr-zona-ciudad-input');
+  var ciudad = (input && input.value || '').trim();
+  if (!ciudad) {
+    alert('Escribí la ciudad antes de guardar.');
+    if (input) input.focus();
+    return;
+  }
+
+  var clienteId = _mrZonaClienteId;
+  var rutaKey   = _mrZonaRuta;
+  var c = _miRondaClientes.find(function(x) { return x.cliente_id == clienteId; });
+  if (!c) { console.error('mrZonaGuardar: cliente no encontrado', clienteId); return; }
+
+  // Nota de trazabilidad
+  var hoy = new Date();
+  var fechaStr = hoy.getDate() + '/' + (hoy.getMonth() + 1) + '/' + hoy.getFullYear();
+  var notaTraza = '[Zona asignada por ' + (vendedorActual || '?') + ' el ' + fechaStr + ': ' + rutaKey + ' / ' + ciudad + ']';
+  var notasActuales = (c.notas || '').trim();
+  var notasNuevas = notasActuales ? (notasActuales + ' ' + notaTraza) : notaTraza;
+
+  var payload = {
+    ruta_viaje: rutaKey,
+    localidad:  ciudad,
+    notas:      notasNuevas
+  };
+
+  var rutaOrig = c.ruta_viaje || 'SIN_RUTA';
+
+  sbFetch('clientes_activos?cliente_id=eq.' + encodeURIComponent(clienteId), {
+    method: 'PATCH',
+    body: JSON.stringify(payload),
+    prefer: 'return=minimal'
+  }).then(function() {
+    // Actualizar en memoria local
+    c.ruta_viaje = rutaKey;
+    c.localidad  = ciudad;
+    c.notas      = notasNuevas;
+
+    mrZonaCerrar();
+
+    // Re-render: el cliente ahora aparece bajo su nueva ruta
+    miRondaRecalcularRuta(rutaOrig);
+    miRondaRecalcularRuta(rutaKey);
+    miRondaRenderModalBody(null);
+    miRondaRenderCards();
+
+    var cfg = MR_RUTAS_CONFIG[rutaKey] || { nombre: rutaKey };
+    mrFeedback('📍 Zona asignada: ' + cfg.nombre + ' · ' + ciudad);
+  }).catch(function(err) {
+    console.error('mrZonaGuardar error:', err);
+    alert('No se pudo guardar la zona. Revisá la conexión e intentá de nuevo.');
   });
 }
 
