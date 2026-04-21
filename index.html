@@ -3899,55 +3899,211 @@ body {
 
 /* ═══════════════════════════════════════════════════════════════
    v8.8 — Banner "Tenés sin rendir" + modal de rendición (chofer)
+   v8.9 — Mini-alerta arriba (banner movido a tab Rendiciones)
    ═══════════════════════════════════════════════════════════════ */
-.banner-rendir-wrap {
-  margin: 0 12px 10px;
-  background: linear-gradient(135deg, #FFF3E0, #FFE0B2);
-  border: 2px solid #EF6C00;
-  border-radius: 12px;
-  padding: 12px 14px;
+
+/* Mini-alerta arriba del panel Entregas (tap → tab Rendiciones) */
+.mini-alerta-rendir {
+  margin: 0 12px 8px;
+  background: linear-gradient(135deg, #FFF8E1, #FFECB3);
+  border: 1.5px solid #F9A825;
+  border-radius: 10px;
+  padding: 8px 12px;
   display: flex;
   align-items: center;
-  gap: 12px;
-  box-shadow: 0 2px 8px rgba(239,108,0,.15);
+  gap: 10px;
+  cursor: pointer;
+  transition: transform .12s ease;
 }
-.banner-rendir-icon { font-size: 26px; flex-shrink: 0; }
-.banner-rendir-info { flex: 1; min-width: 0; }
-.banner-rendir-tit {
+.mini-alerta-rendir:active { transform: scale(.99); }
+.mini-alerta-icon { font-size: 16px; flex-shrink: 0; }
+.mini-alerta-texto {
+  flex: 1; min-width: 0;
+  font-size: 12px; color: #5C3A1E;
+  font-family: 'Barlow', sans-serif;
+}
+.mini-alerta-texto b { color: var(--red); }
+.mini-alerta-monto { color: var(--red); font-family: 'Barlow Condensed', sans-serif; font-weight: 900; font-size: 14px; }
+.mini-alerta-cta {
+  background: var(--red); color: #FFD700;
+  border-radius: 50%; width: 22px; height: 22px;
+  display: flex; align-items: center; justify-content: center;
+  font-weight: 900; font-size: 13px;
+  flex-shrink: 0;
+}
+
+/* Tab Rendiciones — secciones */
+.rend-tab-wrap { padding: 12px 14px; padding-bottom: 80px; }
+.rend-tab-hdr {
+  background: linear-gradient(135deg, var(--red), #6B0000);
+  border-radius: 12px;
+  padding: 14px 16px;
+  margin-bottom: 14px;
+  color: #FFD700;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+.rend-tab-hdr-tit {
   font-family: 'Barlow Condensed', sans-serif;
-  font-weight: 800; font-size: 13px;
-  color: #E65100; text-transform: uppercase; letter-spacing: .4px;
-  margin-bottom: 1px;
+  font-weight: 900; font-size: 22px; line-height: 1;
 }
-.banner-rendir-monto {
+.rend-tab-hdr-sub { font-size: 11px; color: rgba(255,255,255,.7); margin-top: 3px; }
+
+.rend-section {
+  background: #fff;
+  border-radius: 12px;
+  margin-bottom: 12px;
+  border: 1.5px solid #E0D2B8;
+  overflow: hidden;
+}
+.rend-section-hdr {
+  padding: 11px 14px;
+  display: flex; justify-content: space-between; align-items: center;
+  border-bottom: 1px solid #F5EDDF;
+}
+.rend-section.pendientes .rend-section-hdr { background: linear-gradient(135deg, #FFF3E0, #FFE0B2); }
+.rend-section.rindiendo  .rend-section-hdr { background: linear-gradient(135deg, #FFF8DC, #F5E6C8); }
+.rend-section.rendidas   .rend-section-hdr { background: linear-gradient(135deg, #E8F5E9, #C8E6C9); }
+
+.rend-section-tit {
   font-family: 'Barlow Condensed', sans-serif;
-  font-weight: 900; font-size: 22px;
-  color: var(--red); line-height: 1;
+  font-weight: 900; font-size: 14px;
+  text-transform: uppercase; letter-spacing: .4px;
 }
-.banner-rendir-sub { font-size: 10px; color: #6B3A0E; margin-top: 3px; }
-.banner-rendir-btn {
+.rend-section.pendientes .rend-section-tit { color: #E65100; }
+.rend-section.rindiendo  .rend-section-tit { color: #6B5310; }
+.rend-section.rendidas   .rend-section-tit { color: #1B5E20; }
+
+.rend-section-monto {
+  font-family: 'Barlow Condensed', sans-serif;
+  font-weight: 900; font-size: 16px; color: var(--red);
+}
+.rend-section-body { padding: 12px 14px; }
+
+.rend-vacio-msg {
+  text-align: center;
+  padding: 16px;
+  color: var(--text3);
+  font-size: 12px;
+  font-style: italic;
+}
+
+/* Botón grande "Rendir todo" en sección pendientes */
+.btn-rendir-todo {
+  width: 100%;
+  padding: 14px;
   background: linear-gradient(135deg, var(--red), #6B0000);
   color: #FFD700;
   border: none;
-  border-radius: 10px;
-  padding: 10px 14px;
+  border-radius: 12px;
   font-family: 'Barlow Condensed', sans-serif;
-  font-weight: 900; font-size: 13px;
+  font-weight: 900; font-size: 17px;
   cursor: pointer;
   text-transform: uppercase;
-  letter-spacing: .3px;
-  flex-shrink: 0;
-  white-space: nowrap;
+  letter-spacing: .4px;
+  margin-bottom: 12px;
+  box-shadow: 0 3px 12px rgba(139,0,0,.25);
 }
-.banner-rendir-btn:active { transform: scale(.97); }
+.btn-rendir-todo:active { transform: scale(.98); }
 
-/* Estado "rindiendo" en card de entrega */
+.rend-resumen-fisico {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
+  margin-bottom: 12px;
+}
+.rend-resumen-fisico-cell {
+  background: #FAF4EC;
+  border-radius: 10px;
+  padding: 10px;
+  text-align: center;
+}
+.rend-resumen-fisico-cell.efectivo { border-top: 3px solid #2E7D32; }
+.rend-resumen-fisico-cell.cheque   { border-top: 3px solid #1565C0; }
+.rend-resumen-fisico-cell-tit { font-size: 10px; color: #8B6F50; text-transform: uppercase; font-weight: 700; }
+.rend-resumen-fisico-cell-num {
+  font-family: 'Barlow Condensed', sans-serif;
+  font-weight: 900; font-size: 18px; color: var(--red); margin-top: 3px;
+}
+
+/* Pedidos pendientes en lista */
+.rend-pedido-card {
+  background: #FAF4EC;
+  border-radius: 10px;
+  padding: 10px 12px;
+  margin-bottom: 6px;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 10px;
+}
+.rend-pedido-card-info { flex: 1; min-width: 0; }
+.rend-pedido-card-cli { font-weight: 700; font-size: 13px; color: var(--text); }
+.rend-pedido-card-meta { font-size: 11px; color: #8B6F50; margin-top: 2px; }
+.rend-pedido-card-monto-wrap { text-align: right; flex-shrink: 0; }
+.rend-pedido-card-monto {
+  font-family: 'Barlow Condensed', sans-serif;
+  font-weight: 800; font-size: 15px; color: var(--red);
+}
+.rend-badge-cobro {
+  display: inline-block; padding: 1px 5px; border-radius: 4px;
+  font-size: 9px; font-weight: 800; text-transform: uppercase; letter-spacing: .3px;
+}
+.rend-badge-cobro.efectivo { background: #E8F5E9; color: #2E7D32; }
+.rend-badge-cobro.cheque   { background: #E3F2FD; color: #1565C0; }
+
+/* Card de rendición agrupada (rindiendo o rendida) */
+.rend-grupo-card {
+  background: #fff;
+  border: 1.5px solid #E0D2B8;
+  border-radius: 10px;
+  padding: 10px 12px;
+  margin-bottom: 6px;
+  cursor: pointer;
+  transition: transform .12s ease;
+}
+.rend-grupo-card:active { transform: scale(.99); }
+.rend-grupo-card.rindiendo { border-left: 4px solid #D4A574; background: #FFF8DC; }
+.rend-grupo-card.rendida   { border-left: 4px solid #2E7D32; }
+.rend-grupo-card-hdr {
+  display: flex; justify-content: space-between; align-items: center;
+  margin-bottom: 6px;
+}
+.rend-grupo-card-fecha {
+  font-family: 'Barlow Condensed', sans-serif;
+  font-size: 13px; font-weight: 800; color: var(--text);
+}
+.rend-grupo-card-monto {
+  font-family: 'Barlow Condensed', sans-serif;
+  font-weight: 900; font-size: 16px; color: var(--red);
+}
+.rend-grupo-card-meta { font-size: 11px; color: #8B6F50; }
+.rend-grupo-card-estado {
+  display: inline-block; padding: 2px 8px; border-radius: 12px;
+  font-size: 10px; font-weight: 800; text-transform: uppercase; letter-spacing: .3px;
+  margin-top: 4px;
+}
+.rend-grupo-card.rindiendo .rend-grupo-card-estado { background: #FFE0B2; color: #E65100; }
+.rend-grupo-card.rendida .rend-grupo-card-estado { background: #C8E6C9; color: #1B5E20; }
+
+.rend-diferencia-aviso {
+  margin-top: 6px;
+  padding: 6px 10px;
+  background: #FFEBEE;
+  border-radius: 6px;
+  font-size: 11px;
+  color: #C62828;
+}
+.rend-diferencia-aviso b { font-weight: 800; }
+
+/* Estado "rindiendo" en card de entrega del tab Entregas (preservado) */
 .entrega-item.rindiendo-item { background: #FFF8DC; border-left: 3px solid #D4A574; }
 .entrega-item.rendida-item { background: #E8F5E9; border-left: 3px solid #2E7D32; opacity: .85; }
 .entrega-estado-badge.rindiendo { background: #FFF3E0; color: #E65100; }
 .entrega-estado-badge.rendida { background: #C8E6C9; color: #1B5E20; }
 
-/* Modal Rendición */
+/* Modal Rendición (preservado de v8.8) */
 .rend-modal-overlay {
   position: fixed; inset: 0; background: rgba(0,0,0,.6);
   z-index: 850; display: none; align-items: flex-end; justify-content: center;
@@ -7670,6 +7826,54 @@ body {
     </div>
   </div>
 
+  <!-- ═══ TAB RENDICIONES (solo choferes) ═══ -->
+  <div class="view" id="view-rendiciones">
+    <div class="rend-tab-wrap">
+
+      <div class="rend-tab-hdr">
+        <div>
+          <div class="rend-tab-hdr-tit">💰 Mis Rendiciones</div>
+          <div class="rend-tab-hdr-sub">Rendí lo cobrado a administración</div>
+        </div>
+        <button onclick="rendTabRecargar()" style="background:rgba(255,255,255,.2);border:none;border-radius:50%;width:34px;height:34px;color:#fff;cursor:pointer;font-size:16px;">🔄</button>
+      </div>
+
+      <!-- Sección 1: Pendientes de rendir -->
+      <div class="rend-section pendientes" id="rend-sec-pendientes">
+        <div class="rend-section-hdr">
+          <div class="rend-section-tit">📤 Listas para rendir</div>
+          <div class="rend-section-monto" id="rend-sec-pend-monto">$0</div>
+        </div>
+        <div class="rend-section-body" id="rend-sec-pend-body">
+          <div class="rend-vacio-msg">Cargando...</div>
+        </div>
+      </div>
+
+      <!-- Sección 2: Rindiendo (esperando admin) -->
+      <div class="rend-section rindiendo" id="rend-sec-rindiendo">
+        <div class="rend-section-hdr">
+          <div class="rend-section-tit">⏳ Rindiendo (esperando admin)</div>
+          <div class="rend-section-monto" id="rend-sec-rind-monto">$0</div>
+        </div>
+        <div class="rend-section-body" id="rend-sec-rind-body">
+          <div class="rend-vacio-msg">Cargando...</div>
+        </div>
+      </div>
+
+      <!-- Sección 3: Rendidas (historial 30 días) -->
+      <div class="rend-section rendidas" id="rend-sec-rendidas">
+        <div class="rend-section-hdr">
+          <div class="rend-section-tit">✅ Rendidas (últimos 30 días)</div>
+          <div class="rend-section-monto" id="rend-sec-rend-monto">$0</div>
+        </div>
+        <div class="rend-section-body" id="rend-sec-rend-body">
+          <div class="rend-vacio-msg">Cargando...</div>
+        </div>
+      </div>
+
+    </div>
+  </div>
+
   <!-- v8.8: Modal de rendición -->
   <div class="rend-modal-overlay" id="rend-modal" onclick="rendModalCerrarFondo(event)">
     <div class="rend-modal-sheet" onclick="event.stopPropagation()">
@@ -8190,6 +8394,10 @@ body {
     <span class="tab-icon">🚚</span>
     <span class="tab-label">Entregas</span>
   </button>
+  <button class="tab-btn" id="tab-btn-rendiciones" onclick="cambiarTab('rendiciones')" style="display:none !important;">
+    <span class="tab-icon">💰</span>
+    <span class="tab-label">Rendir</span>
+  </button>
   <button class="tab-btn" id="tab-btn-bot" onclick="cambiarTab('bot')" style="display:none !important;">
     <span class="tab-icon">🤖</span>
     <span class="tab-label">Bot</span>
@@ -8511,7 +8719,7 @@ function entregaMontosFisicos(e) {
   return { efectivo: 0, cheque: 0 };
 }
 
-// ── Render banner "tenés sin rendir" ──────────────────────────
+// ── Render mini-alerta (v8.9: reemplazó al banner grande, lleva al tab Rendiciones)
 function rendBannerRender(entregas) {
   var el = document.getElementById('entregas-banner-rendir');
   if (!el) return;
@@ -8530,14 +8738,13 @@ function rendBannerRender(entregas) {
   if (total <= 0) { el.innerHTML = ''; return; }
   var fmt = function(n) { return '$' + Math.round(n).toLocaleString('es-AR'); };
   el.innerHTML =
-    '<div class="banner-rendir-wrap">' +
-      '<div class="banner-rendir-icon">💰</div>' +
-      '<div class="banner-rendir-info">' +
-        '<div class="banner-rendir-tit">Tenés sin rendir</div>' +
-        '<div class="banner-rendir-monto">' + fmt(total) + '</div>' +
-        '<div class="banner-rendir-sub">' + rendibles.length + ' pedido' + (rendibles.length!==1?'s':'') + ' · 💵 ' + fmt(totales.efectivo) + ' · 📋 ' + fmt(totales.cheque) + '</div>' +
+    '<div class="mini-alerta-rendir" onclick="cambiarTab(\'rendiciones\')">' +
+      '<div class="mini-alerta-icon">⚠️</div>' +
+      '<div class="mini-alerta-texto">' +
+        '<b>' + rendibles.length + ' pedido' + (rendibles.length!==1?'s':'') + '</b> · ' +
+        '<span class="mini-alerta-monto">' + fmt(total) + '</span> sin rendir' +
       '</div>' +
-      '<button class="banner-rendir-btn" onclick="rendModalAbrir()">📤 Rendir</button>' +
+      '<div class="mini-alerta-cta">→</div>' +
     '</div>';
 }
 
@@ -8706,6 +8913,8 @@ async function rendEnviar() {
     rendBannerRender(_entregasCache);
     renderEntregas(_entregasCache);
     renderResumenChofer(_entregasCache);
+    // v8.9: refrescar tab Rendiciones si existe
+    if (typeof rendTabRecargar === 'function') rendTabRecargar();
   } catch(e) {
     console.error('[v8.8] Error enviando rendición:', e);
     if (typeof toast === 'function') toast('❌ Error al enviar la rendición', 'err');
@@ -8714,6 +8923,248 @@ async function rendEnviar() {
 }
 // ═══════════════════════════════════════════════════════════════
 // Fin v8.8 — Rendición chofer
+// ═══════════════════════════════════════════════════════════════
+
+// ═══════════════════════════════════════════════════════════════
+// v8.9 — TAB RENDICIONES (panel chofer)
+// 3 secciones: pendientes / rindiendo / rendidas (últimos 30 días)
+// ═══════════════════════════════════════════════════════════════
+
+var _rendTabCache = null; // cache de rendiciones del chofer
+
+async function rendTabRecargar() {
+  if (!vendedorActual) return;
+
+  // 1) Asegurar entregas cargadas (para sección pendientes)
+  if (!_entregasCache || !_entregasCache.length) {
+    if (typeof cargarEntregas === 'function') {
+      try { await cargarEntregas(); } catch(_) {}
+    }
+  }
+
+  // 2) Cargar rendiciones del chofer (últimos 30 días)
+  try {
+    var hace30 = new Date(); hace30.setDate(hace30.getDate() - 30);
+    var fechaCorte = hace30.toISOString();
+    var rends = await sbFetch(
+      'rendiciones?chofer=eq.' + encodeURIComponent(vendedorActual) +
+      '&enviada_en=gte.' + encodeURIComponent(fechaCorte) +
+      '&order=enviada_en.desc&select=*'
+    );
+    _rendTabCache = rends || [];
+  } catch(e) {
+    console.error('[v8.9] Error cargando rendiciones:', e);
+    _rendTabCache = [];
+  }
+
+  // 3) Renderizar las 3 secciones
+  rendTabRenderPendientes();
+  rendTabRenderRindiendo();
+  rendTabRenderRendidas();
+}
+
+// ── SECCIÓN 1: Pendientes de rendir ───────────────────────────
+function rendTabRenderPendientes() {
+  var body = document.getElementById('rend-sec-pend-body');
+  var monto = document.getElementById('rend-sec-pend-monto');
+  if (!body || !monto) return;
+
+  var rendibles = (_entregasCache || []).filter(entregaEsRendible);
+  var fmt = function(n) { return '$' + Math.round(n).toLocaleString('es-AR'); };
+
+  if (!rendibles.length) {
+    monto.textContent = '$0';
+    body.innerHTML = '<div class="rend-vacio-msg">✅ No tenés nada para rendir ahora</div>';
+    return;
+  }
+
+  var totales = rendibles.reduce(function(acc, e) {
+    var m = entregaMontosFisicos(e);
+    acc.efectivo += m.efectivo;
+    acc.cheque   += m.cheque;
+    return acc;
+  }, { efectivo: 0, cheque: 0 });
+  var total = totales.efectivo + totales.cheque;
+  monto.textContent = fmt(total);
+
+  // Botón grande "Rendir todo" + resumen físico + lista de pedidos
+  var html =
+    '<button class="btn-rendir-todo" onclick="rendModalAbrir()">📤 Rendir ' + rendibles.length + ' pedido' + (rendibles.length!==1?'s':'') + ' · ' + fmt(total) + '</button>' +
+
+    '<div class="rend-resumen-fisico">' +
+      '<div class="rend-resumen-fisico-cell efectivo">' +
+        '<div class="rend-resumen-fisico-cell-tit">💵 Efectivo</div>' +
+        '<div class="rend-resumen-fisico-cell-num">' + fmt(totales.efectivo) + '</div>' +
+      '</div>' +
+      '<div class="rend-resumen-fisico-cell cheque">' +
+        '<div class="rend-resumen-fisico-cell-tit">📋 Cheque</div>' +
+        '<div class="rend-resumen-fisico-cell-num">' + fmt(totales.cheque) + '</div>' +
+      '</div>' +
+    '</div>';
+
+  rendibles.forEach(function(e) {
+    var m = entregaMontosFisicos(e);
+    var monto = m.efectivo + m.cheque;
+    var formaLabel, formaCls;
+    if (m.efectivo > 0 && m.cheque > 0) { formaLabel = '💵 + 📋'; formaCls = 'efectivo'; }
+    else if (m.cheque > 0) { formaLabel = '📋 Cheque'; formaCls = 'cheque'; }
+    else { formaLabel = '💵 Efectivo'; formaCls = 'efectivo'; }
+    var cli   = (e.cliente || '—').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+    var ciudad = (e.ciudad || '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+    html += '<div class="rend-pedido-card">' +
+      '<div class="rend-pedido-card-info">' +
+        '<div class="rend-pedido-card-cli">' + cli + '</div>' +
+        '<div class="rend-pedido-card-meta">📍 ' + ciudad + ' · <span class="rend-badge-cobro ' + formaCls + '">' + formaLabel + '</span></div>' +
+      '</div>' +
+      '<div class="rend-pedido-card-monto-wrap">' +
+        '<div class="rend-pedido-card-monto">' + fmt(monto) + '</div>' +
+      '</div>' +
+    '</div>';
+  });
+
+  body.innerHTML = html;
+}
+
+// ── SECCIÓN 2: Rindiendo (esperando admin) ────────────────────
+async function rendTabRenderRindiendo() {
+  var body = document.getElementById('rend-sec-rind-body');
+  var monto = document.getElementById('rend-sec-rind-monto');
+  if (!body || !monto) return;
+
+  var rends = (_rendTabCache || []).filter(function(r) {
+    return r.estado === 'enviada' || r.estado === 'parcial';
+  });
+
+  if (!rends.length) {
+    monto.textContent = '$0';
+    body.innerHTML = '<div class="rend-vacio-msg">No hay rendiciones esperando confirmación</div>';
+    return;
+  }
+
+  // Para cada rendición, traer entregas vinculadas para calcular montos
+  var fmt = function(n) { return '$' + Math.round(n).toLocaleString('es-AR'); };
+  var html = '';
+  var totalGlobal = 0;
+
+  for (var i = 0; i < rends.length; i++) {
+    var r = rends[i];
+    var entregas = await rendTabEntregasDeRendicion(r.id);
+    var totales = entregas.reduce(function(acc, e) {
+      var m = entregaMontosFisicos(e);
+      acc.efectivo += m.efectivo;
+      acc.cheque   += m.cheque;
+      return acc;
+    }, { efectivo: 0, cheque: 0 });
+    var total = totales.efectivo + totales.cheque;
+    totalGlobal += total;
+
+    var fechaEnv = new Date(r.enviada_en);
+    var fechaStr = fechaEnv.toLocaleDateString('es-AR', { day: '2-digit', month: '2-digit' }) +
+      ' ' + String(fechaEnv.getHours()).padStart(2,'0') + ':' + String(fechaEnv.getMinutes()).padStart(2,'0');
+
+    var pendientesEnEstaRend = entregas.filter(function(e) {
+      return !e.rendicion_estado || e.rendicion_estado === 'pendiente_confirmacion';
+    }).length;
+    var confirmadosEnEstaRend = entregas.filter(function(e) {
+      return e.rendicion_estado === 'confirmada';
+    }).length;
+
+    var estadoLabel = r.estado === 'parcial'
+      ? '⏳ ' + confirmadosEnEstaRend + '/' + entregas.length + ' confirmadas'
+      : '⏳ Esperando admin';
+
+    html += '<div class="rend-grupo-card rindiendo">' +
+      '<div class="rend-grupo-card-hdr">' +
+        '<div class="rend-grupo-card-fecha">📤 Enviada ' + fechaStr + '</div>' +
+        '<div class="rend-grupo-card-monto">' + fmt(total) + '</div>' +
+      '</div>' +
+      '<div class="rend-grupo-card-meta">' +
+        entregas.length + ' pedido' + (entregas.length!==1?'s':'') +
+        ' · 💵 ' + fmt(totales.efectivo) + ' · 📋 ' + fmt(totales.cheque) +
+      '</div>' +
+      '<div class="rend-grupo-card-estado">' + estadoLabel + '</div>' +
+    '</div>';
+  }
+
+  monto.textContent = fmt(totalGlobal);
+  body.innerHTML = html;
+}
+
+// ── SECCIÓN 3: Rendidas (últimos 30 días) ─────────────────────
+async function rendTabRenderRendidas() {
+  var body = document.getElementById('rend-sec-rend-body');
+  var monto = document.getElementById('rend-sec-rend-monto');
+  if (!body || !monto) return;
+
+  var rends = (_rendTabCache || []).filter(function(r) {
+    return r.estado === 'completa';
+  });
+
+  if (!rends.length) {
+    monto.textContent = '$0';
+    body.innerHTML = '<div class="rend-vacio-msg">Sin rendiciones confirmadas en los últimos 30 días</div>';
+    return;
+  }
+
+  var fmt = function(n) { return '$' + Math.round(n).toLocaleString('es-AR'); };
+  var html = '';
+  var totalGlobal = 0;
+
+  for (var i = 0; i < rends.length; i++) {
+    var r = rends[i];
+    var entregas = await rendTabEntregasDeRendicion(r.id);
+    var totales = entregas.reduce(function(acc, e) {
+      var m = entregaMontosFisicos(e);
+      acc.efectivo += m.efectivo;
+      acc.cheque   += m.cheque;
+      return acc;
+    }, { efectivo: 0, cheque: 0 });
+    var total = totales.efectivo + totales.cheque;
+    totalGlobal += total;
+
+    var diferencia = entregas.reduce(function(s, e) {
+      return s + (parseFloat(e.rendicion_diferencia) || 0);
+    }, 0);
+
+    var fechaCerr = r.cerrada_en ? new Date(r.cerrada_en) : new Date(r.enviada_en);
+    var fechaStr = fechaCerr.toLocaleDateString('es-AR', { day: '2-digit', month: '2-digit' }) +
+      ' ' + String(fechaCerr.getHours()).padStart(2,'0') + ':' + String(fechaCerr.getMinutes()).padStart(2,'0');
+
+    html += '<div class="rend-grupo-card rendida">' +
+      '<div class="rend-grupo-card-hdr">' +
+        '<div class="rend-grupo-card-fecha">✅ Confirmada ' + fechaStr + '</div>' +
+        '<div class="rend-grupo-card-monto">' + fmt(total) + '</div>' +
+      '</div>' +
+      '<div class="rend-grupo-card-meta">' +
+        entregas.length + ' pedido' + (entregas.length!==1?'s':'') +
+        ' · 💵 ' + fmt(totales.efectivo) + ' · 📋 ' + fmt(totales.cheque) +
+      '</div>' +
+      '<div class="rend-grupo-card-estado">💰 Rendida</div>' +
+      (diferencia !== 0
+        ? '<div class="rend-diferencia-aviso">⚠️ <b>Diferencia:</b> ' + (diferencia > 0 ? '+' : '') + fmt(diferencia) + '</div>'
+        : '') +
+    '</div>';
+  }
+
+  monto.textContent = fmt(totalGlobal);
+  body.innerHTML = html;
+}
+
+// Helper: traer entregas de una rendición específica
+async function rendTabEntregasDeRendicion(rendicionId) {
+  try {
+    var data = await sbFetch(
+      'entregas?rendicion_id=eq.' + encodeURIComponent(rendicionId) +
+      '&select=id,cliente,monto,forma_cobro,detalle_cobro,rendicion_estado,rendicion_diferencia'
+    );
+    return data || [];
+  } catch(e) {
+    console.error('[v8.9] error entregas rendición:', e);
+    return [];
+  }
+}
+// ═══════════════════════════════════════════════════════════════
+// Fin v8.9 — Tab Rendiciones chofer
 // ═══════════════════════════════════════════════════════════════
 
 // ═══════════════════════════════════════════════════════════════
@@ -10518,7 +10969,7 @@ function cambiarTab(tab) {
   _tabActual = tab;
 
   // Views — incluye entregas para choferes y mironda para vendedores
-  ['pedidos','midia','clientes','gps','mapa','reportes','bot','entregas','mironda'].forEach(function(t) {
+  ['pedidos','midia','clientes','gps','mapa','reportes','bot','entregas','mironda','rendiciones'].forEach(function(t) {
     var v = document.getElementById('view-' + t);
     var b = document.getElementById('tab-btn-' + t);
     if (v) v.classList.toggle('active', t === tab);
@@ -10594,6 +11045,14 @@ function cambiarTab(tab) {
     document.documentElement.scrollTop = 0;
     document.body.scrollTop = 0;
   }
+
+  // v8.9: tab Rendiciones — cargar datos al abrir
+  if (tab === 'rendiciones') {
+    if (typeof rendTabRecargar === 'function') rendTabRecargar();
+    window.scrollTo(0, 0);
+    document.documentElement.scrollTop = 0;
+    document.body.scrollTop = 0;
+  }
 }
 
 function mostrarTabs() {
@@ -10616,6 +11075,9 @@ function mostrarTabs() {
     });
     var tabEnt = document.getElementById('tab-btn-entregas');
     if (tabEnt) tabEnt.style.display = '';
+    // v8.9: chofer también ve tab Rendiciones
+    var tabRend = document.getElementById('tab-btn-rendiciones');
+    if (tabRend) tabRend.style.display = '';
     cambiarTab('entregas');
     window.scrollTo(0, 0);
     document.documentElement.scrollTop = 0;
@@ -10627,6 +11089,9 @@ function mostrarTabs() {
   // Tab Entregas — oculto para no-choferes
   var tabEnt = document.getElementById('tab-btn-entregas');
   if (tabEnt) tabEnt.style.display = 'none';
+  // v8.9: tab Rendiciones — oculto para no-choferes
+  var tabRendNo = document.getElementById('tab-btn-rendiciones');
+  if (tabRendNo) tabRendNo.style.display = 'none';
 
   // Tab Bot — solo Miguel
   var tabBot = document.getElementById('tab-btn-bot');
