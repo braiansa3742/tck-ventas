@@ -1162,6 +1162,8 @@ body {
   transition: border-color .15s;
 }
 .tomador-item.tiene { border-color: var(--red); }
+/* v9.1: clase de aviso (no bloqueo). Borde amarillo sutil para que el vendedor sepa */
+.tomador-item.sin-stock-aviso { border-color: #F9A825 !important; box-shadow: 0 0 0 1px rgba(249,168,37,0.15); }
 .tomador-item.sin-stock { opacity: .5; }
 .tomador-item-img {
   width: 100%;
@@ -8635,6 +8637,146 @@ async function sbFetch(path, options = {}) {
 }
 
 // ═══════════════════════════════════════════════════════════════
+// v9.2 — COMBOS OFERTAS (sistema compartido con catálogo)
+// ═══════════════════════════════════════════════════════════════
+let _combosData = [];
+
+async function combosCargarVentas() {
+  try {
+    const data = await sbFetch('combos?activo=eq.true&order=orden.asc');
+    _combosData = Array.isArray(data) ? data : [];
+  } catch(e) {
+    console.error('[combos] Error al cargar:', e);
+    _combosData = [];
+  }
+}
+
+// Consumir stock en Supabase al confirmar pedido
+async function combosConsumirStockVentas(combosConsumidos) {
+  // combosConsumidos: [{id, qty}, ...]
+  for (const item of (combosConsumidos||[])) {
+    try {
+      const arr = await sbFetch('combos?id=eq.' + encodeURIComponent(item.id) + '&select=vendidos');
+      if (!arr || !arr.length) continue;
+      const actual = arr[0].vendidos || 0;
+      const nuevo = actual + (item.qty||1);
+      await sbFetch('combos?id=eq.' + encodeURIComponent(item.id), {
+        method: 'PATCH',
+        prefer: 'return=minimal',
+        body: JSON.stringify({ vendidos: nuevo })
+      });
+    } catch(e) {
+      console.error('[combos] Error descontando ' + item.id + ':', e);
+    }
+  }
+}
+
+// Agrega los items de un combo a las qty del tomador con descuento aplicado
+// Devuelve objeto con info del combo aplicado o null si no se pudo
+function combosAgregarAlTomador(comboId, qtysMap, descuentosMap) {
+  const combo = (_combosData||[]).find(c => c.id === comboId);
+  if (!combo) {
+    alert('Combo no encontrado. Recargá la página e intentá de nuevo.');
+    return null;
+  }
+  const disponibles = (combo.stock_total||0) - (combo.vendidos||0);
+  if (disponibles <= 0 || !combo.activo) {
+    alert('Este combo ya se agotó. ¡Gracias por el interés!');
+    return null;
+  }
+
+  let productos;
+  try {
+    productos = typeof combo.productos === 'string' ? JSON.parse(combo.productos) : combo.productos;
+  } catch(e) {
+    alert('Error leyendo productos del combo.');
+    return null;
+  }
+  if (!Array.isArray(productos) || productos.length === 0) {
+    alert('El combo no tiene productos configurados.');
+    return null;
+  }
+
+  // Mapear nombres del catálogo a nombres de ventas
+  // "Pollo Optimo" → "Pollo B" (alias interno)
+  // "Pollo Ginosa" → "Pollo A" (alias interno)
+  const mapCatToVentas = {
+    'Pollo Optimo': 'Pollo B',
+    'Pollo Ginosa': 'Pollo A'
+  };
+
+  const productosAgregados = [];
+  for (const p of productos) {
+    const nombreCatalogo = p.nombre;
+    const nombreVentas = mapCatToVentas[nombreCatalogo] || nombreCatalogo;
+
+    // Buscar en TOMADOR_CAT
+    let itemEncontrado = null;
+    for (const cat of TOMADOR_CAT) {
+      const found = cat.items.find(it => it.n === nombreVentas);
+      if (found) { itemEncontrado = found; break; }
+    }
+    if (!itemEncontrado) {
+      console.warn('[combos] Producto no encontrado en TOMADOR_CAT:', nombreVentas);
+      continue;
+    }
+
+    const qtyAAgregar = p.qty || 1;
+    qtysMap[itemEncontrado.n] = (qtysMap[itemEncontrado.n] || 0) + qtyAAgregar;
+
+    // Aplicar descuento del combo (7% por defecto) a los items
+    const pct = combo.descuento_pct || 7;
+    if (descuentosMap) {
+      descuentosMap[itemEncontrado.n] = { pct: pct, motivo: 'Combo ' + (combo.nombre||'') };
+    }
+
+    productosAgregados.push({ nombre: itemEncontrado.n, qty: qtyAAgregar });
+  }
+
+  return {
+    comboId: combo.id,
+    nombre: combo.nombre,
+    descuento_pct: combo.descuento_pct || 7,
+    productosAgregados: productosAgregados
+  };
+}
+
+// Render de los botones de combo arriba de la grilla de productos
+function combosRenderBotones(contextId, onClickFn) {
+  // contextId: 'tomador' | 'manualwa' | 'editar' — solo para aria/id
+  if (!_combosData || _combosData.length === 0) return '';
+
+  let html = '<div style="padding:12px 14px 10px;background:linear-gradient(180deg,#1a0000,#2d0606);border-bottom:2px solid #FFD700;margin-bottom:8px;position:relative">';
+  html += '<div style="display:flex;align-items:center;justify-content:center;gap:6px;color:#FFD700;font-family:Barlow Condensed,sans-serif;font-weight:900;font-size:14px;letter-spacing:1.5px;margin-bottom:8px">'
+       + '<span style="font-size:16px">🔥</span> OFERTAS <span style="font-size:16px">🔥</span>'
+       + '</div>';
+  html += '<div style="display:flex;gap:8px;flex-wrap:wrap">';
+
+  _combosData.forEach(c => {
+    const disponibles = (c.stock_total||0) - (c.vendidos||0);
+    const agotado = disponibles <= 0 || !c.activo;
+    const vendidosVisibles = (c.stock_offset||0) + (c.vendidos||0);
+    const disponiblesVisibles = (c.stock_total||0) - vendidosVisibles;
+
+    html += '<button class="combo-btn-ventas" ' + (agotado?'disabled':'') + ' onclick="' + onClickFn + '(\'' + c.id + '\')" '
+         + 'style="flex:1;min-width:140px;background:' + (agotado?'#999':'linear-gradient(135deg,#C62828,#8B0000)') + ';'
+         + 'color:#fff;border:1px solid #FFD700;border-radius:10px;padding:10px 8px;cursor:' + (agotado?'not-allowed':'pointer') + ';'
+         + 'font-family:Barlow Condensed,sans-serif;font-weight:900;letter-spacing:.5px;text-align:left;opacity:' + (agotado?'0.55':'1') + ';'
+         + 'box-shadow:0 2px 6px rgba(0,0,0,0.3);transition:all .15s">'
+         + '<div style="display:flex;align-items:center;gap:5px;margin-bottom:2px">'
+         +   '<span style="font-size:15px">🔥</span>'
+         +   '<span style="font-size:13px;letter-spacing:.8px">' + (c.nombre||'Combo').toUpperCase() + '</span>'
+         + '</div>'
+         + '<div style="font-size:16px;font-weight:900;color:#FFD700">' + '$' + (c.precio_combo||0).toLocaleString('es-AR') + '</div>'
+         + '<div style="font-size:10px;opacity:.85;font-weight:600">' + (agotado?'AGOTADO':(disponiblesVisibles + ' disponibles · -' + (c.descuento_pct||7) + '%')) + '</div>'
+         + '</button>';
+  });
+
+  html += '</div></div>';
+  return html;
+}
+
+// ═══════════════════════════════════════════════════════════════
 // v8.8 — RENDICIÓN DE DINERO (panel chofer)
 // Flujo: chofer junta los pedidos cobrados (efectivo + cheque),
 // los selecciona, envía rendición → Supabase crea registro y
@@ -9701,6 +9843,10 @@ function login(nombre) {
   filtroVendedor = 'todos';
   guardarSesion(nombre);
   vendedorActual = nombre;
+  // v9.2: Cargar combos de Supabase para que aparezcan los botones en tomador/WA/editar
+  if (typeof combosCargarVentas === 'function') {
+    combosCargarVentas().catch(function(e){ console.error('[combos] cargar:', e); });
+  }
   document.getElementById('login-wrap').style.display = 'none';
   document.getElementById('panel').classList.add('on');
   document.getElementById('paso1').style.display = 'block';
@@ -14451,13 +14597,20 @@ function mapaActualizarLista(checkins, todasVisitas) {
 // Productos del catálogo (copiados del index.html)
 const TOMADOR_CAT = [{"id":"pollos","sec":"POLLOS CONGELADOS","items":[{"n":"Pollo A","p":"x 20 Kg · Premium","pr":86000,"img":"pollo_ginosa"},{"n":"Pollo B","p":"x 20 Kg","pr":72000,"img":"pollo_optimo"},{"n":"Suprema","p":"x 5 Kg","pr":33000,"img":"supremas_bolsa"},{"n":"Suprema IQF","p":"x 15 Kg","pr":102000,"img":"suprema_iqf"},{"n":"Suprema B IQF","p":"x 20 Kg","pr":136000,"img":"suprema_iqf"}]},{"id":"trozados","sec":"TROZADOS","items":[{"n":"Fino de Ave Cocida","p":"x 10 Kg","pr":62400,"img":"empanada mordida","img2":"https://tckcatalogo.com/img/empanada%20mordida.png"},{"n":"Alita Congelada Granel","p":"x 15 Kg","pr":44000,"img":"alas"},{"n":"MDM - Carne Molida de Pollo","p":"x 20 Kg","pr":34000,"img":"mdm"},{"n":"Cuarto Trasero IQF","p":"x 15 Kg","pr":53000,"img":"patamuslo"}]},{"id":"shaddai","sec":"REBOZADOS EL SHADDAI","items":[{"n":"Medallon de Pollo Clasico","p":"x 6 Kg","pr":28500,"img":"medallon_clasico_v2"},{"n":"Medallon Pollo c/Cheddar","p":"x 6 Kg","pr":47800,"img":"medallon_cheddar_v2"},{"n":"Medallon Pollo JyQ","p":"x 6 Kg","pr":33500,"img":"medallon_jyq_v2"},{"n":"Medallon Pollo y Espinaca","p":"x 6 Kg","pr":33000,"img":"medallon_espinaca_v2"},{"n":"Formita Clasica","p":"x 6 Kg","pr":28500,"img":"formita_clasica_v2"},{"n":"Formitas Pollo JyQ","p":"x 6 Kg","pr":33500,"img":"formita_jyq_v2"},{"n":"Nuggets de Pollo Crocante","p":"x 6 Kg","pr":34500,"img":"nuggets_v2"},{"n":"Bocadito de Papa y Jamon","p":"x 6 Kg","pr":29000,"img":"bocadito_v2"},{"n":"Pechuguitas al Verdeo","p":"x 6 Kg","pr":45500,"img":"pechuguitas_v2"},{"n":"Filet Merluza Finas Hierbas","p":"x 6 Kg","pr":45600,"img":"merluza_hierbas_v2"},{"n":"Filet de Merluza Rebozado","p":"x 6 Kg","pr":43700,"img":"merluza_rebozado"},{"n":"Filet Merluza a Granel","p":"x 10 Kg","pr":80500,"img":"merluza_granel_v2"}]},{"id":"mila","sec":"MILANESAS Y HAMBURGUESAS","items":[{"n":"Milanesa de Nalga","p":"x 5 Kg","pr":68000,"img":"milanesa_nalga_v2"},{"n":"Milanesa de Pollo","p":"x 5 Kg","pr":40500,"img":"milanesa_pollo_v2"},{"n":"Hamburguesa 100% Carne","p":"x 4 Kg","pr":46600,"img":"hamburguesa_carne"}]},{"id":"papas","sec":"McCAIN & BALCARCE","items":[{"n":"Papa Baston Balcarce","p":"x 2,5 Kg","pr":8000,"img":"papa_baston"},{"n":"Pulpa de Palta","p":"x 450 Grs","pr":12200,"img":"pulpa_palta"}]},{"id":"huevos","sec":"HUEVOS","items":[{"n":"Maple N° 2","p":"30 unidades","pr":4800,"img":"huevos_maple"},{"n":"Maple N° 1","p":"30 unidades","pr":5500,"img":"huevos_maple"},{"n":"Cajita 1/2 Docena N° 2","p":"6 unidades","pr":1350,"img":"huevos_cajita"}]},{"id":"verd","sec":"VERDURAS CONGELADAS","items":[{"n":"Arándanos Solimeno","p":"500 Grs","pr":9000,"img":"arandanos"},{"n":"Brocoli","p":"500 Grs","pr":5800,"img":"brocoli"},{"n":"Espinacas","p":"500 Grs","pr":4000,"img":"espinaca"},{"n":"Morron","p":"500 Grs","pr":7000,"img":"morron"},{"n":"Primavera","p":"500 Grs","pr":5000,"img":"primavera"},{"n":"Frutos Rojos","p":"500 Grs","pr":11000,"img":"frutos_rojos"},{"n":"Cebolla","p":"500 Grs","pr":4000,"img":"cebolla"}]},{"id":"pastas","sec":"PASTAS","items":[{"n":"Ravioles de Calabaza","p":"500 Grs","pr":3500,"img":"ravioles_calabaza"},{"n":"Raviolones Espinaca y Mozz","p":"500 Grs","pr":3800,"img":"raviolones_espinaca"},{"n":"Gnoquis de Papa","p":"500 Grs","pr":3000,"img":"gnoquis_papa"},{"n":"Gnoquis de Espinaca","p":"500 Grs","pr":3200,"img":"gnoquis_espinaca"},{"n":"Sorrentinos Jamon y Queso","p":"500 Grs","pr":4000,"img":"sorrentinos_jamqueso"},{"n":"Sorrentinos Ricota 4 Quesos","p":"400 Grs","pr":3800,"img":"sorrentinos_ricota"}]},{"id":"veggie","sec":"VEGGIE","items":[{"n":"Hamburguesa de Garbanzos","p":"400 Grs","pr":3500,"img":"Hamburguesa de Garbanzos"},{"n":"Hamburguesa de Lentejas","p":"400 Grs","pr":3500,"img":"Hamburguesa de Lentejas"},{"n":"Hamburguesa de Quinoa","p":"400 Grs","pr":3500,"img":"Hamburguesa de Quinoa"},{"n":"Hamburguesa de Arvejas","p":"400 Grs","pr":3500,"img":"Hamburguesa de Arvejas"},{"n":"Hamburguesa de Hongos","p":"400 Grs","pr":3500,"img":"Hamburguesa de Hongos"},{"n":"Hamburguesa de Espinaca","p":"400 Grs","pr":3500,"img":"Hamburguesa de Espinaca"},{"n":"Hamburguesa Mexicana","p":"400 Grs","pr":3500,"img":"Hamburguesa Mexicana"},{"n":"Hamburguesa 5 Vegetales","p":"400 Grs","pr":3500,"img":"Hamburguesa 5 Vegetales"}]}];
 
-const TOMADOR_SIN_STOCK = new Set(['Nuggets de Pollo Crocante','Ravioles de Calabaza','Raviolones Espinaca y Mozz','Gnoquis de Espinaca','Sorrentinos Jamon y Queso','Sorrentinos Ricota 4 Quesos','MDM - Carne Molida de Pollo','Suprema B IQF','Brocoli','Cuarto Trasero IQF','Pollo A']);
+// v9.1: TOMADOR_SIN_STOCK_AVISO — ya NO bloquea la carga, solo muestra aviso amarillo
+// El vendedor puede cargar igual sabiendo que el producto está sin stock real
+// (decisión: vendedores tienen contexto del proveedor y saben qué entrará)
+const TOMADOR_SIN_STOCK_AVISO = new Set(['Nuggets de Pollo Crocante','Ravioles de Calabaza','Raviolones Espinaca y Mozz','Gnoquis de Espinaca','Sorrentinos Jamon y Queso','Sorrentinos Ricota 4 Quesos','MDM - Carne Molida de Pollo','Suprema B IQF','Brocoli','Cuarto Trasero IQF','Pollo A','Pollo Ginosa']);
+// Alias retro-compatible — TODA la lógica de "sin stock" ahora es solo aviso, NO bloqueo
+const TOMADOR_SIN_STOCK = TOMADOR_SIN_STOCK_AVISO;
 
 var _tomadorQtys       = {}; // { nombreProducto: cantidad }
 var _tomadorCompetencia = {};
 var _tomadorDescuentos  = {}; // { nombreProducto: { pct: 5, motivo: 'volumen' } } // { nombreProducto: { precio, competencia } }
 var _tomadorSucursalElegida = null; // v8.6: sucursal elegida al confirmar, se vincula al pedido
 var _tomadorCatActual  = 'todos';
+// v9.2: combos aplicados en el pedido actual del tomador { comboId: cantidad }
+var _tomadorCombos     = {};
 
 // ══════════════════════════════════════════════════════
 // TRACKING CONTINUO DE POSICIÓN
@@ -14891,6 +15044,7 @@ function _tomadorAbrirInterno() {
   _tomadorQtys = {};
   _tomadorCompetencia = {};
   _tomadorDescuentos = {};
+  _tomadorCombos = {}; // v9.2: reset combos del pedido
   _tomadorCatActual = 'todos';
   // NO reseteamos _tomadorSucursalElegida acá — viene del callback de sucElegirAbrir
 
@@ -14955,6 +15109,7 @@ function tomadorHTML() {
     + '</div>'
     + '<div class="tomador-hdr-total" id="tomador-total">$0</div>'
     + '</div>'
+    + combosRenderBotones('tomador', 'tomadorAgregarCombo')
     + '<div class="tomador-cats" id="tomador-cats">' + cats + '</div>'
     + '<div class="tomador-body" id="tomador-body">' + tomadorRenderProductos('todos') + '</div>'
     + '<div class="tomador-footer">'
@@ -14993,8 +15148,9 @@ function tomadorRenderProductos(catId) {
       var safeName = item.n.replace(/'/g, "\'").replace(/"/g, '&quot;');
       var safeId = item.n.replace(/[^a-zA-Z0-9]/g, '_');
 
-      var sinStockBadge = sinStock ? '<div style="position:absolute;top:4px;left:4px;background:#C62828;color:#fff;font-size:9px;font-weight:900;padding:2px 6px;border-radius:6px;font-family:Barlow Condensed,sans-serif;letter-spacing:.5px">SIN STOCK</div>' : '';
-  html += '<div class="tomador-item' + (tieneQty ? ' tiene' : '') + (sinStock ? ' sin-stock' : '') + '" id="titem-' + safeId + '" style="position:relative">'
+      // v9.1: badge "SIN STOCK" amarillo (aviso, no bloqueo). Vendedor puede cargar igual.
+      var sinStockBadge = sinStock ? '<div style="position:absolute;top:4px;left:4px;background:#F9A825;color:#3E2723;font-size:9px;font-weight:900;padding:2px 6px;border-radius:6px;font-family:Barlow Condensed,sans-serif;letter-spacing:.5px;border:1px solid #E65100" title="Sin stock — asegurate de que va a entrar para la entrega">⚠️ SIN STOCK</div>' : '';
+  html += '<div class="tomador-item' + (tieneQty ? ' tiene' : '') + (sinStock ? ' sin-stock-aviso' : '') + '" id="titem-' + safeId + '" style="position:relative">'
         + sinStockBadge
         + '<img class="tomador-item-img" src="' + (item.img2 || imgUrl) + '" onerror="this.style.display=&quot;none&quot;;this.nextSibling.style.display=&quot;flex&quot;" loading="lazy">'
         + '<div class="tomador-item-img-placeholder" style="display:none">🍗</div>'
@@ -15003,9 +15159,9 @@ function tomadorRenderProductos(catId) {
         + '<div class="tomador-item-presentacion">' + item.p + '</div>'
         + '<div class="tomador-item-precio">$' + item.pr.toLocaleString('es-AR') + '</div>'
         + '<div class="tomador-qty">'
-        + '<button class="tomador-qty-btn" onclick="tomadorCambiarQty(&quot;' + safeName + '&quot;,-1)" ' + (sinStock ? 'disabled' : '') + '>−</button>'
+        + '<button class="tomador-qty-btn" onclick="tomadorCambiarQty(&quot;' + safeName + '&quot;,-1)">−</button>'
         + '<span class="tomador-qty-num" id="tqty-' + safeId + '">' + qty + '</span>'
-        + '<button class="tomador-qty-btn plus" onclick="tomadorCambiarQty(&quot;' + safeName + '&quot;,1)" ' + (sinStock ? 'disabled' : '') + '>+</button>'
+        + '<button class="tomador-qty-btn plus" onclick="tomadorCambiarQty(&quot;' + safeName + '&quot;,1)">+</button>'
         + '</div>'
         + '<button class="tomador-precio-comp-btn" onclick="tomadorAbrirCompetencia(&quot;' + safeName + '&quot;,&quot;' + safeId + '&quot;)">'
         + (comp ? '✅ Comp: $' + comp.precio.toLocaleString('es-AR') + (comp.nombre ? ' · ' + comp.nombre : '') : '💲 Cargar precio competencia')
@@ -15104,6 +15260,43 @@ function tomadorQuitarDescuento(nombre) {
   var catId = catActual ? catActual.id.replace('tcat-','') : 'todos';
   var body = document.getElementById('tomador-body');
   if (body) body.innerHTML = tomadorRenderProductos(catId);
+}
+
+// v9.2: agregar combo completo al pedido del tomador
+function tomadorAgregarCombo(comboId) {
+  var combo = (_combosData||[]).find(function(c){ return c.id === comboId; });
+  if (!combo) { alert('Combo no disponible. Recargá e intentá de nuevo.'); return; }
+
+  var cantActual = _tomadorCombos[comboId] || 0;
+  var maxPorCompra = combo.max_por_compra || 2;
+  if (cantActual >= maxPorCompra) {
+    alert('Ya alcanzaste el límite de ' + maxPorCompra + ' "' + (combo.nombre||'') + '" por pedido.');
+    return;
+  }
+
+  var disponibles = (combo.stock_total||0) - (combo.vendidos||0);
+  if (disponibles <= 0 || !combo.activo) {
+    alert('Este combo ya se agotó.');
+    return;
+  }
+
+  var resultado = combosAgregarAlTomador(comboId, _tomadorQtys, _tomadorDescuentos);
+  if (!resultado) return;
+
+  _tomadorCombos[comboId] = cantActual + 1;
+
+  // Re-render todo (items + total)
+  var body = document.getElementById('tomador-body');
+  if (body) body.innerHTML = tomadorRenderProductos(_tomadorCatActual);
+  tomadorActualizarTotal();
+
+  // Feedback
+  var prodsStr = resultado.productosAgregados.map(function(p){ return p.qty + 'x ' + p.nombre; }).join(', ');
+  var toast = document.createElement('div');
+  toast.style.cssText = 'position:fixed;top:70px;left:50%;transform:translateX(-50%);z-index:99999;background:linear-gradient(135deg,#2E7D32,#1B5E20);color:#fff;padding:14px 20px;border-radius:12px;font-family:Barlow Condensed,sans-serif;font-weight:800;font-size:14px;box-shadow:0 6px 20px rgba(0,0,0,.4);max-width:320px;text-align:center';
+  toast.innerHTML = '🔥 ' + (combo.nombre||'Combo') + ' agregado<br><span style="font-size:11px;font-weight:600;opacity:.95">' + prodsStr + '</span>';
+  document.body.appendChild(toast);
+  setTimeout(function(){ toast.style.transition='opacity .4s'; toast.style.opacity='0'; setTimeout(function(){ toast.remove(); }, 400); }, 2200);
 }
 
 function tomadorCambiarQty(nombre, delta) {
@@ -15366,7 +15559,20 @@ async function tomadorConfirmarConEntrega(entregaData) {
     var dtosAplicados = Object.keys(_tomadorDescuentos);
     var tieneDescuento = dtosAplicados.length > 0;
     var dtoNota = dtosAplicados.map(function(n){ var d = _tomadorDescuentos[n]; return n + ': -' + d.pct + '% (' + d.motivo + ')'; }).join(' | ');
+
+    // v9.2: Marcar combos aplicados
+    var combosAplicados = Object.keys(_tomadorCombos||{}).filter(function(cid){ return _tomadorCombos[cid] > 0; });
+    var combosNota = '';
+    if (combosAplicados.length > 0) {
+      combosNota = 'COMBOS: ' + combosAplicados.map(function(cid){
+        var c = (_combosData||[]).find(function(x){ return x.id === cid; });
+        var q = _tomadorCombos[cid];
+        return (c ? c.nombre : cid) + ' x' + q;
+      }).join(' | ');
+    }
+
     var notaFinal = [
+      combosNota,
       compLineas.length > 0 ? 'PRECIOS COMP: ' + compLineas.join(' | ') : '',
       tieneDescuento ? 'DESCUENTOS: ' + dtoNota : ''
     ].filter(Boolean).join(' || ');
@@ -15387,6 +15593,13 @@ async function tomadorConfirmarConEntrega(entregaData) {
     });
 
     fetch(APPS_SCRIPT_URL + '?' + params.toString(), {mode: 'no-cors'}).catch(function(){});
+
+    // v9.2: Descontar stock de combos en Supabase (fire-and-forget)
+    if (combosAplicados.length > 0) {
+      var combosAConsumir = combosAplicados.map(function(cid){ return { id: cid, qty: _tomadorCombos[cid] }; });
+      combosConsumirStockVentas(combosAConsumir).catch(function(e){ console.error('[combos] consumir:', e); });
+    }
+
     if (tieneDescuento) { toast('⏳ Pedido enviado — esperando aprobación del admin', 'ok'); } else { toast('✅ Pedido registrado y enviado', 'ok'); }
 
     // v8.6: si el vendedor eligió sucursal, vincular en Supabase (fire-and-forget).
@@ -16862,6 +17075,7 @@ let _editarQtys       = {};  // nombre → cantidad
 let _editarFila       = null;
 let _editarSucursalOriginal = null; // v8.6: sucursal vinculada al abrir (para detectar cambios)
 let _editarSucursalActual   = null; // v8.6: sucursal vigente (puede cambiar al apretar "Cambiar sucursal")
+let _editarCombos     = {}; // v9.2: { comboId: cantidad } combos agregados al editar
 
 function editarPedidoBtn(btn, event) {
   event.stopPropagation();
@@ -16879,6 +17093,7 @@ function abrirEditarPedido(p, detalle) {
   _editarFila     = p.fila;
   _editarQtys     = {};
   _editarDescuentos = {};
+  _editarCombos   = {}; // v9.2: reset
   _editarSucursalOriginal = null; // v8.6
   _editarSucursalActual   = null; // v8.6
 
@@ -16919,6 +17134,7 @@ function editarHTML(cliente) {
     '<div class="editar-hdr-total" id="editar-total">$0</div>' +
   '</div>' +
   '<div id="editar-sucursal-bloque"></div>' + // v8.6: bloque de sucursal, se rellena async
+  '<div id="editar-combos-bloque">' + combosRenderBotones('editar', 'editarAgregarCombo') + '</div>' +
   '<div class="editar-body" id="editar-body"></div>' +
   '<div class="editar-footer">' +
     '<button class="editar-confirmar-btn" id="editar-confirmar-btn" onclick="editarConfirmar()" disabled>Guardar cambios</button>' +
@@ -16987,10 +17203,11 @@ function editarRenderItems() {
       const sinStock = TOMADOR_SIN_STOCK.has(item.n);
       const imgFile  = IMGMAP[item.n] || (item.img + '.jpg');
       const imgUrl   = 'https://tckcatalogo.com/img/' + encodeURIComponent(imgFile).replace(/%20/g,'%20');
+      // v9.1: badge amarillo de aviso, sin disabled
       const sinStockBadge = sinStock
-        ? '<div style="position:absolute;top:4px;left:4px;background:#C62828;color:#fff;font-size:9px;font-weight:900;padding:2px 6px;border-radius:6px;font-family:Barlow Condensed,sans-serif;letter-spacing:.5px;">SIN STOCK</div>'
+        ? '<div style="position:absolute;top:4px;left:4px;background:#F9A825;color:#3E2723;font-size:9px;font-weight:900;padding:2px 6px;border-radius:6px;font-family:Barlow Condensed,sans-serif;letter-spacing:.5px;border:1px solid #E65100" title="Sin stock — asegurate de que va a entrar para la entrega">⚠️ SIN STOCK</div>'
         : '';
-      html += '<div class="editar-item' + (sinStock ? ' tomador-item sin-stock' : '') + '" style="position:relative;">' +
+      html += '<div class="editar-item' + (sinStock ? ' tomador-item sin-stock-aviso' : '') + '" style="position:relative;">' +
         sinStockBadge +
         '<img class="editar-item-img" src="' + imgUrl + '" onerror="this.style.display=&quot;none&quot;">' +
         '<div class="editar-item-info">' +
@@ -16998,9 +17215,9 @@ function editarRenderItems() {
           '<div class="editar-item-pres">' + item.p + ' · $' + item.pr.toLocaleString('es-AR') + '</div>' +
         '</div>' +
         '<div class="editar-qty-ctrl">' +
-          '<button class="editar-qty-btn" data-nombre="' + item.n.replace(/"/g,'&quot;') + '" onclick="editarQty(this,-1)" ' + (sinStock ? 'disabled' : '') + '>−</button>' +
+          '<button class="editar-qty-btn" data-nombre="' + item.n.replace(/"/g,'&quot;') + '" onclick="editarQty(this,-1)">−</button>' +
           '<div class="editar-qty-num" id="editar-qty-' + item.n.replace(/[^a-zA-Z0-9]/g,'-') + '">' + (qty || 0) + '</div>' +
-          '<button class="editar-qty-btn" data-nombre="' + item.n.replace(/"/g,'&quot;') + '" onclick="editarQty(this,1)" ' + (sinStock ? 'disabled' : '') + '>+</button>' +
+          '<button class="editar-qty-btn" data-nombre="' + item.n.replace(/"/g,'&quot;') + '" onclick="editarQty(this,1)">+</button>' +
         '</div>' +
         (function(){ var d=_editarDescuentos[item.n]; var sn=item.n.replace(/"/g,'&quot;'); var pr=item.pr||0; return pr>0 ? '<button class="tomador-dto-btn'+(d?' tiene-dto':'')+'" onclick="editarAbrirDescuento(&quot;'+sn+'&quot;)" title="Aplicar descuento">'+(d?(d.pct===100?'🎁':'-'+d.pct+'%'):'%')+'</button>' : ''; })() +
       '</div>';
@@ -17008,6 +17225,44 @@ function editarRenderItems() {
   });
 
   body.innerHTML = html;
+}
+
+// v9.2: agregar combo completo al pedido en modo edición
+function editarAgregarCombo(comboId) {
+  var combo = (_combosData||[]).find(function(c){ return c.id === comboId; });
+  if (!combo) { alert('Combo no disponible. Recargá e intentá de nuevo.'); return; }
+
+  var cantActual = _editarCombos[comboId] || 0;
+  var maxPorCompra = combo.max_por_compra || 2;
+  if (cantActual >= maxPorCompra) {
+    alert('Ya alcanzaste el límite de ' + maxPorCompra + ' "' + (combo.nombre||'') + '" por pedido.');
+    return;
+  }
+
+  var disponibles = (combo.stock_total||0) - (combo.vendidos||0);
+  if (disponibles <= 0 || !combo.activo) {
+    alert('Este combo ya se agotó.');
+    return;
+  }
+
+  var resultado = combosAgregarAlTomador(comboId, _editarQtys, _editarDescuentos);
+  if (!resultado) return;
+
+  _editarCombos[comboId] = cantActual + 1;
+
+  // Re-render del bloque combos (para que se actualicen los contadores) y del body
+  var comboBloque = document.getElementById('editar-combos-bloque');
+  if (comboBloque) comboBloque.innerHTML = combosRenderBotones('editar', 'editarAgregarCombo');
+  editarRenderItems();
+  editarActualizarTotal();
+
+  // Toast
+  var prodsStr = resultado.productosAgregados.map(function(p){ return p.qty + 'x ' + p.nombre; }).join(', ');
+  var toast = document.createElement('div');
+  toast.style.cssText = 'position:fixed;top:70px;left:50%;transform:translateX(-50%);z-index:99999;background:linear-gradient(135deg,#2E7D32,#1B5E20);color:#fff;padding:14px 20px;border-radius:12px;font-family:Barlow Condensed,sans-serif;font-weight:800;font-size:14px;box-shadow:0 6px 20px rgba(0,0,0,.4);max-width:320px;text-align:center';
+  toast.innerHTML = '🔥 ' + (combo.nombre||'Combo') + ' agregado<br><span style="font-size:11px;font-weight:600;opacity:.95">' + prodsStr + '</span>';
+  document.body.appendChild(toast);
+  setTimeout(function(){ toast.style.transition='opacity .4s'; toast.style.opacity='0'; setTimeout(function(){ toast.remove(); }, 400); }, 2200);
 }
 
 function editarQty(btn, delta) {
@@ -17133,13 +17388,26 @@ async function editarConfirmar() {
     const dtosEd = Object.keys(_editarDescuentos);
     const tieneDesEd = dtosEd.length > 0;
     const dtoNotaEd = dtosEd.map(function(n){ var d=_editarDescuentos[n]; return n+': -'+d.pct+'% ('+d.motivo+')'; }).join(' | ');
+
+    // v9.2: Marcar combos recién agregados en editar
+    const combosAplicadosEd = Object.keys(_editarCombos||{}).filter(function(cid){ return _editarCombos[cid] > 0; });
+    let combosNotaEd = '';
+    if (combosAplicadosEd.length > 0) {
+      combosNotaEd = 'COMBOS: ' + combosAplicadosEd.map(function(cid){
+        var c = (_combosData||[]).find(function(x){ return x.id === cid; });
+        var q = _editarCombos[cid];
+        return (c ? c.nombre : cid) + ' x' + q;
+      }).join(' | ');
+    }
+    const notaFinalEd = [combosNotaEd, tieneDesEd ? 'DESCUENTOS: '+dtoNotaEd : ''].filter(Boolean).join(' || ');
+
     const params = new URLSearchParams({
       accion:        'editarPedido',
       pedidoId:      _editarPedidoId,
       fila:          _editarFila || '',
       total:         total,
       itemsTotales:  items,
-      nota:          tieneDesEd ? 'DESCUENTOS: '+dtoNotaEd : '',
+      nota:          notaFinalEd,
       estado:        tieneDesEd ? 'En revisión' : 'Pendiente',
       resumenPedido: resumen,
       detallePedido: detalle
@@ -17153,6 +17421,11 @@ async function editarConfirmar() {
       if (idOriginal !== idActual) {
         // fire-and-forget: el pedido ya se actualizó en el Sheet
         pedidoSucursalActualizar(_editarPedidoId, idActual);
+      }
+      // v9.2: Descontar stock de combos agregados en edición
+      if (combosAplicadosEd.length > 0) {
+        var combosAConsumirEd = combosAplicadosEd.map(function(cid){ return { id: cid, qty: _editarCombos[cid] }; });
+        combosConsumirStockVentas(combosAConsumirEd).catch(function(e){ console.error('[combos] consumir:', e); });
       }
       toast('✅ Pedido actualizado', 'ok');
       editarCerrar();
@@ -17290,12 +17563,14 @@ var _manualWAQtys  = {};
 var _manualWACliente = '';
 var _manualWALocalidad = '';
 var _manualWADescuentos = {}; // { nombreProducto: { pct, motivo } }
+var _manualWACombos = {}; // v9.2: { comboId: cantidad }
 
 function abrirCargaManualWA() {
   _manualWAQtys = {};
   _manualWACliente = '';
   _manualWALocalidad = '';
   _manualWADescuentos = {};
+  _manualWACombos = {}; // v9.2: reset combos
 
   const overlay = document.createElement('div');
   overlay.className = 'manual-wa-overlay';
@@ -17320,8 +17595,9 @@ function manualWAHTML() {
       const imgFile = IMGMAP[item.n] || (item.img + '.jpg');
       const imgUrl  = 'https://tckcatalogo.com/img/' + encodeURIComponent(imgFile).replace(/%20/g,'%20');
       const safeName = item.n.replace(/'/g,"\'").replace(/"/g,'&quot;');
-      const sinStockBadge = sinStock ? '<div style="position:absolute;top:4px;left:4px;background:#C62828;color:#fff;font-size:9px;font-weight:900;padding:2px 6px;border-radius:6px;font-family:Barlow Condensed,sans-serif;letter-spacing:.5px;">SIN STOCK</div>' : '';
-      prodsHtml += '<div class="tomador-item' + (sinStock ? ' sin-stock' : '') + '" id="mwa-item-' + item.img + '" style="position:relative;">' +
+      // v9.1: badge amarillo de aviso, sin disabled
+      const sinStockBadge = sinStock ? '<div style="position:absolute;top:4px;left:4px;background:#F9A825;color:#3E2723;font-size:9px;font-weight:900;padding:2px 6px;border-radius:6px;font-family:Barlow Condensed,sans-serif;letter-spacing:.5px;border:1px solid #E65100" title="Sin stock — asegurate de que va a entrar para la entrega">⚠️ SIN STOCK</div>' : '';
+      prodsHtml += '<div class="tomador-item' + (sinStock ? ' sin-stock-aviso' : '') + '" id="mwa-item-' + item.img + '" style="position:relative;">' +
         sinStockBadge +
         '<img class="tomador-item-img" src="' + (item.img2 || imgUrl) + '" onerror="this.style.display=&quot;none&quot;" loading="lazy">' +
         '<div class="tomador-item-body">' +
@@ -17329,9 +17605,9 @@ function manualWAHTML() {
           '<div class="tomador-item-presentacion">' + item.p + '</div>' +
           '<div class="tomador-item-precio">$' + item.pr.toLocaleString('es-AR') + '</div>' +
           '<div class="tomador-qty">' +
-            '<button class="tomador-qty-btn" onclick="manualWAQty(&quot;' + safeName + '&quot;,-1)" ' + (sinStock ? 'disabled' : '') + '>−</button>' +
+            '<button class="tomador-qty-btn" onclick="manualWAQty(&quot;' + safeName + '&quot;,-1)">−</button>' +
             '<span class="tomador-qty-num" id="mwa-qty-' + item.img + '">0</span>' +
-            '<button class="tomador-qty-btn plus" onclick="manualWAQty(&quot;' + safeName + '&quot;,1)" ' + (sinStock ? 'disabled' : '') + '>+</button>' +
+            '<button class="tomador-qty-btn plus" onclick="manualWAQty(&quot;' + safeName + '&quot;,1)">+</button>' +
           '</div>' +
           (function(){ var d=_manualWADescuentos[item.n]; var pr=item.pr||0; return pr>0 ? '<button class="tomador-dto-btn'+(d?' tiene-dto':'')+'" onclick="mwaAbrirDescuento(&quot;'+safeName+'&quot;)" title="Aplicar descuento">'+(d?(d.pct===100?'🎁':'-'+d.pct+'%'):'%')+'</button>' : ''; })() +
         '</div>' +
@@ -17358,6 +17634,7 @@ function manualWAHTML() {
       '<div class="manual-wa-label">📍 Localidad</div>' +
       '<input class="manual-wa-input" id="manual-wa-localidad-input" type="text" placeholder="Ciudad / localidad...">' +
     '</div>' +
+    combosRenderBotones('manualwa', 'manualWAAgregarCombo') +
     prodsHtml +
   '</div>' +
   '<div class="manual-wa-footer">' +
@@ -17526,6 +17803,55 @@ function manualWAElegirCliente(nombre, localidad) {
   _manualWALocalidad = localidad;
 }
 
+// v9.2: agregar combo completo al pedido por WA
+function manualWAAgregarCombo(comboId) {
+  var combo = (_combosData||[]).find(function(c){ return c.id === comboId; });
+  if (!combo) { alert('Combo no disponible. Recargá e intentá de nuevo.'); return; }
+
+  var cantActual = _manualWACombos[comboId] || 0;
+  var maxPorCompra = combo.max_por_compra || 2;
+  if (cantActual >= maxPorCompra) {
+    alert('Ya alcanzaste el límite de ' + maxPorCompra + ' "' + (combo.nombre||'') + '" por pedido.');
+    return;
+  }
+
+  var disponibles = (combo.stock_total||0) - (combo.vendidos||0);
+  if (disponibles <= 0 || !combo.activo) {
+    alert('Este combo ya se agotó.');
+    return;
+  }
+
+  var resultado = combosAgregarAlTomador(comboId, _manualWAQtys, _manualWADescuentos);
+  if (!resultado) return;
+
+  _manualWACombos[comboId] = cantActual + 1;
+
+  // Re-render del modal completo
+  var overlay = document.getElementById('manual-wa-overlay');
+  if (overlay) {
+    // Preservar valores de cliente/localidad
+    var nomActual = (document.getElementById('manual-wa-cliente-input')||{}).value || _manualWACliente;
+    var locActual = (document.getElementById('manual-wa-localidad-input')||{}).value || _manualWALocalidad;
+    overlay.innerHTML = manualWAHTML();
+    setTimeout(function() {
+      var ci = document.getElementById('manual-wa-cliente-input');
+      var li = document.getElementById('manual-wa-localidad-input');
+      if (ci) ci.value = nomActual;
+      if (li) li.value = locActual;
+      // Actualizar total y habilitar botón
+      manualWAQty(Object.keys(_manualWAQtys)[0]||'', 0);
+    }, 50);
+  }
+
+  // Toast
+  var toast = document.createElement('div');
+  toast.style.cssText = 'position:fixed;top:70px;left:50%;transform:translateX(-50%);z-index:99999;background:linear-gradient(135deg,#2E7D32,#1B5E20);color:#fff;padding:14px 20px;border-radius:12px;font-family:Barlow Condensed,sans-serif;font-weight:800;font-size:14px;box-shadow:0 6px 20px rgba(0,0,0,.4);max-width:320px;text-align:center';
+  var prodsStr = resultado.productosAgregados.map(function(p){ return p.qty + 'x ' + p.nombre; }).join(', ');
+  toast.innerHTML = '🔥 ' + (combo.nombre||'Combo') + ' agregado<br><span style="font-size:11px;font-weight:600;opacity:.95">' + prodsStr + '</span>';
+  document.body.appendChild(toast);
+  setTimeout(function(){ toast.style.transition='opacity .4s'; toast.style.opacity='0'; setTimeout(function(){ toast.remove(); }, 400); }, 2200);
+}
+
 function manualWAQty(nombre, delta) {
   const actual = _manualWAQtys[nombre] || 0;
   const nuevo  = Math.max(0, actual + delta);
@@ -17622,6 +17948,19 @@ async function manualWAGuardar(cliente, localidad, entrega, sucursal) {
   const dtosWA = Object.keys(_manualWADescuentos);
   const tieneDesWA = dtosWA.length > 0;
   const dtaNotaWA = dtosWA.map(function(n){ var d=_manualWADescuentos[n]; return n+': -'+d.pct+'% ('+d.motivo+')'; }).join(' | ');
+
+  // v9.2: Marcar combos aplicados en la nota
+  const combosAplicadosMWA = Object.keys(_manualWACombos||{}).filter(function(cid){ return _manualWACombos[cid] > 0; });
+  let combosNotaMWA = '';
+  if (combosAplicadosMWA.length > 0) {
+    combosNotaMWA = 'COMBOS: ' + combosAplicadosMWA.map(function(cid){
+      var c = (_combosData||[]).find(function(x){ return x.id === cid; });
+      var q = _manualWACombos[cid];
+      return (c ? c.nombre : cid) + ' x' + q;
+    }).join(' | ');
+  }
+  const notaFinalMWA = [combosNotaMWA, tieneDesWA ? 'DESCUENTOS: '+dtaNotaWA : ''].filter(Boolean).join(' || ');
+
   const params = new URLSearchParams({
     accion:        'guardarPedido',
     pedidoId:      pedidoId,
@@ -17630,7 +17969,7 @@ async function manualWAGuardar(cliente, localidad, entrega, sucursal) {
     localidad:     localidad || 'Sin especificar',
     detalle:       lineas.join(' | '),
     total:         total,
-    nota:          tieneDesWA ? 'DESCUENTOS: '+dtaNotaWA : '',
+    nota:          notaFinalMWA,
     estado:        tieneDesWA ? 'En revisión' : 'Pendiente',
     origen:        'whatsapp',
     fecha_entrega: entrega.dia,
@@ -17638,6 +17977,13 @@ async function manualWAGuardar(cliente, localidad, entrega, sucursal) {
   });
 
   fetch(APPS_SCRIPT_URL + '?' + params.toString(), {mode:'no-cors'}).catch(function(){});
+
+  // v9.2: Descontar stock de combos en Supabase
+  if (combosAplicadosMWA.length > 0) {
+    var combosAConsumirMWA = combosAplicadosMWA.map(function(cid){ return { id: cid, qty: _manualWACombos[cid] }; });
+    combosConsumirStockVentas(combosAConsumirMWA).catch(function(e){ console.error('[combos] consumir:', e); });
+  }
+
   if (tieneDesWA) { toast('⏳ Pedido enviado — esperando aprobación del admin', 'ok'); } else { toast('✅ Pedido de ' + cliente + ' registrado', 'ok'); }
   cerrarCargaManualWA();
 
