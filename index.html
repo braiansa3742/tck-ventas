@@ -15478,14 +15478,50 @@ async function cargarEntregas() {
       return;
     }
 
-    // Deduplicar por pedido_id (puede haber duplicados por race condition al insertar)
+    // v8.9.2 FIX: deduplicación inteligente por pedido_id
+    // ANTES: se quedaba con la PRIMERA entrega que aparecía (orden ciudad.asc),
+    //        si había duplicados con estados distintos, descartaba la entregada
+    //        y dejaba la pendiente vieja → resultado: las entregadas de hoy
+    //        desaparecían del panel del chofer
+    // AHORA: si hay duplicados de pedido_id, prioriza por estado:
+    //        entregado > en_camino > no_encontrado > pendiente
+    //        Y dentro del mismo estado, la más reciente por fecha_entrega/fecha_asignacion
     if (entregas && entregas.length) {
-      const seen = new Set();
-      entregas = entregas.filter(function(e) {
-        if (seen.has(e.pedido_id)) return false;
-        seen.add(e.pedido_id);
-        return true;
+      var prioridadEstado = function(est) {
+        if (est === 'entregado')      return 4;
+        if (est === 'en_camino')      return 3;
+        if (est === 'no_encontrado')  return 2;
+        if (est === 'pendiente')      return 1;
+        return 0;
+      };
+      var fechaRef = function(e) {
+        return e.fecha_entrega || e.fecha_en_camino || e.fecha_no_encontrado || e.fecha_asignacion || '';
+      };
+      var mejorPorPedido = {};
+      entregas.forEach(function(e) {
+        if (!e.pedido_id) {
+          // Sin pedido_id, dejar pasar como entrega independiente con clave única
+          mejorPorPedido['__nopid_' + e.id] = e;
+          return;
+        }
+        var actual = mejorPorPedido[e.pedido_id];
+        if (!actual) {
+          mejorPorPedido[e.pedido_id] = e;
+          return;
+        }
+        // Priorizar por estado, después por fecha
+        var pNuevo  = prioridadEstado(e.estado);
+        var pActual = prioridadEstado(actual.estado);
+        if (pNuevo > pActual) {
+          mejorPorPedido[e.pedido_id] = e;
+        } else if (pNuevo === pActual) {
+          // Mismo estado: quedarse con la más reciente
+          if (fechaRef(e) > fechaRef(actual)) {
+            mejorPorPedido[e.pedido_id] = e;
+          }
+        }
       });
+      entregas = Object.values(mejorPorPedido);
     }
 
     _entregasCache = entregas || [];
