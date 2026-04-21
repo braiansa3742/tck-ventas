@@ -18111,7 +18111,9 @@ function abrirModalDuplicados(pedidoId) {
   var miVendKey = (vendedorActual || '').toLowerCase();
 
   // Buscar el grupo (todos los pedidos del mismo cliente y día, no cancelados)
-  // Si NO es admin: filtrar también por mismo vendedor (no puede ver/unir pedidos de otros)
+  // v9.0: vendedores ahora ven TODOS los pedidos del grupo, incluyendo los de
+  // otros vendedores y de Administración. Pueden resolver duplicados de cualquier
+  // tipo (catálogo→vendedor, vendedor→vendedor, mismo vendedor→duplicado por error).
   var mFecha = (p.pedidoId || '').match(/TCK-(\d{8})/);
   var fechaDia = mFecha ? mFecha[1] : (p.fechaHora || '').substring(0,10).replace(/-/g,'');
   var cliKey = (p.cliente || '').toLowerCase().replace(/\s+/g,' ').trim();
@@ -18121,10 +18123,6 @@ function abrirModalDuplicados(pedidoId) {
     var xfd = xf ? xf[1] : (x.fechaHora || '').substring(0,10).replace(/-/g,'');
     var xcli = (x.cliente || '').toLowerCase().replace(/\s+/g,' ').trim();
     if (xfd !== fechaDia || xcli !== cliKey) return false;
-    if (!esAdmin) {
-      var xvend = (x.vendedor || '').toLowerCase().trim();
-      if (xvend !== miVendKey) return false;
-    }
     return true;
   }).sort(function(a,b){ return (a.fechaHora || '').localeCompare(b.fechaHora || ''); });
 
@@ -18133,11 +18131,14 @@ function abrirModalDuplicados(pedidoId) {
     return;
   }
 
-  // Si no es admin, validar que TODOS estén en Pendiente (no se puede modificar Confirmado/Entregado)
+  // v9.0: validación de estado más permisiva.
+  // - Vendedores: pueden resolver si AL MENOS 1 pedido del grupo está pendiente
+  //   (pueden cancelar uno propio aunque haya un Confirmado de otro vendedor).
+  // - Admin: sin restricción (puede tocar cualquier estado).
   if (!esAdmin) {
-    var hayNoPendiente = grupo.some(function(x){ return x.estado !== 'Pendiente'; });
-    if (hayNoPendiente) {
-      toast('No se puede unir: alguno ya fue remitido', 'err');
+    var hayPendiente = grupo.some(function(x){ return x.estado === 'Pendiente'; });
+    if (!hayPendiente) {
+      toast('Todos los pedidos ya fueron remitidos. Pediel a admin que resuelva.', 'err');
       return;
     }
   }
@@ -18774,6 +18775,20 @@ function _renderDupModal() {
       + '<span class="dup-btn-unir-text">Unir en 1 pedido</span>'
       + '</button>';
 
+    // v9.0: botón "Son pedidos distintos" — marca el grupo como NO duplicado
+    // (cliente con varias sucursales o cosas diferentes pedidas a propósito)
+    html += '<button class="dup-btn-distintos" onclick="dupMarcarDistintos()" '
+      + 'style="width:100%;margin-top:10px;padding:14px;background:white;'
+      + 'border:1.5px solid #1565C0;color:#1565C0;border-radius:10px;'
+      + 'font-family:Barlow Condensed,sans-serif;font-weight:700;font-size:14px;'
+      + 'cursor:pointer;text-transform:uppercase;letter-spacing:.3px;">'
+      + '✅ Son pedidos distintos'
+      + '</button>';
+    html += '<div style="font-size:11px;color:#666;text-align:center;margin-top:6px;line-height:1.4;">'
+      + 'Tocá esto si el cliente pidió cosas diferentes a propósito '
+      + '(ej: tiene varias sucursales)'
+      + '</div>';
+
     html += '<div class="dup-acciones-tip">💡 Si en realidad son duplicados (mismo pedido cargado 2 veces), tocá <strong>"✕ Cancelar este pedido"</strong> arriba para borrar el sobrante en lugar de unir.</div>';
     html += '</div>';
   } else if (activosCount === 1) {
@@ -18802,16 +18817,136 @@ function _renderDupModal() {
   document.getElementById('dup-modal-body').innerHTML = html;
 }
 
+// ═══════════════════════════════════════════════════════════════
+// v9.0 — Logging de acciones de resolución de duplicados
+// Inserta una fila en pedido_acciones (Supabase) y anota en Sheet
+// ═══════════════════════════════════════════════════════════════
+async function _dupLogAccion(payload) {
+  // payload: { pedido_id, pedido_id_relacionado, accion, vendedor_origen,
+  //            vendedor_destino, motivo, productos_unificados, monto_resultante, metadata }
+  try {
+    var fila = {
+      pedido_id: payload.pedido_id,
+      pedido_id_relacionado: payload.pedido_id_relacionado || null,
+      accion: payload.accion,
+      vendedor_origen: payload.vendedor_origen || null,
+      vendedor_destino: payload.vendedor_destino || null,
+      vendedor_que_actuo: vendedorActual || 'desconocido',
+      motivo: payload.motivo || null,
+      productos_unificados: payload.productos_unificados || null,
+      monto_resultante: payload.monto_resultante || null,
+      metadata: payload.metadata || null
+    };
+    await sbFetch('pedido_acciones', {
+      method: 'POST',
+      headers: { 'Prefer': 'return=minimal' },
+      body: JSON.stringify(fila)
+    });
+  } catch(e) {
+    console.warn('[v9.0] No se pudo loggear accion duplicado:', e);
+    // No bloquear el flujo si falla el log
+  }
+
+  // Anotar en Sheet (nota humana legible)
+  try {
+    var p = todosLosPedidos.find(function(x){ return x.pedidoId === payload.pedido_id; });
+    if (!p || !p.fila) return;
+    var ahora = new Date();
+    var hh = String(ahora.getHours()).padStart(2,'0') + ':' + String(ahora.getMinutes()).padStart(2,'0');
+    var fechaCorta = ahora.getDate() + '/' + (ahora.getMonth()+1);
+    var actor = vendedorActual || 'alguien';
+    var nota = '';
+    switch (payload.accion) {
+      case 'unificado':
+        nota = '[Unificado por ' + actor + ' el ' + fechaCorta + ' ' + hh +
+          (payload.pedido_id_relacionado ? ' con ' + payload.pedido_id_relacionado : '') +
+          (payload.vendedor_destino ? ' → ' + payload.vendedor_destino : '') + ']';
+        break;
+      case 'cancelado_otro':
+        nota = '[' + actor + ' canceló este pedido el ' + fechaCorta + ' ' + hh +
+          ' (era de ' + (payload.vendedor_origen || '?') + ')' +
+          (payload.motivo ? ' — motivo: ' + payload.motivo : '') + ']';
+        break;
+      case 'cancelado_propio':
+        nota = '[' + actor + ' canceló su propio pedido el ' + fechaCorta + ' ' + hh +
+          (payload.pedido_id_relacionado ? ' a favor de ' + payload.pedido_id_relacionado : '') +
+          (payload.motivo ? ' — motivo: ' + payload.motivo : '') + ']';
+        break;
+      case 'marcado_distinto':
+        nota = '[' + actor + ' marcó como pedidos distintos el ' + fechaCorta + ' ' + hh + ']';
+        break;
+    }
+    if (!nota) return;
+    var notaPrev = p.nota || '';
+    var notaNueva = notaPrev ? (notaPrev + ' ' + nota) : nota;
+    var params = new URLSearchParams({
+      accion: 'editarPedido',
+      pedidoId: payload.pedido_id,
+      fila: p.fila,
+      nota: notaNueva
+    });
+    fetch(APPS_SCRIPT_URL + '?' + params.toString(), { mode: 'no-cors' }).catch(function(){});
+    p.nota = notaNueva;
+  } catch(e) {
+    console.warn('[v9.0] No se pudo anotar en Sheet:', e);
+  }
+}
+// ═══════════════════════════════════════════════════════════════
+
 async function dupCancelarPedido(pedidoId) {
-  if (!confirm('⚠️ ¿Seguro que querés cancelar este pedido?\n\nQuedará registrado como cancelado.')) return;
   var p = todosLosPedidos.find(function(x){ return x.pedidoId === pedidoId; });
   if (!p) return;
+
+  // v9.0: distinguir si cancela su propio pedido o el de otro
+  var miVendKey = (vendedorActual || '').toLowerCase().trim();
+  var pVendKey = (p.vendedor || '').toLowerCase().trim();
+  var esMiPedido = pVendKey === miVendKey;
+  var esAdmin = vendedorActual === 'ADMIN';
+
+  // Encontrar el otro pedido del grupo (para log)
+  var otroPedido = null;
+  if (_dupModalState && _dupModalState.grupo) {
+    otroPedido = _dupModalState.grupo.find(function(x){
+      return x.pedidoId !== pedidoId && !_dupModalState.cancelados.has(x.pedidoId);
+    });
+  }
+
+  // Pedir motivo si está cancelando un pedido de otro vendedor (NO si es propio)
+  var motivo = '';
+  if (!esMiPedido && !esAdmin) {
+    motivo = prompt(
+      '✕ Cancelar pedido de ' + (p.vendedor || '?') + '\n\n' +
+      'Vas a cancelar un pedido que no es tuyo. Por favor escribí el motivo:\n\n' +
+      '(Ej: "Cliente confirmó que el correcto es el mío")'
+    );
+    if (motivo === null) return; // canceló
+    if (!motivo.trim()) {
+      toast('El motivo es obligatorio', 'err');
+      return;
+    }
+    motivo = motivo.trim();
+  } else {
+    if (!confirm('⚠️ ¿Seguro que querés cancelar este pedido?\n\nQuedará registrado como cancelado.')) return;
+  }
+
   try {
     var params = new URLSearchParams({ accion: 'cambiarEstado', pedidoId: pedidoId, fila: p.fila, estado: 'Cancelado' });
     await fetch(APPS_SCRIPT_URL + '?' + params.toString(), { mode: 'no-cors' });
     p.estado = 'Cancelado';
     _estadosCambiados[pedidoId] = { estado: 'Cancelado', ts: Date.now() };
     _dupModalState.cancelados.add(pedidoId);
+
+    // v9.0: log de acción
+    var accionTipo = esMiPedido ? 'cancelado_propio' : 'cancelado_otro';
+    _dupLogAccion({
+      pedido_id: pedidoId,
+      pedido_id_relacionado: otroPedido ? otroPedido.pedidoId : null,
+      accion: accionTipo,
+      vendedor_origen: p.vendedor || null,
+      vendedor_destino: null,
+      motivo: motivo || null
+    });
+
     _renderDupModal();
     renderPedidos();
     toast('✕ Pedido cancelado', 'ok');
@@ -18825,6 +18960,57 @@ function dupSeleccionarVendedor(v) {
     _dupModalState.acreditarA = v;
     _renderDupModal();
   }
+}
+
+// v9.0: marcar grupo como pedidos legítimamente distintos
+// (no son duplicado; el cliente pidió cosas diferentes a propósito)
+async function dupMarcarDistintos() {
+  var s = _dupModalState;
+  if (!s) return;
+  var activos = s.grupo.filter(function(x){ return !s.cancelados.has(x.pedidoId); });
+  if (activos.length < 2) {
+    toast('Ya queda 1 solo pedido activo', 'ok');
+    return;
+  }
+
+  if (!confirm('✅ ¿Confirmás que estos ' + activos.length + ' pedidos son distintos?\n\n' +
+    'Esto va a esconder la alerta naranja en todos.\n\n' +
+    'Usá esto si el cliente tiene varias sucursales o pidió cosas diferentes a propósito.')) return;
+
+  // Marcar localmente como revisado (esconde el badge en futuras renderizaciones del día)
+  var cliKey = (s.fechaDia + s.cliente).toLowerCase().replace(/\s/g,'');
+  try {
+    var revisados = {};
+    var raw = localStorage.getItem('tck_dup_revisados');
+    if (raw) revisados = JSON.parse(raw);
+    revisados[cliKey] = { ts: Date.now(), cliente: s.cliente, distintos: true };
+    localStorage.setItem('tck_dup_revisados', JSON.stringify(revisados));
+  } catch(e) {}
+
+  // Marcar cada pedido del grupo como NO duplicado en memoria
+  activos.forEach(function(p) {
+    p.esDuplicado = false;
+    p.tipoDuplicado = null;
+    p.duplicadoCon = '';
+  });
+
+  // Loggear acción para cada pedido del grupo (uno por uno para auditoría completa)
+  for (var i = 0; i < activos.length; i++) {
+    var pi = activos[i];
+    var otros = activos.filter(function(x){ return x.pedidoId !== pi.pedidoId; })
+      .map(function(x){ return x.pedidoId; }).join(', ');
+    await _dupLogAccion({
+      pedido_id: pi.pedidoId,
+      pedido_id_relacionado: otros,
+      accion: 'marcado_distinto',
+      vendedor_origen: pi.vendedor || null,
+      metadata: { cantidad_grupo: activos.length }
+    });
+  }
+
+  dupModalCerrar();
+  renderPedidos();
+  toast('✅ Marcados como pedidos distintos', 'ok');
 }
 
 async function dupUnirPedidos() {
@@ -18950,6 +19136,25 @@ async function dupUnirPedidos() {
       revisados[cliKey] = { ts: Date.now(), cliente: s.cliente, unidos: true };
       localStorage.setItem('tck_dup_revisados', JSON.stringify(revisados));
     } catch(e) {}
+
+    // v9.0: log de unificación
+    var prodsResumen = ordenInsercion.slice(0, 5).map(function(k){
+      var pr = prodsCombinados[k];
+      return pr.qty + 'x ' + pr.name;
+    }).join(', ');
+    if (ordenInsercion.length > 5) prodsResumen += ' (+' + (ordenInsercion.length - 5) + ')';
+    var pedidosCancelados = restantes.map(function(r){ return r.pedidoId; }).join(', ');
+
+    _dupLogAccion({
+      pedido_id: principal.pedidoId,
+      pedido_id_relacionado: pedidosCancelados,
+      accion: 'unificado',
+      vendedor_origen: principal.vendedor || null,
+      vendedor_destino: s.acreditarA,
+      productos_unificados: prodsResumen,
+      monto_resultante: totalUnido,
+      metadata: { cantidad_pedidos_unidos: activos.length, pedidos_origen: activos.map(function(x){return x.pedidoId;}) }
+    });
 
     dupModalCerrar();
     renderPedidos();
