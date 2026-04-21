@@ -8744,15 +8744,75 @@ function combosAgregarAlTomador(comboId, qtysMap, descuentosMap) {
   };
 }
 
-// Render de los botones de combo arriba de la grilla de productos.
+// v9.8.2 — Quitar una unidad de combo del carrito (operación inversa).
+// - Resta las qty de los productos del combo del qtysMap
+// - Si un producto queda en 0, lo borra del map
+// - comboCantRestante: cuántos combos de ESTE id quedarán DESPUÉS de restar
+//   (se pasa desde el llamador). Si queda 0, se quita el descuento.
+function combosQuitarDelTomador(comboId, qtysMap, descuentosMap, comboCantRestante) {
+  var combo = (_combosData||[]).find(function(c){ return c.id === comboId; });
+  if (!combo) return null;
+
+  var productos;
+  try {
+    productos = typeof combo.productos === 'string' ? JSON.parse(combo.productos) : combo.productos;
+  } catch(e) { return null; }
+  if (!Array.isArray(productos) || productos.length === 0) return null;
+
+  var mapCatToVentas = {
+    'Pollo Optimo': 'Pollo B',
+    'Pollo Ginosa': 'Pollo A'
+  };
+
+  var productosQuitados = [];
+  for (var i = 0; i < productos.length; i++) {
+    var p = productos[i];
+    var nombreVentas = mapCatToVentas[p.nombre] || p.nombre;
+
+    // Confirmar que el producto existe en TOMADOR_CAT
+    var itemEncontrado = null;
+    for (var j = 0; j < TOMADOR_CAT.length; j++) {
+      var found = TOMADOR_CAT[j].items.find(function(it){ return it.n === nombreVentas; });
+      if (found) { itemEncontrado = found; break; }
+    }
+    if (!itemEncontrado) continue;
+
+    var qtyAQuitar = p.qty || 1;
+    var actual = qtysMap[itemEncontrado.n] || 0;
+    var nuevo = Math.max(0, actual - qtyAQuitar);
+    if (nuevo === 0) {
+      delete qtysMap[itemEncontrado.n];
+    } else {
+      qtysMap[itemEncontrado.n] = nuevo;
+    }
+
+    // Quitar el descuento solo si no quedan más combos de este id
+    if (comboCantRestante === 0 && descuentosMap) {
+      delete descuentosMap[itemEncontrado.n];
+    }
+
+    productosQuitados.push({ nombre: itemEncontrado.n, qty: qtyAQuitar });
+  }
+
+  return {
+    comboId: combo.id,
+    nombre: combo.nombre,
+    productosQuitados: productosQuitados
+  };
+}
 // v9.8 — rediseño card media: foto + lista de productos + barra de stock.
 // Mantiene la API (contextId, onClickFn) para que los 3 contextos
 // (tomador, manualwa, editar) no necesiten cambios.
-function combosRenderBotones(contextId, onClickFn) {
+function combosRenderBotones(contextId, onClickFn, onRemoveFn, cantidadesMap) {
   // contextId: 'tomador' | 'manualwa' | 'editar' — solo para aria/id
+  // onClickFn: nombre de función global para sumar (ej: 'tomadorAgregarCombo')
+  // onRemoveFn: nombre de función global para restar (ej: 'tomadorQuitarCombo'). Opcional.
+  // cantidadesMap: objeto {comboId: cant} con los combos ya agregados. Opcional.
+  // v9.8.2: si vienen onRemoveFn + cantidadesMap, se muestran controles -/N/+
   if (!_combosData || _combosData.length === 0) return '';
 
   var fmtAR = function(n) { return '$' + (n||0).toLocaleString('es-AR'); };
+  var mapCant = cantidadesMap || {};
 
   var html = '<div style="padding:12px 10px 14px;background:linear-gradient(180deg,#1a0000,#2d0606);border-top:3px solid #FFD700;border-bottom:3px solid #FFD700;margin-bottom:10px;box-shadow:0 2px 10px rgba(0,0,0,.35)">';
   html += '<div style="text-align:center;color:#FFD700;font-family:Barlow Condensed,sans-serif;font-weight:900;font-size:15px;letter-spacing:2.2px;margin-bottom:10px;text-shadow:0 1px 6px rgba(255,215,0,.35)">'
@@ -8763,12 +8823,14 @@ function combosRenderBotones(contextId, onClickFn) {
   _combosData.forEach(function(c) {
     var disponibles = (c.stock_total||0) - (c.vendidos||0);
     var agotado = disponibles <= 0 || !c.activo;
-    var vendidosVisibles = (c.stock_offset||0) + (c.vendidos||0);
+    // v9.8.1: en ventas mostramos stock REAL al vendedor — no aplicamos offset.
     var stockTotal = c.stock_total || 50;
-    var disponiblesVisibles = Math.max(0, stockTotal - vendidosVisibles);
-    var pctVendido = Math.min(100, Math.round((vendidosVisibles / stockTotal) * 100));
+    var disponiblesVisibles = Math.max(0, stockTotal - (c.vendidos||0));
+    var pctVendido = Math.min(100, Math.round(((c.vendidos||0) / stockTotal) * 100));
     var ahorro = (c.precio_lista||0) - (c.precio_combo||0);
     var descPct = c.descuento_pct || 7;
+    var cantActual = mapCant[c.id] || 0;
+    var tieneEnCarrito = cantActual > 0;
 
     // Parseo de productos del combo
     var prods = [];
@@ -8776,7 +8838,6 @@ function combosRenderBotones(contextId, onClickFn) {
       prods = typeof c.productos === 'string' ? JSON.parse(c.productos) : (c.productos || []);
     } catch(e) { prods = []; }
 
-    // Lista de productos en 2 líneas (máx), con bullet
     var itemsHtml = prods.map(function(p) {
       var qty = p.qty || 1;
       var nom = (p.nombre || '').replace(/"/g,'&quot;');
@@ -8784,7 +8845,7 @@ function combosRenderBotones(contextId, onClickFn) {
     }).join('<br>');
     if (!itemsHtml) itemsHtml = '<span style="opacity:.7">Ver detalle</span>';
 
-    // Imagen con fallback — escapamos onerror para que no rompa el onclick del button padre
+    // Imagen con fallback
     var imgHtml;
     if (c.imagen_url) {
       var urlEsc = (c.imagen_url || '').replace(/"/g,'&quot;').replace(/'/g,'&#39;');
@@ -8798,18 +8859,36 @@ function combosRenderBotones(contextId, onClickFn) {
 
     var nombreCombo = (c.nombre||'Combo').toUpperCase().replace(/"/g,'&quot;');
 
-    html += '<button class="combo-card-ventas" ' + (agotado?'disabled':'')
-         + ' onclick="' + onClickFn + '(\'' + c.id + '\')" '
-         + 'style="width:100%;background:linear-gradient(135deg,#FFFFFF,#FFF9E6);border:2px solid #FFD700;border-radius:12px;'
-         + 'padding:0;overflow:hidden;cursor:' + (agotado?'not-allowed':'pointer') + ';opacity:' + (agotado?'0.55':'1') + ';'
-         + 'display:flex;min-height:98px;box-shadow:0 3px 10px rgba(0,0,0,.35),0 0 14px rgba(255,215,0,.22);'
-         + 'font-family:Barlow Condensed,sans-serif;text-align:left;transition:transform .12s">'
+    // Decidir wrapper: button clickeable si cant=0, div si cant>=1 (controles internos)
+    var modoControles = tieneEnCarrito && onRemoveFn;
+    var wrapperStart, wrapperEnd;
+    if (modoControles) {
+      // DIV no clickeable — los controles son elementos internos
+      wrapperStart = '<div class="combo-card-ventas has-qty"'
+                   + ' style="width:100%;background:linear-gradient(135deg,#FFFFFF,#FFF9E6);border:2px solid #1B5E20;border-radius:12px;'
+                   + 'padding:0;overflow:hidden;opacity:1;display:flex;min-height:98px;'
+                   + 'box-shadow:0 3px 10px rgba(0,0,0,.35),0 0 14px rgba(27,94,32,.3);'
+                   + 'font-family:Barlow Condensed,sans-serif;text-align:left;position:relative">';
+      wrapperEnd = '</div>';
+    } else {
+      // BUTTON clickeable — al tocar suma
+      wrapperStart = '<button class="combo-card-ventas" ' + (agotado?'disabled':'')
+                   + ' onclick="' + onClickFn + '(\'' + c.id + '\')" '
+                   + 'style="width:100%;background:linear-gradient(135deg,#FFFFFF,#FFF9E6);border:2px solid #FFD700;border-radius:12px;'
+                   + 'padding:0;overflow:hidden;cursor:' + (agotado?'not-allowed':'pointer') + ';opacity:' + (agotado?'0.55':'1') + ';'
+                   + 'display:flex;min-height:98px;box-shadow:0 3px 10px rgba(0,0,0,.35),0 0 14px rgba(255,215,0,.22);'
+                   + 'font-family:Barlow Condensed,sans-serif;text-align:left;transition:transform .12s">';
+      wrapperEnd = '</button>';
+    }
+
+    html += wrapperStart
 
          // Columna imagen
          +   '<div style="width:88px;min-width:88px;background:linear-gradient(135deg,#FFB74D,#8B4513);position:relative;overflow:hidden;flex-shrink:0">'
          +     imgHtml
          +     '<div style="position:absolute;top:4px;left:4px;background:#8B0000;color:#FFD700;font-size:10px;font-weight:900;padding:2px 6px;border-radius:8px;letter-spacing:.4px;pointer-events:none">-' + descPct + '%</div>'
          +     (agotado ? '<div style="position:absolute;inset:0;background:rgba(0,0,0,.55);color:#fff;display:flex;align-items:center;justify-content:center;font-size:11px;font-weight:900;letter-spacing:1px;pointer-events:none">AGOTADO</div>' : '')
+         +     (modoControles ? '<div style="position:absolute;bottom:4px;left:4px;right:4px;background:#1B5E20;color:#fff;font-size:10px;font-weight:900;padding:3px 4px;border-radius:6px;text-align:center;letter-spacing:.4px;pointer-events:none">✓ EN CARRITO</div>' : '')
          +   '</div>'
 
          // Columna info
@@ -8827,19 +8906,36 @@ function combosRenderBotones(contextId, onClickFn) {
          +         (ahorro > 0 ? '<div style="font-size:10px;color:#999;text-decoration:line-through;line-height:1">' + fmtAR(c.precio_lista) + '</div>' : '')
          +         '<div style="font-size:19px;font-weight:900;color:#8B0000;line-height:1.05">' + fmtAR(c.precio_combo) + '</div>'
          +         (ahorro > 0 ? '<div style="font-size:9.5px;color:#1B5E20;font-weight:700;line-height:1;font-family:Barlow,sans-serif">Ahorrás ' + fmtAR(ahorro) + '</div>' : '')
-         +       '</div>'
-         +       '<div style="flex:1;max-width:115px">'
-         +         '<div style="height:5px;background:#FFE082;border-radius:3px;overflow:hidden">'
-         +           '<div style="width:' + pctVendido + '%;height:100%;background:linear-gradient(90deg,#C62828,#FFD700);border-radius:3px"></div>'
-         +         '</div>'
-         +         '<div style="font-size:9.5px;color:#8B0000;margin-top:3px;font-weight:700;letter-spacing:.2px;text-align:right;font-family:Barlow,sans-serif">'
-         +           (agotado ? 'Agotado' : '⚡ Solo ' + disponiblesVisibles + ' disp.')
-         +         '</div>'
-         +       '</div>'
-         +     '</div>'
+         +       '</div>';
+
+    // Lado derecho: controles +/- si está en carrito, o barra de stock si no
+    if (modoControles) {
+      var maxPorCompra = c.max_por_compra || 2;
+      var llegoAlMax = cantActual >= maxPorCompra;
+      html += '<div style="display:flex;align-items:center;gap:6px;flex-shrink:0">'
+           +   '<button type="button" onclick="event.stopPropagation();' + onRemoveFn + '(\'' + c.id + '\')" '
+           +     'aria-label="Quitar combo" '
+           +     'style="width:34px;height:34px;border-radius:50%;border:2px solid #8B0000;background:#fff;color:#8B0000;font-size:20px;font-weight:900;cursor:pointer;display:flex;align-items:center;justify-content:center;padding:0;line-height:1;font-family:Barlow Condensed,sans-serif">−</button>'
+           +   '<div style="font-size:18px;font-weight:900;color:#1B5E20;min-width:22px;text-align:center;font-family:Barlow Condensed,sans-serif">' + cantActual + '</div>'
+           +   '<button type="button" ' + (llegoAlMax || agotado ? 'disabled' : '') + ' onclick="event.stopPropagation();' + onClickFn + '(\'' + c.id + '\')" '
+           +     'aria-label="Sumar otro combo" '
+           +     'style="width:34px;height:34px;border-radius:50%;border:2px solid #8B0000;background:' + (llegoAlMax||agotado?'#ddd':'#8B0000') + ';color:' + (llegoAlMax||agotado?'#999':'#FFD700') + ';font-size:20px;font-weight:900;cursor:' + (llegoAlMax||agotado?'not-allowed':'pointer') + ';display:flex;align-items:center;justify-content:center;padding:0;line-height:1;font-family:Barlow Condensed,sans-serif">+</button>'
+           + '</div>';
+    } else {
+      html += '<div style="flex:1;max-width:115px">'
+           +   '<div style="height:5px;background:#FFE082;border-radius:3px;overflow:hidden">'
+           +     '<div style="width:' + pctVendido + '%;height:100%;background:linear-gradient(90deg,#C62828,#FFD700);border-radius:3px"></div>'
+           +   '</div>'
+           +   '<div style="font-size:9.5px;color:#8B0000;margin-top:3px;font-weight:700;letter-spacing:.2px;text-align:right;font-family:Barlow,sans-serif">'
+           +     (agotado ? 'Agotado' : '⚡ Solo ' + disponiblesVisibles + ' disp.')
+           +   '</div>'
+           + '</div>';
+    }
+
+    html +=     '</div>'
 
          +   '</div>'
-         + '</button>';
+         + wrapperEnd;
   });
 
   html += '</div></div>';
@@ -15179,7 +15275,7 @@ function tomadorHTML() {
     + '</div>'
     + '<div class="tomador-hdr-total" id="tomador-total">$0</div>'
     + '</div>'
-    + combosRenderBotones('tomador', 'tomadorAgregarCombo')
+    + '<div id="tomador-combos-bloque">' + combosRenderBotones('tomador', 'tomadorAgregarCombo', 'tomadorQuitarCombo', _tomadorCombos) + '</div>'
     + '<div class="tomador-cats" id="tomador-cats">' + cats + '</div>'
     + '<div class="tomador-body" id="tomador-body">' + tomadorRenderProductos('todos') + '</div>'
     + '<div class="tomador-footer">'
@@ -15355,9 +15451,11 @@ function tomadorAgregarCombo(comboId) {
 
   _tomadorCombos[comboId] = cantActual + 1;
 
-  // Re-render todo (items + total)
+  // Re-render todo (items + total + combo bloque)
   var body = document.getElementById('tomador-body');
   if (body) body.innerHTML = tomadorRenderProductos(_tomadorCatActual);
+  var comboBloque = document.getElementById('tomador-combos-bloque');
+  if (comboBloque) comboBloque.innerHTML = combosRenderBotones('tomador', 'tomadorAgregarCombo', 'tomadorQuitarCombo', _tomadorCombos);
   tomadorActualizarTotal();
 
   // Feedback
@@ -15367,6 +15465,35 @@ function tomadorAgregarCombo(comboId) {
   toast.innerHTML = '🔥 ' + (combo.nombre||'Combo') + ' agregado<br><span style="font-size:11px;font-weight:600;opacity:.95">' + prodsStr + '</span>';
   document.body.appendChild(toast);
   setTimeout(function(){ toast.style.transition='opacity .4s'; toast.style.opacity='0'; setTimeout(function(){ toast.remove(); }, 400); }, 2200);
+}
+
+// v9.8.2 — quitar un combo del carrito del tomador
+function tomadorQuitarCombo(comboId) {
+  var cantActual = _tomadorCombos[comboId] || 0;
+  if (cantActual <= 0) return;
+
+  var nuevaCant = cantActual - 1;
+  var resultado = combosQuitarDelTomador(comboId, _tomadorQtys, _tomadorDescuentos, nuevaCant);
+  if (!resultado) return;
+
+  if (nuevaCant === 0) {
+    delete _tomadorCombos[comboId];
+  } else {
+    _tomadorCombos[comboId] = nuevaCant;
+  }
+
+  var body = document.getElementById('tomador-body');
+  if (body) body.innerHTML = tomadorRenderProductos(_tomadorCatActual);
+  var comboBloque = document.getElementById('tomador-combos-bloque');
+  if (comboBloque) comboBloque.innerHTML = combosRenderBotones('tomador', 'tomadorAgregarCombo', 'tomadorQuitarCombo', _tomadorCombos);
+  tomadorActualizarTotal();
+
+  // Toast discreto
+  var toast = document.createElement('div');
+  toast.style.cssText = 'position:fixed;top:70px;left:50%;transform:translateX(-50%);z-index:99999;background:#555;color:#fff;padding:10px 18px;border-radius:10px;font-family:Barlow Condensed,sans-serif;font-weight:700;font-size:13px;box-shadow:0 4px 12px rgba(0,0,0,.3)';
+  toast.textContent = (resultado.nombre || 'Combo') + ' quitado del pedido';
+  document.body.appendChild(toast);
+  setTimeout(function(){ toast.style.transition='opacity .35s'; toast.style.opacity='0'; setTimeout(function(){ toast.remove(); }, 350); }, 1400);
 }
 
 function tomadorCambiarQty(nombre, delta) {
@@ -17204,7 +17331,7 @@ function editarHTML(cliente) {
     '<div class="editar-hdr-total" id="editar-total">$0</div>' +
   '</div>' +
   '<div id="editar-sucursal-bloque"></div>' + // v8.6: bloque de sucursal, se rellena async
-  '<div id="editar-combos-bloque">' + combosRenderBotones('editar', 'editarAgregarCombo') + '</div>' +
+  '<div id="editar-combos-bloque">' + combosRenderBotones('editar', 'editarAgregarCombo', 'editarQuitarCombo', _editarCombos) + '</div>' +
   '<div class="editar-body" id="editar-body"></div>' +
   '<div class="editar-footer">' +
     '<button class="editar-confirmar-btn" id="editar-confirmar-btn" onclick="editarConfirmar()" disabled>Guardar cambios</button>' +
@@ -17322,7 +17449,7 @@ function editarAgregarCombo(comboId) {
 
   // Re-render del bloque combos (para que se actualicen los contadores) y del body
   var comboBloque = document.getElementById('editar-combos-bloque');
-  if (comboBloque) comboBloque.innerHTML = combosRenderBotones('editar', 'editarAgregarCombo');
+  if (comboBloque) comboBloque.innerHTML = combosRenderBotones('editar', 'editarAgregarCombo', 'editarQuitarCombo', _editarCombos);
   editarRenderItems();
   editarActualizarTotal();
 
@@ -17333,6 +17460,33 @@ function editarAgregarCombo(comboId) {
   toast.innerHTML = '🔥 ' + (combo.nombre||'Combo') + ' agregado<br><span style="font-size:11px;font-weight:600;opacity:.95">' + prodsStr + '</span>';
   document.body.appendChild(toast);
   setTimeout(function(){ toast.style.transition='opacity .4s'; toast.style.opacity='0'; setTimeout(function(){ toast.remove(); }, 400); }, 2200);
+}
+
+// v9.8.2 — quitar un combo del carrito al editar
+function editarQuitarCombo(comboId) {
+  var cantActual = _editarCombos[comboId] || 0;
+  if (cantActual <= 0) return;
+
+  var nuevaCant = cantActual - 1;
+  var resultado = combosQuitarDelTomador(comboId, _editarQtys, _editarDescuentos, nuevaCant);
+  if (!resultado) return;
+
+  if (nuevaCant === 0) {
+    delete _editarCombos[comboId];
+  } else {
+    _editarCombos[comboId] = nuevaCant;
+  }
+
+  var comboBloque = document.getElementById('editar-combos-bloque');
+  if (comboBloque) comboBloque.innerHTML = combosRenderBotones('editar', 'editarAgregarCombo', 'editarQuitarCombo', _editarCombos);
+  editarRenderItems();
+  editarActualizarTotal();
+
+  var toast = document.createElement('div');
+  toast.style.cssText = 'position:fixed;top:70px;left:50%;transform:translateX(-50%);z-index:99999;background:#555;color:#fff;padding:10px 18px;border-radius:10px;font-family:Barlow Condensed,sans-serif;font-weight:700;font-size:13px;box-shadow:0 4px 12px rgba(0,0,0,.3)';
+  toast.textContent = (resultado.nombre || 'Combo') + ' quitado del pedido';
+  document.body.appendChild(toast);
+  setTimeout(function(){ toast.style.transition='opacity .35s'; toast.style.opacity='0'; setTimeout(function(){ toast.remove(); }, 350); }, 1400);
 }
 
 function editarQty(btn, delta) {
@@ -17704,7 +17858,7 @@ function manualWAHTML() {
       '<div class="manual-wa-label">📍 Localidad</div>' +
       '<input class="manual-wa-input" id="manual-wa-localidad-input" type="text" placeholder="Ciudad / localidad...">' +
     '</div>' +
-    combosRenderBotones('manualwa', 'manualWAAgregarCombo') +
+    combosRenderBotones('manualwa', 'manualWAAgregarCombo', 'manualWAQuitarCombo', _manualWACombos) +
     prodsHtml +
   '</div>' +
   '<div class="manual-wa-footer">' +
@@ -17920,6 +18074,43 @@ function manualWAAgregarCombo(comboId) {
   toast.innerHTML = '🔥 ' + (combo.nombre||'Combo') + ' agregado<br><span style="font-size:11px;font-weight:600;opacity:.95">' + prodsStr + '</span>';
   document.body.appendChild(toast);
   setTimeout(function(){ toast.style.transition='opacity .4s'; toast.style.opacity='0'; setTimeout(function(){ toast.remove(); }, 400); }, 2200);
+}
+
+// v9.8.2 — quitar un combo del carrito de carga manual WA
+function manualWAQuitarCombo(comboId) {
+  var cantActual = _manualWACombos[comboId] || 0;
+  if (cantActual <= 0) return;
+
+  var nuevaCant = cantActual - 1;
+  var resultado = combosQuitarDelTomador(comboId, _manualWAQtys, _manualWADescuentos, nuevaCant);
+  if (!resultado) return;
+
+  if (nuevaCant === 0) {
+    delete _manualWACombos[comboId];
+  } else {
+    _manualWACombos[comboId] = nuevaCant;
+  }
+
+  // Re-render del modal completo preservando valores
+  var overlay = document.getElementById('manual-wa-overlay');
+  if (overlay) {
+    var nomActual = (document.getElementById('manual-wa-cliente-input')||{}).value || _manualWACliente;
+    var locActual = (document.getElementById('manual-wa-localidad-input')||{}).value || _manualWALocalidad;
+    overlay.innerHTML = manualWAHTML();
+    setTimeout(function() {
+      var ci = document.getElementById('manual-wa-cliente-input');
+      var li = document.getElementById('manual-wa-localidad-input');
+      if (ci) ci.value = nomActual;
+      if (li) li.value = locActual;
+      manualWAQty(Object.keys(_manualWAQtys)[0]||'', 0);
+    }, 50);
+  }
+
+  var toast = document.createElement('div');
+  toast.style.cssText = 'position:fixed;top:70px;left:50%;transform:translateX(-50%);z-index:99999;background:#555;color:#fff;padding:10px 18px;border-radius:10px;font-family:Barlow Condensed,sans-serif;font-weight:700;font-size:13px;box-shadow:0 4px 12px rgba(0,0,0,.3)';
+  toast.textContent = (resultado.nombre || 'Combo') + ' quitado del pedido';
+  document.body.appendChild(toast);
+  setTimeout(function(){ toast.style.transition='opacity .35s'; toast.style.opacity='0'; setTimeout(function(){ toast.remove(); }, 350); }, 1400);
 }
 
 function manualWAQty(nombre, delta) {
