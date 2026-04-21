@@ -3897,6 +3897,183 @@ body {
 .entrega-cobro-label { font-size: 9px; color: rgba(255,255,255,.5); text-transform: uppercase; letter-spacing: .3px; }
 .entrega-cobro-val { font-family: 'Barlow Condensed',sans-serif; font-size: 13px; font-weight: 900; color: #fff; }
 
+/* ═══════════════════════════════════════════════════════════════
+   v8.8 — Banner "Tenés sin rendir" + modal de rendición (chofer)
+   ═══════════════════════════════════════════════════════════════ */
+.banner-rendir-wrap {
+  margin: 0 12px 10px;
+  background: linear-gradient(135deg, #FFF3E0, #FFE0B2);
+  border: 2px solid #EF6C00;
+  border-radius: 12px;
+  padding: 12px 14px;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  box-shadow: 0 2px 8px rgba(239,108,0,.15);
+}
+.banner-rendir-icon { font-size: 26px; flex-shrink: 0; }
+.banner-rendir-info { flex: 1; min-width: 0; }
+.banner-rendir-tit {
+  font-family: 'Barlow Condensed', sans-serif;
+  font-weight: 800; font-size: 13px;
+  color: #E65100; text-transform: uppercase; letter-spacing: .4px;
+  margin-bottom: 1px;
+}
+.banner-rendir-monto {
+  font-family: 'Barlow Condensed', sans-serif;
+  font-weight: 900; font-size: 22px;
+  color: var(--red); line-height: 1;
+}
+.banner-rendir-sub { font-size: 10px; color: #6B3A0E; margin-top: 3px; }
+.banner-rendir-btn {
+  background: linear-gradient(135deg, var(--red), #6B0000);
+  color: #FFD700;
+  border: none;
+  border-radius: 10px;
+  padding: 10px 14px;
+  font-family: 'Barlow Condensed', sans-serif;
+  font-weight: 900; font-size: 13px;
+  cursor: pointer;
+  text-transform: uppercase;
+  letter-spacing: .3px;
+  flex-shrink: 0;
+  white-space: nowrap;
+}
+.banner-rendir-btn:active { transform: scale(.97); }
+
+/* Estado "rindiendo" en card de entrega */
+.entrega-item.rindiendo-item { background: #FFF8DC; border-left: 3px solid #D4A574; }
+.entrega-item.rendida-item { background: #E8F5E9; border-left: 3px solid #2E7D32; opacity: .85; }
+.entrega-estado-badge.rindiendo { background: #FFF3E0; color: #E65100; }
+.entrega-estado-badge.rendida { background: #C8E6C9; color: #1B5E20; }
+
+/* Modal Rendición */
+.rend-modal-overlay {
+  position: fixed; inset: 0; background: rgba(0,0,0,.6);
+  z-index: 850; display: none; align-items: flex-end; justify-content: center;
+}
+.rend-modal-overlay.on { display: flex; }
+.rend-modal-sheet {
+  background: #fff; border-radius: 22px 22px 0 0;
+  width: 100%; max-width: 520px; max-height: 90vh;
+  display: flex; flex-direction: column; overflow: hidden;
+  animation: rendSlide .25s ease;
+}
+@keyframes rendSlide { from { transform: translateY(100%); } to { transform: translateY(0); } }
+.rend-modal-hdr {
+  background: linear-gradient(135deg, var(--red), #6B0000);
+  padding: 14px 18px; flex-shrink: 0;
+  display: flex; justify-content: space-between; align-items: center;
+}
+.rend-modal-hdr-info { flex: 1; min-width: 0; }
+.rend-modal-hdr h3 {
+  font-family: 'Barlow Condensed', sans-serif;
+  font-weight: 900; font-size: 19px; color: #FFD700;
+  margin: 0;
+}
+.rend-modal-hdr-sub { font-size: 11px; color: rgba(255,255,255,.8); margin-top: 2px; }
+.rend-modal-close {
+  background: rgba(255,255,255,.2); border: none; border-radius: 50%;
+  width: 30px; height: 30px; color: #fff; cursor: pointer; font-size: 16px;
+  display: flex; align-items: center; justify-content: center;
+}
+.rend-modal-body { flex: 1; overflow-y: auto; padding: 14px 16px; }
+
+.rend-resumen {
+  background: #FAF4EC;
+  border-radius: 10px; padding: 12px;
+  margin-bottom: 10px;
+}
+.rend-resumen-tit {
+  font-size: 10px; color: #8B6F50;
+  text-transform: uppercase; letter-spacing: .5px; font-weight: 700;
+  margin-bottom: 6px;
+}
+.rend-resumen-grid {
+  display: grid; grid-template-columns: 1fr 1fr; gap: 6px;
+}
+.rend-resumen-cell {
+  background: #fff; border-radius: 8px; padding: 8px; text-align: center;
+}
+.rend-resumen-cell.efectivo { border-top: 3px solid #2E7D32; }
+.rend-resumen-cell.cheque { border-top: 3px solid #1565C0; }
+.rend-resumen-cell-tit { font-size: 9px; color: #8B6F50; text-transform: uppercase; font-weight: 700; }
+.rend-resumen-cell-num {
+  font-family: 'Barlow Condensed', sans-serif;
+  font-weight: 900; font-size: 17px; color: var(--red); margin-top: 2px;
+}
+.rend-resumen-total {
+  text-align: center; margin-top: 8px;
+  font-family: 'Barlow Condensed', sans-serif; font-size: 12px;
+  color: #8B6F50; text-transform: uppercase; letter-spacing: .4px; font-weight: 700;
+}
+.rend-resumen-total b { color: var(--red); font-weight: 900; }
+
+.rend-info-banner {
+  background: #FFF8DC;
+  border-left: 3px solid #D4A574;
+  padding: 8px 10px; border-radius: 6px;
+  font-size: 11px; color: #5C3A1E;
+  margin-bottom: 10px; line-height: 1.4;
+}
+
+.rend-pedido {
+  background: #fff; border: 1.5px solid #E0D2B8;
+  border-radius: 10px; padding: 10px 12px;
+  margin-bottom: 6px;
+  display: flex; align-items: flex-start; gap: 10px;
+  cursor: pointer;
+  transition: opacity .15s;
+}
+.rend-pedido.unselected { opacity: .55; }
+.rend-pedido-check {
+  width: 22px; height: 22px;
+  border: 2px solid #D4A574; border-radius: 6px;
+  flex-shrink: 0; margin-top: 1px;
+  background: #fff; cursor: pointer;
+  display: flex; align-items: center; justify-content: center;
+  font-size: 14px; color: var(--red); font-weight: 900;
+}
+.rend-pedido-check.on { background: var(--red); color: #fff; border-color: var(--red); }
+.rend-pedido-info { flex: 1; min-width: 0; }
+.rend-pedido-cli { font-weight: 700; font-size: 13px; color: var(--text); }
+.rend-pedido-meta { font-size: 11px; color: #8B6F50; margin-top: 2px; }
+.rend-pedido-monto-wrap { text-align: right; flex-shrink: 0; }
+.rend-pedido-monto {
+  font-family: 'Barlow Condensed', sans-serif;
+  font-weight: 800; font-size: 15px; color: var(--red);
+}
+.rend-pedido-forma { font-size: 9px; color: #8B6F50; text-transform: uppercase; margin-top: 1px; }
+.rend-badge-cobro {
+  display: inline-block; padding: 1px 6px; border-radius: 4px;
+  font-size: 9px; font-weight: 800; text-transform: uppercase; letter-spacing: .3px;
+}
+.rend-badge-cobro.efectivo { background: #E8F5E9; color: #2E7D32; }
+.rend-badge-cobro.cheque { background: #E3F2FD; color: #1565C0; }
+
+.rend-modal-footer {
+  background: #FAF4EC; padding: 12px 16px;
+  border-top: 1px solid #E0D2B8; flex-shrink: 0;
+  display: flex; gap: 10px;
+  padding-bottom: calc(12px + env(safe-area-inset-bottom));
+}
+.rend-modal-btn {
+  flex: 1; padding: 12px;
+  border-radius: 10px; border: 1.5px solid transparent;
+  font-family: 'Barlow Condensed', sans-serif;
+  font-weight: 800; font-size: 14px; cursor: pointer;
+  text-transform: uppercase; letter-spacing: .3px;
+}
+.rend-modal-btn.cancelar { background: #fff; color: #5C3A1E; border-color: #E0D2B8; }
+.rend-modal-btn.confirmar { background: linear-gradient(135deg, #1B5E20, #2E7D32); color: #fff; }
+.rend-modal-btn:disabled { opacity: .4; cursor: not-allowed; }
+
+.rend-vacio {
+  text-align: center; padding: 30px 20px;
+  color: #8B6F50; font-size: 13px;
+}
+/* ═══════════════════════════════════════════════════════════════ */
+
 /* ── Cards de ciudad ── */
 .entrega-card {
   background: #fff; border-radius: 14px; margin-bottom: 10px;
@@ -7487,8 +7664,29 @@ body {
       <button onclick="salir()" style="background:#F5F5F5;border:1.5px solid #E0E0E0;border-radius:20px;padding:6px 16px;font-family:'Barlow Condensed',sans-serif;font-size:14px;font-weight:700;color:#666;cursor:pointer;touch-action:manipulation;">← Salir</button>
     </div>
     <div id="entregas-resumen" style="display:none;"></div>
+    <div id="entregas-banner-rendir"></div>
     <div id="entregas-lista">
       <div style="text-align:center;padding:40px 20px;color:var(--text3);font-size:14px;">Cargando entregas...</div>
+    </div>
+  </div>
+
+  <!-- v8.8: Modal de rendición -->
+  <div class="rend-modal-overlay" id="rend-modal" onclick="rendModalCerrarFondo(event)">
+    <div class="rend-modal-sheet" onclick="event.stopPropagation()">
+      <div class="rend-modal-hdr">
+        <div class="rend-modal-hdr-info">
+          <h3>📤 Rendir dinero</h3>
+          <div class="rend-modal-hdr-sub">Confirmá lo que vas a entregar a admin</div>
+        </div>
+        <button class="rend-modal-close" onclick="rendModalCerrar()">✕</button>
+      </div>
+      <div class="rend-modal-body" id="rend-modal-body">
+        <!-- Renderizado por rendModalAbrir -->
+      </div>
+      <div class="rend-modal-footer">
+        <button class="rend-modal-btn cancelar" onclick="rendModalCerrar()">Cancelar</button>
+        <button class="rend-modal-btn confirmar" id="rend-modal-confirmar" onclick="rendEnviar()">📤 Enviar rendición</button>
+      </div>
     </div>
   </div>
 
@@ -8227,6 +8425,296 @@ async function sbFetch(path, options = {}) {
   const text = await resp.text();
   return text ? JSON.parse(text) : null;
 }
+
+// ═══════════════════════════════════════════════════════════════
+// v8.8 — RENDICIÓN DE DINERO (panel chofer)
+// Flujo: chofer junta los pedidos cobrados (efectivo + cheque),
+// los selecciona, envía rendición → Supabase crea registro y
+// marca esas entregas como rendicion_estado='pendiente_confirmacion'.
+// Admin después confirma (sesión 2 de este feature).
+//
+// IMPORTANTE: las transferencias NO entran en la rendición —
+// van directo a la cuenta TCK, el chofer no las trae físicamente.
+// ═══════════════════════════════════════════════════════════════
+
+// ── Helpers Supabase ──────────────────────────────────────────
+async function rendicionCrear(chofer, notaGeneral) {
+  var payload = {
+    chofer: chofer,
+    estado: 'enviada',
+    nota_general: notaGeneral || null
+  };
+  var data = await sbFetch('rendiciones', {
+    method: 'POST',
+    body: JSON.stringify(payload)
+  });
+  return Array.isArray(data) ? data[0] : data;
+}
+
+async function rendicionVincularEntregas(rendicionId, entregaIds) {
+  if (!entregaIds || !entregaIds.length) return null;
+  // PATCH masivo: filtrar por id IN (...) y setear rendicion_id + rendicion_estado
+  var idsCsv = entregaIds.map(function(id) { return '"' + id + '"'; }).join(',');
+  var path = 'entregas?id=in.(' + encodeURIComponent(idsCsv) + ')';
+  var payload = {
+    rendicion_id: rendicionId,
+    rendicion_estado: 'pendiente_confirmacion'
+  };
+  return await sbFetch(path, {
+    method: 'PATCH',
+    body: JSON.stringify(payload),
+    prefer: 'return=minimal'
+  });
+}
+
+// ── Lógica de negocio ─────────────────────────────────────────
+// Entrega es "rendible" si: estado=entregado, forma_cobro NO es transferencia,
+// y todavía no fue rendida (rendicion_id es null o rendicion_estado es null/rechazada)
+function entregaEsRendible(e) {
+  if (e.estado !== 'entregado') return false;
+  // Excluir transferencias puras
+  if (e.forma_cobro === 'transferencia') {
+    // Caso especial: cobro múltiple — verificar si tiene parte en efectivo o cheque
+    if (e.detalle_cobro) {
+      try {
+        var det = JSON.parse(e.detalle_cobro);
+        var ef = parseFloat(det.efectivo) || 0;
+        var ch = parseFloat(det.cheque) || 0;
+        if (ef === 0 && ch === 0) return false;
+      } catch(_) {
+        return false;
+      }
+    } else {
+      return false;
+    }
+  }
+  // No rendida aún
+  if (e.rendicion_estado === 'pendiente_confirmacion' || e.rendicion_estado === 'confirmada') return false;
+  return true;
+}
+
+// Calcula montos de efectivo + cheque de una entrega (puede ser cobro múltiple)
+function entregaMontosFisicos(e) {
+  var m = parseFloat(e.monto) || 0;
+  var mReal = (m < 1000 && m > 0) ? m * 1000 : m;
+  if (e.detalle_cobro) {
+    try {
+      var det = JSON.parse(e.detalle_cobro);
+      return {
+        efectivo: parseFloat(det.efectivo) || 0,
+        cheque:   parseFloat(det.cheque) || 0
+      };
+    } catch(_) {}
+  }
+  if (e.forma_cobro === 'efectivo') return { efectivo: mReal, cheque: 0 };
+  if (e.forma_cobro === 'cheque')   return { efectivo: 0, cheque: mReal };
+  return { efectivo: 0, cheque: 0 };
+}
+
+// ── Render banner "tenés sin rendir" ──────────────────────────
+function rendBannerRender(entregas) {
+  var el = document.getElementById('entregas-banner-rendir');
+  if (!el) return;
+  var rendibles = (entregas || []).filter(entregaEsRendible);
+  if (!rendibles.length) {
+    el.innerHTML = '';
+    return;
+  }
+  var totales = rendibles.reduce(function(acc, e) {
+    var m = entregaMontosFisicos(e);
+    acc.efectivo += m.efectivo;
+    acc.cheque   += m.cheque;
+    return acc;
+  }, { efectivo: 0, cheque: 0 });
+  var total = totales.efectivo + totales.cheque;
+  if (total <= 0) { el.innerHTML = ''; return; }
+  var fmt = function(n) { return '$' + Math.round(n).toLocaleString('es-AR'); };
+  el.innerHTML =
+    '<div class="banner-rendir-wrap">' +
+      '<div class="banner-rendir-icon">💰</div>' +
+      '<div class="banner-rendir-info">' +
+        '<div class="banner-rendir-tit">Tenés sin rendir</div>' +
+        '<div class="banner-rendir-monto">' + fmt(total) + '</div>' +
+        '<div class="banner-rendir-sub">' + rendibles.length + ' pedido' + (rendibles.length!==1?'s':'') + ' · 💵 ' + fmt(totales.efectivo) + ' · 📋 ' + fmt(totales.cheque) + '</div>' +
+      '</div>' +
+      '<button class="banner-rendir-btn" onclick="rendModalAbrir()">📤 Rendir</button>' +
+    '</div>';
+}
+
+// ── Modal de rendición ────────────────────────────────────────
+var _rendSeleccion = {};  // {entregaId: true/false}
+
+function rendModalAbrir() {
+  var rendibles = (_entregasCache || []).filter(entregaEsRendible);
+  if (!rendibles.length) {
+    if (typeof toast === 'function') toast('No hay pedidos para rendir', 'info');
+    return;
+  }
+  // Inicializar selección: todos en true
+  _rendSeleccion = {};
+  rendibles.forEach(function(e) { _rendSeleccion[e.id] = true; });
+  rendModalRender(rendibles);
+  document.getElementById('rend-modal').classList.add('on');
+  document.body.style.overflow = 'hidden';
+}
+
+function rendModalCerrar() {
+  document.getElementById('rend-modal').classList.remove('on');
+  document.body.style.overflow = '';
+  _rendSeleccion = {};
+}
+
+function rendModalCerrarFondo(e) {
+  if (e && e.target.id === 'rend-modal') rendModalCerrar();
+}
+
+function rendModalRender(rendibles) {
+  var body = document.getElementById('rend-modal-body');
+  if (!body) return;
+
+  // Calcular totales con la selección actual
+  var totales = { efectivo: 0, cheque: 0, n: 0 };
+  rendibles.forEach(function(e) {
+    if (!_rendSeleccion[e.id]) return;
+    var m = entregaMontosFisicos(e);
+    totales.efectivo += m.efectivo;
+    totales.cheque   += m.cheque;
+    totales.n++;
+  });
+  var total = totales.efectivo + totales.cheque;
+  var fmt = function(n) { return '$' + Math.round(n).toLocaleString('es-AR'); };
+
+  var html =
+    '<div class="rend-resumen">' +
+      '<div class="rend-resumen-tit">Total a rendir</div>' +
+      '<div class="rend-resumen-grid">' +
+        '<div class="rend-resumen-cell efectivo">' +
+          '<div class="rend-resumen-cell-tit">💵 Efectivo</div>' +
+          '<div class="rend-resumen-cell-num">' + fmt(totales.efectivo) + '</div>' +
+        '</div>' +
+        '<div class="rend-resumen-cell cheque">' +
+          '<div class="rend-resumen-cell-tit">📋 Cheque</div>' +
+          '<div class="rend-resumen-cell-num">' + fmt(totales.cheque) + '</div>' +
+        '</div>' +
+      '</div>' +
+      '<div class="rend-resumen-total">' +
+        totales.n + ' pedido' + (totales.n!==1?'s':'') + ' · TOTAL <b>' + fmt(total) + '</b>' +
+      '</div>' +
+    '</div>' +
+
+    '<div class="rend-info-banner">' +
+      '<b>📋 Recordá:</b> al entregar la plata, llevá también las facturas firmadas (duplicado del cliente).' +
+    '</div>' +
+
+    '<div class="rend-info-banner" style="background:#E3F2FD;border-left-color:#1565C0;color:#0D47A1;">' +
+      '<b>ℹ️ Las transferencias NO aparecen acá</b> — esa plata ya fue a la cuenta TCK.' +
+    '</div>';
+
+  // Lista de pedidos
+  rendibles.forEach(function(e) {
+    var sel = !!_rendSeleccion[e.id];
+    var m = entregaMontosFisicos(e);
+    var monto = m.efectivo + m.cheque;
+    var formaCobro = e.forma_cobro || 'efectivo';
+    var formaLabel, formaCls;
+    if (m.efectivo > 0 && m.cheque > 0) {
+      formaLabel = '💵 + 📋 Múltiple';
+      formaCls   = 'efectivo';
+    } else if (m.cheque > 0) {
+      formaLabel = '📋 Cheque';
+      formaCls   = 'cheque';
+    } else {
+      formaLabel = '💵 Efectivo';
+      formaCls   = 'efectivo';
+    }
+    var cli   = (e.cliente || '—').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+    var ciudad = (e.ciudad || '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+
+    html += '<div class="rend-pedido' + (sel?'':' unselected') + '" onclick="rendToggle(\'' + e.id + '\')">' +
+      '<div class="rend-pedido-check' + (sel?' on':'') + '">' + (sel?'✓':'') + '</div>' +
+      '<div class="rend-pedido-info">' +
+        '<div class="rend-pedido-cli">' + cli + '</div>' +
+        '<div class="rend-pedido-meta">📍 ' + ciudad + ' · <span class="rend-badge-cobro ' + formaCls + '">' + formaLabel + '</span></div>' +
+      '</div>' +
+      '<div class="rend-pedido-monto-wrap">' +
+        '<div class="rend-pedido-monto">' + fmt(monto) + '</div>' +
+      '</div>' +
+    '</div>';
+  });
+
+  body.innerHTML = html;
+
+  // Habilitar/deshabilitar botón confirmar
+  var btn = document.getElementById('rend-modal-confirmar');
+  if (btn) btn.disabled = (totales.n === 0);
+}
+
+function rendToggle(entregaId) {
+  _rendSeleccion[entregaId] = !_rendSeleccion[entregaId];
+  var rendibles = (_entregasCache || []).filter(entregaEsRendible);
+  rendModalRender(rendibles);
+}
+
+async function rendEnviar() {
+  var rendibles = (_entregasCache || []).filter(entregaEsRendible);
+  var seleccionados = rendibles.filter(function(e) { return _rendSeleccion[e.id]; });
+  if (!seleccionados.length) {
+    if (typeof toast === 'function') toast('Seleccioná al menos un pedido', 'err');
+    return;
+  }
+
+  // Confirmación final
+  var totales = seleccionados.reduce(function(acc, e) {
+    var m = entregaMontosFisicos(e);
+    acc.efectivo += m.efectivo;
+    acc.cheque   += m.cheque;
+    return acc;
+  }, { efectivo: 0, cheque: 0 });
+  var total = totales.efectivo + totales.cheque;
+  var fmt = function(n) { return '$' + Math.round(n).toLocaleString('es-AR'); };
+  var msg = '¿Confirmás enviar la rendición?\n\n' +
+    seleccionados.length + ' pedido' + (seleccionados.length!==1?'s':'') + '\n' +
+    '💵 Efectivo: ' + fmt(totales.efectivo) + '\n' +
+    '📋 Cheque: ' + fmt(totales.cheque) + '\n' +
+    'TOTAL: ' + fmt(total) + '\n\n' +
+    'Llevá las facturas firmadas para entregar a admin.';
+  if (!confirm(msg)) return;
+
+  var btn = document.getElementById('rend-modal-confirmar');
+  if (btn) { btn.disabled = true; btn.textContent = '⏳ Enviando...'; }
+
+  try {
+    // 1) Crear rendición
+    var rendicion = await rendicionCrear(vendedorActual);
+    if (!rendicion || !rendicion.id) throw new Error('No se pudo crear la rendición');
+
+    // 2) Vincular entregas
+    var ids = seleccionados.map(function(e) { return e.id; });
+    await rendicionVincularEntregas(rendicion.id, ids);
+
+    // 3) Actualizar cache local
+    _entregasCache.forEach(function(e) {
+      if (ids.indexOf(e.id) >= 0) {
+        e.rendicion_id = rendicion.id;
+        e.rendicion_estado = 'pendiente_confirmacion';
+      }
+    });
+
+    // 4) UI
+    rendModalCerrar();
+    if (typeof toast === 'function') toast('✅ Rendición enviada: ' + fmt(total), 'ok');
+    rendBannerRender(_entregasCache);
+    renderEntregas(_entregasCache);
+    renderResumenChofer(_entregasCache);
+  } catch(e) {
+    console.error('[v8.8] Error enviando rendición:', e);
+    if (typeof toast === 'function') toast('❌ Error al enviar la rendición', 'err');
+    if (btn) { btn.disabled = false; btn.textContent = '📤 Enviar rendición'; }
+  }
+}
+// ═══════════════════════════════════════════════════════════════
+// Fin v8.8 — Rendición chofer
+// ═══════════════════════════════════════════════════════════════
 
 // ═══════════════════════════════════════════════════════════════
 // v8.5 — SUCURSALES DE CLIENTE (cliente_sucursales)
@@ -14602,6 +15090,9 @@ async function asignarPedidosChofer() {
 }
 
 function renderResumenChofer(entregas) {
+  // v8.8: actualizar también banner "tenés sin rendir"
+  if (typeof rendBannerRender === 'function') rendBannerRender(entregas);
+
   const el = document.getElementById('entregas-resumen');
   if (!entregas.length) { el.style.display = 'none'; return; }
 
@@ -14780,10 +15271,20 @@ function renderEntregas(entregas) {
       else if (noEstaba) { estadoCls = 'no-estaba'; estadoTxt = '🚪 No estaba' + (horaStr ? ' · ' + horaStr : ''); }
       else { estadoCls = 'pendiente'; estadoTxt = '⏳ Pendiente'; }
 
+      // v8.8: si está rendida (admin confirmó) o rindiendo (esperando admin), sobreescribir
+      if (entregado && e.rendicion_estado === 'confirmada') {
+        estadoCls = 'rendida'; estadoTxt = '💰 Rendida';
+      } else if (entregado && e.rendicion_estado === 'pendiente_confirmacion') {
+        estadoCls = 'rindiendo'; estadoTxt = '⏳ Rindiendo';
+      }
+
       var itemClass = 'entrega-item';
       if (entregado) itemClass += ' entregado-item';
       if (enCamino) itemClass += ' encamino-item';
       if (noEstaba) itemClass += ' noestaba-item';
+      // v8.8: clases extra para estado rendición
+      if (entregado && e.rendicion_estado === 'pendiente_confirmacion') itemClass += ' rindiendo-item';
+      if (entregado && e.rendicion_estado === 'confirmada')             itemClass += ' rendida-item';
 
       // Botones de acción según estado (nuevo en L-5)
       var accionesHtml = '';
