@@ -15446,14 +15446,23 @@ async function cargarEntregas() {
       '&select=*&order=ciudad.asc'
     );
 
-    // Filtrar: pendientes + en_camino + no_encontrado + entregadas de hoy
+    // v8.9.1 FIX: mostrar todas las entregas relevantes para el chofer
+    // - pendiente / en_camino / no_encontrado → siempre visibles (trabajo a hacer)
+    // - entregado → visible si NO está confirmada por admin (rendicion_estado != 'confirmada')
+    //   Esto incluye:
+    //     · entregadas que el chofer aún no envió a rendir (rendicion_estado=null)
+    //     · entregadas en estado "rindiendo" (esperando admin)
+    //   Las entregadas Y confirmadas por admin se ocultan del panel diario
+    //   (quedan en el tab Rendiciones → Historial 30 días).
+    //
+    // Nota: este filtro reemplaza al anterior que solo mostraba entregadas de HOY,
+    // que escondía pedidos del día anterior si el chofer no había rendido todavía
+    // (típico en viajes largos que vuelven a las horas o al día siguiente).
     if (entregas && entregas.length) {
-      const hoyStr = new Date().toISOString().split('T')[0];
       entregas = entregas.filter(function(e) {
         if (e.estado === 'pendiente' || e.estado === 'en_camino' || e.estado === 'no_encontrado') return true;
-        // Entregadas hoy
-        if (e.estado === 'entregado' && e.fecha_entrega) {
-          return e.fecha_entrega.startsWith(hoyStr);
+        if (e.estado === 'entregado') {
+          return e.rendicion_estado !== 'confirmada';
         }
         return false;
       });
