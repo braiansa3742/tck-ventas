@@ -8744,34 +8744,101 @@ function combosAgregarAlTomador(comboId, qtysMap, descuentosMap) {
   };
 }
 
-// Render de los botones de combo arriba de la grilla de productos
+// Render de los botones de combo arriba de la grilla de productos.
+// v9.8 — rediseño card media: foto + lista de productos + barra de stock.
+// Mantiene la API (contextId, onClickFn) para que los 3 contextos
+// (tomador, manualwa, editar) no necesiten cambios.
 function combosRenderBotones(contextId, onClickFn) {
   // contextId: 'tomador' | 'manualwa' | 'editar' — solo para aria/id
   if (!_combosData || _combosData.length === 0) return '';
 
-  let html = '<div style="padding:12px 14px 10px;background:linear-gradient(180deg,#1a0000,#2d0606);border-bottom:2px solid #FFD700;margin-bottom:8px;position:relative">';
-  html += '<div style="display:flex;align-items:center;justify-content:center;gap:6px;color:#FFD700;font-family:Barlow Condensed,sans-serif;font-weight:900;font-size:14px;letter-spacing:1.5px;margin-bottom:8px">'
-       + '<span style="font-size:16px">🔥</span> OFERTAS <span style="font-size:16px">🔥</span>'
+  var fmtAR = function(n) { return '$' + (n||0).toLocaleString('es-AR'); };
+
+  var html = '<div style="padding:12px 10px 14px;background:linear-gradient(180deg,#1a0000,#2d0606);border-top:3px solid #FFD700;border-bottom:3px solid #FFD700;margin-bottom:10px;box-shadow:0 2px 10px rgba(0,0,0,.35)">';
+  html += '<div style="text-align:center;color:#FFD700;font-family:Barlow Condensed,sans-serif;font-weight:900;font-size:15px;letter-spacing:2.2px;margin-bottom:10px;text-shadow:0 1px 6px rgba(255,215,0,.35)">'
+       + '🔥 OFERTAS 🔥'
        + '</div>';
-  html += '<div style="display:flex;gap:8px;flex-wrap:wrap">';
+  html += '<div style="display:flex;flex-direction:column;gap:10px">';
 
-  _combosData.forEach(c => {
-    const disponibles = (c.stock_total||0) - (c.vendidos||0);
-    const agotado = disponibles <= 0 || !c.activo;
-    const vendidosVisibles = (c.stock_offset||0) + (c.vendidos||0);
-    const disponiblesVisibles = (c.stock_total||0) - vendidosVisibles;
+  _combosData.forEach(function(c) {
+    var disponibles = (c.stock_total||0) - (c.vendidos||0);
+    var agotado = disponibles <= 0 || !c.activo;
+    var vendidosVisibles = (c.stock_offset||0) + (c.vendidos||0);
+    var stockTotal = c.stock_total || 50;
+    var disponiblesVisibles = Math.max(0, stockTotal - vendidosVisibles);
+    var pctVendido = Math.min(100, Math.round((vendidosVisibles / stockTotal) * 100));
+    var ahorro = (c.precio_lista||0) - (c.precio_combo||0);
+    var descPct = c.descuento_pct || 7;
 
-    html += '<button class="combo-btn-ventas" ' + (agotado?'disabled':'') + ' onclick="' + onClickFn + '(\'' + c.id + '\')" '
-         + 'style="flex:1;min-width:140px;background:' + (agotado?'#999':'linear-gradient(135deg,#C62828,#8B0000)') + ';'
-         + 'color:#fff;border:1px solid #FFD700;border-radius:10px;padding:10px 8px;cursor:' + (agotado?'not-allowed':'pointer') + ';'
-         + 'font-family:Barlow Condensed,sans-serif;font-weight:900;letter-spacing:.5px;text-align:left;opacity:' + (agotado?'0.55':'1') + ';'
-         + 'box-shadow:0 2px 6px rgba(0,0,0,0.3);transition:all .15s">'
-         + '<div style="display:flex;align-items:center;gap:5px;margin-bottom:2px">'
-         +   '<span style="font-size:15px">🔥</span>'
-         +   '<span style="font-size:13px;letter-spacing:.8px">' + (c.nombre||'Combo').toUpperCase() + '</span>'
-         + '</div>'
-         + '<div style="font-size:16px;font-weight:900;color:#FFD700">' + '$' + (c.precio_combo||0).toLocaleString('es-AR') + '</div>'
-         + '<div style="font-size:10px;opacity:.85;font-weight:600">' + (agotado?'AGOTADO':(disponiblesVisibles + ' disponibles · -' + (c.descuento_pct||7) + '%')) + '</div>'
+    // Parseo de productos del combo
+    var prods = [];
+    try {
+      prods = typeof c.productos === 'string' ? JSON.parse(c.productos) : (c.productos || []);
+    } catch(e) { prods = []; }
+
+    // Lista de productos en 2 líneas (máx), con bullet
+    var itemsHtml = prods.map(function(p) {
+      var qty = p.qty || 1;
+      var nom = (p.nombre || '').replace(/"/g,'&quot;');
+      return '• ' + qty + 'x ' + nom;
+    }).join('<br>');
+    if (!itemsHtml) itemsHtml = '<span style="opacity:.7">Ver detalle</span>';
+
+    // Imagen con fallback — escapamos onerror para que no rompa el onclick del button padre
+    var imgHtml;
+    if (c.imagen_url) {
+      var urlEsc = (c.imagen_url || '').replace(/"/g,'&quot;').replace(/'/g,'&#39;');
+      imgHtml = '<img src="' + urlEsc + '" alt="" '
+             + 'style="width:100%;height:100%;object-fit:cover;object-position:center 100%;pointer-events:none;display:block" '
+             + 'onerror="this.style.display=\'none\';this.nextElementSibling.style.display=\'flex\'" loading="lazy">'
+             + '<div style="display:none;position:absolute;inset:0;align-items:center;justify-content:center;font-size:32px;pointer-events:none">🔥</div>';
+    } else {
+      imgHtml = '<div style="display:flex;align-items:center;justify-content:center;width:100%;height:100%;font-size:32px;pointer-events:none">🔥</div>';
+    }
+
+    var nombreCombo = (c.nombre||'Combo').toUpperCase().replace(/"/g,'&quot;');
+
+    html += '<button class="combo-card-ventas" ' + (agotado?'disabled':'')
+         + ' onclick="' + onClickFn + '(\'' + c.id + '\')" '
+         + 'style="width:100%;background:linear-gradient(135deg,#FFFFFF,#FFF9E6);border:2px solid #FFD700;border-radius:12px;'
+         + 'padding:0;overflow:hidden;cursor:' + (agotado?'not-allowed':'pointer') + ';opacity:' + (agotado?'0.55':'1') + ';'
+         + 'display:flex;min-height:98px;box-shadow:0 3px 10px rgba(0,0,0,.35),0 0 14px rgba(255,215,0,.22);'
+         + 'font-family:Barlow Condensed,sans-serif;text-align:left;transition:transform .12s">'
+
+         // Columna imagen
+         +   '<div style="width:88px;min-width:88px;background:linear-gradient(135deg,#FFB74D,#8B4513);position:relative;overflow:hidden;flex-shrink:0">'
+         +     imgHtml
+         +     '<div style="position:absolute;top:4px;left:4px;background:#8B0000;color:#FFD700;font-size:10px;font-weight:900;padding:2px 6px;border-radius:8px;letter-spacing:.4px;pointer-events:none">-' + descPct + '%</div>'
+         +     (agotado ? '<div style="position:absolute;inset:0;background:rgba(0,0,0,.55);color:#fff;display:flex;align-items:center;justify-content:center;font-size:11px;font-weight:900;letter-spacing:1px;pointer-events:none">AGOTADO</div>' : '')
+         +   '</div>'
+
+         // Columna info
+         +   '<div style="flex:1;padding:8px 10px 9px;display:flex;flex-direction:column;gap:4px;min-width:0">'
+
+         +     '<div style="display:flex;align-items:center;gap:5px;margin-bottom:1px">'
+         +       '<span style="font-size:13px;pointer-events:none">🔥</span>'
+         +       '<span style="font-size:13px;font-weight:900;color:#8B0000;letter-spacing:.5px;line-height:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">' + nombreCombo + '</span>'
+         +     '</div>'
+
+         +     '<div style="font-size:10.5px;color:#5C3A1E;line-height:1.3;font-weight:500;font-family:Barlow,sans-serif">' + itemsHtml + '</div>'
+
+         +     '<div style="display:flex;align-items:flex-end;gap:8px;justify-content:space-between;margin-top:auto">'
+         +       '<div style="min-width:0">'
+         +         (ahorro > 0 ? '<div style="font-size:10px;color:#999;text-decoration:line-through;line-height:1">' + fmtAR(c.precio_lista) + '</div>' : '')
+         +         '<div style="font-size:19px;font-weight:900;color:#8B0000;line-height:1.05">' + fmtAR(c.precio_combo) + '</div>'
+         +         (ahorro > 0 ? '<div style="font-size:9.5px;color:#1B5E20;font-weight:700;line-height:1;font-family:Barlow,sans-serif">Ahorrás ' + fmtAR(ahorro) + '</div>' : '')
+         +       '</div>'
+         +       '<div style="flex:1;max-width:115px">'
+         +         '<div style="height:5px;background:#FFE082;border-radius:3px;overflow:hidden">'
+         +           '<div style="width:' + pctVendido + '%;height:100%;background:linear-gradient(90deg,#C62828,#FFD700);border-radius:3px"></div>'
+         +         '</div>'
+         +         '<div style="font-size:9.5px;color:#8B0000;margin-top:3px;font-weight:700;letter-spacing:.2px;text-align:right;font-family:Barlow,sans-serif">'
+         +           (agotado ? 'Agotado' : '⚡ Solo ' + disponiblesVisibles + ' disp.')
+         +         '</div>'
+         +       '</div>'
+         +     '</div>'
+
+         +   '</div>'
          + '</button>';
   });
 
