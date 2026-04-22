@@ -15612,6 +15612,29 @@ const TOMADOR_SIN_STOCK_AVISO = new Set(['Nuggets de Pollo Crocante','Ravioles d
 // Alias retro-compatible — TODA la lógica de "sin stock" ahora es solo aviso, NO bloqueo
 const TOMADOR_SIN_STOCK = TOMADOR_SIN_STOCK_AVISO;
 
+// v12 (22/4/2026): productos DEPRECADOS — se filtran completamente del tomador
+// (no aparecen en grilla, no se pueden cargar). Distinto a SIN_STOCK que solo avisa.
+// Aplicar a productos que YA NO se venden más, no a faltantes temporales.
+const TOMADOR_DEPRECADOS = new Set([
+  'Hamburguesa de Arvejas',
+  'Hamburguesa Mexicana',
+  'Hamburguesa 5 Vegetales'
+]);
+
+// Filtrar TOMADOR_CAT una sola vez al cargar — afecta los 3 tomadores
+// (campo, WA, editar) porque todos iteran este array.
+// También se eliminan secciones que queden vacías después del filtro.
+(function _aplicarDeprecadosATomador() {
+  for (var i = TOMADOR_CAT.length - 1; i >= 0; i--) {
+    TOMADOR_CAT[i].items = TOMADOR_CAT[i].items.filter(function(it) {
+      return !TOMADOR_DEPRECADOS.has(it.n);
+    });
+    if (TOMADOR_CAT[i].items.length === 0) {
+      TOMADOR_CAT.splice(i, 1);
+    }
+  }
+})();
+
 var _tomadorQtys       = {}; // { nombreProducto: cantidad }
 var _tomadorCompetencia = {};
 var _tomadorDescuentos  = {}; // { nombreProducto: { pct: 5, motivo: 'volumen' } } // { nombreProducto: { precio, competencia } }
