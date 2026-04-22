@@ -4616,6 +4616,234 @@ body {
 }
 .manual-wa-confirmar-btn:disabled { opacity: .4; }
 
+/* ── v12: contador del carrito en header del tomador WA ── */
+.mwa-cart-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 6px 10px;
+  background: rgba(255,255,255,0.18);
+  border: 1.5px solid rgba(255,255,255,0.35);
+  border-radius: 18px;
+  color: #fff;
+  font-family: 'Barlow Condensed', sans-serif;
+  font-weight: 800;
+  font-size: 14px;
+  cursor: pointer;
+  touch-action: manipulation;
+  opacity: 0.55;
+  transition: all 0.15s ease;
+}
+.mwa-cart-btn.on {
+  opacity: 1;
+  background: linear-gradient(135deg, #FFD700, #D4A574);
+  color: #3a1a00;
+  border-color: #FFD700;
+  box-shadow: 0 2px 8px rgba(212,165,116,0.4);
+}
+.mwa-cart-btn:active { transform: scale(0.95); }
+.mwa-cart-icon { font-size: 16px; }
+.mwa-cart-count { min-width: 18px; text-align: center; }
+
+/* ── v12: modal solo-lectura del detalle del carrito ── */
+.mwa-cart-modal-overlay {
+  position: fixed; inset: 0;
+  background: rgba(0,0,0,0.6);
+  z-index: 99999;
+  display: none;
+  align-items: flex-end;
+  justify-content: center;
+  backdrop-filter: blur(3px);
+}
+.mwa-cart-modal-overlay.on {
+  display: flex;
+  animation: mwaCartFadeIn 0.18s ease-out;
+}
+@keyframes mwaCartFadeIn { from { opacity: 0; } to { opacity: 1; } }
+
+.mwa-cart-modal-box {
+  width: 100%;
+  max-width: 480px;
+  max-height: 85vh;
+  background: #fff;
+  border-radius: 18px 18px 0 0;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  animation: mwaCartSlideUp 0.22s ease-out;
+  padding-bottom: env(safe-area-inset-bottom, 0px);
+}
+@keyframes mwaCartSlideUp {
+  from { transform: translateY(100%); }
+  to   { transform: translateY(0); }
+}
+
+.mwa-cart-modal-hdr {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 14px 18px;
+  background: linear-gradient(135deg, #1B5E20, #2E7D32);
+  color: #fff;
+}
+.mwa-cart-modal-titulo {
+  font-family: 'Barlow Condensed', sans-serif;
+  font-size: 19px;
+  font-weight: 900;
+}
+.mwa-cart-modal-close {
+  background: rgba(255,255,255,0.22);
+  border: none;
+  color: #fff;
+  width: 32px; height: 32px;
+  border-radius: 50%;
+  font-size: 16px;
+  cursor: pointer;
+  touch-action: manipulation;
+}
+.mwa-cart-modal-close:active { background: rgba(255,255,255,0.4); }
+
+.mwa-cart-modal-body {
+  flex: 1;
+  overflow-y: auto;
+  padding: 14px 16px 8px;
+  background: #FAF4EC;
+}
+
+.mwa-cart-sec-titulo {
+  font-family: 'Barlow Condensed', sans-serif;
+  font-size: 13px;
+  font-weight: 800;
+  color: #8B0000;
+  text-transform: uppercase;
+  letter-spacing: 0.8px;
+  margin: 12px 0 8px;
+  padding-bottom: 4px;
+  border-bottom: 1.5px solid #E8DCC0;
+}
+.mwa-cart-sec-titulo:first-child { margin-top: 0; }
+
+.mwa-cart-combo-card {
+  background: #fff;
+  border: 2px solid #FFD700;
+  border-radius: 12px;
+  padding: 10px 12px;
+  margin-bottom: 8px;
+  box-shadow: 0 2px 6px rgba(212,165,116,0.18);
+}
+.mwa-cart-combo-hdr {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 6px;
+}
+.mwa-cart-combo-nombre {
+  font-family: 'Barlow Condensed', sans-serif;
+  font-weight: 900;
+  font-size: 16px;
+  color: #8B0000;
+}
+.mwa-cart-combo-qty {
+  font-family: 'Barlow Condensed', sans-serif;
+  font-weight: 800;
+  font-size: 15px;
+  color: #6B4423;
+  background: #FFF8E1;
+  padding: 2px 10px;
+  border-radius: 10px;
+}
+.mwa-cart-combo-prods {
+  margin: 6px 0;
+  padding-left: 4px;
+}
+.mwa-cart-combo-prod {
+  font-size: 13px;
+  color: #555;
+  padding: 2px 0;
+}
+.mwa-cart-combo-foot {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-top: 8px;
+  padding-top: 8px;
+  border-top: 1px dashed #E8DCC0;
+}
+.mwa-cart-combo-precio {
+  font-family: 'Barlow Condensed', sans-serif;
+  font-weight: 900;
+  font-size: 17px;
+  color: #1B5E20;
+}
+
+.mwa-cart-suelto-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  background: #fff;
+  padding: 10px 12px;
+  border-radius: 10px;
+  margin-bottom: 6px;
+  border: 1px solid #E8DCC0;
+}
+.mwa-cart-suelto-info { flex: 1; min-width: 0; }
+.mwa-cart-suelto-nombre {
+  font-weight: 700;
+  font-size: 14px;
+  color: #333;
+}
+.mwa-cart-suelto-pres {
+  font-size: 11px;
+  color: #888;
+  margin-top: 1px;
+}
+.mwa-cart-suelto-precio {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-family: 'Barlow Condensed', sans-serif;
+  font-weight: 800;
+  font-size: 15px;
+  color: #8B0000;
+  margin-left: 8px;
+}
+
+.mwa-cart-dto-badge {
+  display: inline-block;
+  background: linear-gradient(135deg, #D4A574, #FFD700);
+  color: #3a1a00;
+  font-family: 'Barlow Condensed', sans-serif;
+  font-weight: 900;
+  font-size: 11px;
+  padding: 2px 8px;
+  border-radius: 10px;
+  letter-spacing: 0.3px;
+}
+.mwa-cart-dto-badge.sm { font-size: 10px; padding: 1px 6px; }
+
+.mwa-cart-modal-foot {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 14px 18px;
+  background: #fff;
+  border-top: 2px solid #E8DCC0;
+}
+.mwa-cart-total-label {
+  font-family: 'Barlow Condensed', sans-serif;
+  font-weight: 700;
+  font-size: 14px;
+  color: #555;
+  letter-spacing: 0.5px;
+  text-transform: uppercase;
+}
+.mwa-cart-total-monto {
+  font-family: 'Barlow Condensed', sans-serif;
+  font-weight: 900;
+  font-size: 24px;
+  color: #1B5E20;
+}
+
 
 /* ══════════════════════════════════════════════════════════════
    MODAL DE DUPLICADOS — rediseño pro (estética TCK)
@@ -8981,7 +9209,13 @@ async function combosConsumirStockVentas(combosConsumidos) {
 
 // Agrega los items de un combo a las qty del tomador con descuento aplicado
 // Devuelve objeto con info del combo aplicado o null si no se pudo
-function combosAgregarAlTomador(comboId, qtysMap, descuentosMap) {
+function combosAgregarAlTomador(comboId, qtysMap, descuentosMap, opciones) {
+  // v12: opciones.skipQtys = true → no toca qtysMap, no escribe descuentos.
+  // Lo usa el tomador WA para mantener combos como entidad separada.
+  // El catálogo público y el tomador de campo NO pasan opciones (backward compat).
+  opciones = opciones || {};
+  const skipQtys = !!opciones.skipQtys;
+
   const combo = (_combosData||[]).find(c => c.id === comboId);
   if (!combo) {
     alert('Combo no encontrado. Recargá la página e intentá de nuevo.');
@@ -9030,21 +9264,26 @@ function combosAgregarAlTomador(comboId, qtysMap, descuentosMap) {
     }
 
     const qtyAAgregar = p.qty || 1;
-    qtysMap[itemEncontrado.n] = (qtysMap[itemEncontrado.n] || 0) + qtyAAgregar;
 
-    // Aplicar descuento del combo (7% por defecto) a los items
-    const pct = combo.descuento_pct || 7;
-    if (descuentosMap) {
-      descuentosMap[itemEncontrado.n] = { pct: pct, motivo: 'Combo ' + (combo.nombre||'') };
+    if (!skipQtys) {
+      qtysMap[itemEncontrado.n] = (qtysMap[itemEncontrado.n] || 0) + qtyAAgregar;
+
+      // Aplicar descuento del combo (7% por defecto) a los items
+      const pct = combo.descuento_pct || 7;
+      if (descuentosMap) {
+        descuentosMap[itemEncontrado.n] = { pct: pct, motivo: 'Combo ' + (combo.nombre||'') };
+      }
     }
 
-    productosAgregados.push({ nombre: itemEncontrado.n, qty: qtyAAgregar });
+    productosAgregados.push({ nombre: itemEncontrado.n, qty: qtyAAgregar, precio: p.precio || itemEncontrado.pr });
   }
 
   return {
     comboId: combo.id,
     nombre: combo.nombre,
     descuento_pct: combo.descuento_pct || 7,
+    precio_combo: combo.precio_combo || 0,
+    precio_lista: combo.precio_lista || 0,
     productosAgregados: productosAgregados
   };
 }
@@ -9054,7 +9293,12 @@ function combosAgregarAlTomador(comboId, qtysMap, descuentosMap) {
 // - Si un producto queda en 0, lo borra del map
 // - comboCantRestante: cuántos combos de ESTE id quedarán DESPUÉS de restar
 //   (se pasa desde el llamador). Si queda 0, se quita el descuento.
-function combosQuitarDelTomador(comboId, qtysMap, descuentosMap, comboCantRestante) {
+function combosQuitarDelTomador(comboId, qtysMap, descuentosMap, comboCantRestante, opciones) {
+  // v12: opciones.skipQtys = true → no toca qtysMap ni descuentos.
+  // Lo usa el tomador WA que mantiene combos como entidad separada.
+  opciones = opciones || {};
+  const skipQtys = !!opciones.skipQtys;
+
   var combo = (_combosData||[]).find(function(c){ return c.id === comboId; });
   if (!combo) return null;
 
@@ -9083,17 +9327,20 @@ function combosQuitarDelTomador(comboId, qtysMap, descuentosMap, comboCantRestan
     if (!itemEncontrado) continue;
 
     var qtyAQuitar = p.qty || 1;
-    var actual = qtysMap[itemEncontrado.n] || 0;
-    var nuevo = Math.max(0, actual - qtyAQuitar);
-    if (nuevo === 0) {
-      delete qtysMap[itemEncontrado.n];
-    } else {
-      qtysMap[itemEncontrado.n] = nuevo;
-    }
 
-    // Quitar el descuento solo si no quedan más combos de este id
-    if (comboCantRestante === 0 && descuentosMap) {
-      delete descuentosMap[itemEncontrado.n];
+    if (!skipQtys) {
+      var actual = qtysMap[itemEncontrado.n] || 0;
+      var nuevo = Math.max(0, actual - qtyAQuitar);
+      if (nuevo === 0) {
+        delete qtysMap[itemEncontrado.n];
+      } else {
+        qtysMap[itemEncontrado.n] = nuevo;
+      }
+
+      // Quitar el descuento solo si no quedan más combos de este id
+      if (comboCantRestante === 0 && descuentosMap) {
+        delete descuentosMap[itemEncontrado.n];
+      }
     }
 
     productosQuitados.push({ nombre: itemEncontrado.n, qty: qtyAQuitar });
@@ -18553,6 +18800,11 @@ function manualWAHTML() {
       '<div class="manual-wa-hdr-titulo">📲 Cargar pedido por WA</div>' +
       '<div class="manual-wa-hdr-sub">Cargá el pedido del cliente</div>' +
     '</div>' +
+    // v12: contador del carrito tappable
+    '<button class="mwa-cart-btn" id="mwa-cart-btn" onclick="mwaAbrirDetalleCarrito()" title="Ver detalle del carrito">' +
+      '<span class="mwa-cart-icon">🛒</span>' +
+      '<span class="mwa-cart-count" id="mwa-cart-count">0</span>' +
+    '</button>' +
     '<div class="manual-wa-hdr-total" id="mwa-total">$0</div>' +
   '</div>' +
   '<div class="manual-wa-body">' +
@@ -18630,21 +18882,112 @@ function mwaQuitarDescuento(nombre) {
   mwaActualizarTotal();
 }
 
-function mwaActualizarTotal() {
-  let total = 0;
+// ── v12: calcular desglose completo del carrito (combos + sueltos) ──
+// Devuelve: {
+//   combos:  [{id, nombre, qty, productos: [{nombre, qty, precio}], descuento_pct, precio_combo, subtotal}],
+//   sueltos: [{nombre, qty, precio_unit, precio_final, dto, subtotal, presentacion}],
+//   totalCombos, totalSueltos, total,
+//   itemsCount  (total de unidades visibles para el contador)
+// }
+function mwaCalcularDesglose() {
+  var desglose = { combos: [], sueltos: [], totalCombos: 0, totalSueltos: 0, total: 0, itemsCount: 0 };
+
+  // 1. Combos
+  Object.keys(_manualWACombos || {}).forEach(function(comboId) {
+    var qty = _manualWACombos[comboId];
+    if (!qty || qty <= 0) return;
+    var combo = (_combosData||[]).find(function(c){ return c.id === comboId; });
+    if (!combo) return;
+
+    var productos = [];
+    try {
+      var arr = typeof combo.productos === 'string' ? JSON.parse(combo.productos) : combo.productos;
+      if (Array.isArray(arr)) {
+        var mapCatToVentas = { 'Pollo Optimo': 'Pollo B', 'Pollo Ginosa': 'Pollo A' };
+        productos = arr.map(function(p){
+          return {
+            nombre: mapCatToVentas[p.nombre] || p.nombre,
+            qty: p.qty || 1,
+            precio: p.precio || 0
+          };
+        });
+      }
+    } catch(e) {}
+
+    var precioCombo = combo.precio_combo || 0;
+    var subtotal = precioCombo * qty;
+    desglose.combos.push({
+      id: comboId,
+      nombre: combo.nombre || 'Combo',
+      qty: qty,
+      productos: productos,
+      descuento_pct: combo.descuento_pct || 7,
+      precio_combo: precioCombo,
+      precio_lista: combo.precio_lista || 0,
+      subtotal: subtotal
+    });
+    desglose.totalCombos += subtotal;
+    // Contar items: cada producto del combo × qty del combo
+    productos.forEach(function(p){ desglose.itemsCount += (p.qty || 0) * qty; });
+  });
+
+  // 2. Productos sueltos (los que están en _manualWAQtys)
   Object.keys(_manualWAQtys).forEach(function(nombre) {
-    const qty = _manualWAQtys[nombre];
-    for (var i=0;i<TOMADOR_CAT.length;i++) for (var j=0;j<TOMADOR_CAT[i].items.length;j++) {
-      if (TOMADOR_CAT[i].items[j].n === nombre) {
-        const item = TOMADOR_CAT[i].items[j];
-        const dto  = _manualWADescuentos[nombre];
-        total += Math.round(item.pr * (dto ? 1-dto.pct/100 : 1)) * qty;
-        break;
+    var qty = _manualWAQtys[nombre];
+    if (!qty || qty <= 0) return;
+    var item = null;
+    for (var i = 0; i < TOMADOR_CAT.length && !item; i++) {
+      for (var j = 0; j < TOMADOR_CAT[i].items.length; j++) {
+        if (TOMADOR_CAT[i].items[j].n === nombre) { item = TOMADOR_CAT[i].items[j]; break; }
       }
     }
+    if (!item) return;
+    var dto = _manualWADescuentos[nombre];
+    var precioUnit = item.pr || 0;
+    var precioFinal = dto ? Math.round(precioUnit * (1 - dto.pct/100)) : precioUnit;
+    var subtotal = precioFinal * qty;
+
+    desglose.sueltos.push({
+      nombre: nombre,
+      qty: qty,
+      precio_unit: precioUnit,
+      precio_final: precioFinal,
+      dto: dto || null,
+      subtotal: subtotal,
+      presentacion: item.p || ''
+    });
+    desglose.totalSueltos += subtotal;
+    desglose.itemsCount += qty;
   });
-  const el = document.getElementById('mwa-total');
-  if (el) el.textContent = '$' + Math.round(total).toLocaleString('es-AR');
+
+  desglose.total = desglose.totalCombos + desglose.totalSueltos;
+  return desglose;
+}
+
+function mwaActualizarTotal() {
+  var d = mwaCalcularDesglose();
+  var el = document.getElementById('mwa-total');
+  if (el) el.textContent = '$' + Math.round(d.total).toLocaleString('es-AR');
+
+  // Actualizar contador del carrito (header tappable)
+  var counter = document.getElementById('mwa-cart-count');
+  if (counter) {
+    if (d.itemsCount > 0) {
+      counter.textContent = d.itemsCount;
+      counter.parentElement && counter.parentElement.classList.add('on');
+    } else {
+      counter.textContent = '0';
+      counter.parentElement && counter.parentElement.classList.remove('on');
+    }
+  }
+
+  // Habilitar/deshabilitar botón confirmar
+  var btn = document.getElementById('mwa-confirmar-btn');
+  if (btn) {
+    var hayItems = d.itemsCount > 0;
+    btn.disabled = !hayItems;
+    btn.textContent = hayItems ? 'Confirmar pedido — $' + d.total.toLocaleString('es-AR') : 'Agregar productos';
+  }
 }
 
 function cerrarCargaManualWA() {
@@ -18752,7 +19095,7 @@ function manualWAAgregarCombo(comboId) {
     return;
   }
 
-  var resultado = combosAgregarAlTomador(comboId, _manualWAQtys, _manualWADescuentos);
+  var resultado = combosAgregarAlTomador(comboId, _manualWAQtys, _manualWADescuentos, { skipQtys: true });
   if (!resultado) return;
 
   _manualWACombos[comboId] = cantActual + 1;
@@ -18789,7 +19132,7 @@ function manualWAQuitarCombo(comboId) {
   if (cantActual <= 0) return;
 
   var nuevaCant = cantActual - 1;
-  var resultado = combosQuitarDelTomador(comboId, _manualWAQtys, _manualWADescuentos, nuevaCant);
+  var resultado = combosQuitarDelTomador(comboId, _manualWAQtys, _manualWADescuentos, nuevaCant, { skipQtys: true });
   if (!resultado) return;
 
   if (nuevaCant === 0) {
@@ -18834,24 +19177,91 @@ function manualWAQty(nombre, delta) {
   const itemEl = document.getElementById('mwa-item-' + safeId);
   if (itemEl) itemEl.classList.toggle('tiene', nuevo > 0);
 
-  // Actualizar total
-  let total = 0;
-  Object.keys(_manualWAQtys).forEach(function(n) {
-    const qty = _manualWAQtys[n];
-    for (let i = 0; i < TOMADOR_CAT.length; i++) {
-      for (let j = 0; j < TOMADOR_CAT[i].items.length; j++) {
-        if (TOMADOR_CAT[i].items[j].n === n) { total += TOMADOR_CAT[i].items[j].pr * qty; break; }
-      }
-    }
-  });
-  const totalEl = document.getElementById('mwa-total');
-  if (totalEl) totalEl.textContent = '$' + total.toLocaleString('es-AR');
-  const btn = document.getElementById('mwa-confirmar-btn');
-  if (btn) {
-    const hasProds = Object.keys(_manualWAQtys).length > 0;
-    btn.disabled = !hasProds;
-    btn.textContent = hasProds ? 'Confirmar pedido — $' + total.toLocaleString('es-AR') : 'Agregar productos';
+  // v12: centralizado — calcula combos + sueltos + actualiza header, contador y botón
+  mwaActualizarTotal();
+}
+
+// ── v12: modal solo-lectura del detalle del carrito ──
+function mwaAbrirDetalleCarrito() {
+  var d = mwaCalcularDesglose();
+
+  if (d.itemsCount === 0) {
+    toast('El carrito está vacío', 'info');
+    return;
   }
+
+  var html = '';
+  html += '<div class="mwa-cart-modal-box">';
+  html +=   '<div class="mwa-cart-modal-hdr">';
+  html +=     '<div class="mwa-cart-modal-titulo">🛒 Detalle del pedido</div>';
+  html +=     '<button class="mwa-cart-modal-close" onclick="mwaCerrarDetalleCarrito()">✕</button>';
+  html +=   '</div>';
+  html +=   '<div class="mwa-cart-modal-body">';
+
+  // Combos
+  if (d.combos.length > 0) {
+    html += '<div class="mwa-cart-sec-titulo">🔥 Combos</div>';
+    d.combos.forEach(function(c){
+      html += '<div class="mwa-cart-combo-card">';
+      html +=   '<div class="mwa-cart-combo-hdr">';
+      html +=     '<span class="mwa-cart-combo-nombre">' + c.nombre + '</span>';
+      html +=     '<span class="mwa-cart-combo-qty">× ' + c.qty + '</span>';
+      html +=   '</div>';
+      html +=   '<div class="mwa-cart-combo-prods">';
+      c.productos.forEach(function(p){
+        var totalProd = p.qty * c.qty;
+        html += '<div class="mwa-cart-combo-prod">✓ ' + totalProd + 'x ' + p.nombre + '</div>';
+      });
+      html +=   '</div>';
+      html +=   '<div class="mwa-cart-combo-foot">';
+      html +=     '<span class="mwa-cart-dto-badge">-' + c.descuento_pct + '%</span>';
+      html +=     '<span class="mwa-cart-combo-precio">$' + c.subtotal.toLocaleString('es-AR') + '</span>';
+      html +=   '</div>';
+      html += '</div>';
+    });
+  }
+
+  // Sueltos
+  if (d.sueltos.length > 0) {
+    html += '<div class="mwa-cart-sec-titulo">📦 Productos sueltos</div>';
+    d.sueltos.forEach(function(s){
+      html += '<div class="mwa-cart-suelto-row">';
+      html +=   '<div class="mwa-cart-suelto-info">';
+      html +=     '<div class="mwa-cart-suelto-nombre">' + s.qty + 'x ' + s.nombre + '</div>';
+      if (s.presentacion) html += '<div class="mwa-cart-suelto-pres">' + s.presentacion + '</div>';
+      html +=   '</div>';
+      html +=   '<div class="mwa-cart-suelto-precio">';
+      if (s.dto) {
+        html += '<span class="mwa-cart-dto-badge sm">-' + s.dto.pct + '%</span>';
+      }
+      html +=     '<span>$' + s.subtotal.toLocaleString('es-AR') + '</span>';
+      html +=   '</div>';
+      html += '</div>';
+    });
+  }
+
+  html +=   '</div>'; // body
+  html +=   '<div class="mwa-cart-modal-foot">';
+  html +=     '<div class="mwa-cart-total-label">Total</div>';
+  html +=     '<div class="mwa-cart-total-monto">$' + d.total.toLocaleString('es-AR') + '</div>';
+  html +=   '</div>';
+  html += '</div>';
+
+  var modal = document.getElementById('mwa-cart-modal');
+  if (!modal) {
+    modal = document.createElement('div');
+    modal.id = 'mwa-cart-modal';
+    modal.className = 'mwa-cart-modal-overlay';
+    modal.onclick = function(e){ if (e.target === modal) mwaCerrarDetalleCarrito(); };
+    document.body.appendChild(modal);
+  }
+  modal.innerHTML = html;
+  modal.classList.add('on');
+}
+
+function mwaCerrarDetalleCarrito() {
+  var modal = document.getElementById('mwa-cart-modal');
+  if (modal) modal.classList.remove('on');
 }
 
 function manualWAConfirmar() {
@@ -18861,7 +19271,9 @@ function manualWAConfirmar() {
   const localidad = localidadInp ? localidadInp.value.trim() : '';
 
   if (!cliente) { toast('Ingresá el nombre del cliente', 'err'); return; }
-  if (!Object.keys(_manualWAQtys).length) { toast('Agregá al menos un producto', 'err'); return; }
+  // v12: usar desglose para validar (acepta combos solos sin sueltos)
+  var _dCheck = mwaCalcularDesglose();
+  if (_dCheck.itemsCount === 0) { toast('Agregá al menos un producto', 'err'); return; }
 
   // v8.6: antes del selector de entrega, pedimos sucursal si corresponde.
   // Si el cliente tiene 0, sigue como antes. Si tiene 1, se usa auto.
@@ -18887,28 +19299,35 @@ async function manualWAGuardar(cliente, localidad, entrega, sucursal) {
     + '-' + vendedor.substring(0,3).toUpperCase()
     + '-W' + Math.random().toString(36).substring(2,6).toUpperCase();
 
-  const lineas = [];
-  let total = 0;
-  Object.keys(_manualWAQtys).forEach(function(nombre) {
-    const qty = _manualWAQtys[nombre];
-    for (let i = 0; i < TOMADOR_CAT.length; i++) {
-      for (let j = 0; j < TOMADOR_CAT[i].items.length; j++) {
-        if (TOMADOR_CAT[i].items[j].n === nombre) {
-          const item = TOMADOR_CAT[i].items[j];
-              const dto = _manualWADescuentos[nombre];
-          const precioFinal = dto ? Math.round(item.pr*(1-dto.pct/100)) : item.pr;
-          const sub  = precioFinal * qty;
-          total += sub;
-          lineas.push(qty + 'x ' + nombre + ' (' + item.p + ')' + (dto?'[-'+dto.pct+'%]':'') + ' → $' + sub.toLocaleString('es-AR'));
-          break;
-        }
-      }
-    }
+  // v12: usar desglose centralizado (combos como entidad + sueltos por separado)
+  var d = mwaCalcularDesglose();
+  var lineas = [];
+
+  // 1. Combos (formato esperado por parser Xubio v19):
+  //    🔥 *COMBO X* × N | ✓ Nx Producto | ... | 💰 $XXXX (-N%)
+  d.combos.forEach(function(c){
+    var partes = [];
+    partes.push('🔥 *' + (c.nombre.replace(/^COMBO\s*/i,'').toUpperCase()) + '* × ' + c.qty);
+    c.productos.forEach(function(p){
+      partes.push('✓ ' + p.qty + 'x ' + p.nombre);
+    });
+    partes.push('💰 $' + c.subtotal.toLocaleString('es-AR') + ' (-' + c.descuento_pct + '%)');
+    lineas.push(partes.join(' | '));
   });
+
+  // 2. Productos sueltos (formato WhatsApp esperado por parser):
+  //    Nx Nombre (presentacion)[-N%] → $subtotal
+  d.sueltos.forEach(function(s){
+    var dtoStr = s.dto ? '[-' + s.dto.pct + '%]' : '';
+    var presStr = s.presentacion ? ' (' + s.presentacion + ')' : '';
+    lineas.push(s.qty + 'x ' + s.nombre + presStr + dtoStr + ' → $' + s.subtotal.toLocaleString('es-AR'));
+  });
+
+  var total = d.total;
 
   const dtosWA = Object.keys(_manualWADescuentos);
   const tieneDesWA = dtosWA.length > 0;
-  const dtaNotaWA = dtosWA.map(function(n){ var d=_manualWADescuentos[n]; return n+': -'+d.pct+'% ('+d.motivo+')'; }).join(' | ');
+  const dtaNotaWA = dtosWA.map(function(n){ var dd=_manualWADescuentos[n]; return n+': -'+dd.pct+'% ('+dd.motivo+')'; }).join(' | ');
 
   // v9.2: Marcar combos aplicados en la nota
   const combosAplicadosMWA = Object.keys(_manualWACombos||{}).filter(function(cid){ return _manualWACombos[cid] > 0; });
@@ -18922,6 +19341,9 @@ async function manualWAGuardar(cliente, localidad, entrega, sucursal) {
   }
   const notaFinalMWA = [combosNotaMWA, tieneDesWA ? 'DESCUENTOS: '+dtaNotaWA : ''].filter(Boolean).join(' || ');
 
+  // v12: contar items totales (sumar combos + sueltos) para columna 8 del Sheet
+  var itemsTotales = d.itemsCount;
+
   const params = new URLSearchParams({
     accion:        'guardarPedido',
     pedidoId:      pedidoId,
@@ -18930,6 +19352,7 @@ async function manualWAGuardar(cliente, localidad, entrega, sucursal) {
     localidad:     localidad || 'Sin especificar',
     detalle:       lineas.join(' | '),
     total:         total,
+    itemsTotales:  itemsTotales,
     nota:          notaFinalMWA,
     estado:        tieneDesWA ? 'En revisión' : 'Pendiente',
     origen:        'whatsapp',
@@ -18962,7 +19385,7 @@ async function manualWAGuardar(cliente, localidad, entrega, sucursal) {
     comercio:     '',
     localidad:    localidad || 'Sin especificar',
     total:        total.toString(),
-    items:        Object.values(_manualWAQtys).reduce((a,b)=>a+b,0).toString(),
+    items:        itemsTotales.toString(),
     resumen:      lineas.map(l => l.split(' →')[0]).join(' | '),
     detalle:      lineas.join(' | '),
     estado:       'Pendiente',
