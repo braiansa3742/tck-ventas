@@ -7403,6 +7403,58 @@ body {
   box-shadow: 0 2px 8px rgba(139,0,0,0.3);
 }
 
+/* Modal de fecha del presupuesto (v11) */
+.xubio-fecha-intro {
+  font-size: 13px; color: #555; line-height: 1.5;
+  margin-bottom: 14px;
+}
+.xubio-fecha-btn {
+  width: 100%;
+  background: #fff;
+  border: 2.5px solid #8B0000;
+  border-radius: 14px;
+  padding: 18px 16px;
+  font-family: 'Barlow Condensed', sans-serif;
+  font-size: 20px;
+  font-weight: 900;
+  color: #8B0000;
+  cursor: pointer;
+  touch-action: manipulation;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  min-height: 64px;
+  transition: all 0.15s ease;
+  letter-spacing: 0.3px;
+  position: relative;
+}
+.xubio-fecha-btn:active { transform: scale(0.98); }
+.xubio-fecha-btn .xfb-icono { font-size: 22px; }
+.xubio-fecha-btn.on-elegida {
+  background: linear-gradient(135deg, #FFF8E1, #FFECB3);
+  border-color: #D4A574;
+  color: #6B4423;
+}
+.xubio-fecha-btn .xfb-cambiar {
+  font-size: 11px;
+  font-weight: 700;
+  color: #8B0000;
+  opacity: 0.7;
+  letter-spacing: 0.5px;
+  margin-left: auto;
+}
+.xubio-fecha-input-hidden {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  opacity: 0;
+  cursor: pointer;
+  border: none;
+  font-size: 16px;
+}
+
 /* Modal de productos faltantes */
 .xubio-faltantes-intro {
   font-size: 13px; color: #D84315; line-height: 1.5;
@@ -13339,8 +13391,9 @@ function xubioCrearPresupuesto(pedidoId, fila, id) {
         xubioAbrirModalCalibre(pedidoId, fila, id, data.genericos);
         if (btn) { btn.disabled = false; btn.textContent = '📄 Crear presupuesto'; }
       } else {
-        // Sin genéricos → crear directamente
-        xubioEjecutarCrearPresupuesto(pedidoId, fila, id, null);
+        // Sin genéricos → ir directo al modal de fecha
+        xubioAbrirModalFecha(pedidoId, fila, id, null);
+        if (btn) { btn.disabled = false; btn.textContent = '📄 Crear presupuesto'; }
       }
     })
     .catch(function() {
@@ -13421,11 +13474,12 @@ function xubioCerrarModalCalibre() {
 function xubioConfirmarCalibres(pedidoId, fila, id) {
   var calibres = _xubioCalibresElegidos;
   xubioCerrarModalCalibre();
-  xubioEjecutarCrearPresupuesto(pedidoId, fila, id, calibres);
+  // v11: Después de los calibres, pasar al modal de fecha
+  xubioAbrirModalFecha(pedidoId, fila, id, calibres);
 }
 
 // ── Ejecutar la creación real del presupuesto ─────────────────────
-function xubioEjecutarCrearPresupuesto(pedidoId, fila, id, calibres) {
+function xubioEjecutarCrearPresupuesto(pedidoId, fila, id, calibres, fechaPresupuesto) {
   var sel = _xubioSeleccion[pedidoId];
   if (!sel || !sel.clienteId) { toast('Seleccioná un cliente primero', 'err'); return; }
 
@@ -13439,6 +13493,10 @@ function xubioEjecutarCrearPresupuesto(pedidoId, fila, id, calibres) {
   });
   if (calibres && Object.keys(calibres).length) {
     params.set('calibres', JSON.stringify(calibres));
+  }
+  // v11: fecha del presupuesto (opcional). Si no viene, Apps Script usa hoy.
+  if (fechaPresupuesto) {
+    params.set('fechaPresupuesto', fechaPresupuesto);
   }
 
   fetch(APPS_SCRIPT_URL + '?' + params.toString())
@@ -13477,6 +13535,121 @@ function xubioEjecutarCrearPresupuesto(pedidoId, fila, id, calibres) {
       _xubioActivo = false;
       if (btn) { btn.disabled = false; btn.textContent = '📄 Crear presupuesto'; }
     });
+}
+
+// ── Modal de fecha del presupuesto (v11) ──────────────────────────
+// Un solo botón que por default dice "📅 Hoy (DD/MM/YYYY)".
+// Si el vendedor lo toca, abre el date picker nativo del navegador.
+// Rango permitido: [hoy, hoy+7]. Backward compat: si no se elige nada,
+// se envía sin fechaPresupuesto y el Apps Script usa hoy.
+var _xubioFechaElegida = null; // string YYYY-MM-DD o null = hoy
+
+function _xubioFormatearFechaArgHumana(yyyymmdd) {
+  // Convierte YYYY-MM-DD a DD/MM/YYYY sin pasar por Date (evita TZ issues)
+  if (!yyyymmdd || !/^\d{4}-\d{2}-\d{2}$/.test(yyyymmdd)) return '';
+  var p = yyyymmdd.split('-');
+  return p[2] + '/' + p[1] + '/' + p[0];
+}
+
+function _xubioHoyYYYYMMDD() {
+  var d = new Date();
+  var yyyy = d.getFullYear();
+  var mm = String(d.getMonth() + 1).padStart(2, '0');
+  var dd = String(d.getDate()).padStart(2, '0');
+  return yyyy + '-' + mm + '-' + dd;
+}
+
+function _xubioSumarDiasYYYYMMDD(n) {
+  var d = new Date();
+  d.setDate(d.getDate() + n);
+  var yyyy = d.getFullYear();
+  var mm = String(d.getMonth() + 1).padStart(2, '0');
+  var dd = String(d.getDate()).padStart(2, '0');
+  return yyyy + '-' + mm + '-' + dd;
+}
+
+function xubioAbrirModalFecha(pedidoId, fila, id, calibres) {
+  _xubioFechaElegida = null; // Reset al default = hoy
+
+  var hoyISO = _xubioHoyYYYYMMDD();
+  var maxISO = _xubioSumarDiasYYYYMMDD(7);
+  var hoyHumana = _xubioFormatearFechaArgHumana(hoyISO);
+
+  var modal = document.getElementById('modal-xubio-fecha');
+  if (!modal) {
+    modal = document.createElement('div');
+    modal.id = 'modal-xubio-fecha';
+    modal.className = 'modal-overlay';
+    document.body.appendChild(modal);
+  }
+  // Guardamos los args en data-* para que el botón Confirmar los pueda leer
+  var calibresJSON = calibres ? JSON.stringify(calibres) : '';
+
+  var html = '';
+  html += '<div class="modal-box">';
+  html +=   '<div class="modal-hdr">';
+  html +=     '<div class="modal-title">📅 Fecha del presupuesto</div>';
+  html +=     '<button class="modal-close" onclick="xubioCerrarModalFecha()">✕</button>';
+  html +=   '</div>';
+  html +=   '<div class="modal-body">';
+  html +=     '<div class="xubio-fecha-intro">Tocá el botón para elegir otra fecha si el presupuesto no es para hoy.</div>';
+  html +=     '<button type="button" class="xubio-fecha-btn" id="xubio-fecha-btn-label">';
+  html +=       '<span class="xfb-icono">📅</span>';
+  html +=       '<span id="xubio-fecha-btn-texto">Hoy (' + hoyHumana + ')</span>';
+  html +=       '<input type="date" id="xubio-fecha-picker" class="xubio-fecha-input-hidden" ';
+  html +=         'min="' + hoyISO + '" max="' + maxISO + '" value="' + hoyISO + '" ';
+  html +=         'onchange="xubioCambiarFechaPicker(this.value)">';
+  html +=     '</button>';
+  html +=   '</div>';
+  html +=   '<div class="modal-footer">';
+  html +=     '<button class="btn-secondary" onclick="xubioCerrarModalFecha()">Cancelar</button>';
+  html +=     '<button class="btn-primary" id="btn-xubio-fecha-ok" ';
+  html +=       'data-pedido="' + pedidoId + '" data-fila="' + fila + '" data-id="' + id + '" ';
+  html +=       'data-calibres="' + encodeURIComponent(calibresJSON) + '" ';
+  html +=       'onclick="xubioConfirmarFecha(this)">✅ Confirmar y crear</button>';
+  html +=   '</div>';
+  html += '</div>';
+
+  modal.innerHTML = html;
+  modal.classList.add('on');
+}
+
+function xubioCambiarFechaPicker(nuevaFechaISO) {
+  if (!nuevaFechaISO) return;
+  var hoyISO = _xubioHoyYYYYMMDD();
+  var btn = document.querySelector('#modal-xubio-fecha .xubio-fecha-btn');
+  var texto = document.getElementById('xubio-fecha-btn-texto');
+
+  if (nuevaFechaISO === hoyISO) {
+    // Volvió a hoy
+    _xubioFechaElegida = null;
+    if (btn) btn.classList.remove('on-elegida');
+    if (texto) texto.textContent = 'Hoy (' + _xubioFormatearFechaArgHumana(hoyISO) + ')';
+  } else {
+    _xubioFechaElegida = nuevaFechaISO;
+    if (btn) btn.classList.add('on-elegida');
+    if (texto) texto.textContent = _xubioFormatearFechaArgHumana(nuevaFechaISO);
+  }
+}
+
+function xubioCerrarModalFecha() {
+  var modal = document.getElementById('modal-xubio-fecha');
+  if (modal) modal.classList.remove('on');
+  _xubioFechaElegida = null;
+}
+
+function xubioConfirmarFecha(btnEl) {
+  var pedidoId = btnEl.getAttribute('data-pedido');
+  var fila = parseInt(btnEl.getAttribute('data-fila'));
+  var id = btnEl.getAttribute('data-id');
+  var calibresEnc = btnEl.getAttribute('data-calibres') || '';
+  var calibres = null;
+  if (calibresEnc) {
+    try { calibres = JSON.parse(decodeURIComponent(calibresEnc)); } catch(e) { calibres = null; }
+  }
+  var fechaElegida = _xubioFechaElegida; // puede ser null = hoy
+  xubioCerrarModalFecha();
+  xubioEjecutarCrearPresupuesto(pedidoId, fila, id, calibres, fechaElegida);
 }
 
 // ── Modal de productos sin mapear ─────────────────────────────────
