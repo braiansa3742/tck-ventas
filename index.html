@@ -7251,6 +7251,176 @@ body {
 .mr-opC-card.v82-var-C .v82-hist-toggle,
 .mr-opC-card.v82-var-C .v82-hist-panel { display: none !important; }
 
+/* ═══════════════════════════════════════════════════════════════
+   v10 — XUBIO PRESUPUESTOS
+   ═══════════════════════════════════════════════════════════════ */
+
+/* Panel verde cuando ya tiene presupuesto */
+.xubio-panel-done { border-color: #2E7D32; background: #F1F8E9; }
+.xubio-panel-done .xubio-panel-titulo { color: #1B5E20; }
+.xubio-done-card {
+  display: flex; align-items: center; justify-content: space-between;
+  gap: 12px; padding: 14px; background: #fff; border-radius: 12px;
+  border: 1.5px solid #AED581; margin-top: 8px;
+}
+.xubio-done-info { flex: 1; min-width: 0; }
+.xubio-done-num {
+  font-family: 'Barlow Condensed', sans-serif;
+  font-size: 19px; font-weight: 900; color: #1B5E20;
+}
+.xubio-done-meta {
+  font-size: 12px; color: #558B2F; margin-top: 3px;
+}
+.xubio-done-link {
+  background: #2E7D32; color: #fff; text-decoration: none;
+  padding: 10px 14px; border-radius: 10px;
+  font-family: 'Barlow Condensed', sans-serif;
+  font-size: 13px; font-weight: 800;
+  white-space: nowrap; flex-shrink: 0;
+}
+.xubio-done-link:active { opacity: 0.85; }
+.xubio-done-warning {
+  margin-top: 10px; padding: 9px 12px;
+  background: #FFF8E1; border-left: 3px solid #F57F17;
+  border-radius: 6px;
+  font-size: 11.5px; color: #6D4C00; line-height: 1.45;
+}
+
+/* Intro arriba del panel */
+.xubio-panel-intro {
+  font-size: 12px; color: #8B6F50; line-height: 1.5;
+  margin: 0 0 10px 0;
+}
+
+/* Overlay de modales (reutilizable) */
+.modal-overlay {
+  position: fixed; inset: 0;
+  background: rgba(0,0,0,0.55);
+  z-index: 9998;
+  display: none;
+  align-items: center; justify-content: center;
+  padding: 16px;
+  backdrop-filter: blur(2px);
+}
+.modal-overlay.on { display: flex; }
+.modal-overlay .modal-box {
+  background: #fff; border-radius: 16px;
+  width: 100%; max-width: 440px;
+  max-height: calc(100vh - 32px);
+  overflow: hidden;
+  display: flex; flex-direction: column;
+  box-shadow: 0 20px 60px rgba(0,0,0,0.25);
+  animation: modalIn 0.18s ease-out;
+}
+@keyframes modalIn {
+  from { opacity: 0; transform: translateY(12px) scale(0.98); }
+  to   { opacity: 1; transform: translateY(0)    scale(1);    }
+}
+.modal-hdr {
+  display: flex; align-items: center; justify-content: space-between;
+  padding: 14px 18px; border-bottom: 1.5px solid #FAF4EC;
+  background: #8B0000; color: #fff;
+}
+.modal-title {
+  font-family: 'Barlow Condensed', sans-serif;
+  font-size: 19px; font-weight: 900;
+}
+.modal-close {
+  background: rgba(255,255,255,0.2); border: none; color: #fff;
+  width: 30px; height: 30px; border-radius: 50%;
+  font-size: 15px; cursor: pointer;
+  display: flex; align-items: center; justify-content: center;
+  touch-action: manipulation;
+}
+.modal-close:active { background: rgba(255,255,255,0.35); }
+.modal-body {
+  padding: 16px 18px;
+  overflow-y: auto;
+  flex: 1;
+}
+.modal-footer {
+  padding: 12px 18px; border-top: 1.5px solid #FAF4EC;
+  display: flex; gap: 10px; justify-content: flex-end;
+  background: #FAF4EC;
+}
+.modal-footer .btn-primary {
+  background: linear-gradient(135deg, #8B0000, #A52020);
+  color: #fff; border: none; border-radius: 10px;
+  padding: 11px 22px;
+  font-family: 'Barlow Condensed', sans-serif;
+  font-size: 15px; font-weight: 900; letter-spacing: 0.3px;
+  cursor: pointer; touch-action: manipulation;
+  min-height: 42px;
+}
+.modal-footer .btn-primary:active { opacity: 0.85; }
+.modal-footer .btn-primary:disabled {
+  background: #BDBDBD; cursor: not-allowed; opacity: 0.7;
+}
+.modal-footer .btn-secondary {
+  background: #fff; color: #666; border: 1.5px solid #D0D0D0;
+  border-radius: 10px; padding: 11px 18px;
+  font-family: 'Barlow Condensed', sans-serif;
+  font-size: 14px; font-weight: 700;
+  cursor: pointer; touch-action: manipulation;
+  min-height: 42px;
+}
+
+/* Modal de calibre */
+.xubio-calibre-intro {
+  font-size: 13px; color: #666; line-height: 1.5;
+  margin-bottom: 14px;
+  padding: 10px 12px; background: #FFF8E1; border-radius: 8px;
+}
+.xubio-calibre-grupo {
+  margin-bottom: 16px;
+  padding-bottom: 14px;
+  border-bottom: 1px dashed #E5D5B8;
+}
+.xubio-calibre-grupo:last-child {
+  border-bottom: none; margin-bottom: 0; padding-bottom: 0;
+}
+.xubio-calibre-label {
+  font-size: 13px; color: #333; margin-bottom: 10px;
+}
+.xubio-calibre-label strong { color: #8B0000; }
+.xubio-calibre-opciones {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(110px, 1fr));
+  gap: 8px;
+}
+.xubio-calibre-opt {
+  background: #fff; border: 2px solid #E0E0E0;
+  border-radius: 10px; padding: 10px 8px;
+  font-family: 'Barlow Condensed', sans-serif;
+  font-size: 14px; font-weight: 700; color: #555;
+  cursor: pointer; touch-action: manipulation;
+  transition: all 0.12s ease;
+  text-align: center;
+}
+.xubio-calibre-opt:active { transform: scale(0.97); }
+.xubio-calibre-opt.on {
+  background: #8B0000; color: #fff; border-color: #8B0000;
+  box-shadow: 0 2px 8px rgba(139,0,0,0.3);
+}
+
+/* Modal de productos faltantes */
+.xubio-faltantes-intro {
+  font-size: 13px; color: #D84315; line-height: 1.5;
+  margin-bottom: 12px;
+  padding: 10px 12px; background: #FFEBEE; border-left: 3px solid #C62828; border-radius: 6px;
+}
+.xubio-faltantes-lista {
+  margin: 0 0 14px 0; padding-left: 22px;
+}
+.xubio-faltantes-lista li {
+  font-size: 14px; font-weight: 600; color: #333;
+  padding: 4px 0;
+}
+.xubio-faltantes-info {
+  font-size: 12px; color: #8B6F50; line-height: 1.5;
+  padding: 10px 12px; background: #FFF8E1; border-radius: 6px;
+}
+
 </style>
 </head>
 <body>
@@ -10245,6 +10415,10 @@ async function cargarPedidos(silencioso, _reintentos) {
         turnoEntrega:   limpiar(cols[12]) || '',
         origen:         limpiar(cols[13]) || '',   // v8.4.1: leer origen del Sheet
         telefono:       limpiar(cols[14]) || '',   // v8.4.1: leer telefono/nota del Sheet
+        // v10: columnas Xubio (presupuesto)
+        xubioNroPresupuesto: limpiar(cols[15]) || '',
+        xubioTransaccionid:  limpiar(cols[16]) || '',
+        xubioEstado:         limpiar(cols[17]) || '',
         fila:           i + 1
       });
     }
@@ -10611,6 +10785,9 @@ function renderCard(p) {
   var esAdmin = vendedorActual === 'ADMIN';
   var claseCard = p.tipoDuplicado === 'exacto' ? ' dup-exacto' : p.esDuplicado ? ' dup-parcial' : '';
 
+  // v10: si el pedido tiene presupuesto Xubio creado, se bloquean las acciones (no se puede editar ni cancelar)
+  var tienePresupuesto = !!p.xubioNroPresupuesto;
+
   var dupAlert = '';
   if (p.tipoDuplicado === 'exacto') {
     dupAlert = '<div class="dup-alert-exacto">' +
@@ -10626,26 +10803,32 @@ function renderCard(p) {
 
   var btns = '';
   var esChofer = vendedorActual === 'Joan' || vendedorActual === 'Luis';
-  if (p.estado !== 'Confirmado') btns += '<button class="btn-estado btn-confirmar" onclick="cambiarEstado(\'' + p.pedidoId + '\',' + p.fila + ',\'Confirmado\',event)">✅ Ya remití en Xubio</button>';
+
+  // v10: El botón "Ya remití en Xubio" (marcar manualmente como Confirmado) se eliminó.
+  // El único camino al estado Confirmado es crear un presupuesto desde el panel Xubio.
+
   // Entregado solo lo puede marcar el Admin (los choferes lo marcan desde su panel)
   if (esAdmin && p.estado !== 'Entregado') btns += '<button class="btn-estado btn-entregar" onclick="cambiarEstado(\'' + p.pedidoId + '\',' + p.fila + ',\'Entregado\',event)">📦 Entregado</button>';
   if (esAdmin && p.estado !== 'Pendiente') btns += '<button class="btn-estado btn-pendiente-again" onclick="cambiarEstado(\'' + p.pedidoId + '\',' + p.fila + ',\'Pendiente\',event)">⏳ Pendiente</button>';
+  // v10: Admin puede cancelar SIEMPRE, incluso si tiene presupuesto (porque él sabe cómo gestionarlo en Xubio).
+  // El vendedor común ya NO ve Cancelar si hay presupuesto (se oculta más abajo).
   if (esAdmin && p.estado !== 'Cancelado') btns += '<button class="btn-estado btn-cancelar" onclick="confirmarCancelar(\'' + p.pedidoId + '\',' + p.fila + ',event)">❌ Cancelar</button>';
+
   // Editar pedido — vendedor puede sumar productos a pedido pendiente o confirmado
-  if (!esAdmin && !esChofer && (p.estado === 'Pendiente' || p.estado === 'Confirmado')) {
+  // v10: bloqueado si tiene presupuesto Xubio
+  if (!esAdmin && !esChofer && !tienePresupuesto && (p.estado === 'Pendiente' || p.estado === 'Confirmado')) {
     btns += '<button class="btn-estado" style="background:#FFF8E1;color:#E65100;border-color:#E65100;" data-pid="' + p.pedidoId + '" data-cliente="' + (p.cliente||'').replace(/"/g,'') + '" data-detalle="' + encodeURIComponent(p.detalle||'') + '" onclick="editarPedidoBtn(this,event)">✏️ Editar pedido</button>';
   }
 
   // v8.7: botón "Tiene sucursales" para vendedores cuando el pedido es duplicado.
-  // Abre el modal de gestión v8.5 para registrar las sucursales del cliente.
-  // Una vez registradas, la próxima vez que tome pedido para este cliente
-  // el tomador le preguntará cuál, y el detector dejará de marcar duplicados.
-  if (!esAdmin && !esChofer && p.esDuplicado) {
+  // v10: bloqueado si tiene presupuesto Xubio (ya no tiene sentido cambiar sucursal después)
+  if (!esAdmin && !esChofer && p.esDuplicado && !tienePresupuesto) {
     btns += '<button class="btn-estado" style="background:#FFF8DC;color:#8B6F50;border-color:#D4A574;" onclick="event.stopPropagation();sucModalAbrir(\'' + (p.cliente||'').replace(/'/g,"\\'").replace(/"/g,'&quot;') + '\')">⛔ Tiene sucursales</button>';
   }
 
   // Definir/cambiar fecha de entrega — todos los vendedores (no choferes)
-  if (!esChofer && (p.estado === 'Pendiente' || p.estado === 'Confirmado')) {
+  // v10: bloqueado si tiene presupuesto Xubio (la fecha se define antes de presupuestar)
+  if (!esChofer && !tienePresupuesto && (p.estado === 'Pendiente' || p.estado === 'Confirmado')) {
     // Solo mostrar fecha si es una fecha real (ej: "Lunes 14 de abril"), no el origen del pedido
     var esFechaReal = p.fechaEntrega && /^(Lunes|Martes|Mi|Jueves|Viernes|S|Domingo)/i.test(p.fechaEntrega);
     var entregaLabel = esFechaReal
@@ -12808,14 +12991,30 @@ function renderInactivos_rep() {
 
 // ── XUBIO INTEGRATION ─────────────────────────────────────────────
 // Cambiar a true cuando estén las credenciales configuradas en Apps Script
-var XUBIO_HABILITADO = false;
+var XUBIO_HABILITADO = true;  // v10: Presupuestos activos
 var _xubioActivo   = false;  // pausa el auto-refresh cuando Xubio está en uso
 
 // Estado por pedido: { clienteId, clienteNombre, productoId, productoNombre }
 var _xubioSeleccion = {};
 
 // ── buildXubioPanel: genera el HTML del panel dentro de cada card ──
+// v10: Creación de PRESUPUESTOS en Xubio (antes: remitos)
 function buildXubioPanel(p, id) {
+  // Si el pedido ya tiene presupuesto Xubio creado, mostrar card de estado
+  if (p.xubioNroPresupuesto) {
+    return '<div class="xubio-panel xubio-panel-done">'
+      + '<div class="xubio-panel-titulo">✅ Presupuesto creado en Xubio</div>'
+      + '<div class="xubio-done-card">'
+      +   '<div class="xubio-done-info">'
+      +     '<div class="xubio-done-num">Presupuesto N° ' + p.xubioNroPresupuesto + '</div>'
+      +     '<div class="xubio-done-meta">El admin lo convertirá en remito desde Xubio.</div>'
+      +   '</div>'
+      +   '<a href="https://xubio.com/NXV/ventas/presupuestos" target="_blank" class="xubio-done-link">Ver en Xubio →</a>'
+      + '</div>'
+      + '<div class="xubio-done-warning">⚠️ Este pedido ya no se puede editar ni cancelar. Si hace falta algún cambio, avisale al admin.</div>'
+      + '</div>';
+  }
+
   if (!XUBIO_HABILITADO) {
     // Modo "próximamente" — muestra el campo de remito manual como siempre
     return '<div class="xubio-panel">'
@@ -12831,7 +13030,7 @@ function buildXubioPanel(p, id) {
       + '</div>';
   }
 
-  // Modo habilitado — buscador completo
+  // Modo habilitado — buscador completo para crear PRESUPUESTO
   var clienteSel = _xubioSeleccion[p.pedidoId];
   var clienteSelHtml = clienteSel
     ? '<div class="xubio-cliente-sel on" id="xubio-sel-' + id + '">'
@@ -12841,8 +13040,12 @@ function buildXubioPanel(p, id) {
     + '</div>'
     : '<div class="xubio-cliente-sel" id="xubio-sel-' + id + '"></div>';
 
+  // Botón habilitado solo si hay cliente seleccionado
+  var btnDisabled = clienteSel ? '' : 'disabled';
+
   return '<div class="xubio-panel">'
-    + '<div class="xubio-panel-titulo">🔗 Remitir en Xubio</div>'
+    + '<div class="xubio-panel-titulo">📄 Crear presupuesto en Xubio</div>'
+    + '<div class="xubio-panel-intro">Una vez creado el presupuesto, el pedido queda <strong>confirmado</strong> y el admin lo remitirá en Xubio.</div>'
 
     // Cliente vinculado (si existe)
     + clienteSelHtml
@@ -12858,16 +13061,10 @@ function buildXubioPanel(p, id) {
     +   '<div class="xubio-dropdown" id="xubio-drop-' + id + '"></div>'
     + '</div>'
 
-    // Selector de variantes (visible después de elegir cliente, si el producto tiene calibres)
-    + '<div class="xubio-variantes" id="xubio-vars-' + id + '" style="display:none;">'
-    +   '<div class="xubio-variantes-titulo">Seleccioná el calibre / presentación:</div>'
-    +   '<div class="xubio-variantes-lista" id="xubio-vars-lista-' + id + '"></div>'
-    + '</div>'
-
-    // Botón remitir
-    + '<button class="btn-remitir" id="xubio-btn-' + id + '" disabled'
-    +   ' onclick="xubioRemitir(\'' + p.pedidoId + '\',' + p.fila + ',\'' + id + '\')">'
-    +   '🚚 Remitir en Xubio'
+    // Botón crear presupuesto
+    + '<button class="btn-remitir" id="xubio-btn-' + id + '" ' + btnDisabled
+    +   ' onclick="xubioCrearPresupuesto(\'' + p.pedidoId + '\',' + p.fila + ',\'' + id + '\')">'
+    +   '📄 Crear presupuesto'
     + '</button>'
     + '</div>';
 }
@@ -12981,9 +13178,9 @@ function xubioSeleccionarCliente(pedidoId, id, cliente) {
     sel.classList.add('on');
   }
 
-  // Cargar variantes del primer producto del pedido
-  var pedido = todosLosPedidos.find(function(x) { return x.pedidoId === pedidoId; });
-  if (pedido) xubioCargarVariantes(pedido, id);
+  // v10: habilitar botón "Crear presupuesto" directamente. Los calibres se piden en modal al tocar el botón.
+  var btn = document.getElementById('xubio-btn-' + id);
+  if (btn) btn.disabled = false;
 }
 
 // ── Limpiar cliente ───────────────────────────────────────────────
@@ -13117,60 +13314,202 @@ function xubioSeleccionarVariante(pedidoId, id, idx, prodId, prodNombre) {
 }
 
 // ── Ejecutar remito ───────────────────────────────────────────────
-function xubioRemitir(pedidoId, fila, id) {
+// ── Crear presupuesto en Xubio (v10) ──────────────────────────────
+// Antes de crear, chequea si el pedido tiene Pollo A/B genéricos
+// que requieren selección de calibre → abre modal.
+function xubioCrearPresupuesto(pedidoId, fila, id) {
   var sel = _xubioSeleccion[pedidoId];
   if (!sel || !sel.clienteId) { toast('Seleccioná un cliente primero', 'err'); return; }
 
   var btn = document.getElementById('xubio-btn-' + id);
-  if (btn) { btn.disabled = true; btn.textContent = 'Remitiendo...'; }
+  if (btn) { btn.disabled = true; btn.textContent = 'Verificando...'; }
 
-  // Armar items desde el detalle del pedido
-  var pedido = todosLosPedidos.find(function(x) { return x.pedidoId === pedidoId; });
-  var prods  = pedido ? parseProds(pedido.detalle) : [];
+  // Paso 1: detectar si el pedido tiene Pollo A/B genérico que requiere calibre
+  fetch(APPS_SCRIPT_URL + '?accion=detectarCalibres&pedidoId=' + encodeURIComponent(pedidoId))
+    .then(function(r) { return r.json(); })
+    .then(function(data) {
+      if (data.status !== 'ok') {
+        toast('Error: ' + (data.message || 'No se pudo verificar el pedido'), 'err');
+        if (btn) { btn.disabled = false; btn.textContent = '📄 Crear presupuesto'; }
+        return;
+      }
 
-  // Para el primer producto usamos el seleccionado (con variante si aplica)
-  var items = prods.map(function(pr, i) {
-    return {
-      xubioProductoId:     i === 0 && sel.productoId ? sel.productoId : '',
-      xubioProductoNombre: i === 0 && sel.productoNombre ? sel.productoNombre : pr.name,
-      cantidad:            pr.qty,
-      precio:              0  // Xubio lo toma de su lista de precios
-    };
+      if (data.necesitaModal && data.genericos && data.genericos.length) {
+        // Abrir modal de selección de calibres
+        xubioAbrirModalCalibre(pedidoId, fila, id, data.genericos);
+        if (btn) { btn.disabled = false; btn.textContent = '📄 Crear presupuesto'; }
+      } else {
+        // Sin genéricos → crear directamente
+        xubioEjecutarCrearPresupuesto(pedidoId, fila, id, null);
+      }
+    })
+    .catch(function() {
+      toast('Error de conexión', 'err');
+      if (btn) { btn.disabled = false; btn.textContent = '📄 Crear presupuesto'; }
+    });
+}
+
+// ── Modal de selección de calibre ─────────────────────────────────
+var _xubioCalibresElegidos = {};
+
+function xubioAbrirModalCalibre(pedidoId, fila, id, genericos) {
+  _xubioCalibresElegidos = {};
+
+  var body = '';
+  genericos.forEach(function(g) {
+    body += '<div class="xubio-calibre-grupo">';
+    body +=   '<div class="xubio-calibre-label">Seleccioná el calibre para <strong>' + g.nombre + '</strong>:</div>';
+    body +=   '<div class="xubio-calibre-opciones" data-generico="' + g.nombre + '">';
+    g.opciones.forEach(function(op) {
+      body += '<button class="xubio-calibre-opt" data-id="' + op.id + '" data-generico="' + g.nombre + '" onclick="xubioSeleccionarCalibre(this)">' + op.label + '</button>';
+    });
+    body +=   '</div>';
+    body += '</div>';
   });
 
-  var vendedor = pedido ? (pedido.vendedor || vendedorActual) : vendedorActual;
+  var modal = document.getElementById('modal-xubio-calibre');
+  if (!modal) {
+    modal = document.createElement('div');
+    modal.id = 'modal-xubio-calibre';
+    modal.className = 'modal-overlay';
+    document.body.appendChild(modal);
+  }
+  modal.innerHTML = '<div class="modal-box xubio-calibre-box">'
+    + '<div class="modal-hdr">'
+    +   '<div class="modal-title">📏 Seleccioná el calibre</div>'
+    +   '<button class="modal-close" onclick="xubioCerrarModalCalibre()">✕</button>'
+    + '</div>'
+    + '<div class="modal-body">'
+    +   '<div class="xubio-calibre-intro">Antes de crear el presupuesto necesitamos saber qué calibre lleva cada pollo genérico del pedido.</div>'
+    +   body
+    + '</div>'
+    + '<div class="modal-footer">'
+    +   '<button class="btn-secondary" onclick="xubioCerrarModalCalibre()">Cancelar</button>'
+    +   '<button class="btn-primary" id="btn-xubio-calibre-ok" disabled onclick="xubioConfirmarCalibres(\'' + pedidoId + '\',' + fila + ',\'' + id + '\')">Continuar</button>'
+    + '</div>'
+    + '</div>';
+  modal.classList.add('on');
+}
+
+function xubioSeleccionarCalibre(btnEl) {
+  var generico = btnEl.getAttribute('data-generico');
+  var productoId = btnEl.getAttribute('data-id');
+
+  // Marcar visualmente solo este como elegido dentro del grupo
+  var contenedor = btnEl.parentElement;
+  contenedor.querySelectorAll('.xubio-calibre-opt').forEach(function(b) {
+    b.classList.remove('on');
+  });
+  btnEl.classList.add('on');
+
+  _xubioCalibresElegidos[generico] = parseInt(productoId);
+
+  // Habilitar botón continuar si todos los grupos tienen elección
+  var modal = document.getElementById('modal-xubio-calibre');
+  var gruposTotales = modal.querySelectorAll('.xubio-calibre-opciones').length;
+  var gruposElegidos = Object.keys(_xubioCalibresElegidos).length;
+  var btnOk = document.getElementById('btn-xubio-calibre-ok');
+  if (btnOk) btnOk.disabled = (gruposElegidos < gruposTotales);
+}
+
+function xubioCerrarModalCalibre() {
+  var modal = document.getElementById('modal-xubio-calibre');
+  if (modal) modal.classList.remove('on');
+  _xubioCalibresElegidos = {};
+}
+
+function xubioConfirmarCalibres(pedidoId, fila, id) {
+  var calibres = _xubioCalibresElegidos;
+  xubioCerrarModalCalibre();
+  xubioEjecutarCrearPresupuesto(pedidoId, fila, id, calibres);
+}
+
+// ── Ejecutar la creación real del presupuesto ─────────────────────
+function xubioEjecutarCrearPresupuesto(pedidoId, fila, id, calibres) {
+  var sel = _xubioSeleccion[pedidoId];
+  if (!sel || !sel.clienteId) { toast('Seleccioná un cliente primero', 'err'); return; }
+
+  var btn = document.getElementById('xubio-btn-' + id);
+  if (btn) { btn.disabled = true; btn.textContent = 'Creando presupuesto...'; }
 
   var params = new URLSearchParams({
-    accion:            'remitirPedido',
-    pedidoId:          pedidoId,
-    fila:              fila,
-    xubioClienteId:    sel.clienteId,
-    xubioClienteNombre:sel.clienteNombre || '',
-    clienteCatalogo:   pedido ? (pedido.cliente || '') : '',
-    vendedor:          vendedor,
-    items:             JSON.stringify(items)
+    accion:         'crearPresupuestoXubio',
+    pedidoId:       pedidoId,
+    xubioClienteId: sel.clienteId
   });
+  if (calibres && Object.keys(calibres).length) {
+    params.set('calibres', JSON.stringify(calibres));
+  }
 
   fetch(APPS_SCRIPT_URL + '?' + params.toString())
     .then(function(r) { return r.json(); })
     .then(function(data) {
       if (data.status === 'ok') {
-        toast('✅ Remito ' + data.numeroRemito + ' creado en Xubio', 'ok');
-        _xubioActivo = false; // liberar refresh tras éxito
-        if (pedido) pedido.estado = 'Confirmado';
+        toast('✅ Presupuesto N° ' + data.nroPresupuesto + ' creado', 'ok');
+        _xubioActivo = false;
+        // Actualizar el pedido en memoria
+        var pedido = todosLosPedidos.find(function(x) { return x.pedidoId === pedidoId; });
+        if (pedido) {
+          pedido.estado = 'Confirmado';
+          pedido.xubioNroPresupuesto = data.nroPresupuesto;
+          pedido.xubioTransaccionid = data.transaccionid || '';
+          pedido.xubioEstado = 'creado';
+        }
         renderPedidos();
-        actualizarMiDiaSiAbierto();
+        actualizarMiDiaSiAbierto && actualizarMiDiaSiAbierto();
       } else {
-        toast('Error: ' + (data.message || 'No se pudo crear el remito'), 'err');
-        _xubioActivo = false; // liberar refresh tras error
-        if (btn) { btn.disabled = false; btn.textContent = '🚚 Remitir en Xubio'; }
+        // Manejo de errores específicos
+        if (data.code === 'PRODUCTOS_SIN_MAPEAR' && data.faltantes) {
+          xubioMostrarErrorFaltantes(data.faltantes);
+        } else if (data.code === 'YA_TIENE_PRESUPUESTO') {
+          toast('Este pedido ya tiene presupuesto #' + data.nroPresupuesto, 'err');
+          // Recargar pedidos para reflejar estado real
+          cargarPedidos(true);
+        } else {
+          toast('Error: ' + (data.message || 'No se pudo crear el presupuesto'), 'err');
+        }
+        _xubioActivo = false;
+        if (btn) { btn.disabled = false; btn.textContent = '📄 Crear presupuesto'; }
       }
     })
     .catch(function() {
       toast('Error de conexión', 'err');
-      _xubioActivo = false; // liberar refresh tras error de red
-      if (btn) { btn.disabled = false; btn.textContent = '🚚 Remitir en Xubio'; }
+      _xubioActivo = false;
+      if (btn) { btn.disabled = false; btn.textContent = '📄 Crear presupuesto'; }
     });
+}
+
+// ── Modal de productos sin mapear ─────────────────────────────────
+function xubioMostrarErrorFaltantes(faltantes) {
+  var lista = (faltantes || []).map(function(f) { return '<li>' + f + '</li>'; }).join('');
+
+  var modal = document.getElementById('modal-xubio-faltantes');
+  if (!modal) {
+    modal = document.createElement('div');
+    modal.id = 'modal-xubio-faltantes';
+    modal.className = 'modal-overlay';
+    document.body.appendChild(modal);
+  }
+  modal.innerHTML = '<div class="modal-box xubio-faltantes-box">'
+    + '<div class="modal-hdr">'
+    +   '<div class="modal-title">⚠️ Faltan productos en Xubio</div>'
+    +   '<button class="modal-close" onclick="xubioCerrarModalFaltantes()">✕</button>'
+    + '</div>'
+    + '<div class="modal-body">'
+    +   '<div class="xubio-faltantes-intro">No se puede crear el presupuesto porque estos productos aún no están mapeados a Xubio:</div>'
+    +   '<ul class="xubio-faltantes-lista">' + lista + '</ul>'
+    +   '<div class="xubio-faltantes-info">Ya le avisamos al admin. Una vez que los agregue, podés volver a intentar.</div>'
+    + '</div>'
+    + '<div class="modal-footer">'
+    +   '<button class="btn-primary" onclick="xubioCerrarModalFaltantes()">Entendido</button>'
+    + '</div>'
+    + '</div>';
+  modal.classList.add('on');
+}
+
+function xubioCerrarModalFaltantes() {
+  var modal = document.getElementById('modal-xubio-faltantes');
+  if (modal) modal.classList.remove('on');
 }
 
 // Cerrar dropdowns al tocar fuera
