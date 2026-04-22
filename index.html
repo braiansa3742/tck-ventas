@@ -2,7 +2,28 @@
 <html lang="es">
 <head>
 <!-- ═══════════════════════════════════════════════════════════════════════
-     TCK VENTAS — v9.9 — 22/04/2026
+     TCK VENTAS — v9.9.1 — 22/04/2026
+     ──────────────────────────────────────────────────────────────────────
+     Cambios v9.9.1 (sobre v9.9):
+
+     FIX A — Bug de IDs colisionados en "Cargar pedido por WhatsApp":
+       Al tocar "+" en Suprema B IQF, el contador visual que subía era el
+       de Suprema IQF. Los datos internos se guardaban bien en _manualWAQtys,
+       pero el vendedor veía la cantidad en el producto equivocado → podía
+       cargar mal el pedido por confusión.
+       Causa: los IDs del DOM usaban `item.img` como sufijo, y dos productos
+       distintos comparten la misma imagen ("suprema_iqf").
+       Fix: usar safeId derivado del nombre del producto (ej. "Suprema-B-IQF")
+       para garantizar IDs únicos.
+
+     FIX B — Botón "%" flotando arriba en el editor de pedidos:
+       En la vista de edición, el botón circular de descuento aparecía pegado
+       al borde superior derecho del item (con position:absolute), pisando
+       otras filas. Se veía feo y confundía.
+       Fix: el botón % ahora va DENTRO del mismo flex .editar-qty-ctrl
+       junto con los +/-, como parte natural de la fila. CSS nuevo:
+       .editar-dto-btn (sin position:absolute).
+
      ──────────────────────────────────────────────────────────────────────
      Cambios v9.9 (sobre v9.8.2) — FIX CRÍTICO DEL EDITOR DE PEDIDOS:
 
@@ -4473,6 +4494,23 @@ body {
 .editar-item-nombre { font-weight: 700; font-size: 13px; color: var(--text); }
 .editar-item-pres { font-size: 11px; color: var(--text3); }
 .editar-qty-ctrl { display: flex; align-items: center; gap: 6px; flex-shrink: 0; }
+.editar-dto-btn {
+  /* v9.9.1: botón % inline con los controles, NO absolute.
+     En el editor los items son filas horizontales, si es absolute queda volando. */
+  width: 30px; height: 30px; padding: 0;
+  font-size: 11px; font-weight: 900;
+  color: #9E9E9E; background: #fff;
+  border: 1.5px solid #E0E0E0; border-radius: 50%;
+  cursor: pointer; text-align: center; line-height: 26px;
+  -webkit-tap-highlight-color: transparent;
+  touch-action: manipulation;
+  margin-left: 4px;
+  flex-shrink: 0;
+}
+.editar-dto-btn.tiene-dto {
+  background: #E8F5E9; border-color: #A5D6A7; color: #2E7D32;
+  font-size: 9px; line-height: 26px;
+}
 .editar-qty-btn {
   width: 30px; height: 30px; border-radius: 50%; border: 1.5px solid var(--red);
   background: #fff; color: var(--red); font-size: 18px; font-weight: 900;
@@ -17519,6 +17557,16 @@ function editarRenderItems() {
       const sinStockBadge = sinStock
         ? '<div style="position:absolute;top:4px;left:4px;background:#F9A825;color:#3E2723;font-size:9px;font-weight:900;padding:2px 6px;border-radius:6px;font-family:Barlow Condensed,sans-serif;letter-spacing:.5px;border:1px solid #E65100" title="Sin stock — asegurate de que va a entrar para la entrega">⚠️ SIN STOCK</div>'
         : '';
+      // v9.9.1: el botón % va DENTRO de .editar-qty-ctrl (flex), no absolute.
+      // Así no pisa la fila y queda alineado con +/- de manera natural.
+      var dtoBtn = (function(){
+        var d=_editarDescuentos[item.n];
+        var sn=item.n.replace(/"/g,'&quot;');
+        var pr=item.pr||0;
+        return pr>0
+          ? '<button class="editar-dto-btn'+(d?' tiene-dto':'')+'" onclick="editarAbrirDescuento(&quot;'+sn+'&quot;)" title="Aplicar descuento">'+(d?(d.pct===100?'🎁':'-'+d.pct+'%'):'%')+'</button>'
+          : '';
+      })();
       html += '<div class="editar-item' + (sinStock ? ' tomador-item sin-stock-aviso' : '') + '" style="position:relative;">' +
         sinStockBadge +
         '<img class="editar-item-img" src="' + imgUrl + '" onerror="this.style.display=&quot;none&quot;">' +
@@ -17530,8 +17578,8 @@ function editarRenderItems() {
           '<button class="editar-qty-btn" data-nombre="' + item.n.replace(/"/g,'&quot;') + '" onclick="editarQty(this,-1)">−</button>' +
           '<div class="editar-qty-num" id="editar-qty-' + item.n.replace(/[^a-zA-Z0-9]/g,'-') + '">' + (qty || 0) + '</div>' +
           '<button class="editar-qty-btn" data-nombre="' + item.n.replace(/"/g,'&quot;') + '" onclick="editarQty(this,1)">+</button>' +
+          dtoBtn +
         '</div>' +
-        (function(){ var d=_editarDescuentos[item.n]; var sn=item.n.replace(/"/g,'&quot;'); var pr=item.pr||0; return pr>0 ? '<button class="tomador-dto-btn'+(d?' tiene-dto':'')+'" onclick="editarAbrirDescuento(&quot;'+sn+'&quot;)" title="Aplicar descuento">'+(d?(d.pct===100?'🎁':'-'+d.pct+'%'):'%')+'</button>' : ''; })() +
       '</div>';
     });
   });
@@ -17962,9 +18010,13 @@ function manualWAHTML() {
       const imgFile = IMGMAP[item.n] || (item.img + '.jpg');
       const imgUrl  = 'https://tckcatalogo.com/img/' + encodeURIComponent(imgFile).replace(/%20/g,'%20');
       const safeName = item.n.replace(/'/g,"\'").replace(/"/g,'&quot;');
+      // v9.9.1: ID único basado en nombre (no en item.img) porque múltiples productos
+      // pueden compartir la misma imagen (ej: Suprema IQF y Suprema B IQF ambos usan "suprema_iqf").
+      // Esto generaba colisión: tocar + en Suprema B IQF actualizaba visualmente Suprema IQF.
+      const safeId = item.n.replace(/[^a-zA-Z0-9]/g,'-');
       // v9.1: badge amarillo de aviso, sin disabled
       const sinStockBadge = sinStock ? '<div style="position:absolute;top:4px;left:4px;background:#F9A825;color:#3E2723;font-size:9px;font-weight:900;padding:2px 6px;border-radius:6px;font-family:Barlow Condensed,sans-serif;letter-spacing:.5px;border:1px solid #E65100" title="Sin stock — asegurate de que va a entrar para la entrega">⚠️ SIN STOCK</div>' : '';
-      prodsHtml += '<div class="tomador-item' + (sinStock ? ' sin-stock-aviso' : '') + '" id="mwa-item-' + item.img + '" style="position:relative;">' +
+      prodsHtml += '<div class="tomador-item' + (sinStock ? ' sin-stock-aviso' : '') + '" id="mwa-item-' + safeId + '" style="position:relative;">' +
         sinStockBadge +
         '<img class="tomador-item-img" src="' + (item.img2 || imgUrl) + '" onerror="this.style.display=&quot;none&quot;" loading="lazy">' +
         '<div class="tomador-item-body">' +
@@ -17973,7 +18025,7 @@ function manualWAHTML() {
           '<div class="tomador-item-precio">$' + item.pr.toLocaleString('es-AR') + '</div>' +
           '<div class="tomador-qty">' +
             '<button class="tomador-qty-btn" onclick="manualWAQty(&quot;' + safeName + '&quot;,-1)">−</button>' +
-            '<span class="tomador-qty-num" id="mwa-qty-' + item.img + '">0</span>' +
+            '<span class="tomador-qty-num" id="mwa-qty-' + safeId + '">0</span>' +
             '<button class="tomador-qty-btn plus" onclick="manualWAQty(&quot;' + safeName + '&quot;,1)">+</button>' +
           '</div>' +
           (function(){ var d=_manualWADescuentos[item.n]; var pr=item.pr||0; return pr>0 ? '<button class="tomador-dto-btn'+(d?' tiene-dto':'')+'" onclick="mwaAbrirDescuento(&quot;'+safeName+'&quot;)" title="Aplicar descuento">'+(d?(d.pct===100?'🎁':'-'+d.pct+'%'):'%')+'</button>' : ''; })() +
@@ -18262,20 +18314,13 @@ function manualWAQty(nombre, delta) {
   if (nuevo === 0) delete _manualWAQtys[nombre];
   else _manualWAQtys[nombre] = nuevo;
 
-  // Encontrar img id del item
-  let imgId = null;
-  for (let i = 0; i < TOMADOR_CAT.length; i++) {
-    for (let j = 0; j < TOMADOR_CAT[i].items.length; j++) {
-      if (TOMADOR_CAT[i].items[j].n === nombre) { imgId = TOMADOR_CAT[i].items[j].img; break; }
-    }
-    if (imgId) break;
-  }
-  if (imgId) {
-    const qtyEl = document.getElementById('mwa-qty-' + imgId);
-    if (qtyEl) qtyEl.textContent = nuevo;
-    const itemEl = document.getElementById('mwa-item-' + imgId);
-    if (itemEl) itemEl.classList.toggle('tiene', nuevo > 0);
-  }
+  // v9.9.1: buscar por safeId del nombre (no por img) para evitar colisiones
+  // entre productos que comparten imagen (ej. Suprema IQF / Suprema B IQF).
+  const safeId = nombre.replace(/[^a-zA-Z0-9]/g,'-');
+  const qtyEl = document.getElementById('mwa-qty-' + safeId);
+  if (qtyEl) qtyEl.textContent = nuevo;
+  const itemEl = document.getElementById('mwa-item-' + safeId);
+  if (itemEl) itemEl.classList.toggle('tiene', nuevo > 0);
 
   // Actualizar total
   let total = 0;
