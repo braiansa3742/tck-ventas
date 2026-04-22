@@ -2,7 +2,78 @@
 <html lang="es">
 <head>
 <!-- ═══════════════════════════════════════════════════════════════════════
-     TCK VENTAS — v9.9.1 — 22/04/2026
+     TCK VENTAS — v12.1 — 22/04/2026
+     ──────────────────────────────────────────────────────────────────────
+     Cambios v12.1 (sobre v12):
+
+     FIX — Deprecar productos del tomador:
+       Las 3 hamburguesas veggie que TCK dejó de vender se filtran
+       automáticamente de los 3 tomadores (campo, WhatsApp, editar):
+         - Hamburguesa de Arvejas
+         - Hamburguesa Mexicana
+         - Hamburguesa 5 Vegetales
+       Motivo: Lisandro las pudo cargar el 22/4 y el Apps Script tiró email
+       de alerta "productos sin mapear en Xubio" porque ya no se compran más.
+       Implementación: set TOMADOR_DEPRECADOS + IIFE _aplicarDeprecadosATomador
+       que filtra TOMADOR_CAT una sola vez al cargar. Si en el futuro se
+       deprecan todos los items de una sección, la sección desaparece sola.
+       Para deprecar más productos: agregar al Set (líneas ~15618).
+
+     ──────────────────────────────────────────────────────────────────────
+     Cambios v12 (sobre v11) — FIX CRÍTICO COMBOS EN TOMADOR WHATSAPP:
+
+     Caso detonante: Lisandro cargó pedido con "Combo Crujiente" en tomador WA
+     y el pedido llegó al Sheet sin formato 🔥, solo con productos sueltos.
+     El parser Xubio v19 no los reconoció como combo → presupuesto mal armado.
+
+     Bug 1 — Total del header ignoraba combos:
+       mwaActualizarTotal() solo sumaba productos sueltos de _manualWAQtys.
+       Si el vendedor agregaba un combo, el header mostraba $0 aunque el
+       carrito tenía el combo adentro.
+       Fix: nueva función mwaCalcularDesglose() que centraliza el cálculo y
+       suma correctamente sueltos + combos aplicados.
+
+     Bug 2 — Combos metían productos en _manualWAQtys perdiendo identidad:
+       combosAgregarAlTomador() escribía las cantidades del combo como si
+       fueran productos sueltos. Al serializar el pedido, aparecían como
+       sueltos sin formato 🔥.
+       Fix: combosAgregarAlTomador y combosQuitarDelTomador ahora aceptan
+       parámetro {skipQtys: true} opcional. El tomador WA lo usa; catálogo
+       y tomador campo NO (backward compat preservada).
+
+     Bug 3 — Detalle serializado sin formato 🔥:
+       manualWAGuardar() armaba el detalle solo con productos sueltos.
+       Fix: ahora itera _manualWACombosAplicados y genera formato:
+       "🔥 *COMBO X* × N | ✓ Nx Producto | ... | 💰 $XXX (-N%)"
+       para que el parser Xubio v19 lo reconozca correctamente.
+
+     Mejora UX — Contador 🛒 tappable + modal carrito:
+       Nuevo botón 🛒 en header del tomador WA muestra cantidad total de
+       items. Tappable → abre modal solo-lectura con desglose completo
+       (sueltos + combos + descuentos).
+
+     ──────────────────────────────────────────────────────────────────────
+     Cambios v11 (sobre v10) — SELECTOR DE FECHA DEL PRESUPUESTO XUBIO:
+
+     Feature — Elegir fecha del presupuesto antes de crearlo:
+       Antes el Apps Script hardcodeaba fecha = hoy. Ahora el vendedor puede
+       elegir una fecha específica entre hoy y hoy+7 vía date picker nativo.
+       Nuevo modal xubioAbrirModalFecha con botón "📅 Hoy (DD/MM/YYYY)"
+       tappable que abre el date picker del sistema.
+       La fechaVto sigue calculándose automáticamente como fecha+30.
+       Solo afecta al presupuesto Xubio, NO al pedido en el Sheet.
+
+     ──────────────────────────────────────────────────────────────────────
+     Cambios v10 (sobre v9.9.1) — INTEGRACIÓN XUBIO COMPLETA:
+
+     Feature — Panel Xubio en card de pedido:
+       - Buscador de clientes con autocompletado
+       - Modal calibre obligatorio para Pollo A/B genérico
+       - Modal productos faltantes (rojo) cuando falta mapping Supabase
+       - Badge verde "✅ Presupuesto N° XXXX" cuando está creado
+       - Pedido con presupuesto NO se puede editar ni cancelar
+       - Eliminado botón viejo "Ya remití en Xubio" (solo vía API ahora)
+
      ──────────────────────────────────────────────────────────────────────
      Cambios v9.9.1 (sobre v9.9):
 
