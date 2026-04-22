@@ -2,7 +2,21 @@
 <html lang="es">
 <head>
 <!-- ═══════════════════════════════════════════════════════════════════════
-     TCK VENTAS — v13 — 22/04/2026
+     TCK VENTAS — v13.1 — 22/04/2026
+     ──────────────────────────────────────────────────────────────────────
+     Cambios v13.1 (sobre v13):
+
+     FIX — Botón "Son pedidos distintos" visible cuando hay Confirmados:
+       En v13, si uno de los pedidos ya estaba Confirmado/Entregado, el
+       botón "Son pedidos distintos" aparecía pero el botón "Unir en 1"
+       también. Al tocar Unir, aparecía el bloqueo — pero si el caso era
+       "son legítimos", el vendedor no sabía qué botón usar.
+       Ahora: si hay pedidos NO Pendientes, el botón "Unir" se reemplaza
+       por un banner naranja informativo explicando que no se puede unir,
+       y el botón "Son pedidos distintos" sigue visible para marcarlos
+       como legítimos. Así el vendedor tiene un camino claro para
+       resolver casos legítimos aunque uno ya esté Confirmado.
+
      ──────────────────────────────────────────────────────────────────────
      Cambios v13 (sobre v12.1) — FIX DUPLICADOS CROSS-DEVICE + BLOQUEOS:
 
@@ -20688,13 +20702,39 @@ function _renderDupModal() {
       html += '</div>';
     }
 
-    html += '<button class="dup-btn-unir" onclick="dupUnirPedidos()">'
-      + '<span class="dup-btn-unir-icon">🔗</span>'
-      + '<span class="dup-btn-unir-text">Unir en 1 pedido</span>'
-      + '</button>';
+    // v13.1: chequear si todos están en Pendiente (condición para poder unir)
+    var todosPendientes = activos.every(function(x) { return x.estado === 'Pendiente'; });
+    var noPendientes = activos.filter(function(x) { return x.estado !== 'Pendiente'; });
+
+    if (todosPendientes) {
+      html += '<button class="dup-btn-unir" onclick="dupUnirPedidos()">'
+        + '<span class="dup-btn-unir-icon">🔗</span>'
+        + '<span class="dup-btn-unir-text">Unir en 1 pedido</span>'
+        + '</button>';
+    } else {
+      // v13.1: si hay pedidos Confirmados/Entregados, mostrar un banner informativo
+      // en lugar del botón "Unir". Los pedidos ya no se pueden unir, pero sí se
+      // pueden marcar como legítimos (botón de abajo).
+      var noPendDetalle = noPendientes.map(function(x) {
+        var ico = x.estado === 'Entregado' ? '📦' : '✅';
+        return ico + ' ' + x.estado;
+      }).join(', ');
+      html += '<div class="dup-unir-bloqueado" '
+        + 'style="background:linear-gradient(135deg,#FFF8E1,#FFE0B2);'
+        + 'border:1.5px solid #E65100;border-radius:10px;padding:12px 14px;'
+        + 'color:#BF360C;font-family:Barlow,sans-serif;font-size:13px;line-height:1.4;">'
+        + '<div style="font-family:Barlow Condensed,sans-serif;font-weight:700;'
+        + 'font-size:14px;text-transform:uppercase;margin-bottom:6px;letter-spacing:.3px;">'
+        + '⚠️ No se pueden unir</div>'
+        + 'Hay pedido(s) ya procesados (' + noPendDetalle + '). '
+        + 'Si son 2 pedidos legítimos, marcalos con el botón de abajo.'
+        + '</div>';
+    }
 
     // v9.0: botón "Son pedidos distintos" — marca el grupo como NO duplicado
     // (cliente con varias sucursales o cosas diferentes pedidas a propósito)
+    // v13.1: SIEMPRE visible si hay 2+ activos, independiente del estado.
+    //        Con v13 persiste cross-device en Supabase.
     html += '<button class="dup-btn-distintos" onclick="dupMarcarDistintos()" '
       + 'style="width:100%;margin-top:10px;padding:14px;background:white;'
       + 'border:1.5px solid #1565C0;color:#1565C0;border-radius:10px;'
@@ -20704,10 +20744,13 @@ function _renderDupModal() {
       + '</button>';
     html += '<div style="font-size:11px;color:#666;text-align:center;margin-top:6px;line-height:1.4;">'
       + 'Tocá esto si el cliente pidió cosas diferentes a propósito '
-      + '(ej: tiene varias sucursales)'
+      + '(ej: tiene varias sucursales, o pidió mañana y tarde)'
       + '</div>';
 
-    html += '<div class="dup-acciones-tip">💡 Si en realidad son duplicados (mismo pedido cargado 2 veces), tocá <strong>"✕ Cancelar este pedido"</strong> arriba para borrar el sobrante en lugar de unir.</div>';
+    // v13.1: tip solo relevante cuando se puede unir
+    if (todosPendientes) {
+      html += '<div class="dup-acciones-tip">💡 Si en realidad son duplicados (mismo pedido cargado 2 veces), tocá <strong>"✕ Cancelar este pedido"</strong> arriba para borrar el sobrante en lugar de unir.</div>';
+    }
     html += '</div>';
   } else if (activosCount === 1) {
     html += '<div class="dup-acciones">';
