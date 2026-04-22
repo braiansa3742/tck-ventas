@@ -1,6 +1,51 @@
 <!DOCTYPE html>
 <html lang="es">
 <head>
+<!-- ═══════════════════════════════════════════════════════════════════════
+     TCK VENTAS — v9.9 — 22/04/2026
+     ──────────────────────────────────────────────────────────────────────
+     Cambios v9.9 (sobre v9.8.2) — FIX CRÍTICO DEL EDITOR DE PEDIDOS:
+
+     Caso detonante: NORMA ARACELI CHAVES (Pellegrini, 21/04).
+       - Pedido original cargado con 4 productos + 7 maples ($231.400 aprox)
+       - Lisandro entró a "Editar pedido" para cambiar 7 → 14 maples
+       - Al abrir el editor, solo aparecía UN producto (el primero)
+       - Al guardar, los demás productos se perdieron del Sheet
+       - Sheet quedó con "14x Maple N° 2 → $67.200", remito Xubio intacto
+
+     Causa raíz:
+       En abrirEditarPedido() la línea:
+         const lineas = detalle.replace(/\|/g, '\n').split('\n').filter(Boolean);
+       NO aplicaba trim(). El detalle del Sheet tiene formato:
+         "1x A → $100 | 1x B → $200 | 7x C → $300"
+       Al reemplazar "|" por "\n", las líneas 2+ quedaban con ESPACIO AL
+       INICIO. La regex /^(\d+)x?\s+.../ anclada con ^ NO matcheaba con
+       espacio al inicio → se perdía.
+       Solo matcheaba la primera línea. El resto se descartaba en silencio.
+
+     Fix aplicado (3 cambios):
+
+       1. Parser tolerante — trim() en cada línea después del split.
+          Ahora matchea correctamente todas las líneas.
+
+       2. Detección de líneas huérfanas — si alguna línea del detalle
+          no se pudo parsear, o algún nombre parseado no está en
+          TOMADOR_CAT, se acumula en _editarLineasNoParseadas /
+          _editarQtysHuerfanos y se muestra un WARNING ROJO visible
+          arriba del editor con el listado exacto de lo que no se leyó.
+
+       3. Protección anti-pérdida — antes de guardar, si el total
+          nuevo es < 50% del original, se pide confirm() explícito
+          mostrando ambos totales y la diferencia. El vendedor debe
+          confirmar conscientemente que quiere "achicar" el pedido.
+
+     Compatibilidad:
+       - No rompe pedidos correctamente cargados (carrito manual/campo).
+       - Ignora líneas que empiezan con emoji (combos/ofertas) — esas
+         se tratan aparte vía _editarCombos.
+       - El warning solo aparece cuando hay problema, no molesta en
+         ediciones normales.
+     ═══════════════════════════════════════════════════════════════════════ -->
 <!-- Google Analytics -->
 <script async src="https://www.googletagmanager.com/gtag/js?id=G-GQPELQYRYS"></script>
 <script>
@@ -17273,6 +17318,10 @@ let _editarFila       = null;
 let _editarSucursalOriginal = null; // v8.6: sucursal vinculada al abrir (para detectar cambios)
 let _editarSucursalActual   = null; // v8.6: sucursal vigente (puede cambiar al apretar "Cambiar sucursal")
 let _editarCombos     = {}; // v9.2: { comboId: cantidad } combos agregados al editar
+// v9.9: tracking para defensa contra pérdida de productos
+let _editarTotalOriginal    = 0;   // total del pedido al abrir el editor
+let _editarLineasNoParseadas = []; // líneas del detalle que no matcheó la regex
+let _editarQtysHuerfanos    = []; // productos parseados que no existen en TOMADOR_CAT
 
 function editarPedidoBtn(btn, event) {
   event.stopPropagation();
@@ -17294,14 +17343,46 @@ function abrirEditarPedido(p, detalle) {
   _editarSucursalOriginal = null; // v8.6
   _editarSucursalActual   = null; // v8.6
 
+  // v9.9: trackear total original y líneas no parseadas para defensa
+  _editarTotalOriginal = parseFloat(p.total) || 0;
+  _editarLineasNoParseadas = [];
+
   // Parsear el detalle actual para pre-cargar cantidades
+  // v9.9: FIX CRÍTICO — .map(trim) arregla el bug de perder productos cuando
+  // el detalle tiene "|" con espacios alrededor (formato estándar del Sheet).
+  // Antes: "1x A → $100 | 1x B → $200".replace('|','\n') = "1x A → $100 \n 1x B → $200"
+  // La 2da línea empezaba con espacio → regex anclada con ^ NO matcheaba → se perdía.
   if (detalle) {
-    const lineas = detalle.replace(/\|/g, '\n').split('\n').filter(Boolean);
+    const lineas = detalle.replace(/\|/g, '\n')
+      .split('\n')
+      .map(function(s){ return s.trim(); })
+      .filter(Boolean);
     lineas.forEach(function(linea) {
+      // v9.9: ignorar líneas de combos/ofertas y sub-items (empiezan con emoji)
+      // que no tienen formato "Nx Nombre" — esas se procesan aparte en _editarCombos
+      if (/^(🔥|🍗|🍖|🐔|🍟|🥚|🥦|🍔|🍝|✓|—|\-\-)/.test(linea)) return;
       const m = linea.match(/^(\d+)x?\s+(.+?)(?:\s+→|\s+\(|\s*$)/);
-      if (m) _editarQtys[m[2].trim()] = parseInt(m[1]) || 1;
+      if (m) {
+        _editarQtys[m[2].trim()] = parseInt(m[1]) || 1;
+      } else if (linea.length > 3) {
+        // v9.9: línea con contenido real que no pudimos parsear → warning
+        _editarLineasNoParseadas.push(linea);
+      }
     });
   }
+
+  // v9.9: validación de productos parseados contra TOMADOR_CAT
+  // Si un nombre parseado no existe en el CAT, también va al warning.
+  _editarQtysHuerfanos = [];
+  Object.keys(_editarQtys).forEach(function(nombre){
+    var existe = false;
+    TOMADOR_CAT.forEach(function(sec){
+      sec.items.forEach(function(it){ if (it.n === nombre) existe = true; });
+    });
+    if (!existe) _editarQtysHuerfanos.push(nombre);
+  });
+  // Los huérfanos también se sacan de _editarQtys para no arrastrar basura
+  _editarQtysHuerfanos.forEach(function(n){ delete _editarQtys[n]; });
 
   // Construir y mostrar el overlay
   const overlay = document.createElement('div');
@@ -17313,12 +17394,46 @@ function abrirEditarPedido(p, detalle) {
   editarRenderItems();
   editarActualizarTotal();
 
+  // v9.9: si hay líneas no parseadas o productos huérfanos, mostrar warning prominente
+  if (_editarLineasNoParseadas.length > 0 || _editarQtysHuerfanos.length > 0) {
+    _editarMostrarWarningParsing(detalle);
+  }
+
   // v8.6: cargar sucursal vinculada (si tiene) para mostrarla y permitir cambiar
   pedidoSucursalObtener(p.pedidoId).then(function(suc) {
     _editarSucursalOriginal = suc || null;
     _editarSucursalActual   = suc || null;
     _editarRenderSucursalBloque();
   }).catch(function(){});
+}
+
+// v9.9: muestra warning rojo al editar cuando hay líneas del detalle que no se
+// pudieron parsear correctamente o productos que no existen en el CAT actual.
+// El vendedor DEBE verlo antes de guardar para no sobrescribir el pedido original.
+function _editarMostrarWarningParsing(detalleOriginal) {
+  var body = document.querySelector('#editar-overlay .editar-body');
+  if (!body) return;
+  var html = '<div id="editar-warning-parsing" style="margin:12px;padding:14px 16px;background:linear-gradient(135deg,#FFEBEE,#FFCDD2);border:2px solid #C62828;border-radius:12px;font-family:Barlow,sans-serif;">';
+  html += '<div style="font-family:Barlow Condensed,sans-serif;font-weight:900;color:#B71C1C;font-size:17px;margin-bottom:6px;letter-spacing:.3px;">⚠️ ATENCIÓN — PEDIDO ORIGINAL INCOMPLETO</div>';
+  html += '<div style="color:#C62828;font-size:14px;line-height:1.45;margin-bottom:10px;">No se pudieron leer todos los productos del pedido original. Si guardás ahora, <b>los productos que no aparecen acá se van a perder del Sheet</b>.</div>';
+  if (_editarLineasNoParseadas.length > 0) {
+    html += '<div style="margin-top:8px;"><b style="color:#B71C1C;">Líneas no leídas:</b><ul style="margin:4px 0 0 20px;color:#424242;font-size:13px;">';
+    _editarLineasNoParseadas.forEach(function(l){
+      html += '<li>' + l.replace(/</g,'&lt;').replace(/>/g,'&gt;') + '</li>';
+    });
+    html += '</ul></div>';
+  }
+  if (_editarQtysHuerfanos.length > 0) {
+    html += '<div style="margin-top:8px;"><b style="color:#B71C1C;">Productos que no están en el catálogo actual:</b><ul style="margin:4px 0 0 20px;color:#424242;font-size:13px;">';
+    _editarQtysHuerfanos.forEach(function(n){
+      html += '<li>' + n + '</li>';
+    });
+    html += '</ul></div>';
+  }
+  html += '<div style="margin-top:10px;padding:10px;background:#fff;border-radius:8px;color:#424242;font-size:13px;line-height:1.45;">';
+  html += '<b>Qué hacer:</b> Cancelá este editor. Contactá al admin para corregir el pedido en el Sheet, o agregá manualmente los productos faltantes acá abajo antes de guardar.';
+  html += '</div></div>';
+  body.insertAdjacentHTML('afterbegin', html);
 }
 
 function editarHTML(cliente) {
@@ -17603,6 +17718,34 @@ async function editarConfirmar() {
       });
     });
   });
+
+  // v9.9: si hay combos agregados en edición, sumar su valor al total
+  var totalCombos = 0;
+  Object.keys(_editarCombos||{}).forEach(function(cid){
+    var q = _editarCombos[cid] || 0;
+    if (q <= 0) return;
+    var c = (_combosData||[]).find(function(x){ return x.id === cid; });
+    if (c && c.precio_combo) totalCombos += c.precio_combo * q;
+  });
+  var totalFinal = total + totalCombos;
+
+  // v9.9: PROTECCIÓN — si el total nuevo baja >50% respecto al original,
+  // pedir confirmación explícita antes de sobrescribir el Sheet.
+  // Esto cubre el caso Chávez: pedido original $231.400 que se guardaba como $67.200.
+  if (_editarTotalOriginal > 0 && totalFinal < _editarTotalOriginal * 0.5) {
+    var diferencia = _editarTotalOriginal - totalFinal;
+    var msg = '⚠️ ATENCIÓN\n\n' +
+              'Estás a punto de GUARDAR este pedido con un total MUCHO más bajo que el original:\n\n' +
+              '  • Total original: $' + Math.round(_editarTotalOriginal).toLocaleString('es-AR') + '\n' +
+              '  • Total nuevo:    $' + Math.round(totalFinal).toLocaleString('es-AR') + '\n' +
+              '  • Diferencia:     −$' + Math.round(diferencia).toLocaleString('es-AR') + '\n\n' +
+              'Si guardás, los productos que no aparecen en el editor se van a PERDER del Sheet.\n\n' +
+              '¿Estás SEGURO que es lo que querés?';
+    if (!confirm(msg)) {
+      if (btn) { btn.disabled = false; btn.textContent = 'Guardar cambios'; }
+      return;
+    }
+  }
 
   const resumen = resumenLineas.join(' | ');
   const detalle = detalleParts.join(' | ');
