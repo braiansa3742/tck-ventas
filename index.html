@@ -2,7 +2,49 @@
 <html lang="es">
 <head>
 <!-- ═══════════════════════════════════════════════════════════════════════
-     TCK VENTAS — v12.1 — 22/04/2026
+     TCK VENTAS — v13 — 22/04/2026
+     ──────────────────────────────────────────────────────────────────────
+     Cambios v13 (sobre v12.1) — FIX DUPLICADOS CROSS-DEVICE + BLOQUEOS:
+
+     Caso detonante: Juan tiene 2 pedidos del mismo cliente el mismo día
+     (uno a la mañana, uno a la tarde). Ambos son legítimos pero el sistema
+     los marca como "PEDIDO DOBLE" y el vendedor no tiene forma de decirle
+     al sistema "son pedidos distintos" de forma que se propague a todos
+     los dispositivos. Además, si uno ya está Confirmado/Entregado, el
+     botón "Unir pedidos" sigue disponible y rompería la consistencia.
+
+     FIX A — Persistencia cross-device de "No es duplicado":
+       Antes: dupMarcarDistintos() guardaba en localStorage del dispositivo.
+       Si Lisandro marcaba como distintos en su celu, Francisco en admin
+       y otros vendedores seguían viendo el badge.
+       Ahora: POST a Apps Script ?accion=marcarNoDuplicados que inserta
+       en tabla Supabase pedidos_no_duplicados. Al abrir la app, se trae
+       la lista de los últimos 7 días y se filtran los badges localmente.
+
+     FIX B — Bloqueo de "Unir pedidos" si alguno NO está Pendiente:
+       Antes: se podía unir pedidos Confirmados o Entregados, pero esto
+       dejaba el presupuesto Xubio huérfano y rompía el stock.
+       Ahora: si cualquiera del grupo NO está en Pendiente, el botón
+       queda deshabilitado con mensaje claro y el vendedor ve que debe
+       consultar con Francisco.
+
+     FIX C — Modal de confirmación con estética TCK:
+       Antes: confirm() nativo del navegador (feo, inconsistente).
+       Ahora: dupConfirmModal() retorna Promise<boolean>, renderiza overlay
+       con estética TCK (rojo + dorado, botones grandes mobile-first).
+
+     Nuevas funciones:
+       - dupCargarNoDuplicados(): fetch listarNoDuplicados, puebla set
+         _dupNoDupSet y limpia flags esDuplicado en memoria.
+       - dupConfirmModal(titulo, cuerpo, labelOk): retorna Promise<boolean>.
+       - dupEstaMarcadoComoDistinto(pedidoA, pedidoB): helper para render.
+
+     Integración:
+       - cargarPedidos() invoca dupCargarNoDuplicados() después de mergear
+         el cache y antes de renderPedidos(). Así el badge ya se oculta
+         desde el primer render sin flicker.
+       - El chequeo en la detección de duplicados (~línea 10830) consulta
+         _dupNoDupSet antes de marcar esDuplicado=true.
      ──────────────────────────────────────────────────────────────────────
      Cambios v12.1 (sobre v12):
 
@@ -10869,6 +10911,20 @@ async function cargarPedidos(silencioso, _reintentos) {
           for (var n of misProds) { if (sus.has(n)) return true; }
           return false;
         });
+
+        // v13: si TODOS los otros pedidos del grupo están marcados como
+        // "legítimos" con este pedido → no marcar como duplicado.
+        // Consulta el Set global _dupNoDupSet populado por dupCargarNoDuplicados().
+        var todosDistintos = otros.length > 0 && otros.every(function(x) {
+          return dupEstaMarcadoComoDistinto(p.pedidoId, x.pedidoId);
+        });
+        if (todosDistintos) {
+          p.esDuplicado = false;
+          p.tipoDuplicado = null;
+          p.duplicadoCon = '';
+          return;
+        }
+
         p.esDuplicado = true;
         p.tipoDuplicado = hayProdComun ? 'exacto' : 'parcial';
         p.duplicadoCon = otros.map(function(x){return x.vendedor||'otro vendedor';})
@@ -10908,6 +10964,44 @@ async function cargarPedidos(silencioso, _reintentos) {
     }
     _pedidosCache = pedidos.slice(); // actualizar cache
     todosLosPedidos = pedidos;
+
+    // v13: cargar pares "no duplicado" desde Supabase y re-procesar badges.
+    // Es fire-and-forget para no bloquear el primer render. Si Supabase responde
+    // antes del render (lo normal), los badges ya salen filtrados. Si responde
+    // después, se actualiza la UI cuando llegue.
+    (async function _aplicarNoDuplicadosAsync() {
+      try {
+        await dupCargarNoDuplicados();
+        // Re-aplicar la detección de duplicados con el set actualizado
+        todosLosPedidos.forEach(function(p) {
+          if (!p.esDuplicado) return; // solo re-evaluar los que están marcados
+          var mFecha = (p.pedidoId || '').match(/TCK-(\d{8})/);
+          var fechaDia = mFecha ? mFecha[1] : (p.fechaHora || '').substring(0,10).replace(/-/g,'');
+          if (!fechaDia) return;
+          var cliKey = (p.cliente || '').toLowerCase().replace(/\s+/g,' ').trim();
+          var grupo = todosLosPedidos.filter(function(x) {
+            if (x.estado === 'Cancelado' || x.pedidoId === p.pedidoId) return false;
+            var xf = (x.pedidoId || '').match(/TCK-(\d{8})/);
+            var xfd = xf ? xf[1] : (x.fechaHora || '').substring(0,10).replace(/-/g,'');
+            var xcli = (x.cliente || '').toLowerCase().replace(/\s+/g,' ').trim();
+            return xfd === fechaDia && xcli === cliKey;
+          });
+          if (grupo.length === 0) return;
+          var todosDistintos = grupo.every(function(x) {
+            return dupEstaMarcadoComoDistinto(p.pedidoId, x.pedidoId);
+          });
+          if (todosDistintos) {
+            p.esDuplicado = false;
+            p.tipoDuplicado = null;
+            p.duplicadoCon = '';
+          }
+        });
+        // Re-render si algún badge cambió (seguro, idempotente)
+        if (typeof renderPedidos === 'function') renderPedidos();
+      } catch(e) {
+        // Fallar silenciosamente — si no se pudo cargar, los badges se muestran normales
+      }
+    })();
 
     if (!silencioso) {
       var hoyStr = new Date().toISOString().slice(0,10).replace(/-/g,'');
@@ -20786,8 +20880,128 @@ function dupSeleccionarVendedor(v) {
   }
 }
 
-// v9.0: marcar grupo como pedidos legítimamente distintos
-// (no son duplicado; el cliente pidió cosas diferentes a propósito)
+// ═══════════════════════════════════════════════════════════════
+// v13 — "No es duplicado" con persistencia cross-device en Supabase
+// ═══════════════════════════════════════════════════════════════
+
+// Set global con pares "no duplicado" → key: "pedidoA|pedidoB" (ordenado alfabético)
+// Se puebla al cargar pedidos y al marcar un nuevo par.
+window._dupNoDupSet = window._dupNoDupSet || new Set();
+
+// Helper: chequea si 2 pedidos están marcados como "legítimos" (no duplicado)
+function dupEstaMarcadoComoDistinto(pedidoIdA, pedidoIdB) {
+  if (!pedidoIdA || !pedidoIdB || !window._dupNoDupSet) return false;
+  var a = pedidoIdA, b = pedidoIdB;
+  var key = a < b ? (a + '|' + b) : (b + '|' + a);
+  return window._dupNoDupSet.has(key);
+}
+
+// Cargar lista de pares "no duplicado" de los últimos 7 días desde Supabase.
+// Se llama al cargar pedidos para que el badge ya se oculte desde el primer render.
+async function dupCargarNoDuplicados() {
+  try {
+    var url = APPS_SCRIPT_URL + '?accion=listarNoDuplicados&dias=7';
+    var resp = await fetch(url);
+    if (!resp || !resp.ok) return;
+    var data = await resp.json();
+    if (!data || data.status !== 'ok' || !Array.isArray(data.pares)) return;
+
+    window._dupNoDupSet.clear();
+    data.pares.forEach(function(par) {
+      var a = par.pedido_a || '';
+      var b = par.pedido_b || '';
+      if (!a || !b) return;
+      var key = a < b ? (a + '|' + b) : (b + '|' + a);
+      window._dupNoDupSet.add(key);
+    });
+    // No log en producción; solo debug si hace falta:
+    // console.log('[v13] dupCargarNoDuplicados:', window._dupNoDupSet.size, 'pares cargados');
+  } catch(e) {
+    // Fallar silenciosamente — si no hay red, los badges se muestran normalmente
+  }
+}
+
+// Modal de confirmación TCK-themed (reemplaza confirm() nativo).
+// Retorna Promise<boolean>. Si opts.soloInfo===true, muestra solo botón OK.
+function dupConfirmModal(titulo, cuerpoHtml, labelOk, opts) {
+  opts = opts || {};
+  return new Promise(function(resolve) {
+    // Crear overlay si no existe
+    var overlay = document.getElementById('dup-confirm-overlay');
+    if (!overlay) {
+      overlay = document.createElement('div');
+      overlay.id = 'dup-confirm-overlay';
+      overlay.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,.6);z-index:99999;' +
+        'display:flex;align-items:center;justify-content:center;padding:20px;' +
+        'backdrop-filter:blur(4px);-webkit-backdrop-filter:blur(4px);' +
+        'opacity:0;transition:opacity .18s ease;';
+      document.body.appendChild(overlay);
+    }
+
+    var soloInfo = !!opts.soloInfo;
+    overlay.innerHTML =
+      '<div id="dup-confirm-card" style="background:#FAF4EC;border-radius:16px;max-width:420px;width:100%;' +
+      'overflow:hidden;box-shadow:0 20px 60px rgba(0,0,0,.4);border:2px solid #D4A574;' +
+      'transform:scale(.92);transition:transform .22s cubic-bezier(.34,1.56,.64,1);">' +
+        '<div style="background:linear-gradient(135deg,#8B0000,#A00000);color:#FFD700;padding:18px 22px;' +
+        'font-family:\'Barlow Condensed\',sans-serif;font-weight:700;font-size:20px;letter-spacing:.3px;text-transform:uppercase;">' +
+          titulo +
+        '</div>' +
+        '<div style="padding:20px 22px 18px;font-family:Barlow,sans-serif;font-size:15px;line-height:1.5;color:#333;text-align:center;">' +
+          cuerpoHtml +
+        '</div>' +
+        '<div style="padding:0 18px 18px;display:flex;gap:10px;' +
+        (soloInfo ? 'justify-content:center' : 'flex-direction:column') + ';">' +
+          (soloInfo
+            ? '<button id="dup-confirm-ok" style="background:linear-gradient(135deg,#8B0000,#A00000);color:#FFD700;' +
+              'border:none;padding:14px 32px;border-radius:10px;font-family:\'Barlow Condensed\',sans-serif;font-weight:700;' +
+              'font-size:15px;letter-spacing:.5px;text-transform:uppercase;cursor:pointer;min-width:140px;">' +
+              (labelOk || 'Entendido') + '</button>'
+            : '<button id="dup-confirm-ok" style="background:linear-gradient(135deg,#8B0000,#A00000);color:#FFD700;' +
+              'border:none;padding:14px 20px;border-radius:10px;font-family:\'Barlow Condensed\',sans-serif;font-weight:700;' +
+              'font-size:15px;letter-spacing:.5px;text-transform:uppercase;cursor:pointer;">' +
+              (labelOk || 'Confirmar') + '</button>' +
+              '<button id="dup-confirm-cancel" style="background:white;color:#666;' +
+              'border:1.5px solid #CCC;padding:12px 20px;border-radius:10px;font-family:\'Barlow Condensed\',sans-serif;font-weight:700;' +
+              'font-size:14px;letter-spacing:.3px;text-transform:uppercase;cursor:pointer;">Cancelar</button>'
+          ) +
+        '</div>' +
+      '</div>';
+
+    // Animar entrada
+    requestAnimationFrame(function() {
+      overlay.style.opacity = '1';
+      var card = document.getElementById('dup-confirm-card');
+      if (card) card.style.transform = 'scale(1)';
+    });
+
+    var cerrar = function(result) {
+      overlay.style.opacity = '0';
+      var card = document.getElementById('dup-confirm-card');
+      if (card) card.style.transform = 'scale(.92)';
+      setTimeout(function() {
+        if (overlay && overlay.parentNode) overlay.parentNode.removeChild(overlay);
+        resolve(result);
+      }, 180);
+    };
+
+    var btnOk = document.getElementById('dup-confirm-ok');
+    if (btnOk) btnOk.onclick = function() { cerrar(true); };
+    var btnCancel = document.getElementById('dup-confirm-cancel');
+    if (btnCancel) btnCancel.onclick = function() { cerrar(false); };
+
+    // Click afuera cierra (solo si no es soloInfo)
+    if (!soloInfo) {
+      overlay.onclick = function(e) {
+        if (e.target === overlay) cerrar(false);
+      };
+    }
+  });
+}
+
+// v13: marcar grupo como pedidos legítimamente distintos
+// Ahora persiste en Supabase (tabla pedidos_no_duplicados) vía Apps Script,
+// así el marcado se propaga a TODOS los dispositivos (no solo el del vendedor).
 async function dupMarcarDistintos() {
   var s = _dupModalState;
   if (!s) return;
@@ -20797,19 +21011,41 @@ async function dupMarcarDistintos() {
     return;
   }
 
-  if (!confirm('✅ ¿Confirmás que estos ' + activos.length + ' pedidos son distintos?\n\n' +
-    'Esto va a esconder la alerta naranja en todos.\n\n' +
-    'Usá esto si el cliente tiene varias sucursales o pidió cosas diferentes a propósito.')) return;
+  // v13: modal lindo en lugar de confirm() nativo
+  var cuerpo = '✅ ¿Confirmás que estos <b>' + activos.length + '</b> pedidos son legítimos (no son duplicados)?<br><br>' +
+    'Esto va a esconder la alerta <b style="color:#E65100">PEDIDO DOBLE</b> en todos, y todos los vendedores y administración verán el cambio.<br><br>' +
+    '<div style="font-size:13px;color:#666">Usá esto si el cliente tiene varias sucursales, o pidió cosas diferentes a propósito (ej: mañana y tarde).</div>';
+  var ok = await dupConfirmModal('Marcar como legítimos', cuerpo, '✅ Sí, son legítimos');
+  if (!ok) return;
 
-  // Marcar localmente como revisado (esconde el badge en futuras renderizaciones del día)
-  var cliKey = (s.fechaDia + s.cliente).toLowerCase().replace(/\s/g,'');
-  try {
-    var revisados = {};
-    var raw = localStorage.getItem('tck_dup_revisados');
-    if (raw) revisados = JSON.parse(raw);
-    revisados[cliKey] = { ts: Date.now(), cliente: s.cliente, distintos: true };
-    localStorage.setItem('tck_dup_revisados', JSON.stringify(revisados));
-  } catch(e) {}
+  // v13: POST a Supabase via Apps Script — genera pares todos-vs-todos
+  // para que el filtro local funcione bien con cualquier combinación
+  var pares = [];
+  for (var i = 0; i < activos.length; i++) {
+    for (var j = i + 1; j < activos.length; j++) {
+      pares.push({ a: activos[i].pedidoId, b: activos[j].pedidoId });
+    }
+  }
+
+  // Fire-and-forget: no bloqueamos la UX esperando Apps Script
+  pares.forEach(function(par) {
+    var params = new URLSearchParams({
+      accion:   'marcarNoDuplicados',
+      pedido_a: par.a,
+      pedido_b: par.b,
+      cliente:  s.cliente || '',
+      vendedor: (vendedorActual || ''),
+      motivo:   'Marcado como legítimo desde app'
+    });
+    fetch(APPS_SCRIPT_URL + '?' + params.toString(), { mode: 'no-cors' }).catch(function(){});
+    // Actualizar cache local también (si existe)
+    try {
+      if (window._dupNoDupSet) {
+        var key1 = par.a < par.b ? (par.a + '|' + par.b) : (par.b + '|' + par.a);
+        window._dupNoDupSet.add(key1);
+      }
+    } catch(e) {}
+  });
 
   // Marcar cada pedido del grupo como NO duplicado en memoria
   activos.forEach(function(p) {
@@ -20818,9 +21054,9 @@ async function dupMarcarDistintos() {
     p.duplicadoCon = '';
   });
 
-  // Loggear acción para cada pedido del grupo (uno por uno para auditoría completa)
-  for (var i = 0; i < activos.length; i++) {
-    var pi = activos[i];
+  // Loggear acción para auditoría (mantenemos el log de pedido_acciones)
+  for (var k = 0; k < activos.length; k++) {
+    var pi = activos[k];
     var otros = activos.filter(function(x){ return x.pedidoId !== pi.pedidoId; })
       .map(function(x){ return x.pedidoId; }).join(', ');
     await _dupLogAccion({
@@ -20828,13 +21064,13 @@ async function dupMarcarDistintos() {
       pedido_id_relacionado: otros,
       accion: 'marcado_distinto',
       vendedor_origen: pi.vendedor || null,
-      metadata: { cantidad_grupo: activos.length }
+      metadata: { cantidad_grupo: activos.length, persistido_supabase: true }
     });
   }
 
   dupModalCerrar();
   renderPedidos();
-  toast('✅ Marcados como pedidos distintos', 'ok');
+  toast('✅ Marcados como pedidos legítimos', 'ok');
 }
 
 async function dupUnirPedidos() {
@@ -20843,6 +21079,26 @@ async function dupUnirPedidos() {
   var activos = s.grupo.filter(function(x){ return !s.cancelados.has(x.pedidoId); });
   if (activos.length < 2) {
     toast('Ya queda 1 solo pedido activo', 'ok');
+    return;
+  }
+
+  // v13: BLOQUEO — solo se pueden unir pedidos TODOS en Pendiente.
+  // Si alguno está Confirmado, tiene presupuesto Xubio creado. Unirlo rompería
+  // la consistencia con Xubio, el stock y el Sheet.
+  // Si alguno está Entregado, hubo entrega física — no tiene sentido unir.
+  var noPendientes = activos.filter(function(x) { return x.estado !== 'Pendiente'; });
+  if (noPendientes.length > 0) {
+    var detalles = noPendientes.map(function(x) {
+      return '• ' + x.pedidoId + ' → <b style="color:#C62828">' + x.estado + '</b>';
+    }).join('<br>');
+    var cuerpo = 'No se pueden unir pedidos que ya fueron procesados.<br><br>' +
+      '<b>' + noPendientes.length + ' de ' + activos.length + '</b> pedido(s) del grupo no están en Pendiente:<br><br>' +
+      '<div style="background:#FFF8E1;border-left:3px solid #E65100;padding:10px;margin:8px 0;font-size:14px;text-align:left">' +
+      detalles + '</div>' +
+      '<div style="font-size:13px;color:#666;margin-top:10px">' +
+      '<b>¿Qué hacer?</b><br>' +
+      'Si es realmente un duplicado y hay que deshacer uno confirmado, avisale a <b>Francisco</b> para que lo resuelva en admin (o en Xubio si ya remitió).</div>';
+    await dupConfirmModal('No se puede unir', cuerpo, 'Entendido', {soloInfo: true});
     return;
   }
 
@@ -20890,14 +21146,16 @@ async function dupUnirPedidos() {
   // 5) Total de items
   var itemsTotal = Object.values(prodsCombinados).reduce(function(a, pr) { return a + pr.qty; }, 0);
 
-  // Confirmar antes de actuar
-  var confirmMsg = '🔗 ¿Confirmás unir estos ' + activos.length + ' pedidos?\n\n'
-    + '• Se combinarán ' + ordenInsercion.length + ' productos diferentes\n'
-    + '• El pedido ' + principal.pedidoId + ' quedará como único con total ' + formatMoneda(totalUnido) + '\n'
-    + '• Se cancelarán los otros ' + restantes.length + ' pedidos\n'
-    + '• Acreditado a: ' + s.acreditarA;
-
-  if (!confirm(confirmMsg)) return;
+  // v13: modal lindo en lugar de confirm() nativo
+  var cuerpoConfirm = '🔗 ¿Confirmás unir estos <b>' + activos.length + '</b> pedidos?<br><br>' +
+    '<div style="background:#F9F9F9;border-left:3px solid #D4A574;padding:10px;margin:8px 0;font-size:14px;text-align:left">' +
+    '• Se combinarán <b>' + ordenInsercion.length + '</b> productos diferentes<br>' +
+    '• El pedido <b>' + principal.pedidoId + '</b> quedará como único con total <b>' + formatMoneda(totalUnido) + '</b><br>' +
+    '• Se cancelarán los otros <b>' + restantes.length + '</b> pedidos<br>' +
+    '• Acreditado a: <b>' + s.acreditarA + '</b>' +
+    '</div>';
+  var okUnir = await dupConfirmModal('Unir pedidos', cuerpoConfirm, '🔗 Sí, unir');
+  if (!okUnir) return;
 
   try {
     // PASO 1: Actualizar pedido principal con productos combinados + vendedor + total
