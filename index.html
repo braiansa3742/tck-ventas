@@ -4728,13 +4728,7 @@ body {
   position: fixed; inset: 0; background: rgba(0,0,0,.6); z-index: 500;
   display: flex; flex-direction: column;
 }
-/* v13.5 FIX: los bloques de promos y combos no deben estirarse dentro del flex
-   (antes se comían todo el alto y el body quedaba con 0 altura scrollable). */
-#editar-promos-bloque,
-#editar-combos-bloque,
-#editar-sucursal-bloque { flex-shrink: 0; }
-/* v13.5 FIX: garantizar que el body tenga espacio mínimo para que el scroll funcione
-   en celus chicos incluso con promos + combos presentes. */
+/* v13.5.1 FIX: permitir que el body flex:1 encoja correctamente en celus chicos. */
 .editar-overlay .editar-body { min-height: 0; }
 .editar-hdr {
   background: linear-gradient(135deg, #E65100, #BF360C);
@@ -19401,10 +19395,15 @@ function editarHTML(cliente) {
     '</div>' +
     '<div class="editar-hdr-total" id="editar-total">$0</div>' +
   '</div>' +
-  '<div id="editar-sucursal-bloque"></div>' + // v8.6: bloque de sucursal, se rellena async
-  '<div id="editar-promos-bloque">' + promosRenderCarousel('editar', 'editarAgregarPromo', 'editarQuitarPromo', _editarPromos) + '</div>' +
-  '<div id="editar-combos-bloque">' + combosRenderBotones('editar', 'editarAgregarCombo', 'editarQuitarCombo', _editarCombos) + '</div>' +
-  '<div class="editar-body" id="editar-body"></div>' +
+  // v13.5.1: los bloques sucursal/promos/combos van DENTRO del scroll area,
+  // no como hermanos del body — si van afuera, quedan fijos y el usuario no
+  // los puede pasar. Ahora todo scrollea junto como en el tomador normal.
+  '<div class="editar-body" id="editar-body">' +
+    '<div id="editar-sucursal-bloque"></div>' +
+    '<div id="editar-promos-bloque">' + promosRenderCarousel('editar', 'editarAgregarPromo', 'editarQuitarPromo', _editarPromos) + '</div>' +
+    '<div id="editar-combos-bloque">' + combosRenderBotones('editar', 'editarAgregarCombo', 'editarQuitarCombo', _editarCombos) + '</div>' +
+    '<div id="editar-body-productos"></div>' +
+  '</div>' +
   '<div class="editar-footer">' +
     '<button class="editar-confirmar-btn" id="editar-confirmar-btn" onclick="editarConfirmar()" disabled>Guardar cambios</button>' +
   '</div>';
@@ -19461,7 +19460,10 @@ function editarCambiarSucursal() {
 }
 
 function editarRenderItems() {
-  const body = document.getElementById('editar-body');
+  // v13.5.1: los productos se pintan en un div interno del body, no en el body
+  // directamente, para no pisar a los bloques de sucursal/promos/combos que
+  // ahora viven dentro del mismo contenedor scrolleable.
+  const body = document.getElementById('editar-body-productos') || document.getElementById('editar-body');
   if (!body) return;
   let html = '';
 
