@@ -19303,7 +19303,8 @@ function abrirEditarPedido(p, detalle) {
       // v9.9: ignorar líneas de combos/ofertas y sub-items (empiezan con emoji)
       // que no tienen formato "Nx Nombre" — esas se procesan aparte en _editarCombos
       // v13.4: agregar 🎁 (promos 1+1) al listado de emojis ignorados
-      if (/^(🎁|🔥|🍗|🍖|🐔|🍟|🥚|🥦|🍔|🍝|✓|—|\-\-)/.test(linea)) return;
+      // v13.5.2: agregar 💰 (línea de resumen con descuento dentro de promos/combos)
+      if (/^(🎁|🔥|🍗|🍖|🐔|🍟|🥚|🥦|🍔|🍝|💰|✓|—|\-\-)/.test(linea)) return;
       const m = linea.match(/^(\d+)x?\s+(.+?)(?:\s+→|\s+\(|\s*$)/);
       if (m) {
         _editarQtys[m[2].trim()] = parseInt(m[1]) || 1;
