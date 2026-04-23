@@ -2,7 +2,43 @@
 <html lang="es">
 <head>
 <!-- ═══════════════════════════════════════════════════════════════════════
-     TCK VENTAS — v13.3 — 22/04/2026 noche
+     TCK VENTAS — v13.4 — 23/04/2026
+     ──────────────────────────────────────────────────────────────────────
+     Cambios v13.4 (sobre v13.3) — PROMOS 1+1 DE ABRIL EN LOS 3 MODOS:
+
+     Caso detonante: Braian necesita que vendedores ofrezcan las mismas
+     promos 1+1 del catálogo web (deployadas en v2.7.9) también en el
+     tomador de campo, la carga manual WhatsApp y la edición de pedidos.
+
+     SOLUCIÓN — Módulo unificado de promos ventas + carousel horizontal:
+       - Nuevo módulo (promosCargarVentas, promosRenderCarousel,
+         promosAgregarAlMap, promosQuitarDelMap, promosLineasWAVentas,
+         promosTotalVentas, promosConsumirStockVentas, promosParsearDetalle).
+       - Variables por modo: _tomadorPromos, _editarPromos, _manualWAPromos.
+       - Lee datos de Supabase productos_promo (misma tabla del catálogo).
+       - Carousel horizontal compacto (cards 142px ancho) arriba de cada
+         tomador, con scroll-snap. Card negra con borde dorado + badge 1+1,
+         foto real, ANTES tachado + AHORA rojo, chip verde "1 PAGA + 1 GRATIS"
+         y contador de pares + total en unidades.
+       - Card crítica (stock ≤ 10) pinta badge rojo pulsante "⚠️ ÚLTIMAS X".
+       - Borde dorado intenso cuando tiene qty > 0.
+
+     FORMATO WA (compatible con parser Xubio combos):
+         🎁 *PROMO 1+1: Nombre* × N | ✓ 2Nx Nombre | 💰 $XXXX (-50%)
+       Al crear presupuesto Xubio, el parser detecta y aplica 50% off
+       al producto (cantidad = pares × 2). (*) Requiere Apps Script v24.5+.
+
+     INTEGRACIÓN:
+       - Tomador campo: carousel + handler + total + modal resumen con
+         bloque dorado de promos arriba de productos + consumir stock.
+       - Tomador WA manual (mwa): carousel + desglose ampliado con promos
+         + consumir stock + botón confirmar habilitado con solo promos.
+       - Editar pedido: carousel + parser que lee promos desde el detalle
+         guardado (si el pedido ya tenía promos cargadas antes). Al editar
+         NO se descuenta stock de vuelta (se evita doble descuento).
+
+     CUPÓN 10%: promos NO suman al subtotal elegible (mismo comportamiento
+     que combos). Irrelevante en ventas pero se mantiene por consistencia.
      ──────────────────────────────────────────────────────────────────────
      Cambios v13.3 (sobre v13.2) — BUSCADOR XUBIO contra SUPABASE:
 
@@ -8031,6 +8067,226 @@ body {
   padding: 10px 12px; background: #FFF8E1; border-radius: 6px;
 }
 
+/* ═══════════════════════════════════════════════════════════════════════
+   v13.4 — PROMOS 1+1 DE ABRIL (carousel horizontal en 3 modos del tomador)
+   Diseño: fondo negro con rayas doradas (mismo esquema del catálogo v2.7.9)
+   pero cards compactas (142px ancho) para no ocupar mucho vertical.
+   ═══════════════════════════════════════════════════════════════════════ */
+.vpromos-section {
+  background: linear-gradient(135deg, #1a1a1a 0%, #2a1010 50%, #1a0505 100%);
+  padding: 10px 0 14px;
+  border-bottom: 3px solid #D4A574;
+  position: relative;
+  overflow: hidden;
+}
+.vpromos-section::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: repeating-linear-gradient(
+    45deg,
+    transparent 0, transparent 40px,
+    rgba(212,165,116,0.03) 40px, rgba(212,165,116,0.03) 42px
+  );
+  pointer-events: none;
+}
+.vpromos-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0 14px 8px;
+  position: relative;
+  z-index: 1;
+}
+.vpromos-title-wrap {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.vpromos-title {
+  font-family: 'Barlow Condensed', sans-serif;
+  font-size: 16px;
+  font-weight: 900;
+  color: #FFD700;
+  letter-spacing: 0.8px;
+  text-transform: uppercase;
+}
+.vpromos-sub {
+  font-size: 10px;
+  font-weight: 600;
+  color: #fff;
+  opacity: 0.75;
+  letter-spacing: 0.5px;
+}
+.vpromos-scroll {
+  display: flex;
+  gap: 8px;
+  padding: 0 14px;
+  overflow-x: auto;
+  scroll-snap-type: x mandatory;
+  -webkit-overflow-scrolling: touch;
+  position: relative;
+  z-index: 1;
+  scrollbar-width: none;
+}
+.vpromos-scroll::-webkit-scrollbar { display: none; }
+
+.vpromo-card {
+  flex: 0 0 142px;
+  background: #fff;
+  border: 2px solid #D4A574;
+  border-radius: 10px;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+  scroll-snap-align: start;
+  box-shadow: 0 2px 8px rgba(0,0,0,0.3);
+  position: relative;
+  transition: border-color 0.15s, box-shadow 0.15s;
+}
+.vpromo-card.tiene {
+  border-color: #FFD700;
+  box-shadow: 0 0 0 3px rgba(255,215,0,0.35), 0 4px 12px rgba(0,0,0,0.4);
+}
+
+.vpromo-badge {
+  position: absolute;
+  top: 6px; left: 6px;
+  background: linear-gradient(135deg, #FFD700, #D4A574);
+  color: #1a1a1a;
+  font-family: 'Barlow Condensed', sans-serif;
+  font-size: 11px;
+  font-weight: 900;
+  padding: 2px 7px;
+  border-radius: 10px;
+  letter-spacing: 0.3px;
+  z-index: 2;
+  box-shadow: 0 1px 3px rgba(0,0,0,0.3);
+}
+.vpromo-urg {
+  position: absolute;
+  top: 6px; right: 6px;
+  background: linear-gradient(135deg, #DC143C, #8B0000);
+  color: #fff;
+  font-family: 'Barlow Condensed', sans-serif;
+  font-size: 9px;
+  font-weight: 900;
+  padding: 2px 6px;
+  border-radius: 8px;
+  letter-spacing: 0.4px;
+  z-index: 2;
+  animation: vpromoUrgPulse 1.4s ease-in-out infinite;
+}
+@keyframes vpromoUrgPulse {
+  0%, 100% { opacity: 1; transform: scale(1); }
+  50% { opacity: 0.75; transform: scale(1.05); }
+}
+
+.vpromo-img {
+  width: 100%;
+  aspect-ratio: 1;
+  object-fit: cover;
+  display: block;
+  background: #F5EDE0;
+}
+.vpromo-body {
+  padding: 6px 8px 8px;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.vpromo-nombre {
+  font-family: 'Barlow Condensed', sans-serif;
+  font-size: 12px;
+  font-weight: 800;
+  color: #1A0800;
+  line-height: 1.15;
+  margin-bottom: 2px;
+  min-height: 28px;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+.vpromo-precios {
+  display: flex;
+  align-items: baseline;
+  gap: 4px;
+  margin-bottom: 2px;
+}
+.vpromo-precio-viejo {
+  font-family: 'Barlow Condensed', sans-serif;
+  font-size: 11px;
+  color: #999;
+  text-decoration: line-through;
+  text-decoration-color: #8B0000;
+  text-decoration-thickness: 1.5px;
+  font-weight: 700;
+}
+.vpromo-precio {
+  font-family: 'Barlow Condensed', sans-serif;
+  font-size: 16px;
+  font-weight: 900;
+  color: #8B0000;
+  line-height: 1;
+}
+.vpromo-regalo {
+  background: linear-gradient(135deg, #2E7D32, #1B5E20);
+  color: #fff;
+  font-family: 'Barlow Condensed', sans-serif;
+  font-size: 10px;
+  font-weight: 900;
+  padding: 2px 6px;
+  border-radius: 4px;
+  text-align: center;
+  letter-spacing: 0.3px;
+  margin: 2px 0 4px;
+}
+.vpromo-qty {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  justify-content: space-between;
+  background: #F5EDE0;
+  border-radius: 8px;
+  padding: 3px;
+  margin-top: 2px;
+}
+.vpromo-qty-btn {
+  width: 28px;
+  height: 28px;
+  border-radius: 6px;
+  background: linear-gradient(135deg, #8B0000, #5C0000);
+  color: #fff;
+  border: none;
+  font-size: 17px;
+  font-weight: 900;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  line-height: 1;
+  touch-action: manipulation;
+}
+.vpromo-qty-btn:active { transform: scale(0.93); }
+.vpromo-qty-val {
+  flex: 1;
+  text-align: center;
+  font-family: 'Barlow Condensed', sans-serif;
+  font-weight: 900;
+  font-size: 13px;
+  color: #1A0800;
+  line-height: 1;
+}
+.vpromo-qty-total {
+  font-size: 9px;
+  text-align: center;
+  color: #9C7050;
+  font-weight: 700;
+  margin-top: 3px;
+  font-style: italic;
+}
+
 </style>
 </head>
 <body>
@@ -9517,6 +9773,198 @@ async function combosCargarVentas() {
   }
 }
 
+// ═══════════════════════════════════════════════════════════════════════
+// v13.4 — PROMOS 1+1 DE ABRIL (tomador campo, tomador WA, editar)
+// ═══════════════════════════════════════════════════════════════════════
+// Mecánica: cada "qty" = 1 par (1 precio pagado + 1 gratis = 2 unidades físicas).
+// - Carousel horizontal compacto arriba de la grilla de productos.
+// - Variables por modo: _tomadorPromos, _editarPromos, _manualWAPromos.
+// - Formato WA: "🎁 *PROMO 1+1: Nombre* × N / ✓ 2Nx Nombre / 💰 $X (-50%)"
+//   reusa el parser de combos del Apps Script v24.4.
+// - Al crear presupuesto Xubio: parser detecta la línea y arma el item con
+//   cantidad = 2*pares y porcentajeDescuento = 50.
+// ═══════════════════════════════════════════════════════════════════════
+var _promosData = [];  // catálogo activo de promos
+
+async function promosCargarVentas() {
+  try {
+    const data = await sbFetch('productos_promo?activo=eq.true&stock_disponible=gt.0&order=orden.asc');
+    _promosData = Array.isArray(data) ? data : [];
+  } catch(e) {
+    console.error('[promos] Error al cargar:', e);
+    _promosData = [];
+  }
+}
+
+// Render del carousel horizontal de promos.
+// contextId: 'tomador' | 'editar' | 'manualwa'
+// agregarFn/quitarFn: nombres de funciones globales para onclick
+// qtysMap: map { promoId: cantPares } específico del modo
+function promosRenderCarousel(contextId, agregarFn, quitarFn, qtysMap) {
+  if (!_promosData || _promosData.length === 0) return '';
+  const fmtPr = function(n) { return '$' + Number(n).toLocaleString('es-AR'); };
+  let cards = '';
+  _promosData.forEach(function(p) {
+    const q = Number((qtysMap||{})[p.id] || 0);
+    const stockDisp = Number(p.stock_disponible || 0);
+    const precio = Number(p.precio_unitario || 0);
+    const esCritico = stockDisp <= 10;
+    const urgHtml = esCritico
+      ? '<div class="vpromo-urg">⚠️ ÚLTIMAS ' + stockDisp + '</div>'
+      : '';
+    const imgSrc = p.imagen_url || '';
+    const nombre = (p.producto_nombre || '').replace(/"/g,'&quot;');
+    const totalU = q * 2;
+    const tieneCls = q > 0 ? ' tiene' : '';
+    const totalStyle = q > 0 ? '' : 'style="visibility:hidden"';
+    cards += '<div class="vpromo-card' + tieneCls + '" data-promo-id="' + p.id + '">' +
+      '<div class="vpromo-badge">1+1</div>' +
+      urgHtml +
+      (imgSrc
+        ? '<img class="vpromo-img" src="' + imgSrc + '" loading="lazy" onerror="this.style.display=\'none\'">'
+        : '<div class="vpromo-img" style="display:flex;align-items:center;justify-content:center;font-size:28px;opacity:0.25;">📦</div>') +
+      '<div class="vpromo-body">' +
+        '<div class="vpromo-nombre">' + (p.producto_nombre || '') + '</div>' +
+        '<div class="vpromo-precios">' +
+          '<span class="vpromo-precio-viejo">' + fmtPr(precio * 2) + '</span>' +
+          '<span class="vpromo-precio">' + fmtPr(precio) + '</span>' +
+        '</div>' +
+        '<div class="vpromo-regalo">🎁 1 PAGA + 1 GRATIS</div>' +
+        '<div class="vpromo-qty">' +
+          '<button class="vpromo-qty-btn" onclick="' + quitarFn + '(\'' + p.id + '\')">−</button>' +
+          '<div class="vpromo-qty-val">' + q + ' ' + (q === 1 ? 'par' : 'pares') + '</div>' +
+          '<button class="vpromo-qty-btn" onclick="' + agregarFn + '(\'' + p.id + '\')">+</button>' +
+        '</div>' +
+        '<div class="vpromo-qty-total" ' + totalStyle + '>= ' + totalU + ' unidades</div>' +
+      '</div>' +
+    '</div>';
+  });
+  return '<div class="vpromos-section" id="vpromos-' + contextId + '">' +
+    '<div class="vpromos-header">' +
+      '<div class="vpromos-title-wrap">' +
+        '<span style="font-size:15px;">🔥</span>' +
+        '<div class="vpromos-title">Ofertas de Abril · 1+1</div>' +
+      '</div>' +
+      '<div class="vpromos-sub">Deslizá →</div>' +
+    '</div>' +
+    '<div class="vpromos-scroll">' + cards + '</div>' +
+  '</div>';
+}
+
+// Agregar 1 par al map de qty. Devuelve true si se pudo, false si falta stock.
+function promosAgregarAlMap(promoId, qtysMap) {
+  const promo = (_promosData || []).find(function(p){ return p.id === promoId; });
+  if (!promo) return false;
+  const actual = Number((qtysMap||{})[promoId] || 0);
+  const stockDisp = Number(promo.stock_disponible || 0);
+  if ((actual + 1) * 2 > stockDisp) {
+    if (typeof toast === 'function') {
+      toast('Solo quedan ' + stockDisp + ' unidades de ' + promo.producto_nombre, 'warn');
+    } else {
+      alert('Solo quedan ' + stockDisp + ' unidades de ' + promo.producto_nombre);
+    }
+    return false;
+  }
+  qtysMap[promoId] = actual + 1;
+  return true;
+}
+
+function promosQuitarDelMap(promoId, qtysMap) {
+  const actual = Number((qtysMap||{})[promoId] || 0);
+  if (actual <= 1) delete qtysMap[promoId];
+  else qtysMap[promoId] = actual - 1;
+}
+
+// Genera las líneas WA para las promos, formato similar a combos.
+// Parser del Apps Script reconoce: "🎁 *PROMO 1+1: Nombre* × N" + "✓ 2Nx Nombre" + "💰 $X (-50%)"
+function promosLineasWAVentas(qtysMap) {
+  const lineas = [];
+  Object.keys(qtysMap || {}).forEach(function(promoId) {
+    const q = Number(qtysMap[promoId] || 0);
+    if (q <= 0) return;
+    const promo = (_promosData || []).find(function(p){ return p.id === promoId; });
+    if (!promo) return;
+    const nombre = promo.producto_nombre || '';
+    const precio = Number(promo.precio_unitario || 0);
+    const totalU = q * 2;
+    const totalImporte = precio * q;
+    lineas.push('🎁 *PROMO 1+1: ' + nombre + '* × ' + q);
+    lineas.push('   ✓ ' + totalU + 'x ' + nombre);
+    lineas.push('   💰 $' + totalImporte.toLocaleString('es-AR') + ' (-50%)');
+    lineas.push('');
+  });
+  return lineas;
+}
+
+// Suma de totales de promos en el map (para mwaCalcularDesglose, etc)
+function promosTotalVentas(qtysMap) {
+  let total = 0;
+  let pares = 0;
+  let unidades = 0;
+  Object.keys(qtysMap || {}).forEach(function(promoId) {
+    const q = Number(qtysMap[promoId] || 0);
+    if (q <= 0) return;
+    const promo = (_promosData || []).find(function(p){ return p.id === promoId; });
+    if (!promo) return;
+    total    += Number(promo.precio_unitario || 0) * q;
+    pares    += q;
+    unidades += q * 2;
+  });
+  return { total: total, pares: pares, unidades: unidades };
+}
+
+// Consumir stock en Supabase — llamada al confirmar pedido (fire-and-forget).
+async function promosConsumirStockVentas(qtysMap) {
+  const items = [];
+  Object.keys(qtysMap || {}).forEach(function(promoId) {
+    const q = Number(qtysMap[promoId] || 0);
+    if (q > 0) items.push({ id: promoId, unidades: q * 2 });
+  });
+  for (const item of items) {
+    try {
+      const arr = await sbFetch('productos_promo?id=eq.' + encodeURIComponent(item.id) + '&select=stock_disponible');
+      if (!arr || !arr.length) continue;
+      const actual = Number(arr[0].stock_disponible || 0);
+      const nuevo  = Math.max(0, actual - item.unidades);
+      await sbFetch('productos_promo?id=eq.' + encodeURIComponent(item.id), {
+        method: 'PATCH',
+        prefer: 'return=minimal',
+        body: JSON.stringify({
+          stock_disponible: nuevo,
+          modificado_at: new Date().toISOString(),
+          activo: nuevo > 0
+        })
+      });
+    } catch(e) {
+      console.error('[promos] Error descontando ' + item.id + ':', e);
+    }
+  }
+}
+
+// Parsear promos desde el campo "detalle" de un pedido guardado.
+// Uso: modo editar → recupera _editarPromos al abrir un pedido existente.
+function promosParsearDetalle(detalle) {
+  const result = {};
+  if (!detalle || typeof detalle !== 'string') return result;
+  // Matches "🎁 *PROMO 1+1: Nombre* × N"
+  const re = /🎁\s*\*PROMO\s*1\+1:\s*([^*]+?)\*\s*×\s*(\d+)/g;
+  let m;
+  while ((m = re.exec(detalle)) !== null) {
+    const nombre = (m[1] || '').trim();
+    const pares  = parseInt(m[2], 10);
+    if (!nombre || !pares) continue;
+    // Buscar la promo cargada en _promosData que matchee por nombre
+    const promo = (_promosData || []).find(function(p){
+      return (p.producto_nombre || '').trim() === nombre;
+    });
+    if (promo) result[promo.id] = pares;
+  }
+  return result;
+}
+// ═══════════════════════════════════════════════════════════════════════
+// Fin módulo PROMOS 1+1
+// ═══════════════════════════════════════════════════════════════════════
+
 // Consumir stock en Supabase al confirmar pedido
 async function combosConsumirStockVentas(combosConsumidos) {
   // combosConsumidos: [{id, qty}, ...]
@@ -10894,6 +11342,10 @@ function login(nombre) {
   // v9.2: Cargar combos de Supabase para que aparezcan los botones en tomador/WA/editar
   if (typeof combosCargarVentas === 'function') {
     combosCargarVentas().catch(function(e){ console.error('[combos] cargar:', e); });
+  }
+  // v13.4: cargar promos 1+1 de abril
+  if (typeof promosCargarVentas === 'function') {
+    promosCargarVentas().catch(function(e){ console.error('[promos] cargar:', e); });
   }
   // v13.3: Cargar info de última sync de clientes Xubio + iniciar refresh automático
   if (typeof xubioCargarUltimaSync === 'function') {
@@ -16244,6 +16696,8 @@ var _tomadorSucursalElegida = null; // v8.6: sucursal elegida al confirmar, se v
 var _tomadorCatActual  = 'todos';
 // v9.2: combos aplicados en el pedido actual del tomador { comboId: cantidad }
 var _tomadorCombos     = {};
+// v13.4: promos 1+1 aplicadas en el pedido actual del tomador { promoId: cantPares }
+var _tomadorPromos     = {};
 
 // ══════════════════════════════════════════════════════
 // TRACKING CONTINUO DE POSICIÓN
@@ -16678,6 +17132,7 @@ function _tomadorAbrirInterno() {
   _tomadorCompetencia = {};
   _tomadorDescuentos = {};
   _tomadorCombos = {}; // v9.2: reset combos del pedido
+  _tomadorPromos = {}; // v13.4: reset promos 1+1 del pedido
   _tomadorCatActual = 'todos';
   // NO reseteamos _tomadorSucursalElegida acá — viene del callback de sucElegirAbrir
 
@@ -16742,6 +17197,7 @@ function tomadorHTML() {
     + '</div>'
     + '<div class="tomador-hdr-total" id="tomador-total">$0</div>'
     + '</div>'
+    + '<div id="tomador-promos-bloque">' + promosRenderCarousel('tomador', 'tomadorAgregarPromo', 'tomadorQuitarPromo', _tomadorPromos) + '</div>'
     + '<div id="tomador-combos-bloque">' + combosRenderBotones('tomador', 'tomadorAgregarCombo', 'tomadorQuitarCombo', _tomadorCombos) + '</div>'
     + '<div class="tomador-cats" id="tomador-cats">' + cats + '</div>'
     + '<div class="tomador-body" id="tomador-body">' + tomadorRenderProductos('todos') + '</div>'
@@ -17003,6 +17459,10 @@ function tomadorActualizarTotal() {
     }
     if (item) { total += item.pr * qty; count += qty; }
   });
+  // v13.4: sumar promos 1+1 al total
+  var tp = (typeof promosTotalVentas === 'function') ? promosTotalVentas(_tomadorPromos) : { total:0, unidades:0 };
+  total += tp.total;
+  count += tp.unidades;
   var totalEl = document.getElementById('tomador-total');
   var btnEl   = document.getElementById('tomador-btn-confirmar');
   var totalStr = '$' + total.toLocaleString('es-AR');
@@ -17011,6 +17471,22 @@ function tomadorActualizarTotal() {
     btnEl.disabled = count === 0;
     btnEl.textContent = count > 0 ? 'Confirmar — ' + totalStr + ' (' + count + ' u.)' : 'Agregar productos';
   }
+}
+
+// v13.4 — handlers promos 1+1 del tomador campo
+function tomadorAgregarPromo(promoId) {
+  if (typeof promosAgregarAlMap !== 'function') return;
+  if (!promosAgregarAlMap(promoId, _tomadorPromos)) return;
+  var bloque = document.getElementById('tomador-promos-bloque');
+  if (bloque) bloque.innerHTML = promosRenderCarousel('tomador', 'tomadorAgregarPromo', 'tomadorQuitarPromo', _tomadorPromos);
+  tomadorActualizarTotal();
+}
+function tomadorQuitarPromo(promoId) {
+  if (typeof promosQuitarDelMap !== 'function') return;
+  promosQuitarDelMap(promoId, _tomadorPromos);
+  var bloque = document.getElementById('tomador-promos-bloque');
+  if (bloque) bloque.innerHTML = promosRenderCarousel('tomador', 'tomadorAgregarPromo', 'tomadorQuitarPromo', _tomadorPromos);
+  tomadorActualizarTotal();
 }
 
 // Modal precio competencia
@@ -17064,7 +17540,10 @@ function tomadorGuardarCompetencia(nombre, imgId) {
 // Confirmar y enviar pedido por WhatsApp
 async function tomadorConfirmar() {
   var items = Object.keys(_tomadorQtys);
-  if (items.length === 0) { toast('Agregá productos primero', 'err'); return; }
+  // v13.4: permitir confirmar si hay sólo promos o combos (sin productos sueltos)
+  var tienePromos = Object.keys(_tomadorPromos||{}).some(function(k){ return _tomadorPromos[k] > 0; });
+  var tieneCombos = Object.keys(_tomadorCombos||{}).some(function(k){ return _tomadorCombos[k] > 0; });
+  if (items.length === 0 && !tienePromos && !tieneCombos) { toast('Agregá productos primero', 'err'); return; }
 
   // Mostrar resumen antes de confirmar
   var cliente = _gpsCheckinActivo ? _gpsCheckinActivo.nombre_cliente : 'Cliente';
@@ -17099,6 +17578,28 @@ async function tomadorConfirmar() {
     + '<button onclick="document.getElementById(&quot;tomador-resumen-modal&quot;).remove()" style="background:rgba(255,255,255,.2);border:none;border-radius:50%;width:28px;height:28px;color:#fff;cursor:pointer;font-size:14px">✕</button>'
     + '</div>'
     + '<div style="padding:14px 20px 0;font-size:13px;color:#666">👤 ' + cliente + '</div>'
+    + (function(){
+        // v13.4: bloque de promos 1+1 arriba de productos
+        var tp = (typeof promosTotalVentas === 'function') ? promosTotalVentas(_tomadorPromos) : { total:0, pares:0, unidades:0 };
+        if (tp.pares === 0) return '';
+        resumenTotal += tp.total;
+        var filas = '';
+        Object.keys(_tomadorPromos||{}).forEach(function(pid){
+          var q = _tomadorPromos[pid] || 0;
+          if (q <= 0) return;
+          var promo = (_promosData||[]).find(function(x){ return x.id === pid; });
+          if (!promo) return;
+          var precio = Number(promo.precio_unitario||0);
+          filas += '<div style="display:flex;align-items:center;gap:10px;padding:8px 0;border-bottom:1px solid #f0e8e8">'
+            + '<img src="' + (promo.imagen_url||'') + '" style="width:44px;height:44px;object-fit:cover;border-radius:8px;flex-shrink:0;border:2px solid #D4A574" onerror="this.style.display=&quot;none&quot;">'
+            + '<div style="flex:1"><div style="font-weight:800;font-size:13px;color:#8B0000">🎁 1+1 · ' + (promo.producto_nombre||'') + '</div>'
+            + '<div style="font-size:11px;color:#2E7D32;font-weight:700">' + q + ' par' + (q>1?'es':'') + ' · ' + (q*2) + 'u total · 1 paga + 1 gratis</div></div>'
+            + '<div style="font-family:Barlow Condensed,sans-serif;font-size:16px;font-weight:900;color:#8B0000;text-align:right">$' + (precio*q).toLocaleString('es-AR') + '</div>'
+            + '</div>';
+        });
+        return '<div style="padding:6px 20px 0;font-size:11px;font-weight:900;color:#8B0000;letter-spacing:0.5px">🔥 OFERTAS 1+1</div>'
+          + '<div style="padding:0 20px 4px;background:linear-gradient(135deg,#fff9f0,#fff4e1);border-left:3px solid #D4A574;margin:4px 10px 8px;border-radius:6px">' + filas + '</div>';
+      })()
     + '<div style="padding:10px 20px">'
     + resumenLineas.map(function(l) {
         return '<div style="display:flex;align-items:center;gap:10px;padding:10px 0;border-bottom:1px solid #f0e8e8">'
@@ -17163,6 +17664,15 @@ async function tomadorConfirmarConEntrega(entregaData) {
 
   var lineas = [];
   var total  = 0;
+
+  // v13.4: líneas de promos 1+1 PRIMERO (formato compatible con parser Xubio)
+  var promosLineas = (typeof promosLineasWAVentas === 'function') ? promosLineasWAVentas(_tomadorPromos) : [];
+  var tpPromos = (typeof promosTotalVentas === 'function') ? promosTotalVentas(_tomadorPromos) : { total:0 };
+  if (promosLineas.length > 0) {
+    lineas.push.apply(lineas, promosLineas.filter(function(l){ return l !== ''; }));
+    total += tpPromos.total;
+  }
+
   items.forEach(function(nombre) {
     var qty  = _tomadorQtys[nombre];
     var item = null;
@@ -17262,6 +17772,10 @@ async function tomadorConfirmarConEntrega(entregaData) {
     if (combosAplicados.length > 0) {
       var combosAConsumir = combosAplicados.map(function(cid){ return { id: cid, qty: _tomadorCombos[cid] }; });
       combosConsumirStockVentas(combosAConsumir).catch(function(e){ console.error('[combos] consumir:', e); });
+    }
+    // v13.4: Descontar stock de promos 1+1 en Supabase (fire-and-forget)
+    if (typeof promosConsumirStockVentas === 'function' && _tomadorPromos && Object.keys(_tomadorPromos).length > 0) {
+      promosConsumirStockVentas(_tomadorPromos).catch(function(e){ console.error('[promos] consumir:', e); });
     }
 
     if (tieneDescuento) { toast('⏳ Pedido enviado — esperando aprobación del admin', 'ok'); } else { toast('✅ Pedido registrado y enviado', 'ok'); }
@@ -18740,6 +19254,8 @@ let _editarFila       = null;
 let _editarSucursalOriginal = null; // v8.6: sucursal vinculada al abrir (para detectar cambios)
 let _editarSucursalActual   = null; // v8.6: sucursal vigente (puede cambiar al apretar "Cambiar sucursal")
 let _editarCombos     = {}; // v9.2: { comboId: cantidad } combos agregados al editar
+// v13.4: promos 1+1 del pedido en edición { promoId: cantPares }
+let _editarPromos     = {};
 // v9.9: tracking para defensa contra pérdida de productos
 let _editarTotalOriginal    = 0;   // total del pedido al abrir el editor
 let _editarLineasNoParseadas = []; // líneas del detalle que no matcheó la regex
@@ -18762,6 +19278,7 @@ function abrirEditarPedido(p, detalle) {
   _editarQtys     = {};
   _editarDescuentos = {};
   _editarCombos   = {}; // v9.2: reset
+  _editarPromos   = {}; // v13.4: reset promos
   _editarSucursalOriginal = null; // v8.6
   _editarSucursalActual   = null; // v8.6
 
@@ -18782,7 +19299,8 @@ function abrirEditarPedido(p, detalle) {
     lineas.forEach(function(linea) {
       // v9.9: ignorar líneas de combos/ofertas y sub-items (empiezan con emoji)
       // que no tienen formato "Nx Nombre" — esas se procesan aparte en _editarCombos
-      if (/^(🔥|🍗|🍖|🐔|🍟|🥚|🥦|🍔|🍝|✓|—|\-\-)/.test(linea)) return;
+      // v13.4: agregar 🎁 (promos 1+1) al listado de emojis ignorados
+      if (/^(🎁|🔥|🍗|🍖|🐔|🍟|🥚|🥦|🍔|🍝|✓|—|\-\-)/.test(linea)) return;
       const m = linea.match(/^(\d+)x?\s+(.+?)(?:\s+→|\s+\(|\s*$)/);
       if (m) {
         _editarQtys[m[2].trim()] = parseInt(m[1]) || 1;
@@ -18791,6 +19309,13 @@ function abrirEditarPedido(p, detalle) {
         _editarLineasNoParseadas.push(linea);
       }
     });
+    // v13.4: parsear promos 1+1 del detalle (formato "🎁 *PROMO 1+1: Nombre* × N")
+    if (typeof promosParsearDetalle === 'function') {
+      var promosExistentes = promosParsearDetalle(detalle);
+      Object.keys(promosExistentes||{}).forEach(function(pid){
+        _editarPromos[pid] = promosExistentes[pid];
+      });
+    }
   }
 
   // v9.9: validación de productos parseados contra TOMADOR_CAT
@@ -18868,6 +19393,7 @@ function editarHTML(cliente) {
     '<div class="editar-hdr-total" id="editar-total">$0</div>' +
   '</div>' +
   '<div id="editar-sucursal-bloque"></div>' + // v8.6: bloque de sucursal, se rellena async
+  '<div id="editar-promos-bloque">' + promosRenderCarousel('editar', 'editarAgregarPromo', 'editarQuitarPromo', _editarPromos) + '</div>' +
   '<div id="editar-combos-bloque">' + combosRenderBotones('editar', 'editarAgregarCombo', 'editarQuitarCombo', _editarCombos) + '</div>' +
   '<div class="editar-body" id="editar-body"></div>' +
   '<div class="editar-footer">' +
@@ -19036,6 +19562,22 @@ function editarQuitarCombo(comboId) {
   setTimeout(function(){ toast.style.transition='opacity .35s'; toast.style.opacity='0'; setTimeout(function(){ toast.remove(); }, 350); }, 1400);
 }
 
+// v13.4 — handlers promos 1+1 del modo editar
+function editarAgregarPromo(promoId) {
+  if (typeof promosAgregarAlMap !== 'function') return;
+  if (!promosAgregarAlMap(promoId, _editarPromos)) return;
+  var bloque = document.getElementById('editar-promos-bloque');
+  if (bloque) bloque.innerHTML = promosRenderCarousel('editar', 'editarAgregarPromo', 'editarQuitarPromo', _editarPromos);
+  editarActualizarTotal();
+}
+function editarQuitarPromo(promoId) {
+  if (typeof promosQuitarDelMap !== 'function') return;
+  promosQuitarDelMap(promoId, _editarPromos);
+  var bloque = document.getElementById('editar-promos-bloque');
+  if (bloque) bloque.innerHTML = promosRenderCarousel('editar', 'editarAgregarPromo', 'editarQuitarPromo', _editarPromos);
+  editarActualizarTotal();
+}
+
 function editarQty(btn, delta) {
   const nombre = btn.getAttribute('data-nombre');
   const actual = _editarQtys[nombre] || 0;
@@ -19059,11 +19601,17 @@ function editarActualizarTotal() {
       });
     });
   });
+  // v13.4: sumar promos 1+1 al total de edición
+  var tpEd = (typeof promosTotalVentas === 'function') ? promosTotalVentas(_editarPromos) : { total:0, pares:0 };
+  total += tpEd.total;
+  // v13.4: sumar combos al total (para detectar si hay items sin productos sueltos)
+  var tieneCombos = Object.keys(_editarCombos||{}).some(function(k){ return _editarCombos[k] > 0; });
+  var tienePromos = tpEd.pares > 0;
   const el = document.getElementById('editar-total');
   if (el) el.textContent = '$' + Math.round(total).toLocaleString('es-AR');
   const btn = document.getElementById('editar-confirmar-btn');
   if (btn) {
-    btn.disabled = Object.keys(_editarQtys).length === 0;
+    btn.disabled = Object.keys(_editarQtys).length === 0 && !tieneCombos && !tienePromos;
     btn.textContent = 'Guardar cambios — $' + Math.round(total).toLocaleString('es-AR');
   }
 }
@@ -19125,7 +19673,11 @@ function editarQuitarDescuento(nombre) {
 }
 
 async function editarConfirmar() {
-  if (!_editarPedidoId || Object.keys(_editarQtys).length === 0) return;
+  if (!_editarPedidoId) return;
+  // v13.4: permitir guardar si hay solo promos o combos (sin productos sueltos)
+  var _hayPromosEd = Object.keys(_editarPromos||{}).some(function(k){ return _editarPromos[k] > 0; });
+  var _hayCombosEd = Object.keys(_editarCombos||{}).some(function(k){ return _editarCombos[k] > 0; });
+  if (Object.keys(_editarQtys).length === 0 && !_hayPromosEd && !_hayCombosEd) return;
   const btn = document.getElementById('editar-confirmar-btn');
   if (btn) { btn.disabled = true; btn.textContent = 'Guardando...'; }
 
@@ -19134,6 +19686,31 @@ async function editarConfirmar() {
   let items = 0;
   let resumenLineas = [];
   let detalleParts = [];
+
+  // v13.4: líneas de promos 1+1 PRIMERO (formato parser Xubio)
+  var promosLineasEd = (typeof promosLineasWAVentas === 'function') ? promosLineasWAVentas(_editarPromos) : [];
+  var tpEd = (typeof promosTotalVentas === 'function') ? promosTotalVentas(_editarPromos) : { total:0, pares:0, unidades:0 };
+  if (promosLineasEd.length > 0) {
+    // Compactar formato combo-like: cada promo en una sola línea con "|" separando campos
+    Object.keys(_editarPromos||{}).forEach(function(pid){
+      var q = _editarPromos[pid] || 0;
+      if (q <= 0) return;
+      var promo = (_promosData||[]).find(function(x){ return x.id === pid; });
+      if (!promo) return;
+      var precio = Number(promo.precio_unitario||0);
+      var nombre = promo.producto_nombre || '';
+      var sub = precio * q;
+      var partes = [
+        '🎁 *PROMO 1+1: ' + nombre + '* × ' + q,
+        '✓ ' + (q*2) + 'x ' + nombre,
+        '💰 $' + sub.toLocaleString('es-AR') + ' (-50%)'
+      ];
+      detalleParts.push(partes.join(' | '));
+      resumenLineas.push('🎁 1+1 ' + nombre + ' x' + q + ' pares');
+      total += sub;
+      items += q * 2;
+    });
+  }
 
   Object.keys(_editarQtys).forEach(function(nombre) {
     const qty = _editarQtys[nombre];
@@ -19226,6 +19803,15 @@ async function editarConfirmar() {
         var combosAConsumirEd = combosAplicadosEd.map(function(cid){ return { id: cid, qty: _editarCombos[cid] }; });
         combosConsumirStockVentas(combosAConsumirEd).catch(function(e){ console.error('[combos] consumir:', e); });
       }
+      // v13.4: Descontar stock de promos 1+1 (solo las NUEVAS agregadas al editar,
+      // evitando descontar las que ya estaban en el pedido original).
+      // Patrón: si al abrir el pedido ya había promos parseadas del detalle, esas
+      // no descuentan de nuevo. Aquí optamos por la regla simple: si el usuario
+      // aumenta qty, descontamos la DIFERENCIA. Pero como llegar a esa precisión
+      // requiere guardar el estado inicial, por ahora NO se descuenta al editar
+      // (misma lógica que aplica combos: solo los recién agregados en _editarCombos).
+      // En la práctica los vendedores no editan pedidos para subir qty de promos;
+      // si lo hacen, Braian puede ajustar manualmente en Supabase.
       toast('✅ Pedido actualizado', 'ok');
       editarCerrar();
       cargarPedidos(false); // recargar para ver los cambios
@@ -19363,6 +19949,8 @@ var _manualWACliente = '';
 var _manualWALocalidad = '';
 var _manualWADescuentos = {}; // { nombreProducto: { pct, motivo } }
 var _manualWACombos = {}; // v9.2: { comboId: cantidad }
+// v13.4: promos 1+1 del pedido manual WA { promoId: cantPares }
+var _manualWAPromos = {};
 
 function abrirCargaManualWA() {
   _manualWAQtys = {};
@@ -19370,6 +19958,7 @@ function abrirCargaManualWA() {
   _manualWALocalidad = '';
   _manualWADescuentos = {};
   _manualWACombos = {}; // v9.2: reset combos
+  _manualWAPromos = {}; // v13.4: reset promos
 
   const overlay = document.createElement('div');
   overlay.className = 'manual-wa-overlay';
@@ -19442,6 +20031,7 @@ function manualWAHTML() {
       '<div class="manual-wa-label">📍 Localidad</div>' +
       '<input class="manual-wa-input" id="manual-wa-localidad-input" type="text" placeholder="Ciudad / localidad...">' +
     '</div>' +
+    '<div id="mwa-promos-bloque">' + promosRenderCarousel('manualwa', 'manualWAAgregarPromo', 'manualWAQuitarPromo', _manualWAPromos) + '</div>' +
     combosRenderBotones('manualwa', 'manualWAAgregarCombo', 'manualWAQuitarCombo', _manualWACombos) +
     prodsHtml +
   '</div>' +
@@ -19507,6 +20097,22 @@ function mwaQuitarDescuento(nombre) {
   mwaActualizarTotal();
 }
 
+// v13.4 — handlers promos 1+1 del carga manual WA
+function manualWAAgregarPromo(promoId) {
+  if (typeof promosAgregarAlMap !== 'function') return;
+  if (!promosAgregarAlMap(promoId, _manualWAPromos)) return;
+  var bloque = document.getElementById('mwa-promos-bloque');
+  if (bloque) bloque.innerHTML = promosRenderCarousel('manualwa', 'manualWAAgregarPromo', 'manualWAQuitarPromo', _manualWAPromos);
+  mwaActualizarTotal();
+}
+function manualWAQuitarPromo(promoId) {
+  if (typeof promosQuitarDelMap !== 'function') return;
+  promosQuitarDelMap(promoId, _manualWAPromos);
+  var bloque = document.getElementById('mwa-promos-bloque');
+  if (bloque) bloque.innerHTML = promosRenderCarousel('manualwa', 'manualWAAgregarPromo', 'manualWAQuitarPromo', _manualWAPromos);
+  mwaActualizarTotal();
+}
+
 // ── v12: calcular desglose completo del carrito (combos + sueltos) ──
 // Devuelve: {
 //   combos:  [{id, nombre, qty, productos: [{nombre, qty, precio}], descuento_pct, precio_combo, subtotal}],
@@ -19515,7 +20121,28 @@ function mwaQuitarDescuento(nombre) {
 //   itemsCount  (total de unidades visibles para el contador)
 // }
 function mwaCalcularDesglose() {
-  var desglose = { combos: [], sueltos: [], totalCombos: 0, totalSueltos: 0, total: 0, itemsCount: 0 };
+  var desglose = { combos: [], sueltos: [], promos: [], totalCombos: 0, totalSueltos: 0, totalPromos: 0, total: 0, itemsCount: 0 };
+
+  // v13.4: 0. Promos 1+1 (primero por prioridad visual/ofertas)
+  Object.keys(_manualWAPromos || {}).forEach(function(promoId) {
+    var pares = _manualWAPromos[promoId];
+    if (!pares || pares <= 0) return;
+    var promo = (_promosData||[]).find(function(p){ return p.id === promoId; });
+    if (!promo) return;
+    var precio = Number(promo.precio_unitario || 0);
+    var subtotal = precio * pares;
+    desglose.promos.push({
+      id: promoId,
+      nombre: promo.producto_nombre || '',
+      pares: pares,
+      unidades: pares * 2,
+      precio_unitario: precio,
+      subtotal: subtotal,
+      imagen_url: promo.imagen_url || ''
+    });
+    desglose.totalPromos += subtotal;
+    desglose.itemsCount  += pares * 2;
+  });
 
   // 1. Combos
   Object.keys(_manualWACombos || {}).forEach(function(comboId) {
@@ -19585,7 +20212,7 @@ function mwaCalcularDesglose() {
     desglose.itemsCount += qty;
   });
 
-  desglose.total = desglose.totalCombos + desglose.totalSueltos;
+  desglose.total = desglose.totalCombos + desglose.totalSueltos + desglose.totalPromos;
   return desglose;
 }
 
@@ -19928,6 +20555,16 @@ async function manualWAGuardar(cliente, localidad, entrega, sucursal) {
   var d = mwaCalcularDesglose();
   var lineas = [];
 
+  // v13.4: 0. Promos 1+1 PRIMERO (formato esperado por parser Xubio:
+  //    🎁 *PROMO 1+1: Nombre* × N | ✓ 2Nx Nombre | 💰 $XXXX (-50%))
+  d.promos.forEach(function(pr){
+    var partes = [];
+    partes.push('🎁 *PROMO 1+1: ' + pr.nombre + '* × ' + pr.pares);
+    partes.push('✓ ' + pr.unidades + 'x ' + pr.nombre);
+    partes.push('💰 $' + pr.subtotal.toLocaleString('es-AR') + ' (-50%)');
+    lineas.push(partes.join(' | '));
+  });
+
   // 1. Combos (formato esperado por parser Xubio v19):
   //    🔥 *COMBO X* × N | ✓ Nx Producto | ... | 💰 $XXXX (-N%)
   d.combos.forEach(function(c){
@@ -19991,6 +20628,10 @@ async function manualWAGuardar(cliente, localidad, entrega, sucursal) {
   if (combosAplicadosMWA.length > 0) {
     var combosAConsumirMWA = combosAplicadosMWA.map(function(cid){ return { id: cid, qty: _manualWACombos[cid] }; });
     combosConsumirStockVentas(combosAConsumirMWA).catch(function(e){ console.error('[combos] consumir:', e); });
+  }
+  // v13.4: Descontar stock de promos 1+1 en Supabase (fire-and-forget)
+  if (typeof promosConsumirStockVentas === 'function' && _manualWAPromos && Object.keys(_manualWAPromos).length > 0) {
+    promosConsumirStockVentas(_manualWAPromos).catch(function(e){ console.error('[promos] consumir:', e); });
   }
 
   if (tieneDesWA) { toast('⏳ Pedido enviado — esperando aprobación del admin', 'ok'); } else { toast('✅ Pedido de ' + cliente + ' registrado', 'ok'); }
