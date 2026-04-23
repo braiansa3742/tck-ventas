@@ -4728,6 +4728,14 @@ body {
   position: fixed; inset: 0; background: rgba(0,0,0,.6); z-index: 500;
   display: flex; flex-direction: column;
 }
+/* v13.5 FIX: los bloques de promos y combos no deben estirarse dentro del flex
+   (antes se comían todo el alto y el body quedaba con 0 altura scrollable). */
+#editar-promos-bloque,
+#editar-combos-bloque,
+#editar-sucursal-bloque { flex-shrink: 0; }
+/* v13.5 FIX: garantizar que el body tenga espacio mínimo para que el scroll funcione
+   en celus chicos incluso con promos + combos presentes. */
+.editar-overlay .editar-body { min-height: 0; }
 .editar-hdr {
   background: linear-gradient(135deg, #E65100, #BF360C);
   padding: 14px 16px 12px; display: flex; align-items: center; gap: 12px;
@@ -8078,6 +8086,7 @@ body {
   border-bottom: 3px solid #D4A574;
   position: relative;
   overflow: hidden;
+  flex-shrink: 0; /* v13.5: no se estira dentro del overlay flex */
 }
 .vpromos-section::before {
   content: '';
