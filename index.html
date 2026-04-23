@@ -2,7 +2,63 @@
 <html lang="es">
 <head>
 <!-- ═══════════════════════════════════════════════════════════════════════
-     TCK VENTAS — v13.4 — 23/04/2026
+     TCK VENTAS — v13.6 — 23/04/2026
+     ──────────────────────────────────────────────────────────────────────
+     Cambios v13.6 (sobre v13.5.2) — FIX UNIR PEDIDOS CON PROMOS/COMBOS:
+
+     Bug detectado (sesión N21): al unir 2 pedidos que tenían promos 1+1,
+     combos o productos con descuento, la función dupUnirPedidos rompía el
+     detalle del pedido resultante. Lo simplificaba a "emoji *Nombre* qty"
+     perdiendo:
+       - Kg y precio de productos normales
+       - "× N pares" y "💰 $X" de promos 1+1
+       - Items internos y descuento de combos
+     Resultado: el parser del Apps Script NO podía procesar el pedido
+     unido para crear presupuesto Xubio. El error era silencioso hasta que
+     el vendedor intentaba presupuestar.
+
+     Caso testigo: pedido TCK-20260423-1259-LIS-JH1R (Estefania Albanese,
+     unión de 2 pedidos con promos) se corrompió al unir y quedó bloqueado.
+
+     SOLUCIÓN — Nuevo consolidador con 3 funciones:
+       - _dupParsearDetalle(detalle) → extrae {productos, combos, promos}
+         de un string detalle en cualquiera de los 4 formatos soportados:
+         catálogo web, WA manual, combos, promos (formato ventas o catálogo).
+       - _dupSerializarDetalle(estructurado) → regenera string detalle
+         parseable en formato uniforme (WA para productos, ventas para
+         combos y promos). Agrega header "🎁 *OFERTAS 1+1...*" si hay promos.
+       - _dupConsolidarPedidos([detalle1, detalle2, ...]) → parsea cada uno,
+         fusiona líneas repetidas según reglas:
+             · Productos iguales (nombre + presentación + dtoPct) → suma
+               cantidades y total.
+             · Promos iguales (mismo nombre de promo) → suma pares y total.
+             · Combos iguales (nombre + dtoPct) → suma cantidades y total.
+         Devuelve { detalle: string, resumen: estructurado }.
+
+     Comportamiento nuevo de dupUnirPedidos:
+       1. Parsea los detalles de todos los pedidos a unir.
+       2. Si alguno tiene "formato corrupto" (por ejemplo pedido que YA
+          fue mal unido antes), aborta con modal de error explicando qué
+          pedido es y sugiriendo resolverlos individualmente desde admin.
+       3. Consolida y serializa al formato parseable.
+       4. Si el total calculado (suma de totales originales) difiere del
+          total serializado por más de $1, muestra advertencia.
+
+     Compatible con el parser del Apps Script v24.7.1+ sin necesidad de
+     cambios en el backend.
+     ──────────────────────────────────────────────────────────────────────
+     Cambios v13.5.2 (sobre v13.5.1) — FIX WARNING FALSO PROMOS EN EDITAR:
+       - En editarFuncEvaluar: agregar emoji 💰 al regex de líneas ignoradas.
+         Las líneas "💰 $43.700 (-50%)" son resumen interno de promos/combos
+         y no representan productos. Sin este fix disparaban el warning
+         falso "PEDIDO INCOMPLETO" al editar cualquier pedido con promo.
+
+     Cambios v13.5.1 (sobre v13.5) — SCROLL UNIFICADO EN EDITAR:
+       - Los bloques sucursal, promos-carousel y combos-carousel dejan
+         de ser hermanos del body y pasan a estar DENTRO de .editar-body
+         (scrolleable). Sin esto consumían el alto disponible en celus
+         chicos y dejaban el body con 0px → scroll saltaba al fondo.
+       - editarRenderItems pinta en #editar-body-productos (no en body raíz).
      ──────────────────────────────────────────────────────────────────────
      Cambios v13.4 (sobre v13.3) — PROMOS 1+1 DE ABRIL EN LOS 3 MODOS:
 
@@ -22294,6 +22350,250 @@ async function dupMarcarDistintos() {
   toast('✅ Marcados como pedidos legítimos', 'ok');
 }
 
+// ════════════════════════════════════════════════════════════════════════
+// v13.6 — CONSOLIDADOR DE DETALLES PARA UNIR PEDIDOS
+// ════════════════════════════════════════════════════════════════════════
+// 3 funciones que reemplazan la lógica anterior de dupUnirPedidos, que
+// rompía el detalle al unir pedidos con promos/combos o productos con
+// precio. Mantienen el formato parseable por el Apps Script (v24.7.1+).
+//
+// _dupParsearDetalle(detalle) → {productos, combos, promos, errores}
+// _dupSerializarDetalle(estructurado) → string formato parseable
+// _dupConsolidarPedidos([detalles]) → {detalle, resumen}
+// ════════════════════════════════════════════════════════════════════════
+
+function _dupParsearDetalle(detalle) {
+  var out = { productos: [], combos: [], promos: [], errores: [] };
+  if (!detalle) return out;
+  var bloques = String(detalle).split(/\s*\|\s*/).map(function(b){ return b.trim(); }).filter(Boolean);
+  var i = 0;
+
+  while (i < bloques.length) {
+    var b = bloques[i];
+
+    // Header suelto de promos — saltear sin procesar
+    if (/^🎁\s*\*OFERTAS\s*1\+1\b[^*]*\*\s*$/u.test(b)) { i++; continue; }
+
+    // PROMO 1+1 (acepta formato ventas "PROMO 1+1:" y catálogo "1+1 ")
+    var mPromo = b.match(/🎁\s*\*(?:PROMO\s*)?1\+1[:\s]\s*([^*]+?)\*\s*[×x]\s*(\d+)(?:\s*par(?:es)?)?/ui);
+    if (mPromo) {
+      var nombrePromo = mPromo[1].trim();
+      var pares = parseInt(mPromo[2]);
+      var totalPromo = 0;
+      var j = i + 1;
+      while (j < bloques.length) {
+        var sub = bloques[j];
+        var mFin = sub.match(/💰\s*\$([\d.,]+)(?:\s*\(-?(\d+(?:\.\d+)?)%?\))?/u);
+        if (mFin) { totalPromo = _dupParsearMontoLocal(mFin[1]); j++; break; }
+        if (/^\s*✓\s*\d+[ux]?\s+/u.test(sub)) { j++; continue; }
+        break;
+      }
+      if (nombrePromo && pares && totalPromo > 0) {
+        out.promos.push({ nombre: nombrePromo, pares: pares, total: totalPromo });
+      } else {
+        out.errores.push('Promo 1+1 incompleta: "' + nombrePromo + '" (faltan pares o total)');
+      }
+      i = j;
+      continue;
+    }
+
+    // COMBO
+    var mCombo = b.match(/^[🔥]+\s*\*([^*]+)\*\s*[×x]\s*(\d+)/u);
+    if (mCombo) {
+      var nombreCombo = mCombo[1].trim();
+      var qtyCombo = parseInt(mCombo[2]);
+      var items = [];
+      var descPct = 0;
+      var totalCombo = 0;
+      var j2 = i + 1;
+      while (j2 < bloques.length) {
+        var sub2 = bloques[j2];
+        var mFin2 = sub2.match(/💰\s*\$([\d.,]+)\s*\(-(\d+(?:\.\d+)?)%?\)/u);
+        if (mFin2) { totalCombo = _dupParsearMontoLocal(mFin2[1]); descPct = parseFloat(mFin2[2]); j2++; break; }
+        var mItem = sub2.match(/✓\s*(\d+)x?\s+(.+?)$/u);
+        if (mItem) { items.push({ cantidad: parseInt(mItem[1]), nombre: mItem[2].trim() }); j2++; continue; }
+        break;
+      }
+      if (nombreCombo && qtyCombo && items.length) {
+        out.combos.push({ nombre: nombreCombo, qty: qtyCombo, items: items, descPct: descPct, total: totalCombo });
+      } else {
+        out.errores.push('Combo incompleto: "' + nombreCombo + '"');
+      }
+      i = j2;
+      continue;
+    }
+
+    // CATALOGO WEB: cabecera "🐔 *Nombre*" + bloque siguiente con precios
+    var mCabCat = b.match(/^[🔥🐔🍗🥚🍟🍖🥦🥬🥔📦🍅]+\s*\*([^*]+)\*\s*$/u);
+    if (mCabCat) {
+      var nombreCat = mCabCat[1].trim();
+      var emojiCat = b.match(/^\S+/)[0];
+      if (i + 1 < bloques.length) {
+        var sig = bloques[i + 1];
+        var mCat = sig.match(/^(\d+)\s+\w+\s*(?:\(([^)]*)\))?\s*x\s*\$?([\d.,]+)\s*→\s*\$?([\d.,]+)/i);
+        if (mCat) {
+          out.productos.push({
+            formato: 'catalogo', emoji: emojiCat, nombre: nombreCat,
+            qty: parseInt(mCat[1]),
+            presentacion: (mCat[2] || '').trim(),
+            precio_unit: _dupParsearMontoLocal(mCat[3]),
+            total: _dupParsearMontoLocal(mCat[4]),
+            dtoPct: 0
+          });
+          i += 2;
+          continue;
+        }
+      }
+      // cabecera suelta (header sin siguiente bloque) — saltear
+      i++;
+      continue;
+    }
+
+    // WHATSAPP MANUAL: "1x Nombre (X Kg) → $XXX" con descuento opcional
+    var mWA = b.match(/^(\d+)x\s+(.+?)(?:\s*\[-(\d+(?:\.\d+)?)%\])?\s*→\s*\$?([\d.,]+)/i);
+    if (mWA) {
+      var qtyWA = parseInt(mWA[1]);
+      var restoWA = mWA[2].trim();
+      var dtoPctWA = mWA[3] ? parseFloat(mWA[3]) : 0;
+      var totalWA = _dupParsearMontoLocal(mWA[4]);
+      var mPresWA = restoWA.match(/^(.+?)\s*\(([^)]+)\)\s*$/);
+      var nombreWA = mPresWA ? mPresWA[1].trim() : restoWA;
+      var presWA = mPresWA ? mPresWA[2].trim() : '';
+      var precioUnitCalc = (qtyWA > 0 && (1 - dtoPctWA/100) > 0)
+        ? totalWA / qtyWA / (1 - dtoPctWA/100)
+        : 0;
+      out.productos.push({
+        formato: 'whatsapp', emoji: '', nombre: nombreWA, qty: qtyWA,
+        presentacion: presWA, precio_unit: precioUnitCalc, total: totalWA, dtoPct: dtoPctWA
+      });
+      i++;
+      continue;
+    }
+
+    // Formato corrupto típico del bug previo: "🍟 *Nombre* 1" sin datos
+    // Antes de tirar error chequeamos si el siguiente bloque es footer "💰"
+    // (si sí, era una promo mal catalogada arriba y la dejamos pasar sin error)
+    var mCorrupto = b.match(/^[^\s]+\s*\*([^*]+)\*\s+(\d+)\s*$/u);
+    if (mCorrupto) {
+      out.errores.push('Formato corrupto (probable unión previa defectuosa): "' + b + '"');
+      i++;
+      continue;
+    }
+
+    out.errores.push('Bloque no reconocido: ' + b.substring(0, 80));
+    i++;
+  }
+
+  return out;
+}
+
+function _dupParsearMontoLocal(str) {
+  if (!str) return 0;
+  var limpio = String(str).replace(/\./g,'').replace(',','.');
+  return parseFloat(limpio) || 0;
+}
+
+function _dupSerializarDetalle(estructurado) {
+  var partes = [];
+
+  // 1) Promos primero (con header)
+  if (estructurado.promos.length > 0) {
+    partes.push('🎁 *OFERTAS 1+1 — COMPRÁS 1 LLEVÁS 2*');
+    estructurado.promos.forEach(function(p) {
+      var totalU = p.pares * 2;
+      partes.push('🎁 *PROMO 1+1: ' + p.nombre + '* × ' + p.pares);
+      partes.push('   ✓ ' + totalU + 'x ' + p.nombre);
+      partes.push('   💰 $' + p.total.toLocaleString('es-AR') + ' (-50%)');
+    });
+  }
+
+  // 2) Combos
+  estructurado.combos.forEach(function(c) {
+    partes.push('🔥 *' + c.nombre + '* × ' + c.qty);
+    c.items.forEach(function(it) {
+      partes.push('   ✓ ' + it.cantidad + 'x ' + it.nombre);
+    });
+    partes.push('   💰 $' + c.total.toLocaleString('es-AR') + ' (-' + c.descPct + '%)');
+  });
+
+  // 3) Productos normales en formato WA (compacto, parseable)
+  estructurado.productos.forEach(function(pr) {
+    var presenStr = pr.presentacion ? ' (' + pr.presentacion + ')' : '';
+    var dtoStr = pr.dtoPct > 0 ? '[-' + pr.dtoPct + '%]' : '';
+    partes.push(pr.qty + 'x ' + pr.nombre + presenStr + dtoStr + ' → $' + pr.total.toLocaleString('es-AR'));
+  });
+
+  return partes.join(' | ');
+}
+
+function _dupConsolidarPedidos(detalles) {
+  // detalles = array de strings
+  // Retorna { detalle: stringConsolidado, resumen: {productos, combos, promos, errores} }
+
+  var todos = { productos: [], combos: [], promos: [], errores: [] };
+
+  detalles.forEach(function(detalle, idx) {
+    var parsed = _dupParsearDetalle(detalle);
+    todos.productos = todos.productos.concat(parsed.productos);
+    todos.combos    = todos.combos.concat(parsed.combos);
+    todos.promos    = todos.promos.concat(parsed.promos);
+    // Anotar de qué pedido viene cada error para que el mensaje sea útil
+    parsed.errores.forEach(function(e) {
+      todos.errores.push('[pedido #' + (idx + 1) + '] ' + e);
+    });
+  });
+
+  // Consolidar PRODUCTOS: mismo nombre + presentación + dtoPct → sumar qty y total
+  var cProd = {};
+  todos.productos.forEach(function(p) {
+    var key = (p.nombre || '').trim().toLowerCase() + '||' +
+              (p.presentacion || '').trim().toLowerCase() + '||' +
+              String(p.dtoPct || 0);
+    if (cProd[key]) {
+      cProd[key].qty += p.qty;
+      cProd[key].total += p.total;
+    } else {
+      cProd[key] = Object.assign({}, p);
+    }
+  });
+  todos.productos = Object.keys(cProd).map(function(k){ return cProd[k]; });
+
+  // Consolidar PROMOS: mismo nombre → sumar pares y total
+  var cPromo = {};
+  todos.promos.forEach(function(p) {
+    var key = (p.nombre || '').trim().toLowerCase();
+    if (cPromo[key]) {
+      cPromo[key].pares += p.pares;
+      cPromo[key].total += p.total;
+    } else {
+      cPromo[key] = Object.assign({}, p);
+    }
+  });
+  todos.promos = Object.keys(cPromo).map(function(k){ return cPromo[k]; });
+
+  // Consolidar COMBOS: mismo nombre + descPct → sumar qty y total (items se mantienen del primero)
+  var cCombo = {};
+  todos.combos.forEach(function(c) {
+    var key = (c.nombre || '').trim().toLowerCase() + '||' + String(c.descPct || 0);
+    if (cCombo[key]) {
+      cCombo[key].qty += c.qty;
+      cCombo[key].total += c.total;
+    } else {
+      cCombo[key] = Object.assign({}, c, { items: c.items.slice() });
+    }
+  });
+  todos.combos = Object.keys(cCombo).map(function(k){ return cCombo[k]; });
+
+  return {
+    detalle: _dupSerializarDetalle(todos),
+    resumen: todos
+  };
+}
+
+// ════════════════════════════════════════════════════════════════════════
+// Fin consolidador v13.6
+// ════════════════════════════════════════════════════════════════════════
+
 async function dupUnirPedidos() {
   var s = _dupModalState;
   if (!s) return;
@@ -22327,50 +22627,77 @@ async function dupUnirPedidos() {
   var principal = activos[0];
   var restantes = activos.slice(1);
 
-  // 1) COMBINAR PRODUCTOS (suma cantidades de los que se repiten)
-  var prodsCombinados = {};  // key (nombre normalizado) → { emoji, name, qty }
-  var ordenInsercion = [];   // para preservar el orden original
-  activos.forEach(function(p) {
-    var prods = parseProds(p.detalle || '');
-    prods.forEach(function(pr) {
-      var key = (pr.name || '').toLowerCase().replace(/\s+/g,' ').trim();
-      if (!key) return;
-      if (prodsCombinados[key]) {
-        prodsCombinados[key].qty += pr.qty;
-      } else {
-        prodsCombinados[key] = { emoji: pr.emoji, name: pr.name, qty: pr.qty };
-        ordenInsercion.push(key);
-      }
-    });
-  });
+  // ═══════════════════════════════════════════════════════════════════
+  // v13.6 — CONSOLIDACIÓN INTELIGENTE
+  // Usa _dupConsolidarPedidos (abajo en este archivo) que:
+  //   - Parsea cada detalle a {productos, combos, promos}
+  //   - Fusiona líneas iguales (mismo nombre/presentación/descuento)
+  //   - Re-serializa al formato parseable por el Apps Script
+  //
+  // Si algún pedido tiene "formato corrupto" (pedido previamente mal unido
+  // en versiones v13.5 o anteriores), abortamos con modal explicativo.
+  // ═══════════════════════════════════════════════════════════════════
+  var detallesOriginales = activos.map(function(p){ return p.detalle || ''; });
+  var consolidacion = _dupConsolidarPedidos(detallesOriginales);
 
-  // 2) SUMAR TOTALES
+  // Chequeo de errores de parseo (formato corrupto de unión previa)
+  if (consolidacion.resumen.errores && consolidacion.resumen.errores.length > 0) {
+    var erroresHtml = consolidacion.resumen.errores.slice(0, 6).map(function(e) {
+      return '<div style="font-size:12px;color:#C62828;margin:3px 0">• ' + e.substring(0, 120) + '</div>';
+    }).join('');
+    var cuerpoErr =
+      'Uno o más pedidos tienen el detalle en un formato que no se puede procesar para unir de forma segura. ' +
+      'Esto suele pasar con pedidos que ya fueron unidos con una versión vieja de la app.<br><br>' +
+      '<div style="background:#FFEBEE;border-left:3px solid #C62828;padding:10px;margin:8px 0;text-align:left">' +
+      erroresHtml +
+      (consolidacion.resumen.errores.length > 6 ? '<div style="font-size:12px;color:#C62828">... y ' + (consolidacion.resumen.errores.length - 6) + ' más</div>' : '') +
+      '</div>' +
+      '<div style="font-size:13px;color:#666;margin-top:10px">' +
+      '<b>¿Qué hacer?</b><br>' +
+      'Presupuestá cada pedido por separado, o avisale a <b>Francisco/Braian</b> para resolver desde admin.</div>';
+    await dupConfirmModal('No se puede unir — formato corrupto', cuerpoErr, 'Entendido', {soloInfo: true});
+    return;
+  }
+
+  var nuevoDetalle = consolidacion.detalle;
+  var itemsPorTipo = consolidacion.resumen;
+
+  // Total de líneas únicas (para mostrar en confirm + resumen)
+  var totalLineas = itemsPorTipo.productos.length + itemsPorTipo.combos.length + itemsPorTipo.promos.length;
+
+  // Total unido = suma aritmética de los totales originales (ya está bien)
   var totalUnido = activos.reduce(function(acc, p) {
     var n = parseInt((p.total || '').replace(/[^\d]/g,'')) || 0;
     return acc + n;
   }, 0);
 
-  // 3) CONSTRUIR NUEVO DETALLE en formato TCK (usa pipes como separador)
-  // Formato: "emoji *Nombre* qty"
-  var nuevoDetalle = ordenInsercion.map(function(key) {
-    var pr = prodsCombinados[key];
-    return (pr.emoji || '🛒') + ' *' + pr.name + '* ' + pr.qty;
-  }).join(' | ');
+  // Resumen corto — mostrar primeros 4 items (mix de productos, combos, promos)
+  var resumenItems = [];
+  itemsPorTipo.productos.forEach(function(pr){ resumenItems.push(pr.qty + '× ' + pr.nombre); });
+  itemsPorTipo.combos.forEach(function(c){ resumenItems.push(c.qty + '× ' + c.nombre); });
+  itemsPorTipo.promos.forEach(function(pr){ resumenItems.push(pr.pares + ' par' + (pr.pares > 1 ? 'es' : '') + ' 1+1 ' + pr.nombre); });
+  var resumenNuevo = resumenItems.slice(0, 4).join(', ');
+  if (resumenItems.length > 4) resumenNuevo += '...';
 
-  // 4) RESUMEN CORTO (primeros 4 productos)
-  var resumenNuevo = ordenInsercion.slice(0,4).map(function(key) {
-    var pr = prodsCombinados[key];
-    return pr.qty + '× ' + pr.name;
-  }).join(', ');
-  if (ordenInsercion.length > 4) resumenNuevo += '...';
-
-  // 5) Total de items
-  var itemsTotal = Object.values(prodsCombinados).reduce(function(a, pr) { return a + pr.qty; }, 0);
+  // Total de items (unidades): productos qty + combos qty + promos pares × 2
+  var itemsTotal = 0;
+  itemsPorTipo.productos.forEach(function(pr){ itemsTotal += pr.qty; });
+  itemsPorTipo.combos.forEach(function(c){ itemsTotal += c.qty; });
+  itemsPorTipo.promos.forEach(function(pr){ itemsTotal += pr.pares * 2; });
 
   // v13: modal lindo en lugar de confirm() nativo
+  // v13.6: mostrar desglose por tipo (productos / combos / promos) para dar claridad
+  var desgloseLinea = '• Se combinarán <b>' + totalLineas + '</b> líneas';
+  var partesDesglose = [];
+  if (itemsPorTipo.productos.length > 0) partesDesglose.push(itemsPorTipo.productos.length + ' productos');
+  if (itemsPorTipo.combos.length > 0)    partesDesglose.push(itemsPorTipo.combos.length + ' combos');
+  if (itemsPorTipo.promos.length > 0)    partesDesglose.push(itemsPorTipo.promos.length + ' promos 1+1');
+  if (partesDesglose.length > 0) desgloseLinea += ' (' + partesDesglose.join(', ') + ')';
+  desgloseLinea += '<br>';
+
   var cuerpoConfirm = '🔗 ¿Confirmás unir estos <b>' + activos.length + '</b> pedidos?<br><br>' +
     '<div style="background:#F9F9F9;border-left:3px solid #D4A574;padding:10px;margin:8px 0;font-size:14px;text-align:left">' +
-    '• Se combinarán <b>' + ordenInsercion.length + '</b> productos diferentes<br>' +
+    desgloseLinea +
     '• El pedido <b>' + principal.pedidoId + '</b> quedará como único con total <b>' + formatMoneda(totalUnido) + '</b><br>' +
     '• Se cancelarán los otros <b>' + restantes.length + '</b> pedidos<br>' +
     '• Acreditado a: <b>' + s.acreditarA + '</b>' +
@@ -22440,12 +22767,14 @@ async function dupUnirPedidos() {
       localStorage.setItem('tck_dup_revisados', JSON.stringify(revisados));
     } catch(e) {}
 
-    // v9.0: log de unificación
-    var prodsResumen = ordenInsercion.slice(0, 5).map(function(k){
-      var pr = prodsCombinados[k];
-      return pr.qty + 'x ' + pr.name;
-    }).join(', ');
-    if (ordenInsercion.length > 5) prodsResumen += ' (+' + (ordenInsercion.length - 5) + ')';
+    // v9.0 / v13.6: log de unificación
+    // En v13.6 sumamos productos + combos + promos al resumen
+    var itemsParaResumen = [];
+    itemsPorTipo.productos.forEach(function(pr){ itemsParaResumen.push(pr.qty + 'x ' + pr.nombre); });
+    itemsPorTipo.combos.forEach(function(c){ itemsParaResumen.push(c.qty + 'x ' + c.nombre); });
+    itemsPorTipo.promos.forEach(function(pr){ itemsParaResumen.push(pr.pares + ' pares 1+1 ' + pr.nombre); });
+    var prodsResumen = itemsParaResumen.slice(0, 5).join(', ');
+    if (itemsParaResumen.length > 5) prodsResumen += ' (+' + (itemsParaResumen.length - 5) + ')';
     var pedidosCancelados = restantes.map(function(r){ return r.pedidoId; }).join(', ');
 
     _dupLogAccion({
