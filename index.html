@@ -2,8 +2,35 @@
 <html lang="es">
 <head>
 <!-- ═══════════════════════════════════════════════════════════════════════
-     TCK VENTAS — v13.6.3 — 24/04/2026
+     TCK VENTAS — v13.6.4 — 24/04/2026
      ──────────────────────────────────────────────────────────────────────
+     Cambios v13.6.4 (sobre v13.6.3) — FIX CHECK-IN: vendedorId null rompe
+     historial y tomador post-checkin:
+       Bug detectado (sesión N22): cuando un vendedor no existe en la
+       tabla `vendedores` de Supabase, gpsObtenerVendedorId() retorna null.
+       Cascada:
+         1. gpsCargarHistorial() hacía `if (!vendedorId && !esAdmin) return;`
+            → no carga historial, no restaura _gpsCheckinActivo al refresh.
+         2. El vendedor hace check-in (toast verde inmediato), el insert a
+            `visitas` funciona (vendedor_id=null), pero al refrescar la
+            página el estado se pierde.
+         3. tomadorAbrir() valida `if (!_gpsCheckinActivo)` → bloquea al
+            vendedor con "Hacé check-in primero".
+       FIXES aplicados:
+         - gpsCargarHistorial: eliminar return early cuando vendedorId es
+           null. Fallback: cargar todas las visitas del día sin filtro de
+           vendedor. Agregar console.warn explícito.
+         - gpsConfirmarCheckin: mover toast verde y seteo de _gpsCheckinActivo
+           DESPUÉS del insert exitoso. Si falla: toast rojo + revertir UI.
+         - gpsCargarHistorial: filtrar checkout por nombre_cliente (bug
+           donde checkout de Cliente B cerraba check-in de Cliente A).
+         - gpsObtenerVendedorId: console.warn cuando no encuentra el
+           vendedor, con SQL de insert listo para copiar.
+       Nombres EXACTOS de vendedores que el frontend busca: Miguel, Juan,
+       Lisandro, Joan, Luis, Admin (no nombres largos).
+       Resolución de raíz: ejecutar el SQL de Supabase para insertar los
+       vendedores en la tabla `vendedores`.
+
      Cambios v13.6.3 (sobre v13.6.2):
        · ALTA DE STOCK — se quitaron del set TOMADOR_SIN_STOCK_AVISO:
            - "MDM - Carne Molida de Pollo"
@@ -15337,6 +15364,8 @@ async function gpsObtenerVendedorId() {
     if (data && data.length > 0) {
       _gpsVendedorId = data[0].id;
       return _gpsVendedorId;
+    } else {
+      console.warn('[GPS] ⚠️ Vendedor "' + nombre + '" NO está en la tabla `vendedores` de Supabase. Insertarlo con: INSERT INTO vendedores (nombre) VALUES (\'' + nombre + '\');');
     }
   } catch(e) { console.error('GPS vendedor:', e); }
   return null;
@@ -15642,7 +15671,9 @@ function adminStatCell(val, lbl, color) {
 async function gpsCargarHistorial() {
   var vendedorId = await gpsObtenerVendedorId();
   var esAdmin = vendedorActual === 'ADMIN';
-  if (!vendedorId && !esAdmin) return;
+  if (!vendedorId && !esAdmin) {
+    console.warn('[GPS Historial] ⚠️ vendedorId es null para "' + vendedorActual + '". El vendedor probablemente no está en la tabla `vendedores` de Supabase. Insertarlo manualmente.');
+  }
 
   // Zona horaria Argentina (UTC-3)
   var offsetMs = 3 * 60 * 60 * 1000;
@@ -15653,7 +15684,8 @@ async function gpsCargarHistorial() {
 
   try {
     // Admin ve todas las visitas del día, vendedor solo las suyas
-    var url = esAdmin
+    // v13.6.4: fallback si vendedorId es null — cargar todas y filtrar en memoria
+    var url = (esAdmin || !vendedorId)
       ? 'visitas?fecha=gte.' + ayer + '&order=fecha.desc&select=*'
       : 'visitas?vendedor_id=eq.' + vendedorId + '&fecha=gte.' + ayer + '&order=fecha.desc&select=*';
 
@@ -15669,8 +15701,12 @@ async function gpsCargarHistorial() {
       for (var i = 0; i < visitas.length; i++) {
         if (visitas[i].tipo === 'checkin') {
           // Buscar si tiene checkout correspondiente
+          // v13.6.4: filtrar por nombre_cliente para evitar que un checkout
+          // de Cliente B cierre el check-in de Cliente A.
           var tieneCheckout = visitas.some(function(v) {
-            return v.tipo === 'checkout' && new Date(v.fecha) > new Date(visitas[i].fecha);
+            return v.tipo === 'checkout'
+                   && v.nombre_cliente === visitas[i].nombre_cliente
+                   && new Date(v.fecha) > new Date(visitas[i].fecha);
           });
           if (!tieneCheckout) {
             checkinActivo = visitas[i];
@@ -15932,14 +15968,9 @@ async function gpsConfirmarCheckin(nombreCliente) {
     return;
   }
 
-  _gpsHizoPedido = false;
-
-  // Mostrar check-in activo con coordenadas confirmadas
-  _gpsCheckinActivo = { nombre_cliente: nombreCliente, fecha: new Date().toISOString() };
-  gpsActualizarEstado(_gpsCheckinActivo);
-  toast('✅ Check-in: ' + nombreCliente, 'ok');
-
-  // Guardar en Supabase en background
+  // v13.6.4: reordenado para que toast verde y estado activo se setean
+  // DESPUÉS del insert exitoso. Si el insert falla (RLS, red, etc.), el
+  // vendedor ve toast rojo y la UI vuelve a "sin check-in".
   var vendedorId = await gpsObtenerVendedorId();
   try {
     await sbFetch('visitas', {
@@ -15952,10 +15983,21 @@ async function gpsConfirmarCheckin(nombreCliente) {
         lng:            coords.lng
       })
     });
+    // SI LLEGAMOS ACÁ, EL INSERT FUNCIONÓ
+    _gpsHizoPedido = false;
+    _gpsCheckinActivo = { nombre_cliente: nombreCliente, fecha: new Date().toISOString() };
+    gpsActualizarEstado(_gpsCheckinActivo);
+    toast('✅ Check-in: ' + nombreCliente, 'ok');
+    // Llamadas en background no críticas (mantener silenciosas)
     gpsGuardarUbicacionCliente(nombreCliente, coords, vendedorId);
     gpsBuscarMatchMaster(nombreCliente, vendedorId); // buscar/crear en clientes_master
     gpsCargarHistorial();
-  } catch(e) { console.error('Check-in error:', e); }
+  } catch(e) {
+    console.error('[GPS Check-in] Insert falló:', e);
+    toast('⚠️ El check-in no se pudo guardar. Reintentá.', 'err');
+    _gpsCheckinActivo = null;
+    gpsActualizarEstado(null);
+  }
 }
 
 // ── MATCH GPS ↔ clientes_master ─────────────────────────────
