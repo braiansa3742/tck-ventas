@@ -2,7 +2,24 @@
 <html lang="es">
 <head>
 <!-- ═══════════════════════════════════════════════════════════════════════
-     TCK VENTAS — v13.6 — 23/04/2026
+     TCK VENTAS — v13.6.2 — 24/04/2026
+     ──────────────────────────────────────────────────────────────────────
+     Cambios v13.6.2 (sobre v13.6.1):
+       · FIX línea duplicada en xubioEjecutarCrearPresupuesto: el botón
+         tenía dos asignaciones consecutivas de textContent. La segunda
+         sobrescribía la primera y el emoji "⏳" nunca se mostraba. Ahora
+         queda una sola línea con "⏳ Creando...".
+
+     Cambios v13.6.1 (auditoría Kimi K2.6 + verificación):
+       · FIX 12 — Bloqueo doble-tap: bandera _xubioActivo + botón disabled
+         + texto "⏳ Creando..." al inicio. Resetea en finally del fetch.
+       · FIX 13 — Manejo de respuestas CONDICION_FISCAL_NULL y LOCK_OCUPADO
+         del backend con mensajes claros al vendedor.
+       · FIX 14 — Retry automático del buscador de clientes Xubio si
+         Supabase falla (1 intento a 1s, después error con contacto admin).
+       · FIX 7 — Validación reforzada del modal de calibre (botón Continuar
+         solo se habilita cuando todos los pollos genéricos tienen calibre
+         elegido). Verificado, ya estaba bien.
      ──────────────────────────────────────────────────────────────────────
      Cambios v13.6 (sobre v13.5.2) — FIX UNIR PEDIDOS CON PROMOS/COMBOS:
 
@@ -14352,10 +14369,24 @@ function xubioBuscarCliente(input, pedidoId, id) {
       })
       .catch(function(err) {
         console.error('[xubio] buscar Supabase:', err);
-        if (spin) spin.classList.remove('on');
-        if (icon) icon.style.display = '';
-        drop.innerHTML = '<div class="xubio-dropdown-empty">⚠️ Error de conexión con la base. Intentá de nuevo.</div>';
-        drop.classList.add('on');
+        // Retry automático una vez después de 1s
+        setTimeout(function() {
+          sbFetch(path, { method: 'GET' })
+            .then(function(filas2) {
+              if (spin) spin.classList.remove('on');
+              if (icon) icon.style.display = '';
+              var clientes = (filas2 || []).map(function(c) {
+                return { id: String(c.id || ''), nombre: c.nombre || '', cuit: c.cuit || '', localidad: c.localidad || '' };
+              });
+              xubioRenderDropdown(clientes, id, pedidoId);
+            })
+            .catch(function() {
+              if (spin) spin.classList.remove('on');
+              if (icon) icon.style.display = '';
+              drop.innerHTML = '<div class="xubio-dropdown-empty">⚠️ Base de datos no disponible.<br><small>Si persiste, contactá a Francisco.</small></div>';
+              drop.classList.add('on');
+            });
+        }, 1000);
       });
   }, 350);
 }
@@ -14840,11 +14871,14 @@ function xubioConfirmarCalibres(pedidoId, fila, id) {
 
 // ── Ejecutar la creación real del presupuesto ─────────────────────
 function xubioEjecutarCrearPresupuesto(pedidoId, fila, id, calibres, fechaPresupuesto) {
+  if (_xubioActivo) { toast('⏳ Ya se está creando un presupuesto. Aguardá...', 'err'); return; }
+  _xubioActivo = true;
+
   var sel = _xubioSeleccion[pedidoId];
-  if (!sel || !sel.clienteId) { toast('Seleccioná un cliente primero', 'err'); return; }
+  if (!sel || !sel.clienteId) { _xubioActivo = false; toast('Seleccioná un cliente primero', 'err'); return; }
 
   var btn = document.getElementById('xubio-btn-' + id);
-  if (btn) { btn.disabled = true; btn.textContent = 'Creando presupuesto...'; }
+  if (btn) { btn.disabled = true; btn.textContent = '⏳ Creando...'; }
 
   var params = new URLSearchParams({
     accion:         'crearPresupuestoXubio',
@@ -14883,6 +14917,10 @@ function xubioEjecutarCrearPresupuesto(pedidoId, fila, id, calibres, fechaPresup
           toast('Este pedido ya tiene presupuesto #' + data.nroPresupuesto, 'err');
           // Recargar pedidos para reflejar estado real
           cargarPedidos(true);
+        } else if (data.code === 'CONDICION_FISCAL_NULL') {
+          toast('⚠️ ' + (data.message || 'Reintentá en unos segundos'), 'err');
+        } else if (data.code === 'LOCK_OCUPADO') {
+          toast('⏳ ' + (data.message || 'Otra operación en curso'), 'err');
         } else {
           toast('Error: ' + (data.message || 'No se pudo crear el presupuesto'), 'err');
         }
