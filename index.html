@@ -2,8 +2,21 @@
 <html lang="es">
 <head>
 <!-- ═══════════════════════════════════════════════════════════════════════
-     TCK VENTAS — v13.6.2 — 24/04/2026
+     TCK VENTAS — v13.6.3 — 24/04/2026
      ──────────────────────────────────────────────────────────────────────
+     Cambios v13.6.3 (sobre v13.6.2):
+       · ALTA DE STOCK — se quitaron del set TOMADOR_SIN_STOCK_AVISO:
+           - "MDM - Carne Molida de Pollo"
+           - "Cuarto Trasero IQF"
+           - "Pollo Ginosa"
+           - "Pollo A" (alias interno de Pollo Ginosa)
+         Ahora estos 4 productos se pueden cargar SIN aviso amarillo de
+         falta de stock en los 3 tomadores (campo, WhatsApp manual, editar).
+         El cambio se sincronizó con catálogo v2.7.10.
+         Quedan en aviso "sin stock": Nuggets, Ravioles Calabaza, Raviolones
+         Espinaca/Mozz, Gnoquis Espinaca, Sorrentinos JyQ, Sorrentinos Ricota,
+         Suprema B IQF, Brocoli.
+
      Cambios v13.6.2 (sobre v13.6.1):
        · FIX línea duplicada en xubioEjecutarCrearPresupuesto: el botón
          tenía dos asignaciones consecutivas de textContent. La segunda
@@ -16759,7 +16772,9 @@ const TOMADOR_CAT = [{"id":"pollos","sec":"POLLOS CONGELADOS","items":[{"n":"Pol
 // v9.1: TOMADOR_SIN_STOCK_AVISO — ya NO bloquea la carga, solo muestra aviso amarillo
 // El vendedor puede cargar igual sabiendo que el producto está sin stock real
 // (decisión: vendedores tienen contexto del proveedor y saben qué entrará)
-const TOMADOR_SIN_STOCK_AVISO = new Set(['Nuggets de Pollo Crocante','Ravioles de Calabaza','Raviolones Espinaca y Mozz','Gnoquis de Espinaca','Sorrentinos Jamon y Queso','Sorrentinos Ricota 4 Quesos','MDM - Carne Molida de Pollo','Suprema B IQF','Brocoli','Cuarto Trasero IQF','Pollo A','Pollo Ginosa']);
+// v13.6.3 (24/4/2026): se dieron de ALTA MDM, Cuarto Trasero IQF, Pollo Ginosa y Pollo A.
+// Ya hay stock real de esos productos.
+const TOMADOR_SIN_STOCK_AVISO = new Set(['Nuggets de Pollo Crocante','Ravioles de Calabaza','Raviolones Espinaca y Mozz','Gnoquis de Espinaca','Sorrentinos Jamon y Queso','Sorrentinos Ricota 4 Quesos','Suprema B IQF','Brocoli']);
 // Alias retro-compatible — TODA la lógica de "sin stock" ahora es solo aviso, NO bloqueo
 const TOMADOR_SIN_STOCK = TOMADOR_SIN_STOCK_AVISO;
 
