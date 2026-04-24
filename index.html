@@ -2,8 +2,34 @@
 <html lang="es">
 <head>
 <!-- ═══════════════════════════════════════════════════════════════════════
-     TCK VENTAS — v13.6.4 — 24/04/2026
+     TCK VENTAS — v13.6.5 — 24/04/2026
      ──────────────────────────────────────────────────────────────────────
+     Cambios v13.6.5 (sobre v13.6.4) — FIX SCROLL TOMADOR DESDE CHECK-IN:
+       Bug detectado: al abrir el tomador desde check-in, los bloques de
+       promos 1+1 y combos consumían todo el alto del viewport en celulares,
+       dejando el área de productos (.tomador-body) con altura casi 0. El
+       vendedor no podía scrollear para ver los productos normales.
+
+       Mismo bug ya resuelto en editar pedido (v13.5.1) donde los bloques
+       de sucursal/promos/combos se habían dejado como hermanos del body
+       scrolleable. La lección: en un overlay flex column con overflow:hidden,
+       bloques grandes como hermanos del body con flex:1 pueden colapsarlo.
+
+       FIX aplicado (mismo patrón que v13.5.1):
+         - tomadorHTML(): promos-bloque, combos-bloque y tomador-cats se
+           mueven DENTRO de .tomador-body.
+         - Nuevo sub-div #tomador-body-productos que contiene el grid de
+           productos. Recibe el padding que antes tenía .tomador-body.
+         - CSS: .tomador-body sin padding horizontal (los bloques internos
+           manejan su propio layout). .tomador-cats con position:sticky
+           top:0 para que siempre sea visible cuando el vendedor baja al
+           grid de productos.
+         - Las 5 referencias getElementById('tomador-body') que hacían
+           innerHTML = tomadorRenderProductos() se cambian a
+           getElementById('tomador-body-productos') para no pisar los
+           bloques de promos/combos/cats al filtrar categorías o al
+           agregar/quitar combos y descuentos.
+
      Cambios v13.6.4 (sobre v13.6.3) — FIX CHECK-IN: vendedorId null rompe
      historial y tomador post-checkin:
        Bug detectado (sesión N22): cuando un vendedor no existe en la
@@ -8401,6 +8427,26 @@ body {
   font-weight: 700;
   margin-top: 3px;
   font-style: italic;
+}
+
+/* ═══════════════════════════════════════════════════════════
+   v13.6.5 — FIX SCROLL TOMADOR DESDE CHECK-IN
+   Promos, combos y cats movidos DENTRO de .tomador-body para
+   evitar que consuman el alto del viewport. Las cats quedan
+   sticky arriba del body. El padding del body original va al
+   sub-div #tomador-body-productos.
+   ═══════════════════════════════════════════════════════════ */
+.tomador-body {
+  padding: 0 !important;
+}
+#tomador-body-productos {
+  padding: 10px 12px 100px;
+}
+.tomador-body .tomador-cats {
+  position: sticky;
+  top: 0;
+  z-index: 10;
+  box-shadow: 0 2px 6px rgba(0,0,0,0.08);
 }
 
 </style>
@@ -17351,10 +17397,16 @@ function tomadorHTML() {
     + '</div>'
     + '<div class="tomador-hdr-total" id="tomador-total">$0</div>'
     + '</div>'
-    + '<div id="tomador-promos-bloque">' + promosRenderCarousel('tomador', 'tomadorAgregarPromo', 'tomadorQuitarPromo', _tomadorPromos) + '</div>'
-    + '<div id="tomador-combos-bloque">' + combosRenderBotones('tomador', 'tomadorAgregarCombo', 'tomadorQuitarCombo', _tomadorCombos) + '</div>'
-    + '<div class="tomador-cats" id="tomador-cats">' + cats + '</div>'
-    + '<div class="tomador-body" id="tomador-body">' + tomadorRenderProductos('todos') + '</div>'
+    // v13.6.5: promos, combos y cats DENTRO del body scrolleable para
+    // evitar que consuman todo el alto del viewport y dejen el grid
+    // de productos con 0px de espacio. Mismo patrón aplicado en v13.5.1
+    // para editar pedido.
+    + '<div class="tomador-body" id="tomador-body">'
+    +   '<div id="tomador-promos-bloque">' + promosRenderCarousel('tomador', 'tomadorAgregarPromo', 'tomadorQuitarPromo', _tomadorPromos) + '</div>'
+    +   '<div id="tomador-combos-bloque">' + combosRenderBotones('tomador', 'tomadorAgregarCombo', 'tomadorQuitarCombo', _tomadorCombos) + '</div>'
+    +   '<div class="tomador-cats" id="tomador-cats">' + cats + '</div>'
+    +   '<div id="tomador-body-productos">' + tomadorRenderProductos('todos') + '</div>'
+    + '</div>'
     + '<div class="tomador-footer">'
     + '<button class="tomador-btn-confirmar" id="tomador-btn-confirmar" onclick="tomadorConfirmar()" disabled>Confirmar pedido — $0</button>'
     + '</div>';
@@ -17369,7 +17421,7 @@ function tomadorFiltrar(catId) {
   var chip = document.getElementById('tcat-' + catId);
   if (chip) chip.classList.add('sel');
   // Render products
-  var body = document.getElementById('tomador-body');
+  var body = document.getElementById('tomador-body-productos');
   if (body) body.innerHTML = tomadorRenderProductos(catId);
 }
 
@@ -17490,7 +17542,7 @@ function tomadorGuardarDescuento(nombre) {
   tomadorActualizarTotal();
   var catActual = document.querySelector('.tomador-cat-btn.sel');
   var catId = catActual ? catActual.id.replace('tcat-','') : 'todos';
-  var body = document.getElementById('tomador-body');
+  var body = document.getElementById('tomador-body-productos');
   if (body) body.innerHTML = tomadorRenderProductos(catId);
   toast('✅ Descuento ' + pct + '% aplicado', 'ok');
 }
@@ -17501,7 +17553,7 @@ function tomadorQuitarDescuento(nombre) {
   tomadorActualizarTotal();
   var catActual = document.querySelector('.tomador-cat-btn.sel');
   var catId = catActual ? catActual.id.replace('tcat-','') : 'todos';
-  var body = document.getElementById('tomador-body');
+  var body = document.getElementById('tomador-body-productos');
   if (body) body.innerHTML = tomadorRenderProductos(catId);
 }
 
@@ -17529,7 +17581,7 @@ function tomadorAgregarCombo(comboId) {
   _tomadorCombos[comboId] = cantActual + 1;
 
   // Re-render todo (items + total + combo bloque)
-  var body = document.getElementById('tomador-body');
+  var body = document.getElementById('tomador-body-productos');
   if (body) body.innerHTML = tomadorRenderProductos(_tomadorCatActual);
   var comboBloque = document.getElementById('tomador-combos-bloque');
   if (comboBloque) comboBloque.innerHTML = combosRenderBotones('tomador', 'tomadorAgregarCombo', 'tomadorQuitarCombo', _tomadorCombos);
@@ -17559,7 +17611,7 @@ function tomadorQuitarCombo(comboId) {
     _tomadorCombos[comboId] = nuevaCant;
   }
 
-  var body = document.getElementById('tomador-body');
+  var body = document.getElementById('tomador-body-productos');
   if (body) body.innerHTML = tomadorRenderProductos(_tomadorCatActual);
   var comboBloque = document.getElementById('tomador-combos-bloque');
   if (comboBloque) comboBloque.innerHTML = combosRenderBotones('tomador', 'tomadorAgregarCombo', 'tomadorQuitarCombo', _tomadorCombos);
