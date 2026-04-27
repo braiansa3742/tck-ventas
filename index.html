@@ -2,8 +2,31 @@
 <html lang="es">
 <head>
 <!-- ═══════════════════════════════════════════════════════════════════════
-     TCK VENTAS — v13.6.5 — 24/04/2026
+     TCK VENTAS — v13.7 — 27/04/2026
      ──────────────────────────────────────────────────────────────────────
+     Cambios v13.7 (sobre v13.6.5) — SPLIT DE CALIBRES POLLO A/B:
+       Modal de calibres rediseñado como wizard con steppers (+/−).
+       Permite distribuir las cajas de un genérico (Pollo A o Pollo B)
+       entre múltiples calibres cuando hay escasez de stock de uno.
+
+       Resuelve caso real del 27/4: cliente pide 6 cajas Pollo B, hay 2 x6
+       disponibles + 4 x7 → vendedor distribuye desde el modal sin ir a
+       Xubio web.
+
+       UX:
+         · Steppers + y − rojos lleno (visibles en cualquier estado)
+         · Badge "X / Y" rojo cuando incompleto, verde con ✓ cuando completo
+         · Botón Confirmar deshabilitado si suma ≠ pedido (forzado)
+         · Botón "+" se deshabilita al alcanzar el total
+         · Wizard 2 pasos cuando hay Pollo A + Pollo B en el mismo pedido
+         · Resumen verde "Pollo A listo" en paso 2 con detalle por calibre
+         · Tilde grande verde antes de pasar al modal de fecha
+
+       Backend (Apps Script v24.9.7) acepta payload split y genera N líneas
+       por cada genérico distribuido, manteniendo precio unitario y descuento.
+
+       Pollo B x5 quitado del listado (no existe en Xubio).
+
      Cambios v13.6.5 (sobre v13.6.4) — FIX SCROLL TOMADOR DESDE CHECK-IN:
        Bug detectado: al abrir el tomador desde check-in, los bloques de
        promos 1+1 y combos consumían todo el alto del viewport en celulares,
@@ -8100,43 +8123,183 @@ body {
   min-height: 42px;
 }
 
-/* Modal de calibre */
+/* Modal de calibre — v13.7 (wizard split + steppers) */
 .xubio-calibre-intro {
   font-size: 13px; color: #666; line-height: 1.5;
   margin-bottom: 14px;
   padding: 10px 12px; background: #FFF8E1; border-radius: 8px;
 }
 .xubio-calibre-grupo {
-  margin-bottom: 16px;
-  padding-bottom: 14px;
+  margin-bottom: 16px; padding-bottom: 14px;
   border-bottom: 1px dashed #E5D5B8;
 }
-.xubio-calibre-grupo:last-child {
-  border-bottom: none; margin-bottom: 0; padding-bottom: 0;
-}
-.xubio-calibre-label {
-  font-size: 13px; color: #333; margin-bottom: 10px;
-}
+.xubio-calibre-grupo:last-child { border-bottom: none; margin-bottom: 0; padding-bottom: 0; }
+.xubio-calibre-label { font-size: 13px; color: #333; margin-bottom: 10px; }
 .xubio-calibre-label strong { color: #8B0000; }
-.xubio-calibre-opciones {
-  display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(110px, 1fr));
-  gap: 8px;
-}
+.xubio-calibre-opciones { display: grid; grid-template-columns: repeat(auto-fill, minmax(110px, 1fr)); gap: 8px; }
 .xubio-calibre-opt {
   background: #fff; border: 2px solid #E0E0E0;
   border-radius: 10px; padding: 10px 8px;
   font-family: 'Barlow Condensed', sans-serif;
   font-size: 14px; font-weight: 700; color: #555;
   cursor: pointer; touch-action: manipulation;
-  transition: all 0.12s ease;
-  text-align: center;
+  transition: all 0.12s ease; text-align: center;
 }
 .xubio-calibre-opt:active { transform: scale(0.97); }
 .xubio-calibre-opt.on {
   background: #8B0000; color: #fff; border-color: #8B0000;
   box-shadow: 0 2px 8px rgba(139,0,0,0.3);
 }
+
+/* === v13.7: Wizard de calibres con steppers === */
+.xubio-calibre-box .modal-body { position: relative; }
+.xc-progreso {
+  display: flex; gap: 6px;
+  padding: 12px 16px 0;
+}
+.xc-dot {
+  flex: 1; height: 5px; border-radius: 3px;
+  background: #E5D5B8; transition: background 0.25s ease;
+}
+.xc-dot.on { background: #8B0000 !important; }
+.xc-dot.done { background: #2E7D32 !important; }
+.xc-pasolabel {
+  font-size: 11px; color: #888; text-align: center;
+  padding: 6px 0 4px;
+  font-weight: 700; letter-spacing: 0.5px; text-transform: uppercase;
+}
+.xc-genhdr {
+  display: flex; align-items: center; justify-content: space-between;
+  margin-bottom: 8px; padding: 10px 12px;
+  background: #fff; border-radius: 12px;
+  border: 1.5px solid #8B0000;
+}
+.xc-genname { font-size: 17px; font-weight: 800; color: #8B0000; }
+.xc-genname small {
+  font-size: 12px; font-weight: 600; color: #888;
+  text-transform: uppercase; margin-left: 6px; letter-spacing: 0.4px;
+}
+.xc-badge {
+  font-size: 13px; font-weight: 800;
+  padding: 5px 10px; border-radius: 999px;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+  display: inline-flex; align-items: center; gap: 4px;
+}
+.xc-badge.err { background: #C62828 !important; color: #fff !important; }
+.xc-badge.ok { background: #2E7D32 !important; color: #fff !important; }
+.xc-check {
+  display: inline-block;
+  width: 14px; height: 14px; line-height: 14px;
+  text-align: center; font-size: 11px;
+  background: #fff; color: #2E7D32;
+  border-radius: 50%; font-weight: 900;
+}
+.xc-help {
+  font-size: 12px; color: #5a4530; text-align: center;
+  margin-bottom: 10px; padding: 7px 10px;
+  background: #FFF8E1; border-radius: 8px;
+  border-left: 3px solid #D4A017;
+}
+.xc-row {
+  display: flex; align-items: center; justify-content: space-between;
+  background: #fff; border: 1.5px solid #E5D5B8;
+  border-radius: 11px;
+  padding: 4px 6px 4px 12px;
+  margin-bottom: 6px; height: 44px;
+  transition: border-color 0.15s ease, background 0.15s ease;
+}
+.xc-row.active { border-color: #8B0000; background: #FFF5F5; }
+.xc-cal { font-size: 14px; font-weight: 700; color: #333; flex: 1; }
+.xc-step { display: flex; align-items: center; gap: 6px; }
+.xc-btn-step {
+  width: 34px !important; height: 34px !important;
+  border-radius: 9px !important;
+  border: 2px solid #8B0000 !important;
+  background: #8B0000 !important;
+  color: #fff !important;
+  font-size: 22px !important; font-weight: 900 !important;
+  line-height: 1 !important;
+  cursor: pointer; touch-action: manipulation;
+  display: flex !important; align-items: center !important; justify-content: center !important;
+  padding: 0 !important; user-select: none;
+  -webkit-appearance: none; appearance: none;
+  -webkit-tap-highlight-color: transparent;
+  box-shadow: 0 2px 4px rgba(139,0,0,0.3);
+}
+.xc-btn-step:active:not(:disabled) { transform: scale(0.92); background: #6B0000 !important; }
+.xc-btn-step:hover:not(:disabled) { background: #a30000 !important; border-color: #a30000 !important; }
+.xc-btn-step:disabled {
+  background: #B85959 !important; border-color: #B85959 !important;
+  cursor: not-allowed; opacity: 0.7; box-shadow: none;
+}
+.xc-val {
+  min-width: 28px; text-align: center;
+  font-size: 17px; font-weight: 900; color: #1a1a1a;
+  font-variant-numeric: tabular-nums;
+}
+.xc-resumen {
+  border: 1.5px solid #2E7D32; border-radius: 11px;
+  padding: 9px 11px; margin-bottom: 10px;
+  background: #F1F8E9;
+}
+.xc-resumen-title {
+  font-size: 11px; font-weight: 800; color: #2E7D32;
+  text-transform: uppercase; letter-spacing: 0.4px;
+  margin-bottom: 4px;
+  display: flex; align-items: center; gap: 6px;
+}
+.xc-check-big {
+  display: inline-flex; align-items: center; justify-content: center;
+  width: 18px; height: 18px;
+  background: #2E7D32; color: #fff;
+  border-radius: 50%; font-weight: 900; font-size: 12px;
+}
+.xc-resumen-line {
+  font-size: 13px; color: #1B5E20;
+  padding: 1px 0; font-weight: 600;
+}
+.xc-resumen-line strong { color: #2E7D32; font-weight: 800; }
+.xc-fbtn {
+  flex: 1; padding: 12px 14px;
+  border-radius: 11px;
+  font-family: inherit; font-size: 14px; font-weight: 800;
+  cursor: pointer; border: none;
+  text-transform: uppercase; letter-spacing: 0.4px;
+  -webkit-appearance: none; appearance: none;
+  transition: background 0.12s ease;
+}
+.xc-fbtn-sec { background: #555 !important; color: #fff !important; box-shadow: 0 2px 4px rgba(0,0,0,0.15); }
+.xc-fbtn-sec:hover { background: #333 !important; }
+.xc-fbtn-pri { background: #B85959 !important; color: #fff !important; opacity: 0.75; cursor: not-allowed; }
+.xc-fbtn-pri:not(:disabled) { background: #8B0000 !important; opacity: 1; cursor: pointer; box-shadow: 0 2px 4px rgba(139,0,0,0.3); }
+.xc-fbtn-pri:not(:disabled):hover { background: #a30000 !important; }
+.xc-fbtn-pri.ready:not(:disabled) { background: #2E7D32 !important; box-shadow: 0 2px 8px rgba(46,125,50,0.4); }
+.xc-fbtn-pri.ready:not(:disabled):hover { background: #1B5E20 !important; }
+.xc-success-overlay {
+  position: absolute; top: 0; left: 0; right: 0; bottom: 0;
+  background: rgba(255,255,255,0.97);
+  display: flex; flex-direction: column;
+  align-items: center; justify-content: center;
+  padding: 24px; text-align: center;
+  border-radius: 0;
+  opacity: 0; pointer-events: none;
+  transition: opacity 0.3s ease;
+  z-index: 10;
+}
+.xc-success-overlay.on { opacity: 1; pointer-events: auto; }
+.xc-success-circle {
+  width: 64px; height: 64px; border-radius: 50%;
+  background: #2E7D32; color: #fff;
+  font-size: 36px; font-weight: 900;
+  display: flex; align-items: center; justify-content: center;
+  margin-bottom: 14px;
+  box-shadow: 0 4px 12px rgba(46,125,50,0.3);
+}
+.xc-success-title {
+  font-size: 18px; font-weight: 800; color: #1B5E20; margin-bottom: 6px;
+}
+.xc-success-sub { font-size: 13px; color: #666; }
 
 /* Modal de fecha del presupuesto (v11) */
 .xubio-fecha-intro {
@@ -14880,22 +15043,22 @@ function xubioCrearPresupuesto(pedidoId, fila, id) {
 }
 
 // ── Modal de selección de calibre ─────────────────────────────────
-var _xubioCalibresElegidos = {};
+// v13.7 — Modal de calibres con SPLIT (distribuir entre calibres)
+// _xubioCalibresState guarda todo el estado del wizard:
+//   genericos: array recibido del backend (con cantidad y opciones)
+//   pasoActual: 1..N
+//   cantidades: { 'idCalibre1': 2, 'idCalibre2': 4, ... }  (todos los calibres acumulados)
+//   args: { pedidoId, fila, id }  ← para pasar al confirmar
+var _xubioCalibresState = null;
 
 function xubioAbrirModalCalibre(pedidoId, fila, id, genericos) {
-  _xubioCalibresElegidos = {};
-
-  var body = '';
-  genericos.forEach(function(g) {
-    body += '<div class="xubio-calibre-grupo">';
-    body +=   '<div class="xubio-calibre-label">Seleccioná el calibre para <strong>' + g.nombre + '</strong>:</div>';
-    body +=   '<div class="xubio-calibre-opciones" data-generico="' + g.nombre + '">';
-    g.opciones.forEach(function(op) {
-      body += '<button class="xubio-calibre-opt" data-id="' + op.id + '" data-generico="' + g.nombre + '" onclick="xubioSeleccionarCalibre(this)">' + op.label + '</button>';
-    });
-    body +=   '</div>';
-    body += '</div>';
-  });
+  // genericos = [{ nombre, cantidad, opciones: [{id, label, nombre}] }, ...]
+  _xubioCalibresState = {
+    genericos: genericos || [],
+    pasoActual: 1,
+    cantidades: {},
+    args: { pedidoId: pedidoId, fila: fila, id: id }
+  };
 
   var modal = document.getElementById('modal-xubio-calibre');
   if (!modal) {
@@ -14904,55 +15067,239 @@ function xubioAbrirModalCalibre(pedidoId, fila, id, genericos) {
     modal.className = 'modal-overlay';
     document.body.appendChild(modal);
   }
-  modal.innerHTML = '<div class="modal-box xubio-calibre-box">'
-    + '<div class="modal-hdr">'
-    +   '<div class="modal-title">📏 Seleccioná el calibre</div>'
-    +   '<button class="modal-close" onclick="xubioCerrarModalCalibre()">✕</button>'
-    + '</div>'
-    + '<div class="modal-body">'
-    +   '<div class="xubio-calibre-intro">Antes de crear el presupuesto necesitamos saber qué calibre lleva cada pollo genérico del pedido.</div>'
-    +   body
-    + '</div>'
-    + '<div class="modal-footer">'
-    +   '<button class="btn-secondary" onclick="xubioCerrarModalCalibre()">Cancelar</button>'
-    +   '<button class="btn-primary" id="btn-xubio-calibre-ok" disabled onclick="xubioConfirmarCalibres(\'' + pedidoId + '\',' + fila + ',\'' + id + '\')">Continuar</button>'
-    + '</div>'
-    + '</div>';
+  modal.innerHTML = _xubioRenderModalCalibreShell();
   modal.classList.add('on');
+  _xubioPintarPasoCalibre();
 }
 
-function xubioSeleccionarCalibre(btnEl) {
-  var generico = btnEl.getAttribute('data-generico');
-  var productoId = btnEl.getAttribute('data-id');
+function _xubioRenderModalCalibreShell() {
+  return ''
+    + '<div class="modal-box xubio-calibre-box">'
+    +   '<div class="modal-hdr">'
+    +     '<div class="modal-title" id="xc-titulo">📏 Calibres</div>'
+    +     '<button class="modal-close" onclick="xubioCerrarModalCalibre()" style="background:rgba(255,255,255,0.2) !important;color:#fff !important;border:1px solid rgba(255,255,255,0.4) !important;">✕</button>'
+    +   '</div>'
+    +   '<div class="xc-progreso" id="xc-progreso"></div>'
+    +   '<div class="xc-pasolabel" id="xc-pasolabel"></div>'
+    +   '<div class="modal-body">'
+    +     '<div class="xc-genhdr"><div class="xc-genname" id="xc-genname"></div><div class="xc-badge err" id="xc-badge"></div></div>'
+    +     '<div class="xc-resumen" id="xc-resumen" style="display:none"></div>'
+    +     '<div class="xc-help">Distribuí las cajas entre los calibres disponibles</div>'
+    +     '<div id="xc-filas"></div>'
+    +     '<div class="xc-success-overlay" id="xc-success">'
+    +       '<div class="xc-success-circle">✓</div>'
+    +       '<div class="xc-success-title">Calibres confirmados</div>'
+    +       '<div class="xc-success-sub">Abriendo selector de fecha...</div>'
+    +     '</div>'
+    +   '</div>'
+    +   '<div class="modal-footer">'
+    +     '<button class="xc-fbtn xc-fbtn-sec" id="xc-btn-volver" onclick="xubioCalibreVolver()">Cancelar</button>'
+    +     '<button class="xc-fbtn xc-fbtn-pri" id="xc-btn-next" onclick="xubioCalibreSiguiente()" disabled>Siguiente →</button>'
+    +   '</div>'
+    + '</div>';
+}
 
-  // Marcar visualmente solo este como elegido dentro del grupo
-  var contenedor = btnEl.parentElement;
-  contenedor.querySelectorAll('.xubio-calibre-opt').forEach(function(b) {
-    b.classList.remove('on');
+function _xubioPintarPasoCalibre() {
+  var st = _xubioCalibresState;
+  if (!st) return;
+
+  var totalPasos = st.genericos.length;
+  var paso = st.pasoActual;
+  var g = st.genericos[paso - 1];
+  if (!g) return;
+
+  // Header
+  document.getElementById('xc-titulo').textContent = totalPasos > 1
+    ? '📏 Calibres · Paso ' + paso + ' de ' + totalPasos
+    : '📏 Seleccioná el calibre';
+
+  // Dots de progreso
+  var prog = document.getElementById('xc-progreso');
+  if (totalPasos > 1) {
+    var dots = '';
+    for (var i = 1; i <= totalPasos; i++) {
+      var cls = (i < paso) ? 'xc-dot done' : (i === paso ? 'xc-dot on' : 'xc-dot');
+      dots += '<div class="' + cls + '"></div>';
+    }
+    prog.innerHTML = dots;
+    prog.style.display = 'flex';
+    document.getElementById('xc-pasolabel').textContent = st.genericos.map(function(x) { return x.nombre; }).join(' → ');
+    document.getElementById('xc-pasolabel').style.display = 'block';
+  } else {
+    prog.style.display = 'none';
+    document.getElementById('xc-pasolabel').style.display = 'none';
+  }
+
+  // Nombre del genérico actual
+  var nameHtml = '<strong style="color:#8B0000">' + g.nombre + '</strong>';
+  if (g.nombre === 'Pollo A') nameHtml += ' <small>Ginosa</small>';
+  document.getElementById('xc-genname').innerHTML = nameHtml;
+
+  // Resumen del paso anterior
+  var rb = document.getElementById('xc-resumen');
+  if (paso > 1) {
+    var resumenHtml = '';
+    for (var k = 0; k < paso - 1; k++) {
+      var gPrev = st.genericos[k];
+      var lineas = '';
+      gPrev.opciones.forEach(function(op) {
+        var c = st.cantidades[op.id] || 0;
+        if (c > 0) {
+          lineas += '<div class="xc-resumen-line"><strong>' + op.label + '</strong> · ' + c + ' caja' + (c > 1 ? 's' : '') + '</div>';
+        }
+      });
+      resumenHtml += '<div class="xc-resumen-title"><span class="xc-check-big">✓</span> ' + gPrev.nombre + ' listo</div>' + lineas;
+    }
+    rb.innerHTML = resumenHtml;
+    rb.style.display = 'block';
+  } else {
+    rb.style.display = 'none';
+  }
+
+  // Botón volver
+  var back = document.getElementById('xc-btn-volver');
+  back.textContent = paso === 1 ? 'Cancelar' : '← Atrás';
+
+  // Renderizar filas (steppers)
+  var filasHtml = '';
+  g.opciones.forEach(function(op) {
+    var v = st.cantidades[op.id] || 0;
+    filasHtml += '<div class="xc-row" data-cal="' + op.id + '">'
+      + '<div class="xc-cal">' + op.label + '</div>'
+      + '<div class="xc-step">'
+      +   '<button class="xc-btn-step xc-dec" type="button" onclick="xubioCalibreDec(' + op.id + ')">−</button>'
+      +   '<div class="xc-val" id="xc-val-' + op.id + '">' + v + '</div>'
+      +   '<button class="xc-btn-step xc-inc" type="button" onclick="xubioCalibreInc(' + op.id + ')">+</button>'
+      + '</div>'
+      + '</div>';
   });
-  btnEl.classList.add('on');
+  document.getElementById('xc-filas').innerHTML = filasHtml;
 
-  _xubioCalibresElegidos[generico] = parseInt(productoId);
+  _xubioRecalcularCalibre();
+}
 
-  // Habilitar botón continuar si todos los grupos tienen elección
-  var modal = document.getElementById('modal-xubio-calibre');
-  var gruposTotales = modal.querySelectorAll('.xubio-calibre-opciones').length;
-  var gruposElegidos = Object.keys(_xubioCalibresElegidos).length;
-  var btnOk = document.getElementById('btn-xubio-calibre-ok');
-  if (btnOk) btnOk.disabled = (gruposElegidos < gruposTotales);
+function _xubioRecalcularCalibre() {
+  var st = _xubioCalibresState;
+  if (!st) return;
+  var g = st.genericos[st.pasoActual - 1];
+  if (!g) return;
+
+  var suma = 0;
+  g.opciones.forEach(function(op) { suma += (st.cantidades[op.id] || 0); });
+  var target = g.cantidad;
+  var ok = (suma === target);
+
+  // Badge
+  var badge = document.getElementById('xc-badge');
+  if (ok) {
+    badge.className = 'xc-badge ok';
+    badge.innerHTML = '<span class="xc-check">✓</span><span>' + suma + ' / ' + target + ' listo</span>';
+  } else {
+    badge.className = 'xc-badge err';
+    badge.innerHTML = '<span>' + suma + ' / ' + target + '</span>';
+  }
+
+  // Botón siguiente
+  var next = document.getElementById('xc-btn-next');
+  var totalPasos = st.genericos.length;
+  next.disabled = !ok;
+  next.textContent = (st.pasoActual === totalPasos) ? 'Confirmar ✓' : 'Siguiente →';
+  next.classList.toggle('ready', ok);
+
+  // Filas activas + botones +/−
+  g.opciones.forEach(function(op) {
+    var row = document.querySelector('.xc-row[data-cal="' + op.id + '"]');
+    if (row) row.classList.toggle('active', (st.cantidades[op.id] || 0) > 0);
+    var dec = row ? row.querySelector('.xc-dec') : null;
+    if (dec) dec.disabled = (st.cantidades[op.id] || 0) === 0;
+    var inc = row ? row.querySelector('.xc-inc') : null;
+    if (inc) inc.disabled = suma >= target;
+  });
+}
+
+function xubioCalibreInc(idCal) {
+  var st = _xubioCalibresState;
+  if (!st) return;
+  var g = st.genericos[st.pasoActual - 1];
+  var suma = 0;
+  g.opciones.forEach(function(op) { suma += (st.cantidades[op.id] || 0); });
+  if (suma >= g.cantidad) return;
+  st.cantidades[idCal] = (st.cantidades[idCal] || 0) + 1;
+  var v = document.getElementById('xc-val-' + idCal);
+  if (v) v.textContent = st.cantidades[idCal];
+  _xubioRecalcularCalibre();
+}
+
+function xubioCalibreDec(idCal) {
+  var st = _xubioCalibresState;
+  if (!st) return;
+  if ((st.cantidades[idCal] || 0) <= 0) return;
+  st.cantidades[idCal] = st.cantidades[idCal] - 1;
+  if (st.cantidades[idCal] < 0) st.cantidades[idCal] = 0;
+  var v = document.getElementById('xc-val-' + idCal);
+  if (v) v.textContent = st.cantidades[idCal];
+  _xubioRecalcularCalibre();
+}
+
+function xubioCalibreVolver() {
+  var st = _xubioCalibresState;
+  if (!st) return;
+  if (st.pasoActual > 1) {
+    st.pasoActual--;
+    _xubioPintarPasoCalibre();
+  } else {
+    xubioCerrarModalCalibre();
+  }
+}
+
+function xubioCalibreSiguiente() {
+  var st = _xubioCalibresState;
+  if (!st) return;
+  var totalPasos = st.genericos.length;
+
+  if (st.pasoActual < totalPasos) {
+    st.pasoActual++;
+    _xubioPintarPasoCalibre();
+    return;
+  }
+
+  // Es el último paso → confirmar
+  // Construir payload split: { 'Pollo A': { 'idCal1': N, ... }, 'Pollo B': {...} }
+  var calibresPayload = {};
+  st.genericos.forEach(function(g) {
+    var distrib = {};
+    g.opciones.forEach(function(op) {
+      var c = st.cantidades[op.id] || 0;
+      if (c > 0) distrib[op.id] = c;
+    });
+    if (Object.keys(distrib).length > 0) {
+      calibresPayload[g.nombre] = distrib;
+    }
+  });
+
+  // Mostrar overlay de éxito por 800ms y después abrir modal de fecha
+  var overlay = document.getElementById('xc-success');
+  if (overlay) overlay.classList.add('on');
+
+  setTimeout(function() {
+    var args = st.args;
+    xubioCerrarModalCalibre();
+    xubioAbrirModalFecha(args.pedidoId, args.fila, args.id, calibresPayload);
+  }, 800);
 }
 
 function xubioCerrarModalCalibre() {
   var modal = document.getElementById('modal-xubio-calibre');
   if (modal) modal.classList.remove('on');
-  _xubioCalibresElegidos = {};
+  _xubioCalibresState = null;
 }
 
+// ── Compatibilidad: por si quedó algún callback viejo ─────────────
+function xubioSeleccionarCalibre() { /* deprecated v13.7 */ }
 function xubioConfirmarCalibres(pedidoId, fila, id) {
-  var calibres = _xubioCalibresElegidos;
-  xubioCerrarModalCalibre();
-  // v11: Después de los calibres, pasar al modal de fecha
-  xubioAbrirModalFecha(pedidoId, fila, id, calibres);
+  // Fallback: si por alguna razón se llama con el flujo viejo, redirigir al nuevo
+  var st = _xubioCalibresState;
+  if (st) xubioCalibreSiguiente();
 }
 
 // ── Ejecutar la creación real del presupuesto ─────────────────────
