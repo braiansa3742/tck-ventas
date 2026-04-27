@@ -2,8 +2,17 @@
 <html lang="es">
 <head>
 <!-- ═══════════════════════════════════════════════════════════════════════
-     TCK VENTAS — v13.7 — 27/04/2026
+     TCK VENTAS — v13.7.1 — 27/04/2026
      ──────────────────────────────────────────────────────────────────────
+     Cambios v13.7.1 (sobre v13.7) — FIX WARNING FALSO "PEDIDO INCOMPLETO":
+       Al editar un pedido cuyo detalle tiene líneas como "1 cajas" o "2 caja"
+       (artefactos del parseo, no productos reales), aparecían en el warning
+       como "Productos que no están en el catálogo actual: cajas, caja".
+       
+       FIX: ignorar líneas que solo tienen un cuantificador (1, 2, 3...) +
+       unidad de medida (caja, kg, paquete, bolsa, unidad). Esos son ruido,
+       no productos. Tampoco se aceptan como "nombre" del producto.
+     
      Cambios v13.7 (sobre v13.6.5) — SPLIT DE CALIBRES POLLO A/B:
        Modal de calibres rediseñado como wizard con steppers (+/−).
        Permite distribuir las cajas de un genérico (Pollo A o Pollo B)
@@ -19855,9 +19864,18 @@ function abrirEditarPedido(p, detalle) {
       // v13.4: agregar 🎁 (promos 1+1) al listado de emojis ignorados
       // v13.5.2: agregar 💰 (línea de resumen con descuento dentro de promos/combos)
       if (/^(🎁|🔥|🍗|🍖|🐔|🍟|🥚|🥦|🍔|🍝|💰|✓|—|\-\-)/.test(linea)) return;
+      // v13.7.1: ignorar líneas que solo tienen unidad de medida sin producto real
+      // (ej: "1 cajas", "2 caja", "1x" suelto). Son artefactos del parseo del detalle,
+      // no productos. Sin esto, "cajas" y "caja" aparecen como huérfanos al editar.
+      if (/^\d+x?\s+(cajas?|kgs?|kilos?|paquetes?|bolsas?|unidad(es)?|pcs?)\s*$/i.test(linea)) return;
       const m = linea.match(/^(\d+)x?\s+(.+?)(?:\s+→|\s+\(|\s*$)/);
       if (m) {
-        _editarQtys[m[2].trim()] = parseInt(m[1]) || 1;
+        // v13.7.1: rechazar matches donde el "nombre" es solo unidad de medida
+        var nombre = m[2].trim();
+        if (/^(cajas?|kgs?|kilos?|paquetes?|bolsas?|unidad(es)?|pcs?)$/i.test(nombre)) {
+          return; // no es producto, es ruido
+        }
+        _editarQtys[nombre] = parseInt(m[1]) || 1;
       } else if (linea.length > 3) {
         // v9.9: línea con contenido real que no pudimos parsear → warning
         _editarLineasNoParseadas.push(linea);
