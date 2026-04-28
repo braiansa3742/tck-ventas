@@ -2,6 +2,28 @@
 <html lang="es">
 <head>
 <!-- ═══════════════════════════════════════════════════════════════════════
+     TCK VENTAS — v13.7.3 — 28/04/2026
+     ──────────────────────────────────────────────────────────────────────
+     Cambios v13.7.3 (sobre v13.7.2) — ACTUALIZACIÓN STOCK:
+       Agregados al set TOMADOR_SIN_STOCK_AVISO según reporte de Joan
+       desde el viaje del 28/4/2026:
+         · Filet Merluza Finas Hierbas
+         · Filet de Merluza Rebozado
+         · Maple N° 1
+         · Maple N° 2
+         · Bocadito de Papa y Jamon
+         · Formita Clasica
+
+       Total productos sin stock (aviso) ahora: 14 (los 8 anteriores + 6 nuevos).
+
+       Recordatorio: en tck-ventas el SIN_STOCK es solo INFORMATIVO
+       (aviso amarillo), no bloquea la carga. El vendedor puede tomar
+       el pedido igual si sabe que el producto va a entrar.
+
+       LO QUE NO CAMBIA: todo lo demás de v13.7.2.
+
+     ──────────────────────────────────────────────────────────────────────
+
      TCK VENTAS — v13.7.2 — 27/04/2026
      ──────────────────────────────────────────────────────────────────────
      Cambios v13.7.2 (sobre v13.7.1) — FIX EDITAR PEDIDO LEE CANTIDADES MAL:
@@ -17232,7 +17254,25 @@ const TOMADOR_CAT = [{"id":"pollos","sec":"POLLOS CONGELADOS","items":[{"n":"Pol
 // (decisión: vendedores tienen contexto del proveedor y saben qué entrará)
 // v13.6.3 (24/4/2026): se dieron de ALTA MDM, Cuarto Trasero IQF, Pollo Ginosa y Pollo A.
 // Ya hay stock real de esos productos.
-const TOMADOR_SIN_STOCK_AVISO = new Set(['Nuggets de Pollo Crocante','Ravioles de Calabaza','Raviolones Espinaca y Mozz','Gnoquis de Espinaca','Sorrentinos Jamon y Queso','Sorrentinos Ricota 4 Quesos','Suprema B IQF','Brocoli']);
+// v13.7.3 (28/4/2026): agregados 6 productos según reporte de Joan en viaje.
+const TOMADOR_SIN_STOCK_AVISO = new Set([
+  // Existentes:
+  'Nuggets de Pollo Crocante',
+  'Ravioles de Calabaza',
+  'Raviolones Espinaca y Mozz',
+  'Gnoquis de Espinaca',
+  'Sorrentinos Jamon y Queso',
+  'Sorrentinos Ricota 4 Quesos',
+  'Suprema B IQF',
+  'Brocoli',
+  // v13.7.3 (28/4/2026) — nuevos sin stock:
+  'Filet Merluza Finas Hierbas',
+  'Filet de Merluza Rebozado',
+  'Maple N° 1',
+  'Maple N° 2',
+  'Bocadito de Papa y Jamon',
+  'Formita Clasica'
+]);
 // Alias retro-compatible — TODA la lógica de "sin stock" ahora es solo aviso, NO bloqueo
 const TOMADOR_SIN_STOCK = TOMADOR_SIN_STOCK_AVISO;
 
