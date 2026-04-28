@@ -2,6 +2,41 @@
 <html lang="es">
 <head>
 <!-- ═══════════════════════════════════════════════════════════════════════
+     TCK VENTAS — v13.7.5 — 28/04/2026
+     ──────────────────────────────────────────────────────────────────────
+     LOCALIDAD CANÓNICA — Eliminación de typos por construcción
+
+     Cambios v13.7.5 (sobre v13.7.4):
+       Bug estructural identificado el 28/4/2026:
+         · Vendedor cargaba pedidos con typos en localidad: "Hendersom"
+           "Daireuax", "Hurdanpilleta", "Francisco madero..", etc.
+         · Tomador de campo siempre mandaba localidad="Campo" literal
+           (porque _gpsCheckinActivo nunca guarda localidad).
+         · Esos pedidos caen en limbo: el sistema no puede inferir zona,
+           no entran al camión correcto, se pierden en el flujo.
+
+       FIX:
+         · Manual WhatsApp: input libre → SELECT con las 27 localidades
+           canónicas cargadas dinámicamente desde Supabase rutas.
+           Si el cliente ya está vinculado a Xubio, prellena con
+           clientes_xubio.localidad. Si es cliente nuevo, dropdown
+           obligatorio.
+         · Sucursal nueva: input libre → mismo SELECT canónico.
+         · Tomador de campo: en lugar de mandar 'Campo' literal,
+           ahora resuelve la localidad del cliente Xubio (si está
+           vinculado al check-in).
+         · Validación dura en manualWAGuardar: si la localidad no es
+           una de las 27, bloquea el envío con toast rojo.
+
+       IMPACTO: cero typos nuevos a partir de este deploy. Combinado
+       con la nueva tabla pedidos_zona (Apps Script v25.1.0), permite
+       que cada pedido tenga zona y salida planificada confiable
+       desde el momento de la carga.
+
+       LO QUE NO CAMBIA: resto de v13.7.4.
+
+     ──────────────────────────────────────────────────────────────────────
+
      TCK VENTAS — v13.7.4 — 28/04/2026
      ──────────────────────────────────────────────────────────────────────
      HOTFIX — Combo: cantidad por producto leía propiedad incorrecta
@@ -10161,6 +10196,117 @@ async function sbFetch(path, options = {}) {
 }
 
 // ═══════════════════════════════════════════════════════════════
+// v13.7.5 — LOCALIDADES CANÓNICAS (anti-typos)
+// ═══════════════════════════════════════════════════════════════
+// Lista de las 27 ciudades servidas por TCK, cargada desde Supabase
+// rutas. Sirve para poblar dropdowns y validar al guardar pedido.
+//
+// Formato:
+//   [ { ciudad: 'Pehuajó', zona: 'zona1', etiqueta_zona: 'Zona 1' }, ... ]
+//
+// Se ordena alfabéticamente para el dropdown.
+
+var _localidadesCanonicas = [];        // [{ ciudad, zona, etiqueta_zona }]
+var _localidadesCanonicasMap = {};     // 'pehuajo' → { ciudad: 'Pehuajó', zona: ... }
+var _localidadesCargando = null;       // Promise en curso (evita duplicar fetch)
+
+const ZONA_ETIQUETAS_VENTAS = {
+  'Zona 1':                'Zona 1',
+  'Zona 2':                'Zona 2',
+  'Solo América y Fortín': 'América y Fortín',
+  'Venta local':           'Trenque Lauquen'
+};
+
+function _localidadNormalizar(s) {
+  if (!s) return '';
+  return String(s).trim().toLowerCase()
+    .normalize('NFD').replace(/[\u0300-\u036f]/g, '')
+    .replace(/[^a-z0-9 ]/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+async function cargarLocalidadesCanonicas(forzar) {
+  if (!forzar && _localidadesCanonicas.length > 0) return _localidadesCanonicas;
+  if (_localidadesCargando) return _localidadesCargando;
+
+  _localidadesCargando = (async function() {
+    try {
+      const filas = await sbFetch('rutas?select=ciudad,zona,aliases&zona=not.is.null&order=ciudad.asc');
+      if (!Array.isArray(filas)) throw new Error('Respuesta inválida de rutas');
+
+      _localidadesCanonicas = filas.map(r => ({
+        ciudad: r.ciudad,
+        zona: r.zona,
+        etiqueta_zona: ZONA_ETIQUETAS_VENTAS[r.zona] || r.zona,
+        aliases: r.aliases || []
+      })).sort((a, b) => a.ciudad.localeCompare(b.ciudad, 'es'));
+
+      // Mapa lookup por nombre normalizado (incluye aliases)
+      _localidadesCanonicasMap = {};
+      for (const loc of _localidadesCanonicas) {
+        _localidadesCanonicasMap[_localidadNormalizar(loc.ciudad)] = loc;
+        for (const alias of (loc.aliases || [])) {
+          _localidadesCanonicasMap[_localidadNormalizar(alias)] = loc;
+        }
+      }
+
+      console.log('[localidades] Cargadas ' + _localidadesCanonicas.length + ' ciudades canónicas');
+      return _localidadesCanonicas;
+    } catch (err) {
+      console.error('[localidades] Error cargando:', err);
+      return [];
+    } finally {
+      _localidadesCargando = null;
+    }
+  })();
+
+  return _localidadesCargando;
+}
+
+/**
+ * Devuelve la ciudad canónica que matchea con un texto libre.
+ * Acepta el nombre exacto, sin tildes, en minúsculas, o un alias.
+ *
+ * @param {string} texto
+ * @return {object|null} { ciudad, zona, etiqueta_zona } o null si no matchea
+ */
+function localidadCanonicaDe(texto) {
+  if (!texto) return null;
+  const norm = _localidadNormalizar(texto);
+  return _localidadesCanonicasMap[norm] || null;
+}
+
+/**
+ * Genera el HTML <select> con las localidades canónicas.
+ *
+ * @param {object} opts - { id, nombre, valorActual, requerido, classExtra, onChange }
+ * @return {string} HTML del select
+ */
+function localidadesSelectHTML(opts) {
+  opts = opts || {};
+  const id    = opts.id || 'localidad-select';
+  const cls   = opts.classExtra || '';
+  const valor = opts.valorActual || '';
+  const onCh  = opts.onChange ? ' onchange="' + opts.onChange + '"' : '';
+  const req   = opts.requerido ? ' required' : '';
+
+  let html = '<select id="' + id + '" class="' + cls + '"' + onCh + req + '>';
+  html += '<option value="">— Elegí localidad —</option>';
+
+  for (const loc of _localidadesCanonicas) {
+    const sel = (loc.ciudad === valor) ? ' selected' : '';
+    html += '<option value="' + loc.ciudad + '"' + sel + '>'
+         + loc.ciudad + ' · ' + loc.etiqueta_zona
+         + '</option>';
+  }
+
+  html += '</select>';
+  return html;
+}
+
+
+// ═══════════════════════════════════════════════════════════════
 // v9.2 — COMBOS OFERTAS (sistema compartido con catálogo)
 // ═══════════════════════════════════════════════════════════════
 let _combosData = [];
@@ -11753,6 +11899,10 @@ function login(nombre) {
   if (typeof xubioCargarUltimaSync === 'function') {
     xubioCargarUltimaSync().catch(function(e){ console.error('[xubio sync] cargar:', e); });
     if (typeof _xubioIniciarRefreshSync === 'function') _xubioIniciarRefreshSync();
+  }
+  // v13.7.5: cargar las 27 localidades canónicas para los dropdowns
+  if (typeof cargarLocalidadesCanonicas === 'function') {
+    cargarLocalidadesCanonicas().catch(function(e){ console.error('[localidades] cargar:', e); });
   }
   document.getElementById('login-wrap').style.display = 'none';
   document.getElementById('panel').classList.add('on');
@@ -16357,7 +16507,9 @@ function gpsBuscarClienteXubio(q) {
         el.innerHTML = data.clientes.slice(0, 8).map(function(c) {
           var nombre = c.razonSocial || c.nombre || 'Sin nombre';
           var localidad = c.localidad || '';
-          return '<button class="gps-motivo-btn" data-nombre="' + nombre.replace(/"/g,'&quot;') + '" onclick="gpsConfirmarCheckin(this.getAttribute(&quot;data-nombre&quot;))">'
+          // v13.7.5: pasar también la localidad al check-in
+          // para poder asignar zona al pedido sin depender del input libre
+          return '<button class="gps-motivo-btn" data-nombre="' + nombre.replace(/"/g,'&quot;') + '" data-localidad="' + localidad.replace(/"/g,'&quot;') + '" onclick="gpsConfirmarCheckin(this.getAttribute(&quot;data-nombre&quot;), this.getAttribute(&quot;data-localidad&quot;))">'
             + '👤 ' + nombre
             + (localidad ? '<span style="color:var(--text3);font-size:12px;display:block"> 📍 ' + localidad + '</span>' : '')
             + '</button>';
@@ -16424,7 +16576,7 @@ async function gpsReintentar(nombreCliente) {
   gpsConfirmarCheckin(nombreCliente);
 }
 
-async function gpsConfirmarCheckin(nombreCliente) {
+async function gpsConfirmarCheckin(nombreCliente, localidadCliente) {
   var modal = document.getElementById('gps-modal-checkin');
   if (modal) modal.remove();
 
@@ -16455,7 +16607,23 @@ async function gpsConfirmarCheckin(nombreCliente) {
     });
     // SI LLEGAMOS ACÁ, EL INSERT FUNCIONÓ
     _gpsHizoPedido = false;
-    _gpsCheckinActivo = { nombre_cliente: nombreCliente, fecha: new Date().toISOString() };
+    // v13.7.5: canonizar localidad del cliente Xubio antes de guardar.
+    // Esto evita que pedidos del tomador lleguen con 'Campo' literal
+    // y permite que se infiera la zona correctamente.
+    var locCanon = '';
+    if (localidadCliente) {
+      var canon = localidadCanonicaDe(localidadCliente);
+      if (canon) {
+        locCanon = canon.ciudad;
+      } else {
+        console.warn('[GPS] Cliente "' + nombreCliente + '" tiene localidad no canónica: "' + localidadCliente + '"');
+      }
+    }
+    _gpsCheckinActivo = {
+      nombre_cliente: nombreCliente,
+      localidad:      locCanon,         // ← NUEVO en v13.7.5
+      fecha:          new Date().toISOString()
+    };
     gpsActualizarEstado(_gpsCheckinActivo);
     toast('✅ Check-in: ' + nombreCliente, 'ok');
     // Llamadas en background no críticas (mantener silenciosas)
@@ -20727,7 +20895,13 @@ function manualWAHTML() {
     '</div>' +
     '<div class="manual-wa-campo">' +
       '<div class="manual-wa-label">📍 Localidad</div>' +
-      '<input class="manual-wa-input" id="manual-wa-localidad-input" type="text" placeholder="Ciudad / localidad...">' +
+      // v13.7.5: select de localidades canónicas (anti-typos)
+      // El value se ubica con cliente seleccionado (ver manualWAUsarSugerencia)
+      localidadesSelectHTML({
+        id: 'manual-wa-localidad-input',
+        classExtra: 'manual-wa-input',
+        valorActual: ''
+      }) +
     '</div>' +
     '<div id="mwa-promos-bloque">' + promosRenderCarousel('manualwa', 'manualWAAgregarPromo', 'manualWAQuitarPromo', _manualWAPromos) + '</div>' +
     combosRenderBotones('manualwa', 'manualWAAgregarCombo', 'manualWAQuitarCombo', _manualWACombos) +
@@ -21020,11 +21194,23 @@ function manualWAElegirCliente(nombre, localidad) {
   const inp = document.getElementById('manual-wa-cliente-input');
   const locInp = document.getElementById('manual-wa-localidad-input');
   if (inp) inp.value = nombre;
-  if (locInp && localidad && !locInp.value) locInp.value = localidad;
+
+  // v13.7.5: locInp es ahora un <select>. Canonizar la localidad
+  // (ej: "Pehuajo" → "Pehuajó") antes de setear value para que el
+  // select muestre la opción correcta. Si la localidad del cliente
+  // no matchea las 27, queda vacío (el vendedor tiene que elegir).
+  if (locInp && localidad && !locInp.value) {
+    const canon = localidadCanonicaDe(localidad);
+    if (canon) {
+      locInp.value = canon.ciudad;
+    } else {
+      console.warn('[localidad] cliente "' + nombre + '" tiene localidad no canónica: "' + localidad + '"');
+    }
+  }
   const el = document.getElementById('mwa-sugerencias');
   if (el) el.innerHTML = '';
   _manualWACliente = nombre;
-  _manualWALocalidad = localidad;
+  _manualWALocalidad = locInp && locInp.value ? locInp.value : '';
 }
 
 // v9.2: agregar combo completo al pedido por WA
@@ -21221,6 +21407,20 @@ function manualWAConfirmar() {
   const localidad = localidadInp ? localidadInp.value.trim() : '';
 
   if (!cliente) { toast('Ingresá el nombre del cliente', 'err'); return; }
+
+  // v13.7.5: Validación dura de localidad canónica
+  // Si el dropdown está vacío o el valor no coincide con las 27, bloquea.
+  if (!localidad) {
+    toast('Elegí la localidad del cliente', 'err');
+    if (localidadInp) localidadInp.focus();
+    return;
+  }
+  if (!localidadCanonicaDe(localidad)) {
+    toast('Localidad inválida — elegí una de la lista', 'err');
+    if (localidadInp) localidadInp.focus();
+    return;
+  }
+
   // v12: usar desglose para validar (acepta combos solos sin sueltos)
   var _dCheck = mwaCalcularDesglose();
   if (_dCheck.itemsCount === 0) { toast('Agregá al menos un producto', 'err'); return; }
@@ -21990,7 +22190,11 @@ function _renderSucModal() {
       '</div>' +
       '<div class="suc-form-row">' +
         '<label>Localidad</label>' +
-        '<input type="text" id="suc-inp-localidad" placeholder="Ej: Pehuajó" value="' + locVal + '" maxlength="80">' +
+        // v13.7.5: select canónico (anti-typos)
+        localidadesSelectHTML({
+          id: 'suc-inp-localidad',
+          valorActual: locVal || ''
+        }) +
       '</div>' +
       '<div class="suc-form-row">' +
         '<label>Notas (opcional)</label>' +
@@ -22051,6 +22255,16 @@ async function sucGuardarForm() {
 
   if (!nombre) {
     alert('El nombre de la sucursal es obligatorio.\nEj: "Centro", "Norte", "Local 2"');
+    return;
+  }
+
+  // v13.7.5: validación dura de localidad canónica
+  if (!loc) {
+    alert('Elegí la localidad de la sucursal.');
+    return;
+  }
+  if (!localidadCanonicaDe(loc)) {
+    alert('Localidad inválida. Elegí una de la lista del dropdown.');
     return;
   }
 
@@ -25812,4 +26026,3 @@ var _miRondaOrigCargarPedidos = null;
 
 </body>
 </html>
-
