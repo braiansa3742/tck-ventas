@@ -2,6 +2,38 @@
 <html lang="es">
 <head>
 <!-- ═══════════════════════════════════════════════════════════════════════
+     TCK VENTAS — v13.7.4 — 28/04/2026
+     ──────────────────────────────────────────────────────────────────────
+     HOTFIX — Combo: cantidad por producto leía propiedad incorrecta
+
+     Cambios v13.7.4 (sobre v13.7.3):
+       Bug crítico detectado al hacer un presupuesto de prueba: el
+       Combo Crujiente decía "1 Medallón + 2 Papas" pero el sistema
+       cargaba "1 Medallón + 1 Papa" al carrito.
+
+       CAUSA: el JSON de combos en Supabase usa la propiedad
+       "cantidad" (ej: {nombre, precio, cantidad}). El código leía
+       "p.qty" — que no existe en el JSON, por lo que siempre caía
+       al fallback "|| 1" y cargaba 1 unidad de cada producto sin
+       importar lo definido en Supabase.
+
+       FIX: leer "p.cantidad || p.qty || 1" en los 4 lugares donde
+       ventas procesa productos del combo desde Supabase:
+         · combosAgregarAlTomador (línea 10414)
+         · combosQuitarDelTomador (línea 10477)
+         · combosRenderBotones (línea 10542)
+         · _manualWA mapeo combo (línea 20828)
+
+       IMPACTO: combos cargados al tomador ahora reflejan las
+       cantidades correctas según Supabase. El Combo Crujiente ahora
+       carga 1 Medallón + 2 Papas correctamente. Esto afecta tanto
+       a presupuestos generados en Xubio como al detalle del
+       WhatsApp y las planillas de carga.
+
+       LO QUE NO CAMBIA: el resto de v13.7.3.
+
+     ──────────────────────────────────────────────────────────────────────
+
      TCK VENTAS — v13.7.3 — 28/04/2026
      ──────────────────────────────────────────────────────────────────────
      Cambios v13.7.3 (sobre v13.7.2) — ACTUALIZACIÓN STOCK:
@@ -10411,7 +10443,7 @@ function combosAgregarAlTomador(comboId, qtysMap, descuentosMap, opciones) {
       continue;
     }
 
-    const qtyAAgregar = p.qty || 1;
+    const qtyAAgregar = p.cantidad || p.qty || 1;
 
     if (!skipQtys) {
       qtysMap[itemEncontrado.n] = (qtysMap[itemEncontrado.n] || 0) + qtyAAgregar;
@@ -10474,7 +10506,7 @@ function combosQuitarDelTomador(comboId, qtysMap, descuentosMap, comboCantRestan
     }
     if (!itemEncontrado) continue;
 
-    var qtyAQuitar = p.qty || 1;
+    var qtyAQuitar = p.cantidad || p.qty || 1;
 
     if (!skipQtys) {
       var actual = qtysMap[itemEncontrado.n] || 0;
@@ -10539,7 +10571,7 @@ function combosRenderBotones(contextId, onClickFn, onRemoveFn, cantidadesMap) {
     } catch(e) { prods = []; }
 
     var itemsHtml = prods.map(function(p) {
-      var qty = p.qty || 1;
+      var qty = p.cantidad || p.qty || 1;
       var nom = (p.nombre || '').replace(/"/g,'&quot;');
       return '• ' + qty + 'x ' + nom;
     }).join('<br>');
@@ -20825,7 +20857,7 @@ function mwaCalcularDesglose() {
         productos = arr.map(function(p){
           return {
             nombre: mapCatToVentas[p.nombre] || p.nombre,
-            qty: p.qty || 1,
+            qty: p.cantidad || p.qty || 1,
             precio: p.precio || 0
           };
         });
