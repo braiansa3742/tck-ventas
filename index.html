@@ -9901,8 +9901,11 @@ body {
       <div id="mr-zona-paso-ciudad" style="display:none;margin-top:14px;padding-top:14px;border-top:1px solid rgba(139,0,0,.1);">
         <div style="font-family:'Barlow Condensed',sans-serif;font-size:13px;font-weight:700;color:#6B0000;letter-spacing:.5px;text-transform:uppercase;margin-bottom:4px;">2. Ciudad</div>
         <div style="font-size:11px;color:var(--text2);margin-bottom:10px;">Ruta: <strong id="mr-zona-ruta-elegida" style="color:#6B0000;">—</strong></div>
-        <input type="text" id="mr-zona-ciudad-input" placeholder="Ej: Pehuajó, Lincoln, Guaminí..." maxlength="60"
-               style="width:100%;padding:10px 12px;border:1px solid var(--cream3);border-radius:8px;font-family:inherit;font-size:14px;box-sizing:border-box;outline:none;margin-bottom:10px;" />
+        <!-- v13.7.5: select canónico (anti-typos). Se llena dinámicamente por mrZonaPoblarSelect() -->
+        <select id="mr-zona-ciudad-input"
+                style="width:100%;padding:10px 12px;border:1px solid var(--cream3);border-radius:8px;font-family:inherit;font-size:14px;box-sizing:border-box;outline:none;margin-bottom:10px;background:#fff;">
+          <option value="">— Elegí ciudad —</option>
+        </select>
         <div style="display:flex;gap:8px;">
           <button onclick="mrZonaCerrar()" style="flex:1;padding:10px;background:#fff;border:1px solid var(--cream3);border-radius:8px;font-family:'Barlow Condensed',sans-serif;font-weight:700;color:var(--text2);cursor:pointer;letter-spacing:.5px;text-transform:uppercase;font-size:13px;">Cancelar</button>
           <button onclick="mrZonaGuardar()" style="flex:2;padding:10px;background:linear-gradient(135deg,#8B0000,#6B0000);border:none;border-radius:8px;font-family:'Barlow Condensed',sans-serif;font-weight:800;color:#FFD700;cursor:pointer;letter-spacing:.5px;text-transform:uppercase;font-size:13px;">Guardar zona</button>
@@ -18470,6 +18473,44 @@ async function tomadorConfirmarFinal() {
   });
 }
 
+// v13.7.5: modal para elegir localidad canónica cuando el check-in
+// no la trae (caso check-in manual o cliente Xubio sin localidad cargada).
+// Llama al callback con la ciudad canónica elegida.
+function tomadorPedirLocalidadYReintentar(callback) {
+  var existing = document.getElementById('tomador-localidad-modal');
+  if (existing) existing.remove();
+  var modal = document.createElement('div');
+  modal.id = 'tomador-localidad-modal';
+  modal.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,.7);z-index:99999;display:flex;align-items:center;justify-content:center;padding:20px;';
+  modal.innerHTML =
+    '<div style="background:#fff;border-radius:14px;max-width:420px;width:100%;padding:20px;box-shadow:0 8px 32px rgba(0,0,0,.3);">' +
+      '<div style="font-family:Barlow Condensed,sans-serif;font-size:20px;font-weight:900;color:#8B0000;margin-bottom:6px;">📍 Elegí la localidad</div>' +
+      '<div style="font-size:13px;color:#555;margin-bottom:14px;">' +
+        'No tenemos localidad para este cliente. Elegila para que el pedido salga con el camión correcto.' +
+      '</div>' +
+      localidadesSelectHTML({
+        id: 'tomador-localidad-select',
+        classExtra: 'manual-wa-input',
+        valorActual: ''
+      }) +
+      '<div style="display:flex;gap:8px;margin-top:16px;">' +
+        '<button onclick="document.getElementById(&quot;tomador-localidad-modal&quot;).remove()" style="flex:1;padding:12px;background:#eee;color:#333;border:none;border-radius:10px;font-weight:700;cursor:pointer;">Cancelar</button>' +
+        '<button id="tomador-localidad-confirmar-btn" style="flex:2;padding:12px;background:linear-gradient(135deg,#1B5E20,#2E7D32);color:#fff;border:none;border-radius:10px;font-weight:900;cursor:pointer;">Continuar</button>' +
+      '</div>' +
+    '</div>';
+  document.body.appendChild(modal);
+  document.getElementById('tomador-localidad-confirmar-btn').onclick = function() {
+    var sel = document.getElementById('tomador-localidad-select');
+    var val = sel ? sel.value : '';
+    if (!val || !localidadCanonicaDe(val)) {
+      toast('Elegí una localidad de la lista', 'err');
+      return;
+    }
+    modal.remove();
+    if (typeof callback === 'function') callback(val);
+  };
+}
+
 async function tomadorConfirmarConEntrega(entregaData) {
   var items = Object.keys(_tomadorQtys);
   var cliente   = _gpsCheckinActivo ? _gpsCheckinActivo.nombre_cliente : 'Cliente';
@@ -18567,12 +18608,27 @@ async function tomadorConfirmarConEntrega(entregaData) {
       tieneDescuento ? 'DESCUENTOS: ' + dtoNota : ''
     ].filter(Boolean).join(' || ');
 
+    // v13.7.5: la localidad debe ser una de las 27 canónicas.
+    // Si el check-in vino de Xubio con localidad canonizada, ya la tenemos.
+    // Si fue manual o el cliente no tenía localidad, abrimos modal para elegir.
+    var localidadCheckin = _gpsCheckinActivo ? (_gpsCheckinActivo.localidad || '') : '';
+    if (!localidadCheckin || !localidadCanonicaDe(localidadCheckin)) {
+      // Pedir localidad antes de confirmar — bloquea hasta que elija
+      tomadorPedirLocalidadYReintentar(function(localidadElegida) {
+        // Guardar localidad canonizada en el check-in para no preguntar más en este turno
+        if (_gpsCheckinActivo) _gpsCheckinActivo.localidad = localidadElegida;
+        // Reintentar el envío con la localidad ya cargada
+        tomadorConfirmarConEntrega(entregaData);
+      });
+      return;
+    }
+
     var params = new URLSearchParams({
       accion:        'guardarPedido',
       pedidoId:      pedidoId,
       vendedor:      vendedor,
       cliente:       cliente,
-      localidad:     _gpsCheckinActivo ? (_gpsCheckinActivo.localidad || 'Campo') : 'Campo',
+      localidad:     localidadCheckin,
       detalle:       detalleSheet,
       total:         total,
       nota:          notaFinal,
@@ -21504,12 +21560,20 @@ async function manualWAGuardar(cliente, localidad, entrega, sucursal) {
   // v12: contar items totales (sumar combos + sueltos) para columna 8 del Sheet
   var itemsTotales = d.itemsCount;
 
+  // v13.7.5: defensa en profundidad — validar localidad canónica.
+  // manualWAConfirmar ya valida arriba, pero por si alguien llama directo.
+  if (!localidad || !localidadCanonicaDe(localidad)) {
+    toast('Localidad inválida — pedido no enviado', 'err');
+    console.error('[manualWAGuardar] Bloqueado por localidad inválida:', localidad);
+    return;
+  }
+
   const params = new URLSearchParams({
     accion:        'guardarPedido',
     pedidoId:      pedidoId,
     vendedor:      vendedor,
     cliente:       cliente,
-    localidad:     localidad || 'Sin especificar',
+    localidad:     localidad,
     detalle:       lineas.join(' | '),
     total:         total,
     itemsTotales:  itemsTotales,
@@ -21547,7 +21611,7 @@ async function manualWAGuardar(cliente, localidad, entrega, sucursal) {
     vendedor:     vendedor,
     cliente:      cliente,
     comercio:     '',
-    localidad:    localidad || 'Sin especificar',
+    localidad:    localidad, // v13.7.5: ya está validada canónica
     total:        total.toString(),
     items:        itemsTotales.toString(),
     resumen:      lineas.map(l => l.split(' →')[0]).join(' | '),
@@ -25701,11 +25765,30 @@ function mrZonaAbrir(clienteId) {
   if (nomEl) nomEl.textContent = c.nombre || '—';
   var pasoCiudad = document.getElementById('mr-zona-paso-ciudad');
   if (pasoCiudad) pasoCiudad.style.display = 'none';
-  var input = document.getElementById('mr-zona-ciudad-input');
-  if (input) input.value = (c.localidad && c.localidad !== 'Sin ciudad' && c.localidad !== 'Campo') ? c.localidad : '';
+
+  // v13.7.5: poblar el select con las localidades canónicas (si todavía
+  // no se cargaron, esperamos. Si están vacías, dejamos solo el placeholder).
+  mrZonaPoblarSelect(c);
 
   var back = document.getElementById('mr-zona-backdrop');
   if (back) back.classList.add('on');
+}
+
+// v13.7.5: poblar el <select id="mr-zona-ciudad-input"> con las 27 ciudades.
+// Selecciona automáticamente la localidad actual del cliente si es canónica.
+function mrZonaPoblarSelect(cliente) {
+  var sel = document.getElementById('mr-zona-ciudad-input');
+  if (!sel) return;
+  var locActual = (cliente && cliente.localidad && cliente.localidad !== 'Sin ciudad' && cliente.localidad !== 'Campo') ? cliente.localidad : '';
+  var canonActual = locActual ? localidadCanonicaDe(locActual) : null;
+
+  var html = '<option value="">— Elegí ciudad —</option>';
+  for (var i = 0; i < _localidadesCanonicas.length; i++) {
+    var loc = _localidadesCanonicas[i];
+    var sel2 = (canonActual && canonActual.ciudad === loc.ciudad) ? ' selected' : '';
+    html += '<option value="' + loc.ciudad + '"' + sel2 + '>' + loc.ciudad + ' · ' + loc.etiqueta_zona + '</option>';
+  }
+  sel.innerHTML = html;
 }
 
 function mrZonaCerrar() {
@@ -25726,8 +25809,7 @@ function mrZonaElegirRuta(rutaKey) {
   if (lbl) lbl.textContent = cfg.nombre;
   var pasoCiudad = document.getElementById('mr-zona-paso-ciudad');
   if (pasoCiudad) pasoCiudad.style.display = '';
-  var input = document.getElementById('mr-zona-ciudad-input');
-  if (input) setTimeout(function() { input.focus(); }, 50);
+  // v13.7.5: el select ya está poblado desde mrZonaAbrir, no hace falta focus
 }
 
 function mrZonaGuardar() {
@@ -25738,7 +25820,13 @@ function mrZonaGuardar() {
   var input = document.getElementById('mr-zona-ciudad-input');
   var ciudad = (input && input.value || '').trim();
   if (!ciudad) {
-    alert('Escribí la ciudad antes de guardar.');
+    alert('Elegí la ciudad antes de guardar.');
+    if (input) input.focus();
+    return;
+  }
+  // v13.7.5: validar canónica (defensa en profundidad — el dropdown ya solo ofrece las 27)
+  if (!localidadCanonicaDe(ciudad)) {
+    alert('Localidad inválida. Elegí una de la lista.');
     if (input) input.focus();
     return;
   }
