@@ -2,6 +2,25 @@
 <html lang="es">
 <head>
 <!-- ═══════════════════════════════════════════════════════════════════════
+     TCK VENTAS — v13.7.6 — 29/04/2026
+     ──────────────────────────────────────────────────────────────────────
+     ACTUALIZACIÓN DE STOCK
+
+     Cambios v13.7.6 (sobre v13.7.5):
+       · ALTA DE STOCK — quitados del set TOMADOR_SIN_STOCK_AVISO:
+           - Maple N° 1
+           - Maple N° 2
+         (Vuelven a aparecer normales en el tomador, sin badge amarillo)
+       · BAJA DE STOCK — agregado al set TOMADOR_SIN_STOCK_AVISO:
+           - Suprema IQF (15 kg)
+         (Aparece con badge ⚠️ SIN STOCK; el vendedor puede cargar igual
+          si sabe que el producto va a entrar para la entrega — el aviso
+          es informativo, no bloqueante)
+
+       LO QUE NO CAMBIA: resto de v13.7.5.
+
+     ──────────────────────────────────────────────────────────────────────
+
      TCK VENTAS — v13.7.5 — 28/04/2026
      ──────────────────────────────────────────────────────────────────────
      LOCALIDAD CANÓNICA — Eliminación de typos por construcción
@@ -17471,10 +17490,12 @@ const TOMADOR_SIN_STOCK_AVISO = new Set([
   // v13.7.3 (28/4/2026) — nuevos sin stock:
   'Filet Merluza Finas Hierbas',
   'Filet de Merluza Rebozado',
-  'Maple N° 1',
-  'Maple N° 2',
   'Bocadito de Papa y Jamon',
-  'Formita Clasica'
+  'Formita Clasica',
+  // v13.7.6 (29/4/2026):
+  //   - ALTA DE STOCK (quitados): Maple N° 1, Maple N° 2.
+  //   - BAJA DE STOCK (agregado): Suprema IQF (15kg).
+  'Suprema IQF'
 ]);
 // Alias retro-compatible — TODA la lógica de "sin stock" ahora es solo aviso, NO bloqueo
 const TOMADOR_SIN_STOCK = TOMADOR_SIN_STOCK_AVISO;
