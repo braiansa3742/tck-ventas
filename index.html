@@ -11151,6 +11151,29 @@ function localidadesSelectHTML(opts) {
 // Si la localidad no matchea zona → devuelve null (queda sin viaje,
 // Francisco lo asigna manual desde admin)
 
+// v14.3.1 BUG TOAST: La tabla `rutas` en Supabase usa etiquetas de display
+// ('Zona 1', 'Zona 2', 'Solo América y Fortín', 'Venta local'), pero el calendario
+// ZONA_DIAS_SALIDA y los mensajes usan claves técnicas ('zona1', etc).
+// Sin este mapa, inferirEntregaDesdeLocalidad nunca matcheaba ninguna zona y siempre
+// caía en "Sin viaje asignado" — incluso cuando el backend SÍ asignaba viaje.
+// Resultado: vendedor leía "Sin viaje" y desconfiaba del sistema (falso negativo).
+var ZONA_DB_A_TECNICA = {
+  'Zona 1':                 'zona1',
+  'Zona 2':                 'zona2',
+  'Solo América y Fortín':  'america_fortin',
+  'Venta local':            'tl'   // TL genérico — el turno se infiere por hora
+};
+
+// Etiquetas amigables para mostrar en el toast
+var ZONA_NOMBRE_AMIGABLE = {
+  'zona1':           'Zona 1',
+  'zona2':           'Zona 2',
+  'america_fortin':  'América / Fortín',
+  'tl':              'Trenque Lauquen',
+  'tl_manana':       'Trenque Lauquen',
+  'tl_tarde':        'Trenque Lauquen'
+};
+
 var ZONA_DIAS_SALIDA = {
   'zona1':           [1],     // Lunes
   'zona2':           [4],     // Jueves
@@ -11196,10 +11219,13 @@ function inferirEntregaDesdeLocalidad(localidad) {
     return null; // No matchea — queda sin viaje
   }
 
-  var zona = canon.zona;
+  // v14.3.1 BUG TOAST: traducir etiqueta de DB a clave técnica.
+  // Si canon.zona ya es clave técnica (defensa para futuras migraciones),
+  // se queda como está. Si es etiqueta de display, se mapea.
+  var zona = ZONA_DB_A_TECNICA[canon.zona] || canon.zona;
   var diasValidos = ZONA_DIAS_SALIDA[zona];
   if (!diasValidos) {
-    console.warn('[F-Modal] Zona desconocida:', zona);
+    console.warn('[F-Modal] Zona desconocida:', canon.zona, '→', zona);
     return null;
   }
 
@@ -11248,7 +11274,8 @@ function inferirEntregaDesdeLocalidad(localidad) {
                      String(fechaSalida.getMonth()+1).padStart(2,'0') + '-' +
                      String(fechaSalida.getDate()).padStart(2,'0');
 
-  // Mensaje user-friendly
+  // Mensaje user-friendly (v14.3.1: incluye etiqueta de zona amigable)
+  var zonaAmigable = ZONA_NOMBRE_AMIGABLE[zona] || zona;
   var mensaje = '🚚 Se enviará en el viaje a ' + canon.ciudad + ' del ' + diaTxt;
   if (turno === 'Mañana' || turno === 'Tarde') {
     // Solo agregar turno para TL (las otras zonas no necesitan turno explícito)
@@ -11256,6 +11283,7 @@ function inferirEntregaDesdeLocalidad(localidad) {
       mensaje += ' (' + turno + ')';
     }
   }
+  mensaje += '\n📍 ' + zonaAmigable;
 
   return {
     dia: diaTxt,
