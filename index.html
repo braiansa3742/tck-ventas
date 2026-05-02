@@ -23268,6 +23268,15 @@ function mwaCerrarDetalleCarrito() {
 }
 
 function manualWAConfirmar() {
+  // v14.3.0 ANTI-DUP: lock global + botón disabled para impedir doble click.
+  // Sin esto, cada toque del vendedor al botón "Confirmar" generaba un pedidoId
+  // distinto (Math.random) → INSERT nuevo → duplicados (caso Logotetti 7 pedidos
+  // 02-may-26). El lock se libera en finally al final de manualWAGuardar.
+  if (window._mwaEnviando) {
+    console.warn('[ANTI-DUP] manualWAConfirmar bloqueado por lock activo');
+    return;
+  }
+
   const clienteInp  = document.getElementById('manual-wa-cliente-input');
   const localidadInp = document.getElementById('manual-wa-localidad-input');
   const cliente   = clienteInp  ? clienteInp.value.trim()   : '';
@@ -23306,11 +23315,26 @@ function manualWAConfirmar() {
       console.log('[F-Modal] Localidad sin zona — guardando sin entrega:', localidad);
       entrega = { dia: '', turno: '', mensaje: '' };
     }
+    // v14.3.0 ANTI-DUP: activar lock + disable del botón ANTES de la llamada async.
+    // El lock se libera dentro de manualWAGuardar (try/finally).
+    window._mwaEnviando = true;
+    var _btnConf = document.getElementById('mwa-confirmar-btn');
+    if (_btnConf) {
+      _btnConf._textoOriginal = _btnConf.textContent;
+      _btnConf.disabled = true;
+      _btnConf.textContent = 'Enviando...';
+      _btnConf.style.opacity = '0.6';
+      _btnConf.style.cursor = 'wait';
+    }
+
     manualWAGuardar(cliente, localidad, entrega, suc);
   });
 }
 
 async function manualWAGuardar(cliente, localidad, entrega, sucursal) {
+  // v14.3.0 ANTI-DUP: try/finally garantiza liberación del lock + restauración
+  // del botón aunque la función falle por cualquier excepción no controlada.
+  try {
   const vendedor = vendedorActual || 'Vendedor';
   const hoy = new Date();
   const hh  = hoy.getHours().toString().padStart(2,'0');
@@ -23469,6 +23493,19 @@ async function manualWAGuardar(cliente, localidad, entrega, sucursal) {
 
   setTimeout(function() { cargarPedidos(true); }, 3000);
   setTimeout(function() { cargarPedidos(true); }, 8000);
+  } finally {
+    // v14.3.0 ANTI-DUP: liberar lock + restaurar botón pase lo que pase.
+    // Sin esto, si algo falla a mitad de la función, el botón queda
+    // disabled para siempre y el lock global bloquea pedidos futuros.
+    window._mwaEnviando = false;
+    var _btn = document.getElementById('mwa-confirmar-btn');
+    if (_btn) {
+      _btn.disabled = false;
+      _btn.textContent = _btn._textoOriginal || 'Confirmar pedido';
+      _btn.style.opacity = '';
+      _btn.style.cursor = '';
+    }
+  }
 }
 
 // ── Definir/cambiar fecha de entrega desde el panel ──
