@@ -2,9 +2,43 @@
 <html lang="es">
 <head>
 <!-- ═══════════════════════════════════════════════════════════════════════
-     TCK VENTAS — v13.7.6 — 29/04/2026
+     TCK VENTAS — v14.0 — 02/05/2026
      ──────────────────────────────────────────────────────────────────────
-     ACTUALIZACIÓN DE STOCK
+     SUB-ENTREGA A: REDISEÑO PANTALLA CHOFER (sobre rediseño Logística)
+
+     Cambios v14.0 (sobre v13.7.6):
+
+       1. PANTALLA CHOFER ORIENTADA A VIAJE.
+          El chofer ahora trabaja sobre VIAJES (no entregas globales).
+            · cargarEntregas() filtra por viaje_id activo en vez de chofer
+            · Si no hay viaje en_ruta, muestra "Sin viaje activo" con
+              próximos viajes asignados
+            · Auto-carga del viaje activo desde Apps Script (viajeListar)
+
+       2. HEADER DEL VIAJE ACTIVO.
+          Banner verde (Joan) o naranja (Luis) arriba de la lista con:
+            · Avatar, nombre, viaje #ID, zona, vehículo
+            · Barra de progreso "X de Y entregas" + "$X cobrado / $Y total"
+
+       3. BOTONES REDISEÑADOS:
+            · Pendiente → "🚛 Voy para allá" + ícono WA al lado
+            · En camino → directo "✓ Confirmar entrega" (eliminado paso "Llegué")
+            · No estaba → "🔄 Reintentar"
+
+       4. VALIDACIÓN "COBRÓ MENOS" inline en modal cobro.
+          Si total cobrado < total esperado (ajustado por devoluciones):
+            · Aparece alerta naranja con la diferencia
+            · Textarea obligatorio con motivo (mín. 5 letras)
+            · Si no completa, no deja confirmar
+            · Guarda en entregas.diferencia_motivo + monto_cobrado_real
+            · Excepción: si todo es cuenta corriente, no valida
+
+       5. CONSERVADO: cobro mixto, devoluciones, cheques. Sin cambios.
+
+       NOTA: requiere SQL ejecutado:
+         ALTER TABLE entregas
+           ADD COLUMN diferencia_motivo text,
+           ADD COLUMN monto_cobrado_real numeric;
 
      Cambios v13.7.6 (sobre v13.7.5):
        · ALTA DE STOCK — quitados del set TOMADOR_SIN_STOCK_AVISO:
@@ -4924,6 +4958,188 @@ body {
   grid-template-columns: 1.6fr 1fr;
   gap: 6px;
 }
+/* v14.0: row con Voy + WA mini al lado */
+.entrega-item-acciones-row {
+  display: flex;
+  gap: 6px;
+  align-items: stretch;
+}
+.entrega-item-acciones-row .accion-voy { flex: 1; }
+.accion-wa-mini {
+  flex-shrink: 0;
+  width: 44px;
+  background: #25D366;
+  color: #fff;
+  border: none;
+  border-radius: 12px;
+  font-size: 18px;
+  cursor: pointer;
+  touch-action: manipulation;
+  -webkit-tap-highlight-color: transparent;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  box-shadow: 0 2px 6px rgba(37,211,102,.3);
+  transition: all .12s;
+}
+.accion-wa-mini:active { transform: scale(0.94); }
+
+/* v14.0: Header del viaje activo del chofer */
+.ch-viaje-hdr {
+  background: linear-gradient(135deg, #2E7D32, #1B5E20);
+  border-radius: 16px;
+  padding: 14px;
+  color: #fff;
+  margin-bottom: 14px;
+  box-shadow: 0 3px 12px rgba(46,125,50,.25);
+}
+.ch-viaje-hdr.luis { background: linear-gradient(135deg, #E65100, #BF360C); box-shadow: 0 3px 12px rgba(230,81,0,.25); }
+.ch-viaje-hdr-top {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 12px;
+}
+.ch-viaje-avatar {
+  width: 42px; height: 42px;
+  border-radius: 50%;
+  background: rgba(255,255,255,.2);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-family: 'Barlow Condensed', sans-serif;
+  font-size: 20px;
+  font-weight: 900;
+  border: 2px solid rgba(255,255,255,.3);
+}
+.ch-viaje-info { flex: 1; min-width: 0; }
+.ch-viaje-titulo {
+  font-family: 'Barlow Condensed', sans-serif;
+  font-size: 17px;
+  font-weight: 900;
+  line-height: 1.1;
+}
+.ch-viaje-meta {
+  font-size: 11px;
+  opacity: .85;
+  margin-top: 3px;
+}
+.ch-viaje-progreso-wrap {
+  background: rgba(0,0,0,.18);
+  border-radius: 10px;
+  padding: 10px 12px;
+}
+.ch-viaje-progreso-top {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  margin-bottom: 6px;
+}
+.ch-viaje-progreso-num {
+  font-family: 'Barlow Condensed', sans-serif;
+  font-size: 18px;
+  font-weight: 900;
+}
+.ch-viaje-progreso-pct {
+  font-size: 12px;
+  opacity: .85;
+  font-weight: 700;
+}
+.ch-viaje-progreso-bar {
+  background: rgba(0,0,0,.3);
+  border-radius: 4px;
+  height: 6px;
+  overflow: hidden;
+}
+.ch-viaje-progreso-fill {
+  background: linear-gradient(90deg, #FFD700, #FFA000);
+  height: 100%;
+  border-radius: 4px;
+  transition: width .6s ease;
+}
+.ch-viaje-progreso-cobrado {
+  font-size: 11px;
+  opacity: .9;
+  margin-top: 6px;
+  font-weight: 600;
+}
+
+/* v14.0: Pantalla "Sin viaje activo" */
+.ch-sinviaje-hero {
+  background: linear-gradient(135deg, #455A64, #37474F);
+  color: #fff;
+  padding: 28px 18px;
+  text-align: center;
+  border-radius: 16px;
+  margin: 12px 0;
+}
+.ch-sinviaje-icono {
+  font-size: 48px;
+  margin-bottom: 10px;
+  opacity: .9;
+}
+.ch-sinviaje-titulo {
+  font-family: 'Barlow Condensed', sans-serif;
+  font-size: 22px;
+  font-weight: 900;
+  margin-bottom: 6px;
+}
+.ch-sinviaje-sub {
+  font-size: 13px;
+  opacity: .85;
+  margin-bottom: 18px;
+  line-height: 1.4;
+}
+.ch-sinviaje-info {
+  background: rgba(255,255,255,.1);
+  border-radius: 12px;
+  padding: 14px;
+  text-align: left;
+  font-size: 13px;
+  line-height: 1.6;
+}
+.ch-sinviaje-info strong {
+  font-family: 'Barlow Condensed', sans-serif;
+  font-size: 14px;
+  display: block;
+  margin-bottom: 6px;
+}
+
+/* v14.0: Alerta "cobró menos" inline en modal */
+.cobro-menos-alerta {
+  background: linear-gradient(135deg, #FFF3E0, #FFE0B2);
+  border-left: 4px solid #E65100;
+  border-radius: 8px;
+  padding: 12px;
+  margin-top: 14px;
+}
+.cobro-menos-titulo {
+  font-family: 'Barlow Condensed', sans-serif;
+  font-size: 13px;
+  font-weight: 900;
+  color: #E65100;
+  margin-bottom: 4px;
+}
+.cobro-menos-sub {
+  font-size: 11px;
+  color: var(--text2);
+  margin-bottom: 8px;
+}
+.cobro-menos-alerta textarea {
+  width: 100%;
+  padding: 8px 10px;
+  border: 1.5px solid #FFB74D;
+  border-radius: 8px;
+  font-family: 'Barlow', sans-serif;
+  font-size: 13px;
+  resize: vertical;
+  background: #fff;
+}
+.cobro-menos-alerta textarea:focus {
+  outline: none;
+  border-color: #E65100;
+}
+
 .entrega-item-accion {
   padding: 11px 14px;
   border: none;
@@ -18713,35 +18929,223 @@ let _entregaCiudadActual  = null; // ciudad en proceso de cobro
 let _modoCobroCambio      = false; // true = cambio de cobro, false = primera vez
 let _entregasCache = [];
 
+// ════════════════════════════════════════════════════════════════
+// v14.0 — VIAJE ACTIVO DEL CHOFER
+// ════════════════════════════════════════════════════════════════
+// El chofer ahora trabaja sobre VIAJES (no entregas sueltas).
+// Un viaje agrupa todas las entregas que tiene que hacer ese día.
+
+let _viajeActivo = null;
+let _viajeActivoLoadedAt = null;
+let _rutasCache = null;
+
+// ───────────────────────────────────────────────────────────────
+// Cargar el viaje activo del chofer (en_ruta) — si tiene
+// ───────────────────────────────────────────────────────────────
+async function cargarViajeActivo() {
+  if (!vendedorActual) return null;
+  try {
+    const url = APPS_SCRIPT_URL +
+      '?accion=viajeListar' +
+      '&chofer=' + encodeURIComponent(vendedorActual) +
+      '&estado=en_ruta' +
+      '&limit=1';
+    const resp = await fetch(url);
+    const data = await resp.json();
+    if (data.status === 'ok' && Array.isArray(data.viajes) && data.viajes.length > 0) {
+      _viajeActivo = data.viajes[0];
+    } else {
+      _viajeActivo = null;
+    }
+    _viajeActivoLoadedAt = new Date();
+    return _viajeActivo;
+  } catch(err) {
+    console.error('[v14.0] cargarViajeActivo:', err);
+    _viajeActivo = null;
+    return null;
+  }
+}
+
+// ───────────────────────────────────────────────────────────────
+// Cargar próximos viajes planificados/preparando del chofer
+// (para mostrar en pantalla "sin viaje activo")
+// ───────────────────────────────────────────────────────────────
+async function cargarProximosViajes() {
+  if (!vendedorActual) return [];
+  try {
+    const url = APPS_SCRIPT_URL +
+      '?accion=viajeListar' +
+      '&chofer=' + encodeURIComponent(vendedorActual) +
+      '&estados=' + encodeURIComponent('planificado,preparando') +
+      '&orden=fecha_salida.asc' +
+      '&limit=5';
+    const resp = await fetch(url);
+    const data = await resp.json();
+    if (data.status === 'ok' && Array.isArray(data.viajes)) {
+      return data.viajes;
+    }
+    return [];
+  } catch(err) {
+    console.error('[v14.0] cargarProximosViajes:', err);
+    return [];
+  }
+}
+
+// ───────────────────────────────────────────────────────────────
+// Cargar ruta de la zona (orden de entrega) desde Supabase
+// ───────────────────────────────────────────────────────────────
+async function cargarRutasZona() {
+  if (_rutasCache) return _rutasCache;
+  try {
+    const data = await sbFetch('rutas?select=ciudad,zona,orden&order=orden.asc');
+    _rutasCache = Array.isArray(data) ? data : [];
+    return _rutasCache;
+  } catch(err) {
+    console.error('[v14.0] cargarRutasZona:', err);
+    _rutasCache = [];
+    return [];
+  }
+}
+
+// ───────────────────────────────────────────────────────────────
+// HEADER del chofer con info del viaje activo
+// ───────────────────────────────────────────────────────────────
+function renderViajeHeader() {
+  if (!_viajeActivo) return '';
+
+  const v = _viajeActivo;
+  const totalPedidos = v.total_pedidos || 0;
+  const cobrado = Number(v.monto_cobrado) || 0;
+  const total = Number(v.monto_total) || 0;
+
+  // Calcular entregadas según cache local de entregas
+  let entregadas = 0;
+  if (_entregasCache && _entregasCache.length) {
+    entregadas = _entregasCache.filter(function(e) {
+      return e.estado === 'entregado';
+    }).length;
+  }
+  const pct = totalPedidos > 0 ? Math.round((entregadas / totalPedidos) * 100) : 0;
+
+  const avatar = (vendedorActual || '?').charAt(0).toUpperCase();
+  const choferKey = String(vendedorActual || '').toLowerCase();
+  const isJoan = choferKey.indexOf('joan') >= 0;
+  const isLuis = choferKey.indexOf('luis') >= 0;
+  const colorClase = isLuis ? ' luis' : '';
+
+  // Zona display
+  const zonaDisplay = (function(z) {
+    const map = {
+      'zona1': 'Zona 1', 'zona2': 'Zona 2',
+      'tl_manana': 'TL Mañana', 'tl_tarde': 'TL Tarde', 'tl': 'TL',
+      'america_fortin': 'América/Fortín'
+    };
+    return map[z] || z;
+  })(v.zona);
+
+  let html = '<div class="ch-viaje-hdr' + colorClase + '">';
+  html += '  <div class="ch-viaje-hdr-top">';
+  html += '    <div class="ch-viaje-avatar">' + avatar + '</div>';
+  html += '    <div class="ch-viaje-info">';
+  html += '      <div class="ch-viaje-titulo">Viaje #' +
+          (v.id ? v.id.substring(0, 4) : '?') + ' · ' + zonaDisplay + '</div>';
+  html += '      <div class="ch-viaje-meta">🚛 ' + (v.vehiculo || '—') + '</div>';
+  html += '    </div>';
+  html += '  </div>';
+  html += '  <div class="ch-viaje-progreso-wrap">';
+  html += '    <div class="ch-viaje-progreso-top">';
+  html += '      <div class="ch-viaje-progreso-num">' + entregadas + ' de ' + totalPedidos + ' entregas</div>';
+  html += '      <div class="ch-viaje-progreso-pct">' + pct + '%</div>';
+  html += '    </div>';
+  html += '    <div class="ch-viaje-progreso-bar">';
+  html += '      <div class="ch-viaje-progreso-fill" style="width:' + pct + '%;"></div>';
+  html += '    </div>';
+  if (total > 0) {
+    html += '    <div class="ch-viaje-progreso-cobrado">';
+    html += '      💰 $' + Math.round(cobrado).toLocaleString('es-AR') +
+            ' cobrado / $' + Math.round(total).toLocaleString('es-AR');
+    html += '    </div>';
+  }
+  html += '  </div>';
+  html += '</div>';
+  return html;
+}
+
+// ───────────────────────────────────────────────────────────────
+// Pantalla "Sin viaje activo"
+// ───────────────────────────────────────────────────────────────
+async function renderSinViajeActivo() {
+  const proximos = await cargarProximosViajes();
+  const avatar = (vendedorActual || '?').charAt(0).toUpperCase();
+
+  let html = '<div class="ch-sinviaje-hero">';
+  html += '  <div class="ch-sinviaje-icono">💤</div>';
+  html += '  <div class="ch-sinviaje-titulo">No tenés viaje activo</div>';
+  html += '  <div class="ch-sinviaje-sub">Esperá que Francisco te asigne uno y arranque la salida</div>';
+
+  if (proximos.length > 0) {
+    html += '  <div class="ch-sinviaje-info">';
+    html += '    <strong>📅 Próximos viajes asignados:</strong><br>';
+    proximos.forEach(function(v) {
+      const f = v.fecha_salida || '';
+      const fechaStr = formatearFechaCorta(f);
+      const zonaDisplay = ({
+        'zona1': 'Zona 1', 'zona2': 'Zona 2',
+        'tl_manana': 'TL Mañana', 'tl_tarde': 'TL Tarde', 'tl': 'TL',
+        'america_fortin': 'América/Fortín'
+      })[v.zona] || v.zona;
+      html += '· ' + zonaDisplay + ' — ' + fechaStr + '<br>';
+    });
+    html += '  </div>';
+  } else {
+    html += '  <div class="ch-sinviaje-info">';
+    html += '    Cuando Francisco te asigne un viaje, lo vas a ver acá.';
+    html += '  </div>';
+  }
+
+  html += '</div>';
+  return html;
+}
+
+// Helper: formato fecha corta (para próximos viajes)
+function formatearFechaCorta(isoStr) {
+  if (!isoStr) return '?';
+  const partes = isoStr.split('-');
+  if (partes.length !== 3) return isoStr;
+  const d = new Date(+partes[0], +partes[1]-1, +partes[2]);
+  const dias = ['Domingo','Lunes','Martes','Miércoles','Jueves','Viernes','Sábado'];
+  const meses = ['ene','feb','mar','abr','may','jun','jul','ago','sep','oct','nov','dic'];
+  return dias[d.getDay()] + ' ' + d.getDate() + ' ' + meses[d.getMonth()];
+}
+
+
 async function cargarEntregas() {
   const el = document.getElementById('entregas-lista');
   el.innerHTML = '<div style="text-align:center;padding:40px;color:var(--text3);">Cargando entregas...</div>';
 
   try {
-    // Cargar pedidos confirmados del día asignados a este chofer
-    const hoy = new Date();
-    hoy.setHours(0, 0, 0, 0);
-    const hoyStr = hoy.toISOString().split('T')[0];
+    // v14.0: Primero cargar el viaje activo del chofer
+    await cargarViajeActivo();
 
-    // Buscar entregas asignadas al chofer que estén pendientes
-    // o entregadas hoy (no filtramos por fecha_asignacion porque se asignan el día anterior)
+    // Si no hay viaje activo, mostrar pantalla "Sin viaje activo"
+    if (!_viajeActivo) {
+      _entregasCache = [];
+      const html = await renderSinViajeActivo();
+      el.innerHTML = html;
+      const res = document.getElementById('entregas-resumen');
+      if (res) res.innerHTML = '';
+      return;
+    }
+
+    // v14.0: Filtrar entregas por viaje_id (no por chofer global)
     let entregas = await sbFetch(
-      'entregas?chofer=eq.' + encodeURIComponent(vendedorActual) +
+      'entregas?viaje_id=eq.' + encodeURIComponent(_viajeActivo.id) +
       '&select=*&order=ciudad.asc'
     );
 
-    // v8.9.1 FIX: mostrar todas las entregas relevantes para el chofer
-    // - pendiente / en_camino / no_encontrado → siempre visibles (trabajo a hacer)
-    // - entregado → visible si NO está confirmada por admin (rendicion_estado != 'confirmada')
-    //   Esto incluye:
-    //     · entregadas que el chofer aún no envió a rendir (rendicion_estado=null)
-    //     · entregadas en estado "rindiendo" (esperando admin)
-    //   Las entregadas Y confirmadas por admin se ocultan del panel diario
-    //   (quedan en el tab Rendiciones → Historial 30 días).
-    //
-    // Nota: este filtro reemplaza al anterior que solo mostraba entregadas de HOY,
-    // que escondía pedidos del día anterior si el chofer no había rendido todavía
-    // (típico en viajes largos que vuelven a las horas o al día siguiente).
+    // Mantener filtro por estado (mismo que antes):
+    // - pendiente / en_camino / no_encontrado → siempre visibles
+    // - entregado → visible si NO está confirmada por admin
     if (entregas && entregas.length) {
       entregas = entregas.filter(function(e) {
         if (e.estado === 'pendiente' || e.estado === 'en_camino' || e.estado === 'no_encontrado') return true;
@@ -18753,10 +19157,12 @@ async function cargarEntregas() {
     }
 
     if (!entregas || !entregas.length) {
-      // Sin entregas asignadas — mostrar mensaje claro
+      // Sin entregas en el viaje — caso raro pero posible
       _entregasCache = [];
-      const el = document.getElementById('entregas-lista');
-      if (el) el.innerHTML = '<div style="text-align:center;padding:40px 20px;color:var(--text3);font-size:14px;">📭 No tenés entregas asignadas por ahora.<br><span style="font-size:12px;margin-top:8px;display:block;">Cuando el admin te asigne pedidos van a aparecer acá.</span></div>';
+      const headerHtml = renderViajeHeader();
+      const el2 = document.getElementById('entregas-lista');
+      if (el2) el2.innerHTML = headerHtml +
+        '<div style="text-align:center;padding:40px 20px;color:var(--text3);font-size:14px;">📭 Tu viaje no tiene entregas aún.<br><span style="font-size:12px;margin-top:8px;display:block;">Esto es raro — avisá a Francisco.</span></div>';
       const res = document.getElementById('entregas-resumen');
       if (res) res.style.display = 'none';
       return;
@@ -18990,8 +19396,12 @@ function abrirMapsCliente(cliente, comercio, ciudad) {
 
 function renderEntregas(entregas) {
   const el = document.getElementById('entregas-lista');
+
+  // v14.0: prepend del header de viaje activo
+  const headerHtml = renderViajeHeader();
+
   if (!entregas.length) {
-    el.innerHTML = '<div style="text-align:center;padding:40px;color:var(--text3);font-size:14px;">📭 No hay entregas asignadas para hoy.</div>';
+    el.innerHTML = headerHtml + '<div style="text-align:center;padding:40px;color:var(--text3);font-size:14px;">📭 No hay entregas asignadas para hoy.</div>';
     return;
   }
 
@@ -19080,15 +19490,24 @@ function renderEntregas(entregas) {
       if (entregado && e.rendicion_estado === 'pendiente_confirmacion') itemClass += ' rindiendo-item';
       if (entregado && e.rendicion_estado === 'confirmada')             itemClass += ' rendida-item';
 
-      // Botones de acción según estado (nuevo en L-5)
+      // v14.0: Botones rediseñados
+      // - PENDIENTE: "Voy para allá" + ícono WA (separados visualmente, juntos en bloque)
+      // - EN CAMINO: directo "Confirmar entrega" (eliminado paso "Llegué")
+      // - NO ESTABA: "Reintentar"
       var accionesHtml = '';
       if (!entregado && !enCamino && !noEstaba) {
-        // PENDIENTE: botón "Voy para allá"
-        accionesHtml = '<button class="entrega-item-accion accion-voy" onclick="event.stopPropagation();marcarEnCamino(\'' + e.id + '\')">🚛 Voy para allá</button>';
+        // PENDIENTE: voy + WA al lado
+        var btnVoy = '<button class="entrega-item-accion accion-voy" onclick="event.stopPropagation();marcarEnCamino(\'' + e.id + '\')">🚛 Voy para allá</button>';
+        var btnWaInline = '';
+        if (waNum) {
+          var msgWa = encodeURIComponent('Hola ' + (e.cliente||'') + '! Soy el repartidor de TCK, estoy llegando a ' + ciudad + ' con tu pedido 🚚');
+          btnWaInline = '<button class="accion-wa-mini" onclick="event.stopPropagation();avisarClienteWA(\'' + waNum + '\',\'' + msgWa + '\')" title="Avisar al cliente que estoy yendo">💬</button>';
+        }
+        accionesHtml = '<div class="entrega-item-acciones-row">' + btnVoy + btnWaInline + '</div>';
       } else if (enCamino) {
-        // EN CAMINO: "Llegué" + "No estaba"
+        // v14.0: EN CAMINO directo a "Confirmar entrega" + "No estaba"
         accionesHtml = '<div class="entrega-item-acciones-dual">'
-          + '<button class="entrega-item-accion accion-llegue" onclick="event.stopPropagation();abrirEntregaModal(\'' + e.id + '\')">✓ Llegué, entregar</button>'
+          + '<button class="entrega-item-accion accion-llegue" onclick="event.stopPropagation();abrirEntregaModal(\'' + e.id + '\')">✓ Confirmar entrega</button>'
           + '<button class="entrega-item-accion accion-noestaba" onclick="event.stopPropagation();marcarNoEstaba(\'' + e.id + '\')">🚪 No estaba</button>'
           + '</div>';
       } else if (noEstaba) {
@@ -19134,7 +19553,8 @@ function renderEntregas(entregas) {
     html += '</div>';
   });
 
-  el.innerHTML = html;
+  // v14.0: prepend del header de viaje activo
+  el.innerHTML = headerHtml + html;
 }
 
 async function cargarProductosEntrega(pedidoId, notaFallback) {
@@ -19671,6 +20091,57 @@ async function confirmarEntregaModal() {
   const devData = _getDevolucionData();
   if (devData === 'SIN_CATEGORIA') { toast('❌ Elegí un motivo de devolución', 'err'); return; }
 
+  // v14.0: validación "cobró menos" (alerta + textarea inline obligatorio)
+  const e0 = _entregasCache.find(x => x.id === _entregaModalId);
+  if (e0) {
+    var montoOriginal = (parseFloat(e0.monto)||0);
+    if (montoOriginal > 0 && montoOriginal < 1000) montoOriginal = montoOriginal * 1000;
+    // Restar devoluciones del monto esperado
+    var montoDev = 0;
+    if (devData && devData !== 'SIN_CATEGORIA') {
+      var mDev = _getMontoConDevolucion();
+      montoDev = mDev.devolucion || 0;
+    }
+    var montoEsperado = montoOriginal - montoDev;
+    // Si cobró MENOS de lo esperado y NO es cuenta corriente
+    var diff = Math.round(montoEsperado - totalCobrado);
+    var esSoloCtaCte = (cobros.cuenta_corriente || 0) === totalCobrado;
+    if (diff > 100 && !esSoloCtaCte) {
+      // Ver si ya hay textarea visible
+      var motivoEl = document.getElementById('cobro-menos-motivo');
+      if (!motivoEl) {
+        // Mostrar alerta inline + textarea
+        var wrap = document.getElementById('entrega-modal-cobro-wrap');
+        if (wrap) {
+          var alertaHtml = '<div class="cobro-menos-alerta" id="cobro-menos-alerta">' +
+            '<div class="cobro-menos-titulo">⚠️ Cobraste $' + Math.round(totalCobrado).toLocaleString('es-AR') +
+            ' de $' + Math.round(montoEsperado).toLocaleString('es-AR') +
+            ' (faltan $' + Math.round(diff).toLocaleString('es-AR') + ')</div>' +
+            '<div class="cobro-menos-sub">Justificá por qué cobraste menos. Después se aclara con administración.</div>' +
+            '<textarea id="cobro-menos-motivo" placeholder="Motivo (obligatorio): ej. cliente pidió descuento, faltó plata, etc." rows="2"></textarea>' +
+            '</div>';
+          wrap.insertAdjacentHTML('beforeend', alertaHtml);
+        }
+        toast('⚠️ Justificá por qué cobraste menos', 'err');
+        return;
+      } else {
+        var motivoTxt = motivoEl.value.trim();
+        if (!motivoTxt || motivoTxt.length < 5) {
+          motivoEl.style.borderColor = 'var(--red)';
+          motivoEl.focus();
+          toast('❌ Escribí el motivo (mínimo 5 letras)', 'err');
+          return;
+        }
+        // Guardar motivo en window para que _ejecutarConfirmacionEntrega lo escriba
+        window._cobroMenosMotivo = motivoTxt;
+        window._cobroMenosMonto = totalCobrado;
+      }
+    } else {
+      window._cobroMenosMotivo = null;
+      window._cobroMenosMonto = null;
+    }
+  }
+
   // Si hay cobro con cheque, pedir datos antes de confirmar
   if (cobros.cheque && cobros.cheque > 0) {
     const e = _entregasCache.find(x => x.id === _entregaModalId);
@@ -19733,6 +20204,15 @@ async function _ejecutarConfirmacionEntrega(cobros) {
     montoAcobrar = m.aCobrar;
   }
   if (Object.keys(cobros).length > 1) payload.detalle_cobro = detalleCobroStr;
+
+  // v14.0: si el chofer cobró menos y justificó, guardar el motivo y monto real
+  if (window._cobroMenosMotivo) {
+    payload.diferencia_motivo = window._cobroMenosMotivo;
+    payload.monto_cobrado_real = window._cobroMenosMonto || null;
+    window._cobroMenosMotivo = null;
+    window._cobroMenosMonto = null;
+  }
+
   try {
     await sbFetch('entregas?id=eq.' + _entregaModalId, { method:'PATCH', body:JSON.stringify(payload) });
     const e = _entregasCache.find(x => x.id === _entregaModalId);
