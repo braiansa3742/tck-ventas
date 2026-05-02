@@ -2,9 +2,48 @@
 <html lang="es">
 <head>
 <!-- ═══════════════════════════════════════════════════════════════════════
-     TCK VENTAS — v14.1 — 02/05/2026
+     TCK VENTAS — v14.2 — 02/05/2026
      ──────────────────────────────────────────────────────────────────────
-     SUB-ENTREGA B FINAL: Mis Viajes + cerrar viaje y rendir desde chofer
+     ENTREGA: Vendedor — F3 + F9 + F-Modal
+
+     Cambios v14.2 (sobre v14.1):
+
+       1. F-MODAL: Eliminado modal "¿Cuándo se entrega?" del flujo de
+          guardado. Sistema infiere fecha+turno desde localidad → zona
+          → calendario:
+            · zona1            → próximo lunes
+            · zona2            → próximo jueves
+            · america_fortin   → próximo martes
+            · tl/tl_manana/tl_tarde → hoy si antes de 17:30, sino mañana
+          Si la localidad no matchea zona → guarda igual sin viaje
+          (Francisco lo asigna manual desde admin).
+
+          Toast post-guardado:
+            "✅ [Cliente]
+             🚚 Se enviará en el viaje a [Ciudad] del [día]"
+
+          Aplicado en:
+            · manualWAConfirmar (carga manual WhatsApp)
+            · tomadorConfirmarConEntrega (tomador campo)
+
+          Helper nuevo: inferirEntregaDesdeLocalidad(localidad)
+                        → { dia, turno, fechaISO, ciudadCanonica, mensaje }
+
+       2. F9: Arreglado fetch del manualWAGuardar.
+          Antes: fetch(...{mode:'no-cors'}).catch(()=>{}) → siempre "ok"
+                 aunque falle silenciosamente
+          Ahora: fetch (mode cors) + await + json + chequeo data.status
+          Si falla: toast de error real + return (no graba nada parcial)
+
+       3. F3: Reemplazado endpoint Apps Script buscarClienteXubio por
+          query directo a Supabase clientes_xubio en 2 lugares:
+            · gpsCheckin búsqueda de clientes (línea ~17292)
+            · manualWA búsqueda de clientes (línea ~22841)
+          Más rápido (~3-5x) y elimina dependencia del Apps Script.
+
+     NOTA: el modal abrirSelectorEntrega() sigue existiendo en el archivo
+           pero no se llama desde ningún lado del flujo principal. Lo
+           dejamos por compatibilidad con futuro reagendado manual.
 
      Cambios v14.1 (sobre v14.0):
 
@@ -11095,6 +11134,139 @@ function localidadesSelectHTML(opts) {
 }
 
 
+// ════════════════════════════════════════════════════════════════
+// v14.2 — INFERENCIA AUTOMÁTICA DE ENTREGA (F-Modal)
+// ════════════════════════════════════════════════════════════════
+// El vendedor NO elige fecha/turno manualmente — el sistema lo deduce
+// desde la localidad → zona → próximo día de salida del calendario.
+//
+// Calendario:
+//   zona1            → Lunes (camión sale lunes)
+//   zona2            → Jueves (camión sale jueves)
+//   america_fortin   → Martes
+//   tl / tl_manana   → Hoy si antes de 17:30, sino mañana, turno mañana
+//   tl_tarde         → Hoy si antes de 17:30, sino mañana, turno tarde
+//   tl genérico      → Hoy mañana o tarde según hora actual
+//
+// Si la localidad no matchea zona → devuelve null (queda sin viaje,
+// Francisco lo asigna manual desde admin)
+
+var ZONA_DIAS_SALIDA = {
+  'zona1':           [1],     // Lunes
+  'zona2':           [4],     // Jueves
+  'america_fortin':  [2],     // Martes
+  'tl':              [0,1,2,3,4,5,6], // Todos los días
+  'tl_manana':       [0,1,2,3,4,5,6],
+  'tl_tarde':        [0,1,2,3,4,5,6]
+};
+
+function _diaSemanaNombre(d) {
+  return ['Domingo','Lunes','Martes','Miércoles','Jueves','Viernes','Sábado'][d];
+}
+
+function _mesNombre(m) {
+  return ['enero','febrero','marzo','abril','mayo','junio',
+          'julio','agosto','septiembre','octubre','noviembre','diciembre'][m];
+}
+
+function _proximoDiaSemana(diasValidos) {
+  // Devuelve el próximo Date en el que el día de la semana sea uno de los días válidos
+  // diasValidos: array de 0-6 (0=domingo)
+  // Si hoy es válido, devuelve hoy
+  var d = new Date();
+  d.setHours(12, 0, 0, 0); // mediodía para evitar problemas de timezone
+  for (var i = 0; i < 14; i++) {
+    if (diasValidos.indexOf(d.getDay()) >= 0) return d;
+    d.setDate(d.getDate() + 1);
+  }
+  return null;
+}
+
+/**
+ * Inferir entrega desde localidad.
+ * @param {string} localidad - Texto libre o canónico
+ * @returns {object|null} { dia, turno, fechaISO, ciudadCanonica, mensaje } o null
+ */
+function inferirEntregaDesdeLocalidad(localidad) {
+  if (!localidad) return null;
+
+  var canon = localidadCanonicaDe(localidad);
+  if (!canon) {
+    console.log('[F-Modal] Localidad sin match canónico:', localidad);
+    return null; // No matchea — queda sin viaje
+  }
+
+  var zona = canon.zona;
+  var diasValidos = ZONA_DIAS_SALIDA[zona];
+  if (!diasValidos) {
+    console.warn('[F-Modal] Zona desconocida:', zona);
+    return null;
+  }
+
+  // Para TL: lógica especial — depende de la hora
+  var ahora = new Date();
+  var horaActual = ahora.getHours() + (ahora.getMinutes() / 60);
+  var turno;
+  var fechaSalida;
+
+  if (zona === 'tl' || zona === 'tl_manana' || zona === 'tl_tarde') {
+    // TL entrega todos los días, turno depende de hora
+    if (zona === 'tl_tarde') {
+      turno = 'Tarde';
+    } else if (zona === 'tl_manana') {
+      turno = 'Mañana';
+    } else {
+      // tl genérico: si antes de 12:30 → hoy mañana; sino → hoy tarde o mañana mañana
+      turno = (horaActual < 12.5) ? 'Mañana' : 'Tarde';
+    }
+    // Fecha: hoy si antes de cutoff de cierre (17:30), sino mañana
+    if (horaActual >= 17.5) {
+      fechaSalida = new Date(ahora);
+      fechaSalida.setDate(fechaSalida.getDate() + 1);
+      fechaSalida.setHours(12, 0, 0, 0);
+      // Si para "mañana" cae fin de semana, saltar a próximo lunes
+      while (fechaSalida.getDay() === 0 || fechaSalida.getDay() === 6) {
+        fechaSalida.setDate(fechaSalida.getDate() + 1);
+      }
+      // Si era TL genérico y se pasa al día siguiente, volver a Mañana
+      if (zona === 'tl') turno = 'Mañana';
+    } else {
+      fechaSalida = new Date(ahora);
+      fechaSalida.setHours(12, 0, 0, 0);
+    }
+  } else {
+    // Zonas con día fijo (zona1=Lun, zona2=Jue, américa=Mar)
+    fechaSalida = _proximoDiaSemana(diasValidos);
+    if (!fechaSalida) return null;
+    turno = 'Mañana'; // Las zonas largas siempre arrancan a la mañana
+  }
+
+  var nombreDia    = _diaSemanaNombre(fechaSalida.getDay());
+  var nombreMes    = _mesNombre(fechaSalida.getMonth());
+  var diaTxt       = nombreDia + ' ' + fechaSalida.getDate() + ' de ' + nombreMes;
+  var fechaISO     = fechaSalida.getFullYear() + '-' +
+                     String(fechaSalida.getMonth()+1).padStart(2,'0') + '-' +
+                     String(fechaSalida.getDate()).padStart(2,'0');
+
+  // Mensaje user-friendly
+  var mensaje = '🚚 Se enviará en el viaje a ' + canon.ciudad + ' del ' + diaTxt;
+  if (turno === 'Mañana' || turno === 'Tarde') {
+    // Solo agregar turno para TL (las otras zonas no necesitan turno explícito)
+    if (zona.indexOf('tl') === 0) {
+      mensaje += ' (' + turno + ')';
+    }
+  }
+
+  return {
+    dia: diaTxt,
+    turno: turno,
+    fechaISO: fechaISO,
+    ciudadCanonica: canon.ciudad,
+    zona: zona,
+    mensaje: mensaje
+  };
+}
+
 // ═══════════════════════════════════════════════════════════════
 // v9.2 — COMBOS OFERTAS (sistema compartido con catálogo)
 // ═══════════════════════════════════════════════════════════════
@@ -17289,16 +17461,19 @@ function gpsBuscarClienteXubio(q) {
   el.innerHTML = '<div style="color:var(--text3);font-size:13px;padding:8px 0">🔍 Buscando...</div>';
 
   _gpsTimer = setTimeout(function() {
-    fetch(APPS_SCRIPT_URL + '?accion=buscarClienteXubio&q=' + encodeURIComponent(q))
-      .then(function(r) { return r.json(); })
-      .then(function(data) {
+    // v14.2 F3: pega DIRECTO a Supabase clientes_xubio (más rápido que Apps Script)
+    var path = 'clientes_xubio?select=id,nombre,cuit,localidad'
+             + '&or=(nombre.ilike.*' + encodeURIComponent(q) + '*,cuit.ilike.*' + encodeURIComponent(q) + '*)'
+             + '&limit=10';
+    sbFetch(path)
+      .then(function(filas) {
         if (!el) return;
-        if (data.status !== 'ok' || !data.clientes || !data.clientes.length) {
+        if (!Array.isArray(filas) || filas.length === 0) {
           el.innerHTML = '<div style="color:var(--text3);font-size:13px;padding:8px 0">No se encontraron clientes</div>';
           return;
         }
-        el.innerHTML = data.clientes.slice(0, 8).map(function(c) {
-          var nombre = c.razonSocial || c.nombre || 'Sin nombre';
+        el.innerHTML = filas.slice(0, 8).map(function(c) {
+          var nombre = c.nombre || 'Sin nombre';
           var localidad = c.localidad || '';
           // v13.7.5: pasar también la localidad al check-in
           // para poder asignar zona al pedido sin depender del input libre
@@ -17308,7 +17483,8 @@ function gpsBuscarClienteXubio(q) {
             + '</button>';
         }).join('');
       })
-      .catch(function() {
+      .catch(function(err) {
+        console.warn('[F3 gps] error Supabase:', err);
         if (el) el.innerHTML = '<div style="color:var(--text3);font-size:13px;padding:8px 0">Error al buscar</div>';
       });
   }, 350);
@@ -19258,10 +19434,14 @@ async function tomadorConfirmarFinal() {
     }
     // v8.6: guardamos la sucursal elegida en una variable accesible al confirmar
     _tomadorSucursalElegida = res.sucursal; // null si el cliente no tiene
-    // Abrir selector de entrega (flujo original)
-    abrirSelectorEntrega(function(entrega) {
-      tomadorConfirmarConEntrega(entrega);
-    });
+    // v14.2 F-Modal: inferir entrega desde localidad del check-in (NO modal)
+    var localidadCheckin = _gpsCheckinActivo ? _gpsCheckinActivo.localidad_cliente : '';
+    var entrega = inferirEntregaDesdeLocalidad(localidadCheckin);
+    if (!entrega) {
+      console.log('[F-Modal tomador] Localidad sin zona — guardando sin entrega:', localidadCheckin);
+      entrega = { dia: '', turno: '', mensaje: '' };
+    }
+    tomadorConfirmarConEntrega(entrega);
   });
 }
 
@@ -19442,7 +19622,16 @@ async function tomadorConfirmarConEntrega(entregaData) {
       promosConsumirStockVentas(_tomadorPromos).catch(function(e){ console.error('[promos] consumir:', e); });
     }
 
-    if (tieneDescuento) { toast('⏳ Pedido enviado — esperando aprobación del admin', 'ok'); } else { toast('✅ Pedido registrado y enviado', 'ok'); }
+    // v14.2 F-Modal: mensaje claro post-guardado con info del viaje inferido
+    if (tieneDescuento) {
+      toast('⏳ Pedido enviado — esperando aprobación del admin', 'ok');
+    } else if (entregaData && entregaData.mensaje) {
+      toast('✅ Pedido registrado\n' + entregaData.mensaje, 'ok');
+    } else if (entregaData && !entregaData.dia) {
+      toast('✅ Pedido registrado\n⚠️ Sin viaje asignado — admin lo va a programar', 'ok');
+    } else {
+      toast('✅ Pedido registrado y enviado', 'ok');
+    }
 
     // v8.6: si el vendedor eligió sucursal, vincular en Supabase (fire-and-forget).
     // El pedido al Sheet ya se grabó arriba; esto es metadata secundaria.
@@ -22837,14 +23026,26 @@ function manualWABuscarCliente(q) {
       }).join('');
     }
 
-    // 2. Buscar también en Xubio via Apps Script
-    fetch(APPS_SCRIPT_URL + '?accion=buscarClienteXubio&q=' + encodeURIComponent(q))
-      .then(function(r) { return r.json(); })
-      .then(function(data) {
-        renderSugerencias(data.status === 'ok' ? data.clientes : []);
+    // 2. v14.2 F3: Buscar también en Xubio DIRECTO en Supabase (más rápido que Apps Script)
+    var path = 'clientes_xubio?select=id,nombre,cuit,localidad'
+             + '&or=(nombre.ilike.*' + encodeURIComponent(q) + '*,cuit.ilike.*' + encodeURIComponent(q) + '*)'
+             + '&limit=10';
+    sbFetch(path)
+      .then(function(filas) {
+        if (!Array.isArray(filas)) { renderSugerencias([]); return; }
+        // Convertir formato Supabase a formato esperado por renderSugerencias
+        var xubioClientes = filas.map(function(c) {
+          return {
+            nombre: c.nombre,
+            loc:    c.localidad || '',
+            fuente: 'xubio'
+          };
+        });
+        renderSugerencias(xubioClientes);
       })
-      .catch(function() {
-        // Si Xubio falla, mostrar solo locales
+      .catch(function(err) {
+        console.warn('[F3 manualWA] error Supabase:', err);
+        // Si falla, mostrar solo locales
         renderSugerencias([]);
       });
   }, 300);
@@ -23096,10 +23297,16 @@ function manualWAConfirmar() {
   // Si cancela el vendedor el selector, NO avanzamos (queda en el form manual WA).
   sucElegirAbrir(cliente, function(suc, modo) {
     if (modo === 'cancelado') return;
-    // Abrir selector de entrega pasando la sucursal elegida
-    abrirSelectorEntrega(function(entrega) {
-      manualWAGuardar(cliente, localidad, entrega, suc);
-    });
+
+    // v14.2 F-Modal: Inferir entrega desde localidad (NO mostrar modal de fecha/turno)
+    var entrega = inferirEntregaDesdeLocalidad(localidad);
+    if (!entrega) {
+      // Localidad no matchea zona conocida: igual guardar pedido (queda sin viaje,
+      // Francisco lo asigna manual desde admin)
+      console.log('[F-Modal] Localidad sin zona — guardando sin entrega:', localidad);
+      entrega = { dia: '', turno: '', mensaje: '' };
+    }
+    manualWAGuardar(cliente, localidad, entrega, suc);
   });
 }
 
@@ -23194,7 +23401,21 @@ async function manualWAGuardar(cliente, localidad, entrega, sucursal) {
     turno_entrega: entrega.turno
   });
 
-  fetch(APPS_SCRIPT_URL + '?' + params.toString(), {mode:'no-cors'}).catch(function(){});
+  // v14.2 F9: fetch con cors + await + chequeo real de status
+  // Antes: fetch(...{mode:'no-cors'}).catch(()=>{}) → siempre "ok" aunque falle
+  try {
+    const respGuardar = await fetch(APPS_SCRIPT_URL + '?' + params.toString());
+    const dataGuardar = await respGuardar.json();
+    if (dataGuardar.status !== 'ok') {
+      console.error('[F9 manualWAGuardar] Error backend:', dataGuardar);
+      toast('❌ ' + (dataGuardar.message || 'No se pudo guardar el pedido'), 'err');
+      return;
+    }
+  } catch(errFetch) {
+    console.error('[F9 manualWAGuardar] Error fetch:', errFetch);
+    toast('❌ Error de conexión — el pedido no se guardó', 'err');
+    return;
+  }
 
   // v9.2: Descontar stock de combos en Supabase
   if (combosAplicadosMWA.length > 0) {
@@ -23206,7 +23427,18 @@ async function manualWAGuardar(cliente, localidad, entrega, sucursal) {
     promosConsumirStockVentas(_manualWAPromos).catch(function(e){ console.error('[promos] consumir:', e); });
   }
 
-  if (tieneDesWA) { toast('⏳ Pedido enviado — esperando aprobación del admin', 'ok'); } else { toast('✅ Pedido de ' + cliente + ' registrado', 'ok'); }
+  // v14.2 F-Modal: mensaje claro post-guardado con info del viaje inferido
+  if (tieneDesWA) {
+    toast('⏳ Pedido enviado — esperando aprobación del admin', 'ok');
+  } else if (entrega && entrega.mensaje) {
+    // Toast con mensaje de viaje inferido
+    toast('✅ ' + cliente + '\n' + entrega.mensaje, 'ok');
+  } else if (entrega && !entrega.dia) {
+    // Sin viaje inferido (localidad fuera de zonas conocidas)
+    toast('✅ ' + cliente + ' registrado\n⚠️ Sin viaje asignado — admin lo va a programar', 'ok');
+  } else {
+    toast('✅ Pedido de ' + cliente + ' registrado', 'ok');
+  }
   cerrarCargaManualWA();
 
   // v8.6: si el vendedor eligió sucursal, vincular en Supabase (fire-and-forget).
