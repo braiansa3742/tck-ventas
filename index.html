@@ -9585,6 +9585,10 @@ body {
         <div class="login-av" style="background:#1565C0;">L</div>
         <div class="login-btn-name">Luis<div class="login-btn-role">Chofer / Logística</div></div>
       </button>
+      <button class="login-btn" id="login-btn-juampi" onclick="seleccionarVendedor('Juan Pablo','JP','#1565C0')">
+        <div class="login-av" style="background:#1565C0;">JP</div>
+        <div class="login-btn-name">Juampi<div class="login-btn-role">Chofer / Logística</div></div>
+      </button>
     </div>
     <script>
       // Filtrar botones de login según el dominio — se ejecuta inmediatamente
@@ -10973,7 +10977,7 @@ body {
 const APPS_SCRIPT_URL = 'https://script.google.com/macros/s/AKfycbxbx9ma8S5wcuRqFXjRyFYvIo_kLwc5Px4eE4Y7-CqPmIfJbI3VBEP4I9qSV8s0owMMYg/exec';
 const SHEET_CSV = 'https://docs.google.com/spreadsheets/d/e/2PACX-1vQDZk6Z5pejrI_djbUYBLEvh-X7H_sLF5ZCW2RQr0Bc03r8LOL17_C3pCmwwyLe2iXf3Fan0tgl7IJG/pub?gid=0&single=true&output=csv';
 const NUM_ADMIN = '5492314475357';
-const PINS = { 'Miguel':'3356', 'Juan':'4256', 'Lisandro':'8020', 'ADMIN':'3050', 'Joan':'9060', 'Luis':'7040' };
+const PINS = { 'Miguel':'3356', 'Juan':'4256', 'Lisandro':'8020', 'ADMIN':'3050', 'Joan':'9060', 'Luis':'7040', 'Juan Pablo':'3070' };
 const SESSION_KEY   = 'tck_session';
 const SESSION_HORAS = 720; // 30 días — cada vendedor tiene su propio celular
 
@@ -12767,7 +12771,7 @@ function notificarNuevoPedido(cantidad) {
 
 function notificarDuplicados(dups) {
   // Los choferes no necesitan ver alertas de duplicados
-  const esChofer = vendedorActual === 'Joan' || vendedorActual === 'Luis';
+  const esChofer = vendedorActual === 'Joan' || vendedorActual === 'Luis' || vendedorActual === 'Juan Pablo';
   if (esChofer) return;
   const nuevos = dups.filter(p => !duplicadosNotificados.has(p.pedidoId));
   if (!nuevos.length) return;
@@ -12898,7 +12902,7 @@ function login(nombre) {
   document.getElementById('paso1').style.display = 'block';
   document.getElementById('paso2').style.display = 'none';
   var esAdmin  = nombre === 'ADMIN';
-  var esChofer = nombre === 'Joan' || nombre === 'Luis';
+  var esChofer = nombre === 'Joan' || nombre === 'Luis' || nombre === 'Juan Pablo';
 
   // Para choferes: ocultar bienvenida y agregar clase al panel
   const bienvenidaEl = document.querySelector('.bienvenida');
@@ -13483,7 +13487,7 @@ function renderCard(p) {
   }
 
   var btns = '';
-  var esChofer = vendedorActual === 'Joan' || vendedorActual === 'Luis';
+  var esChofer = vendedorActual === 'Joan' || vendedorActual === 'Luis' || vendedorActual === 'Juan Pablo';
 
   // v10: El botón "Ya remití en Xubio" (marcar manualmente como Confirmado) se eliminó.
   // El único camino al estado Confirmado es crear un presupuesto desde el panel Xubio.
@@ -14342,7 +14346,7 @@ function mostrarTabs() {
   if (nav) nav.classList.add('visible');
   var esAdmin    = vendedorActual === 'ADMIN';
   var esCampo    = vendedorActual === 'Juan' || vendedorActual === 'Lisandro';
-  var esChofer   = vendedorActual === 'Joan' || vendedorActual === 'Luis';
+  var esChofer   = vendedorActual === 'Joan' || vendedorActual === 'Luis' || vendedorActual === 'Juan Pablo';
   var esVendedor = !esAdmin && !esChofer;
 
   // Botón cargar pedido por WA — solo vendedores
@@ -21862,6 +21866,7 @@ function mostrarPickerChofer(btn, event) {
     '<div class="chofer-picker">' +
       '<button class="chofer-picker-btn" data-pid="' + pedidoId + '" data-chofer="Joan" onclick="asignarChoferBtn(this,event)">🚚 Joan</button>' +
       '<button class="chofer-picker-btn" data-pid="' + pedidoId + '" data-chofer="Luis" onclick="asignarChoferBtn(this,event)">🚚 Luis</button>' +
+      '<button class="chofer-picker-btn" data-pid="' + pedidoId + '" data-chofer="Juan Pablo" onclick="asignarChoferBtn(this,event)">🚚 Juampi</button>' +
     '</div>' +
     '<button class="chofer-picker-cancel" data-pid="' + pedidoId + '" onclick="cancelarPickerChoferBtn(this,event)">Cancelar</button>';
 }
@@ -26349,7 +26354,7 @@ function mrNormNombre(n) {
 async function miRondaRender() {
   // Solo vendedores reales
   var esAdmin = vendedorActual === 'ADMIN';
-  var esChofer = vendedorActual === 'Joan' || vendedorActual === 'Luis';
+  var esChofer = vendedorActual === 'Joan' || vendedorActual === 'Luis' || vendedorActual === 'Juan Pablo';
   if (esAdmin || esChofer) {
     cambiarTab('pedidos');
     return;
