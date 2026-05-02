@@ -2,40 +2,61 @@
 <html lang="es">
 <head>
 <!-- ═══════════════════════════════════════════════════════════════════════
-     TCK VENTAS — v14.0 — 02/05/2026
+     TCK VENTAS — v14.1 — 02/05/2026
      ──────────────────────────────────────────────────────────────────────
-     SUB-ENTREGA A: REDISEÑO PANTALLA CHOFER (sobre rediseño Logística)
+     SUB-ENTREGA B FINAL: Mis Viajes + cerrar viaje y rendir desde chofer
+
+     Cambios v14.1 (sobre v14.0):
+
+       1. Botón "🏁 Cerrar viaje y rendir" también accesible desde la
+          pantalla principal del chofer (no solo desde Mis Viajes).
+          Cuando termina todas las entregas, aparece banner verde con
+          botón rojo directo: mvCerrarViajeYRendirDesdeChofer()
+
+       === Sub-entrega B (ya estaba en v14.0): ===
+
+       1. TAB "Rendiciones" RENOMBRADO a "📜 Mis Viajes".
+       2. Secciones: viaje activo / próximos / historial / detalles rendiciones
+       3. Animación flash verde + colapso al confirmar entrega
+       4. Sección colapsable "✅ Completadas hoy"
+       5. Detalle de viaje histórico (modal)
 
      Cambios v14.0 (sobre v13.7.6):
 
+       === SUB-ENTREGA A: pantalla del chofer en operación ===
+
        1. PANTALLA CHOFER ORIENTADA A VIAJE.
-          El chofer ahora trabaja sobre VIAJES (no entregas globales).
-            · cargarEntregas() filtra por viaje_id activo en vez de chofer
-            · Si no hay viaje en_ruta, muestra "Sin viaje activo" con
-              próximos viajes asignados
-            · Auto-carga del viaje activo desde Apps Script (viajeListar)
-
-       2. HEADER DEL VIAJE ACTIVO.
-          Banner verde (Joan) o naranja (Luis) arriba de la lista con:
-            · Avatar, nombre, viaje #ID, zona, vehículo
-            · Barra de progreso "X de Y entregas" + "$X cobrado / $Y total"
-
+          · cargarEntregas() filtra por viaje_id activo (no chofer global)
+          · Sin viaje activo → pantalla "Sin viaje" con próximos asignados
+       2. HEADER del viaje activo arriba de la lista.
        3. BOTONES REDISEÑADOS:
-            · Pendiente → "🚛 Voy para allá" + ícono WA al lado
-            · En camino → directo "✓ Confirmar entrega" (eliminado paso "Llegué")
-            · No estaba → "🔄 Reintentar"
+          · Pendiente → "Voy para allá" + ícono WA inline
+          · En camino → directo "Confirmar entrega" (sin paso "Llegué")
+       4. VALIDACIÓN "cobró menos" inline en modal cobro.
+       5. ANIMACIÓN al confirmar entrega: flash verde + colapso.
 
-       4. VALIDACIÓN "COBRÓ MENOS" inline en modal cobro.
-          Si total cobrado < total esperado (ajustado por devoluciones):
-            · Aparece alerta naranja con la diferencia
-            · Textarea obligatorio con motivo (mín. 5 letras)
-            · Si no completa, no deja confirmar
-            · Guarda en entregas.diferencia_motivo + monto_cobrado_real
-            · Excepción: si todo es cuenta corriente, no valida
+       === SUB-ENTREGA B: tab Mis Viajes (antes Rendiciones) ===
 
-       5. CONSERVADO: cobro mixto, devoluciones, cheques. Sin cambios.
+       6. TAB RENOMBRADO: "Rendiciones" → "📜 Mis Viajes".
+          Estructura nueva:
+            · Sección A: viaje activo + botón "Cerrar viaje y rendir"
+            · Sección B: próximos viajes asignados al chofer
+            · Sección C: historial con filtros 7/30/90 días
+              (con detalle modal: cobros por cliente y forma)
+            · Sección D: detalles de rendiciones (acordeón colapsable)
 
-       NOTA: requiere SQL ejecutado:
+       7. CERRAR VIAJE Y RENDIR (1 paso).
+          Botón aparece cuando todas las entregas tienen estado final.
+          Llama a Apps Script viajeCerrarYRendir → estado a 'rindiendo'
+          + crea rendición vinculando entregas en efectivo/cheque.
+
+       8. SECCIÓN COLAPSABLE "Completadas hoy" en pantalla principal.
+          Lista activa solo muestra pendientes/en camino/no estaba.
+          Las completadas (entregadas + no estaban) se agrupan abajo.
+
+       9. MENSAJE de finalización cuando completa todas.
+
+       NOTA: requiere SQL ya ejecutado en Sub-entrega A:
          ALTER TABLE entregas
            ADD COLUMN diferencia_motivo text,
            ADD COLUMN monto_cobrado_real numeric;
@@ -5140,6 +5161,513 @@ body {
   border-color: #E65100;
 }
 
+/* ════════════════════════════════════════════════
+   v14.0 SUB-ENTREGA B — TAB MIS VIAJES
+   ════════════════════════════════════════════════ */
+
+/* Sección A: Viaje activo */
+.mv-viaje-activo-card {
+  background: linear-gradient(135deg, #2E7D32, #1B5E20);
+  border-radius: 14px;
+  color: #fff;
+  overflow: hidden;
+  box-shadow: 0 3px 12px rgba(46,125,50,.25);
+}
+.mv-viaje-activo-card.luis {
+  background: linear-gradient(135deg, #E65100, #BF360C);
+  box-shadow: 0 3px 12px rgba(230,81,0,.25);
+}
+.mv-viaje-activo-hdr {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 12px 14px 6px;
+}
+.mv-viaje-activo-tit {
+  font-family: 'Barlow Condensed', sans-serif;
+  font-size: 14px;
+  font-weight: 900;
+  text-transform: uppercase;
+  letter-spacing: .5px;
+}
+.mv-viaje-activo-est {
+  background: rgba(255,255,255,.2);
+  padding: 3px 10px;
+  border-radius: 12px;
+  font-family: 'Barlow Condensed', sans-serif;
+  font-size: 11px;
+  font-weight: 800;
+  letter-spacing: .5px;
+}
+.mv-viaje-activo-body {
+  padding: 6px 14px 14px;
+}
+.mv-viaje-activo-zona {
+  font-family: 'Barlow Condensed', sans-serif;
+  font-size: 17px;
+  font-weight: 800;
+  margin-bottom: 12px;
+}
+.mv-viaje-activo-stats {
+  display: grid;
+  grid-template-columns: 1fr 1fr 1fr;
+  gap: 6px;
+  margin-bottom: 12px;
+}
+.mv-stat-mini {
+  background: rgba(0,0,0,.18);
+  border-radius: 10px;
+  padding: 8px;
+  text-align: center;
+}
+.mv-stat-mini-num {
+  font-family: 'Barlow Condensed', sans-serif;
+  font-size: 16px;
+  font-weight: 900;
+  line-height: 1;
+}
+.mv-stat-mini-lbl {
+  font-size: 9px;
+  text-transform: uppercase;
+  font-weight: 700;
+  margin-top: 3px;
+  opacity: .85;
+}
+.mv-btn-cerrar-rendir {
+  width: 100%;
+  padding: 14px;
+  background: linear-gradient(135deg, #FFD700, #FFA500);
+  color: #1A0800;
+  border: none;
+  border-radius: 12px;
+  font-family: 'Barlow Condensed', sans-serif;
+  font-size: 15px;
+  font-weight: 900;
+  text-transform: uppercase;
+  letter-spacing: .5px;
+  cursor: pointer;
+  box-shadow: 0 3px 10px rgba(0,0,0,.25);
+  touch-action: manipulation;
+}
+.mv-btn-cerrar-rendir:active { transform: scale(.97); }
+.mv-banner-info {
+  background: rgba(255,255,255,.12);
+  border-radius: 8px;
+  padding: 10px 12px;
+  font-size: 12px;
+  line-height: 1.4;
+}
+
+/* Sección B: Próximos viajes */
+.mv-section-tit {
+  font-family: 'Barlow Condensed', sans-serif;
+  font-size: 14px;
+  font-weight: 900;
+  color: var(--text);
+  text-transform: uppercase;
+  letter-spacing: .3px;
+  margin-bottom: 8px;
+  padding: 0 4px;
+}
+.mv-proximos-lista {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.mv-proximo-row {
+  background: #fff;
+  border-radius: 12px;
+  padding: 10px 12px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  border: 1.5px solid var(--cream3);
+}
+.mv-proximo-info { flex: 1; min-width: 0; }
+.mv-proximo-fecha {
+  font-family: 'Barlow Condensed', sans-serif;
+  font-size: 14px;
+  font-weight: 900;
+  color: var(--red);
+  line-height: 1.1;
+}
+.mv-proximo-zona {
+  font-size: 11px;
+  color: var(--text3);
+  margin-top: 2px;
+}
+.mv-proximo-right { text-align: right; flex-shrink: 0; }
+.mv-proximo-pedidos {
+  font-family: 'Barlow Condensed', sans-serif;
+  font-size: 13px;
+  font-weight: 800;
+  color: var(--text);
+}
+.mv-proximo-monto {
+  font-size: 11px;
+  color: var(--green);
+  font-weight: 600;
+  margin-top: 1px;
+}
+.mv-proximo-est {
+  margin-top: 3px;
+  font-size: 9px;
+  font-weight: 800;
+  padding: 2px 6px;
+  border-radius: 6px;
+  text-transform: uppercase;
+  display: inline-block;
+}
+.mv-proximo-est.planificado { background: var(--blue2); color: var(--blue); }
+.mv-proximo-est.preparando  { background: var(--orange2); color: var(--orange); }
+
+/* Sección C: Historial */
+.mv-hist-filtros {
+  display: flex;
+  gap: 6px;
+  margin-bottom: 10px;
+  padding: 0 4px;
+}
+.mv-hist-filtro {
+  padding: 6px 14px;
+  background: var(--cream2);
+  border: 1.5px solid var(--cream3);
+  border-radius: 14px;
+  font-family: 'Barlow Condensed', sans-serif;
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--text2);
+  cursor: pointer;
+  white-space: nowrap;
+}
+.mv-hist-filtro.sel {
+  background: var(--red);
+  color: #fff;
+  border-color: var(--red);
+}
+
+.mv-hist-stats {
+  display: grid;
+  grid-template-columns: 1fr 1fr 1fr;
+  gap: 6px;
+  margin-bottom: 10px;
+  background: linear-gradient(135deg, #1A0800, #2C1610);
+  border-radius: 12px;
+  padding: 12px;
+  color: #fff;
+}
+.mv-hist-stat { text-align: center; }
+.mv-hist-stat .num {
+  font-family: 'Barlow Condensed', sans-serif;
+  font-size: 16px;
+  font-weight: 900;
+  color: var(--gold);
+  line-height: 1;
+}
+.mv-hist-stat .lbl {
+  font-size: 9px;
+  text-transform: uppercase;
+  margin-top: 3px;
+  opacity: .8;
+}
+
+.mv-hist-lista {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.mv-hist-row {
+  background: #fff;
+  border-radius: 10px;
+  padding: 10px 12px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  border: 1.5px solid var(--cream3);
+  cursor: pointer;
+  transition: all .15s;
+}
+.mv-hist-row:active { transform: scale(.99); }
+.mv-hist-info { flex: 1; min-width: 0; }
+.mv-hist-fecha {
+  font-family: 'Barlow Condensed', sans-serif;
+  font-size: 13px;
+  font-weight: 800;
+  color: var(--text);
+}
+.mv-hist-zona {
+  font-size: 11px;
+  color: var(--text3);
+  margin-top: 1px;
+}
+.mv-hist-cifras { text-align: right; flex-shrink: 0; }
+.mv-hist-cobrado {
+  font-family: 'Barlow Condensed', sans-serif;
+  font-size: 14px;
+  font-weight: 900;
+  color: var(--green);
+}
+.mv-hist-de {
+  font-size: 9px;
+  color: var(--text3);
+  text-transform: uppercase;
+}
+
+.mv-vacio-hist {
+  text-align: center;
+  padding: 20px;
+  color: var(--text3);
+  font-size: 13px;
+  background: #fff;
+  border-radius: 10px;
+  border: 1.5px dashed var(--cream3);
+}
+.mv-vacio-hist-ico { font-size: 32px; opacity: .5; margin-bottom: 8px; }
+
+/* Modal de detalle histórico */
+.mv-hist-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0,0,0,.5);
+  z-index: 800;
+  display: none;
+  align-items: flex-end;
+  justify-content: center;
+}
+.mv-hist-overlay.open { display: flex; }
+.mv-hist-sheet {
+  background: #fff;
+  width: 100%;
+  max-width: 460px;
+  max-height: 85vh;
+  border-radius: 16px 16px 0 0;
+  overflow-y: auto;
+  padding-bottom: 30px;
+}
+.mv-hist-detalle-content { padding: 14px; }
+.mv-hist-detalle-hdr {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 12px;
+  padding-bottom: 10px;
+  border-bottom: 1.5px solid var(--cream2);
+}
+.mv-hist-detalle-hdr h3 {
+  font-family: 'Barlow Condensed', sans-serif;
+  font-size: 18px;
+  font-weight: 900;
+  color: var(--text);
+  margin: 0;
+}
+.mv-hist-grupo-tit {
+  font-family: 'Barlow Condensed', sans-serif;
+  font-size: 13px;
+  font-weight: 800;
+  color: var(--text2);
+  margin-bottom: 6px;
+  text-transform: uppercase;
+  letter-spacing: .3px;
+}
+.mv-entrega-hist-row {
+  display: flex;
+  justify-content: space-between;
+  padding: 8px 10px;
+  border-bottom: 1px dashed var(--cream2);
+  gap: 8px;
+}
+.mv-entrega-hist-info { flex: 1; min-width: 0; }
+.mv-entrega-hist-cliente {
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--text);
+}
+.mv-entrega-hist-meta {
+  font-size: 11px;
+  color: var(--text3);
+}
+.mv-entrega-hist-cobro { text-align: right; flex-shrink: 0; }
+.mv-entrega-hist-monto {
+  font-family: 'Barlow Condensed', sans-serif;
+  font-size: 14px;
+  font-weight: 800;
+  color: var(--green);
+}
+.mv-entrega-hist-forma {
+  font-size: 9px;
+  font-weight: 700;
+  padding: 1px 6px;
+  border-radius: 6px;
+  display: inline-block;
+  margin-top: 2px;
+}
+.mv-entrega-hist-forma.efectivo { background: #FFF8E1; color: #F57F17; }
+.mv-entrega-hist-forma.transf { background: var(--blue2); color: var(--blue); }
+.mv-entrega-hist-forma.cheque { background: #F3E5F5; color: #6A1B9A; }
+.mv-entrega-hist-forma.cta { background: var(--green3); color: var(--green); }
+.mv-entrega-hist-forma.no-cobrado { background: #FFEBEE; color: var(--red); }
+
+/* Sección D: Acordeón rendiciones */
+.mv-rend-acordeon {
+  background: #fff;
+  border-radius: 12px;
+  border: 1.5px solid var(--cream3);
+  overflow: hidden;
+}
+.mv-rend-acordeon-hdr {
+  padding: 12px 14px;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  cursor: pointer;
+  background: var(--cream2);
+}
+.mv-rend-acordeon-tit {
+  font-family: 'Barlow Condensed', sans-serif;
+  font-size: 14px;
+  font-weight: 800;
+  color: var(--text);
+}
+.mv-rend-acordeon-sub {
+  font-size: 11px;
+  color: var(--text3);
+  margin-top: 2px;
+}
+.mv-rend-acordeon-ico {
+  background: rgba(0,0,0,.05);
+  width: 26px; height: 26px;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 11px;
+  color: var(--text2);
+}
+.mv-rend-acordeon-body { padding: 8px; }
+
+/* ════════════════════════════════════════════════
+   v14.0 — ANIMACIÓN AL CONFIRMAR ENTREGA
+   ════════════════════════════════════════════════ */
+.entrega-item.acaba-entregada {
+  background: var(--green3) !important;
+  animation: flashGreenItem .5s ease;
+}
+@keyframes flashGreenItem {
+  0% { background: var(--green3); }
+  50% { background: #C8E6C9; transform: scale(1.02); }
+  100% { background: var(--green3); transform: scale(1); }
+}
+.entrega-item.colapsando {
+  max-height: 0 !important;
+  padding: 0 !important;
+  margin: 0 !important;
+  border: none !important;
+  overflow: hidden;
+  opacity: 0;
+  transition: all .3s ease;
+}
+
+/* Sección colapsable "Completadas hoy" */
+.entregadas-section {
+  background: #fff;
+  border-radius: 14px;
+  overflow: hidden;
+  margin-top: 14px;
+  box-shadow: 0 2px 10px rgba(0,0,0,.05);
+  border: 1.5px solid var(--cream3);
+}
+.entregadas-toggle {
+  background: linear-gradient(135deg, #2E7D32, #1B5E20);
+  color: #fff;
+  padding: 12px 14px;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  cursor: pointer;
+  user-select: none;
+}
+.entregadas-toggle-tit {
+  font-family: 'Barlow Condensed', sans-serif;
+  font-size: 14px;
+  font-weight: 900;
+}
+.entregadas-toggle-meta {
+  font-size: 11px;
+  opacity: .85;
+  margin-top: 2px;
+}
+.entregadas-toggle-ico {
+  background: rgba(255,255,255,.2);
+  border-radius: 50%;
+  width: 26px;
+  height: 26px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 12px;
+}
+.entregadas-list { padding: 0; }
+.entregada-row {
+  padding: 8px 14px;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  font-size: 12px;
+  border-bottom: 1px solid var(--cream2);
+  cursor: pointer;
+}
+.entregada-row:last-child { border-bottom: none; }
+.entregada-row:active { background: var(--cream2); }
+.entregada-cliente { flex: 1; font-weight: 600; color: var(--text2); margin-left: 6px; }
+.entregada-cobro {
+  font-family: 'Barlow Condensed', sans-serif;
+  font-size: 12px;
+  font-weight: 800;
+  color: var(--green);
+}
+.entregada-ico { color: var(--green); font-size: 14px; }
+
+/* Mensaje cuando completó todas */
+.todas-completadas {
+  background: linear-gradient(135deg, var(--green3), #C8E6C9);
+  border-radius: 14px;
+  padding: 24px 18px;
+  text-align: center;
+  margin-bottom: 14px;
+  border: 1.5px solid var(--green2);
+}
+.todas-completadas-ico { font-size: 44px; margin-bottom: 8px; }
+.todas-completadas-tit {
+  font-family: 'Barlow Condensed', sans-serif;
+  font-size: 18px;
+  font-weight: 900;
+  color: var(--green);
+}
+.todas-completadas-sub {
+  font-size: 12px;
+  color: var(--text2);
+  margin-top: 6px;
+}
+.todas-completadas-btn-cerrar {
+  margin-top: 16px;
+  width: 100%;
+  padding: 14px;
+  background: linear-gradient(135deg, #8B0000, #B71C1C);
+  color: #fff;
+  border: none;
+  border-radius: 12px;
+  font-family: 'Barlow Condensed', sans-serif;
+  font-size: 16px;
+  font-weight: 900;
+  text-transform: uppercase;
+  letter-spacing: .5px;
+  cursor: pointer;
+  box-shadow: 0 4px 12px rgba(139,0,0,.3);
+  -webkit-tap-highlight-color: transparent;
+  transition: transform .12s;
+}
+.todas-completadas-btn-cerrar:active { transform: scale(.98); }
+
 .entrega-item-accion {
   padding: 11px 14px;
   border: none;
@@ -9622,48 +10150,71 @@ body {
     </div>
   </div>
 
-  <!-- ═══ TAB RENDICIONES (solo choferes) ═══ -->
+  <!-- ═══ TAB MIS VIAJES (v14.0 - antes "Rendiciones") ═══ -->
   <div class="view" id="view-rendiciones">
     <div class="rend-tab-wrap">
 
       <div class="rend-tab-hdr">
         <div>
-          <div class="rend-tab-hdr-tit">💰 Mis Rendiciones</div>
-          <div class="rend-tab-hdr-sub">Rendí lo cobrado a administración</div>
+          <div class="rend-tab-hdr-tit">📜 Mis Viajes</div>
+          <div class="rend-tab-hdr-sub">Tu actividad: viaje actual, próximos y historial</div>
         </div>
-        <button onclick="rendTabRecargar()" style="background:rgba(255,255,255,.2);border:none;border-radius:50%;width:34px;height:34px;color:#fff;cursor:pointer;font-size:16px;">🔄</button>
+        <button onclick="misViajesRecargar()" style="background:rgba(255,255,255,.2);border:none;border-radius:50%;width:34px;height:34px;color:#fff;cursor:pointer;font-size:16px;">🔄</button>
       </div>
 
-      <!-- Sección 1: Pendientes de rendir -->
-      <div class="rend-section pendientes" id="rend-sec-pendientes">
-        <div class="rend-section-hdr">
-          <div class="rend-section-tit">📤 Listas para rendir</div>
-          <div class="rend-section-monto" id="rend-sec-pend-monto">$0</div>
-        </div>
-        <div class="rend-section-body" id="rend-sec-pend-body">
-          <div class="rend-vacio-msg">Cargando...</div>
-        </div>
-      </div>
+      <!-- v14.0 SECCIÓN A: Viaje activo (con info y botón rendir si aplica) -->
+      <div id="mv-viaje-activo-wrap" style="margin-bottom:16px;"></div>
 
-      <!-- Sección 2: Rindiendo (esperando admin) -->
-      <div class="rend-section rindiendo" id="rend-sec-rindiendo">
-        <div class="rend-section-hdr">
-          <div class="rend-section-tit">⏳ Rindiendo (esperando admin)</div>
-          <div class="rend-section-monto" id="rend-sec-rind-monto">$0</div>
-        </div>
-        <div class="rend-section-body" id="rend-sec-rind-body">
-          <div class="rend-vacio-msg">Cargando...</div>
-        </div>
-      </div>
+      <!-- v14.0 SECCIÓN B: Próximos viajes asignados -->
+      <div id="mv-proximos-wrap" style="margin-bottom:16px;"></div>
 
-      <!-- Sección 3: Rendidas (historial 30 días) -->
-      <div class="rend-section rendidas" id="rend-sec-rendidas">
-        <div class="rend-section-hdr">
-          <div class="rend-section-tit">✅ Rendidas (últimos 30 días)</div>
-          <div class="rend-section-monto" id="rend-sec-rend-monto">$0</div>
+      <!-- v14.0 SECCIÓN C: Historial de viajes (con filtros) -->
+      <div id="mv-historial-wrap" style="margin-bottom:16px;"></div>
+
+      <!-- v14.0 SECCIÓN D: Detalles de rendiciones (acordeón colapsable) -->
+      <div class="mv-rend-acordeon" id="mv-rend-acordeon">
+        <div class="mv-rend-acordeon-hdr" onclick="mvToggleAcordeonRend()">
+          <div>
+            <div class="mv-rend-acordeon-tit">💰 Detalles de rendiciones</div>
+            <div class="mv-rend-acordeon-sub" id="mv-rend-acordeon-sub">Ver pendientes, en rendición y confirmadas</div>
+          </div>
+          <div class="mv-rend-acordeon-ico" id="mv-rend-acordeon-ico">▼</div>
         </div>
-        <div class="rend-section-body" id="rend-sec-rend-body">
-          <div class="rend-vacio-msg">Cargando...</div>
+        <div class="mv-rend-acordeon-body" id="mv-rend-acordeon-body" style="display:none;">
+
+          <!-- Sección 1: Pendientes de rendir -->
+          <div class="rend-section pendientes" id="rend-sec-pendientes">
+            <div class="rend-section-hdr">
+              <div class="rend-section-tit">📤 Listas para rendir</div>
+              <div class="rend-section-monto" id="rend-sec-pend-monto">$0</div>
+            </div>
+            <div class="rend-section-body" id="rend-sec-pend-body">
+              <div class="rend-vacio-msg">Cargando...</div>
+            </div>
+          </div>
+
+          <!-- Sección 2: Rindiendo (esperando admin) -->
+          <div class="rend-section rindiendo" id="rend-sec-rindiendo">
+            <div class="rend-section-hdr">
+              <div class="rend-section-tit">⏳ Rindiendo (esperando admin)</div>
+              <div class="rend-section-monto" id="rend-sec-rind-monto">$0</div>
+            </div>
+            <div class="rend-section-body" id="rend-sec-rind-body">
+              <div class="rend-vacio-msg">Cargando...</div>
+            </div>
+          </div>
+
+          <!-- Sección 3: Rendidas (historial 30 días) -->
+          <div class="rend-section rendidas" id="rend-sec-rendidas">
+            <div class="rend-section-hdr">
+              <div class="rend-section-tit">✅ Rendidas (últimos 30 días)</div>
+              <div class="rend-section-monto" id="rend-sec-rend-monto">$0</div>
+            </div>
+            <div class="rend-section-body" id="rend-sec-rend-body">
+              <div class="rend-vacio-msg">Cargando...</div>
+            </div>
+          </div>
+
         </div>
       </div>
 
@@ -10194,8 +10745,8 @@ body {
     <span class="tab-label">Entregas</span>
   </button>
   <button class="tab-btn" id="tab-btn-rendiciones" onclick="cambiarTab('rendiciones')" style="display:none !important;">
-    <span class="tab-icon">💰</span>
-    <span class="tab-label">Rendir</span>
+    <span class="tab-icon">📜</span>
+    <span class="tab-label">Mis Viajes</span>
   </button>
   <button class="tab-btn" id="tab-btn-bot" onclick="cambiarTab('bot')" style="display:none !important;">
     <span class="tab-icon">🤖</span>
@@ -13573,9 +14124,13 @@ function cambiarTab(tab) {
     document.body.scrollTop = 0;
   }
 
-  // v8.9: tab Rendiciones — cargar datos al abrir
+  // v14.0: tab Mis Viajes (antes Rendiciones) — cargar todo al abrir
   if (tab === 'rendiciones') {
-    if (typeof rendTabRecargar === 'function') rendTabRecargar();
+    if (typeof misViajesRecargar === 'function') {
+      misViajesRecargar();
+    } else if (typeof rendTabRecargar === 'function') {
+      rendTabRecargar();
+    }
     window.scrollTo(0, 0);
     document.documentElement.scrollTop = 0;
     document.body.scrollTop = 0;
@@ -19118,6 +19673,461 @@ function formatearFechaCorta(isoStr) {
   return dias[d.getDay()] + ' ' + d.getDate() + ' ' + meses[d.getMonth()];
 }
 
+// ════════════════════════════════════════════════════════════════
+// v14.0 SUB-ENTREGA B — TAB "MIS VIAJES" (chofer)
+// ════════════════════════════════════════════════════════════════
+// Renombra tab Rendiciones → Mis Viajes y agrega:
+//   · Sección A: Viaje activo (con botón "Cerrar viaje y rendir")
+//   · Sección B: Próximos viajes asignados
+//   · Sección C: Historial con filtros (7/30/90 días)
+//   · Sección D: Detalles de rendiciones (acordeón colapsable - viejo)
+
+let _mvViajeActivo = null;
+let _mvProximos = [];
+let _mvHistorial = [];
+let _mvHistFiltro = '30';  // días
+let _mvAcordeonAbierto = false;
+
+// ───────────────────────────────────────────────────────────────
+// Carga principal del tab Mis Viajes
+// ───────────────────────────────────────────────────────────────
+async function misViajesRecargar() {
+  if (!vendedorActual) return;
+
+  // Cargar viaje activo (si tiene)
+  await cargarViajeActivo();
+  _mvViajeActivo = _viajeActivo;
+  mvRenderViajeActivo();
+
+  // Cargar próximos
+  _mvProximos = await cargarProximosViajes();
+  mvRenderProximos();
+
+  // Cargar historial
+  await mvCargarHistorial();
+  mvRenderHistorial();
+
+  // Cargar detalles de rendiciones (función vieja, mantenida)
+  if (typeof rendTabRecargar === 'function') {
+    rendTabRecargar();
+  }
+}
+
+// ───────────────────────────────────────────────────────────────
+// SECCIÓN A: Viaje activo
+// ───────────────────────────────────────────────────────────────
+function mvRenderViajeActivo() {
+  const wrap = document.getElementById('mv-viaje-activo-wrap');
+  if (!wrap) return;
+
+  if (!_mvViajeActivo) {
+    wrap.innerHTML = ''; // No mostrar nada si no hay viaje activo
+    return;
+  }
+
+  const v = _mvViajeActivo;
+  const totalPedidos = v.total_pedidos || 0;
+  const cobrado = Number(v.monto_cobrado) || 0;
+  const total = Number(v.monto_total) || 0;
+
+  // Calcular cuántas entregas tienen estado FINAL (entregado o no_encontrado)
+  let conEstadoFinal = 0;
+  if (_entregasCache && _entregasCache.length) {
+    conEstadoFinal = _entregasCache.filter(function(e) {
+      return e.estado === 'entregado' || e.estado === 'no_encontrado';
+    }).length;
+  }
+  const pendientes = totalPedidos - conEstadoFinal;
+  const todasFinales = (totalPedidos > 0 && pendientes === 0);
+
+  const choferKey = String(vendedorActual || '').toLowerCase();
+  const isLuis = choferKey.indexOf('luis') >= 0;
+  const colorClase = isLuis ? ' luis' : '';
+  const zonaDisplay = ({
+    'zona1': 'Zona 1', 'zona2': 'Zona 2',
+    'tl_manana': 'TL Mañana', 'tl_tarde': 'TL Tarde', 'tl': 'TL',
+    'america_fortin': 'América/Fortín'
+  })[v.zona] || v.zona;
+
+  let html = '<div class="mv-viaje-activo-card' + colorClase + '">';
+  html += '  <div class="mv-viaje-activo-hdr">';
+  html += '    <div class="mv-viaje-activo-tit">🚛 Viaje activo</div>';
+  html += '    <div class="mv-viaje-activo-est">EN RUTA</div>';
+  html += '  </div>';
+  html += '  <div class="mv-viaje-activo-body">';
+  html += '    <div class="mv-viaje-activo-zona">' + zonaDisplay +
+          ' · <span style="opacity:.85;">' + (v.vehiculo || '—') + '</span></div>';
+  html += '    <div class="mv-viaje-activo-stats">';
+  html += '      <div class="mv-stat-mini">';
+  html += '        <div class="mv-stat-mini-num">' + conEstadoFinal + '/' + totalPedidos + '</div>';
+  html += '        <div class="mv-stat-mini-lbl">Entregas</div>';
+  html += '      </div>';
+  html += '      <div class="mv-stat-mini">';
+  html += '        <div class="mv-stat-mini-num">$' + Math.round(cobrado).toLocaleString('es-AR') + '</div>';
+  html += '        <div class="mv-stat-mini-lbl">Cobrado</div>';
+  html += '      </div>';
+  html += '      <div class="mv-stat-mini">';
+  html += '        <div class="mv-stat-mini-num">' + pendientes + '</div>';
+  html += '        <div class="mv-stat-mini-lbl">Pendientes</div>';
+  html += '      </div>';
+  html += '    </div>';
+
+  // Botón "Cerrar viaje y rendir" si todas las entregas tienen estado final
+  if (todasFinales) {
+    html += '    <button class="mv-btn-cerrar-rendir" onclick="mvCerrarViajeYRendir()">';
+    html += '      🏁 Cerrar viaje y rendir';
+    html += '    </button>';
+  } else {
+    html += '    <div class="mv-banner-info">';
+    html += '      💡 Cuando termines todas las entregas, vas a poder cerrar el viaje y rendir desde acá.';
+    html += '    </div>';
+  }
+  html += '  </div>';
+  html += '</div>';
+
+  wrap.innerHTML = html;
+}
+
+// ───────────────────────────────────────────────────────────────
+// SECCIÓN B: Próximos viajes
+// ───────────────────────────────────────────────────────────────
+function mvRenderProximos() {
+  const wrap = document.getElementById('mv-proximos-wrap');
+  if (!wrap) return;
+
+  if (!_mvProximos.length) {
+    wrap.innerHTML = ''; // No mostrar si no hay
+    return;
+  }
+
+  let html = '<div class="mv-section-tit">📅 Próximos viajes</div>';
+  html += '<div class="mv-proximos-lista">';
+  _mvProximos.forEach(function(v) {
+    const f = formatearFechaCorta(v.fecha_salida);
+    const zonaDisplay = ({
+      'zona1': 'Zona 1', 'zona2': 'Zona 2',
+      'tl_manana': 'TL Mañana', 'tl_tarde': 'TL Tarde', 'tl': 'TL',
+      'america_fortin': 'América/Fortín'
+    })[v.zona] || v.zona;
+    const totalPedidos = v.total_pedidos || 0;
+    const total = Number(v.monto_total) || 0;
+    const estadoTxt = v.estado === 'preparando' ? 'PREPARANDO' : 'PLANIFICADO';
+    const estadoCls = v.estado === 'preparando' ? 'preparando' : 'planificado';
+
+    html += '<div class="mv-proximo-row">';
+    html += '  <div class="mv-proximo-info">';
+    html += '    <div class="mv-proximo-fecha">' + f + '</div>';
+    html += '    <div class="mv-proximo-zona">' + zonaDisplay +
+            ' · ' + (v.vehiculo || '—') + '</div>';
+    html += '  </div>';
+    html += '  <div class="mv-proximo-right">';
+    html += '    <div class="mv-proximo-pedidos">' + totalPedidos + ' ped.</div>';
+    html += '    <div class="mv-proximo-monto">$' + Math.round(total).toLocaleString('es-AR') + '</div>';
+    html += '    <div class="mv-proximo-est ' + estadoCls + '">' + estadoTxt + '</div>';
+    html += '  </div>';
+    html += '</div>';
+  });
+  html += '</div>';
+
+  wrap.innerHTML = html;
+}
+
+// ───────────────────────────────────────────────────────────────
+// SECCIÓN C: Historial con filtros
+// ───────────────────────────────────────────────────────────────
+async function mvCargarHistorial() {
+  try {
+    const dias = parseInt(_mvHistFiltro) || 30;
+    const desde = new Date();
+    desde.setDate(desde.getDate() - dias);
+    const desdeISO = desde.toISOString().substring(0, 10);
+
+    const url = APPS_SCRIPT_URL +
+      '?accion=viajeListar' +
+      '&chofer=' + encodeURIComponent(vendedorActual) +
+      '&estado=cerrado' +
+      '&desde=' + encodeURIComponent(desdeISO) +
+      '&orden=fecha_salida.desc' +
+      '&limit=50';
+    const resp = await fetch(url);
+    const data = await resp.json();
+    _mvHistorial = (data.status === 'ok' && Array.isArray(data.viajes)) ? data.viajes : [];
+  } catch(err) {
+    console.error('[mv hist]', err);
+    _mvHistorial = [];
+  }
+}
+
+function mvRenderHistorial() {
+  const wrap = document.getElementById('mv-historial-wrap');
+  if (!wrap) return;
+
+  let html = '<div class="mv-section-tit">📜 Historial de viajes</div>';
+
+  // Filtros
+  html += '<div class="mv-hist-filtros">';
+  ['7', '30', '90'].forEach(function(d) {
+    const sel = (_mvHistFiltro === d) ? ' sel' : '';
+    html += '<button class="mv-hist-filtro' + sel +
+            '" onclick="mvSetFiltroHist(\'' + d + '\')">' + d + ' días</button>';
+  });
+  html += '</div>';
+
+  if (_mvHistorial.length === 0) {
+    html += '<div class="mv-vacio-hist">';
+    html += '  <div class="mv-vacio-hist-ico">🚛</div>';
+    html += '  <div>Sin viajes cerrados en los últimos ' + _mvHistFiltro + ' días</div>';
+    html += '</div>';
+    wrap.innerHTML = html;
+    return;
+  }
+
+  // Stats globales
+  let totalCobrado = 0;
+  let totalPedidos = 0;
+  _mvHistorial.forEach(function(v) {
+    totalCobrado += Number(v.monto_cobrado) || 0;
+    totalPedidos += Number(v.total_pedidos) || 0;
+  });
+  html += '<div class="mv-hist-stats">';
+  html += '  <div class="mv-hist-stat"><div class="num">' + _mvHistorial.length + '</div><div class="lbl">Viajes</div></div>';
+  html += '  <div class="mv-hist-stat"><div class="num">' + totalPedidos + '</div><div class="lbl">Pedidos</div></div>';
+  html += '  <div class="mv-hist-stat"><div class="num">$' + Math.round(totalCobrado).toLocaleString('es-AR') + '</div><div class="lbl">Cobrado</div></div>';
+  html += '</div>';
+
+  // Lista
+  html += '<div class="mv-hist-lista">';
+  _mvHistorial.forEach(function(v) {
+    const f = formatearFechaCorta(v.fecha_salida);
+    const zonaDisplay = ({
+      'zona1': 'Zona 1', 'zona2': 'Zona 2',
+      'tl_manana': 'TL Mañana', 'tl_tarde': 'TL Tarde', 'tl': 'TL',
+      'america_fortin': 'América/Fortín'
+    })[v.zona] || v.zona;
+    const cobrado = Number(v.monto_cobrado) || 0;
+    const total = Number(v.monto_total) || 0;
+    const totalPedidos2 = v.total_pedidos || 0;
+    const entregadas = total > 0 ? Math.round((cobrado / total) * totalPedidos2) : 0;
+
+    html += '<div class="mv-hist-row" onclick="mvAbrirDetalleHist(\'' + v.id + '\')">';
+    html += '  <div class="mv-hist-info">';
+    html += '    <div class="mv-hist-fecha">' + f + '</div>';
+    html += '    <div class="mv-hist-zona">' + zonaDisplay + ' · ' + entregadas + ' de ' + totalPedidos2 + ' entregadas</div>';
+    html += '  </div>';
+    html += '  <div class="mv-hist-cifras">';
+    html += '    <div class="mv-hist-cobrado">$' + Math.round(cobrado).toLocaleString('es-AR') + '</div>';
+    html += '    <div class="mv-hist-de">cobrado</div>';
+    html += '  </div>';
+    html += '</div>';
+  });
+  html += '</div>';
+
+  wrap.innerHTML = html;
+}
+
+function mvSetFiltroHist(dias) {
+  _mvHistFiltro = String(dias);
+  mvCargarHistorial().then(mvRenderHistorial);
+}
+
+// ───────────────────────────────────────────────────────────────
+// Detalle de viaje histórico (cobros por cliente)
+// ───────────────────────────────────────────────────────────────
+async function mvAbrirDetalleHist(viajeId) {
+  try {
+    // Cargar entregas de ese viaje
+    const entregas = await sbFetch(
+      'entregas?viaje_id=eq.' + encodeURIComponent(viajeId) +
+      '&select=*&order=ciudad.asc'
+    );
+
+    // Construir modal
+    let html = '<div class="mv-hist-detalle-content">';
+    html += '<div class="mv-hist-detalle-hdr">';
+    html += '  <h3>📋 Detalle del viaje</h3>';
+    html += '  <button onclick="mvCerrarDetalleHist()" style="background:none;border:none;font-size:22px;cursor:pointer;">✕</button>';
+    html += '</div>';
+
+    if (!entregas || !entregas.length) {
+      html += '<div style="text-align:center;padding:30px;color:var(--text3);">Sin entregas registradas</div>';
+    } else {
+      // Agrupar por estado: entregadas primero, después no entregadas
+      const entregadas = entregas.filter(function(e) { return e.estado === 'entregado'; });
+      const noEnt = entregas.filter(function(e) { return e.estado !== 'entregado'; });
+
+      if (entregadas.length) {
+        html += '<div class="mv-hist-grupo-tit">✅ Entregadas (' + entregadas.length + ')</div>';
+        entregadas.forEach(function(e) {
+          html += mvRenderEntregaHist(e);
+        });
+      }
+      if (noEnt.length) {
+        html += '<div class="mv-hist-grupo-tit" style="margin-top:14px;">🚪 No entregadas (' + noEnt.length + ')</div>';
+        noEnt.forEach(function(e) {
+          html += mvRenderEntregaHist(e);
+        });
+      }
+    }
+    html += '</div>';
+
+    // Mostrar como overlay
+    let overlay = document.getElementById('mv-hist-overlay');
+    if (!overlay) {
+      overlay = document.createElement('div');
+      overlay.id = 'mv-hist-overlay';
+      overlay.className = 'mv-hist-overlay';
+      overlay.onclick = function(ev) {
+        if (ev.target === overlay) mvCerrarDetalleHist();
+      };
+      document.body.appendChild(overlay);
+    }
+    overlay.innerHTML = '<div class="mv-hist-sheet">' + html + '</div>';
+    overlay.classList.add('open');
+    document.body.style.overflow = 'hidden';
+  } catch(err) {
+    console.error('[mv detalle]', err);
+    toast('❌ Error cargando detalle', 'err');
+  }
+}
+
+function mvCerrarDetalleHist() {
+  const overlay = document.getElementById('mv-hist-overlay');
+  if (overlay) overlay.classList.remove('open');
+  document.body.style.overflow = '';
+}
+
+function mvRenderEntregaHist(e) {
+  const monto = (function() {
+    let m = parseFloat(e.monto) || 0;
+    if (m > 0 && m < 1000) m = m * 1000;
+    return m;
+  })();
+  const formaCobro = e.forma_cobro || '';
+  const formaTxt = ({
+    'efectivo': '💵 Efectivo',
+    'transferencia': '🏦 Transferencia',
+    'cheque': '📋 Cheque',
+    'cuenta_corriente': '📒 Cta. corriente'
+  })[formaCobro] || (e.estado === 'entregado' ? 'Entregado' : '🚪 No entregado');
+  const formaCls = ({
+    'efectivo': 'efectivo',
+    'transferencia': 'transf',
+    'cheque': 'cheque',
+    'cuenta_corriente': 'cta'
+  })[formaCobro] || 'no-cobrado';
+
+  let html = '<div class="mv-entrega-hist-row">';
+  html += '  <div class="mv-entrega-hist-info">';
+  html += '    <div class="mv-entrega-hist-cliente">' + (e.cliente || '—') + '</div>';
+  html += '    <div class="mv-entrega-hist-meta">' + (e.ciudad || '') + '</div>';
+  html += '  </div>';
+  html += '  <div class="mv-entrega-hist-cobro">';
+  html += '    <div class="mv-entrega-hist-monto">$' + Math.round(monto).toLocaleString('es-AR') + '</div>';
+  html += '    <div class="mv-entrega-hist-forma ' + formaCls + '">' + formaTxt + '</div>';
+  html += '  </div>';
+  html += '</div>';
+  return html;
+}
+
+// ───────────────────────────────────────────────────────────────
+// CERRAR VIAJE Y RENDIR — el botón principal del chofer
+// ───────────────────────────────────────────────────────────────
+async function mvCerrarViajeYRendir() {
+  if (!_mvViajeActivo) return;
+
+  const v = _mvViajeActivo;
+
+  // Resumen para confirmar
+  const cobrado = Number(v.monto_cobrado) || 0;
+
+  // Calcular cobros por método (si tenemos entregas en cache)
+  let efectivo = 0, transf = 0, cheque = 0, cta = 0;
+  if (_entregasCache && _entregasCache.length) {
+    _entregasCache.forEach(function(e) {
+      if (e.estado !== 'entregado') return;
+      let m = parseFloat(e.monto) || 0;
+      if (m > 0 && m < 1000) m = m * 1000;
+      if (e.detalle_cobro) {
+        try {
+          const det = JSON.parse(e.detalle_cobro);
+          efectivo += det.efectivo || 0;
+          transf   += det.transferencia || 0;
+          cheque   += det.cheque || 0;
+          cta      += det.cuenta_corriente || 0;
+        } catch(_) {
+          // fallback a forma_cobro
+          if (e.forma_cobro === 'efectivo') efectivo += m;
+          else if (e.forma_cobro === 'transferencia') transf += m;
+          else if (e.forma_cobro === 'cheque') cheque += m;
+          else if (e.forma_cobro === 'cuenta_corriente') cta += m;
+        }
+      } else {
+        if (e.forma_cobro === 'efectivo') efectivo += m;
+        else if (e.forma_cobro === 'transferencia') transf += m;
+        else if (e.forma_cobro === 'cheque') cheque += m;
+        else if (e.forma_cobro === 'cuenta_corriente') cta += m;
+      }
+    });
+  }
+
+  const fmt = function(n) { return '$' + Math.round(n).toLocaleString('es-AR'); };
+  let resumen = '¿Cerrar viaje y rendir?\n\n';
+  resumen += 'Lo que vas a entregar al admin:\n';
+  if (efectivo > 0) resumen += '• Efectivo: ' + fmt(efectivo) + '\n';
+  if (cheque > 0) resumen += '• Cheques: ' + fmt(cheque) + '\n';
+  if (transf > 0) resumen += '• Transf (registro): ' + fmt(transf) + '\n';
+  if (cta > 0) resumen += '• Cta. corriente: ' + fmt(cta) + '\n';
+  resumen += '\nTotal: ' + fmt(cobrado) + '\n\n';
+  resumen += 'El viaje se cierra y queda esperando confirmación del admin.';
+
+  if (!confirm(resumen)) return;
+
+  try {
+    const url = APPS_SCRIPT_URL +
+      '?accion=viajeCerrarYRendir' +
+      '&viaje_id=' + encodeURIComponent(v.id);
+    const resp = await fetch(url);
+    const data = await resp.json();
+    if (data.status === 'ok') {
+      toast('✅ Viaje cerrado. Esperando confirmación del admin.', 'ok');
+      _viajeActivo = null;
+      _mvViajeActivo = null;
+      // Recargar todo
+      misViajesRecargar();
+      // Si el chofer está en la pantalla de entregas, refrescar
+      if (typeof cargarEntregas === 'function') {
+        setTimeout(cargarEntregas, 500);
+      }
+    } else {
+      toast('❌ ' + (data.message || 'Error al cerrar viaje'), 'err');
+    }
+  } catch(err) {
+    console.error('[mv cerrar]', err);
+    toast('❌ Error de conexión', 'err');
+  }
+}
+
+// v14.0: helper para llamar desde la pantalla del chofer sin pasar por Mis Viajes
+async function mvCerrarViajeYRendirDesdeChofer() {
+  // Setear _mvViajeActivo desde _viajeActivo si no está
+  if (!_mvViajeActivo && typeof _viajeActivo !== 'undefined' && _viajeActivo) {
+    _mvViajeActivo = _viajeActivo;
+  }
+  await mvCerrarViajeYRendir();
+}
+
+// ───────────────────────────────────────────────────────────────
+// Acordeón de rendiciones (sección D)
+// ───────────────────────────────────────────────────────────────
+function mvToggleAcordeonRend() {
+  _mvAcordeonAbierto = !_mvAcordeonAbierto;
+  const body = document.getElementById('mv-rend-acordeon-body');
+  const ico = document.getElementById('mv-rend-acordeon-ico');
+  if (body) body.style.display = _mvAcordeonAbierto ? 'block' : 'none';
+  if (ico) ico.textContent = _mvAcordeonAbierto ? '▲' : '▼';
+}
+
+
 
 async function cargarEntregas() {
   const el = document.getElementById('entregas-lista');
@@ -19405,8 +20415,21 @@ function renderEntregas(entregas) {
     return;
   }
 
+  // v14.0: separar entregadas (con estado final) del resto
+  // Las entregadas y "no estaba" finalizadas van a sección colapsable abajo
+  const activas = [];
+  const completadas = [];
+  entregas.forEach(function(e) {
+    if (e.estado === 'entregado' || e.estado === 'no_encontrado') {
+      completadas.push(e);
+    } else {
+      activas.push(e);
+    }
+  });
+
+  // v14.0: agrupar solo las activas (las completadas van abajo en sección colapsable)
   const porCiudad = {};
-  entregas.forEach(e => {
+  activas.forEach(e => {
     const c = e.ciudad || 'Sin ciudad';
     if (!porCiudad[c]) porCiudad[c] = [];
     porCiudad[c].push(e);
@@ -19553,8 +20576,79 @@ function renderEntregas(entregas) {
     html += '</div>';
   });
 
+  // v14.0: sección colapsable "Entregadas hoy" + "No estaban"
+  if (completadas.length > 0) {
+    const sumEntregadas = completadas.filter(function(e) { return e.estado === 'entregado'; });
+    const sumNoEstaban = completadas.filter(function(e) { return e.estado === 'no_encontrado'; });
+    const totalCobrado = sumEntregadas.reduce(function(s, e) {
+      let m = parseFloat(e.monto) || 0;
+      if (m > 0 && m < 1000) m = m * 1000;
+      return s + m;
+    }, 0);
+
+    let entregHtml = '<div class="entregadas-section" id="entregadas-section">';
+    entregHtml += '  <div class="entregadas-toggle" onclick="toggleEntregadasSection()">';
+    entregHtml += '    <div>';
+    entregHtml += '      <div class="entregadas-toggle-tit">✅ Completadas hoy (' + completadas.length + ')</div>';
+    entregHtml += '      <div class="entregadas-toggle-meta">' + sumEntregadas.length + ' entregadas · $' +
+                  Math.round(totalCobrado).toLocaleString('es-AR') + ' cobrado';
+    if (sumNoEstaban.length) entregHtml += ' · ' + sumNoEstaban.length + ' no estaban';
+    entregHtml += '      </div>';
+    entregHtml += '    </div>';
+    entregHtml += '    <div class="entregadas-toggle-ico" id="entregadas-toggle-ico">▼</div>';
+    entregHtml += '  </div>';
+    entregHtml += '  <div class="entregadas-list" id="entregadas-list" style="display:none;">';
+    completadas.forEach(function(e) {
+      let m = parseFloat(e.monto) || 0;
+      if (m > 0 && m < 1000) m = m * 1000;
+      const ico = e.estado === 'entregado' ? '✅' : '🚪';
+      const formaTxt = e.estado === 'entregado'
+        ? ({
+          'efectivo': '💵', 'transferencia': '🏦', 'cheque': '📋', 'cuenta_corriente': '📒'
+        })[e.forma_cobro] || '✓'
+        : '—';
+      entregHtml += '<div class="entregada-row" onclick="abrirEntregaModal(\'' + e.id + '\')">';
+      entregHtml += '  <span class="entregada-ico">' + ico + '</span>';
+      entregHtml += '  <div class="entregada-cliente">' + (e.cliente || '—') +
+                    '<div style="font-size:10px;color:var(--text3);font-weight:500;">' + (e.ciudad || '') + '</div></div>';
+      entregHtml += '  <div class="entregada-cobro">' + formaTxt + ' $' + Math.round(m).toLocaleString('es-AR') + '</div>';
+      entregHtml += '</div>';
+    });
+    entregHtml += '  </div>';
+    entregHtml += '</div>';
+
+    html += entregHtml;
+  }
+
+  // Si no hay activas pero hay completadas, mensaje motivacional + botón directo
+  if (activas.length === 0 && completadas.length > 0) {
+    // v14.0: si hay viaje activo, ofrecer cerrarlo+rendir directo desde acá
+    let btnCerrarHtml = '';
+    if (typeof _viajeActivo !== 'undefined' && _viajeActivo) {
+      btnCerrarHtml = '<button class="todas-completadas-btn-cerrar" onclick="mvCerrarViajeYRendirDesdeChofer()">' +
+                      '🏁 Cerrar viaje y rendir' +
+                      '</button>';
+    }
+    html = '<div class="todas-completadas">' +
+           '<div class="todas-completadas-ico">🎉</div>' +
+           '<div class="todas-completadas-tit">¡Terminaste todas las entregas!</div>' +
+           '<div class="todas-completadas-sub">Cerrá el viaje y rendí lo cobrado a administración.</div>' +
+           btnCerrarHtml +
+           '</div>' + html;
+  }
+
   // v14.0: prepend del header de viaje activo
   el.innerHTML = headerHtml + html;
+}
+
+// v14.0: toggle de sección "Completadas hoy"
+function toggleEntregadasSection() {
+  const list = document.getElementById('entregadas-list');
+  const ico = document.getElementById('entregadas-toggle-ico');
+  if (!list) return;
+  const abierto = list.style.display !== 'none';
+  list.style.display = abierto ? 'none' : 'block';
+  if (ico) ico.textContent = abierto ? '▼' : '▲';
 }
 
 async function cargarProductosEntrega(pedidoId, notaFallback) {
@@ -20311,9 +21405,24 @@ async function _ejecutarConfirmacionEntrega(cobros) {
       _entregasCache[idx].forma_cobro = formaPrincipal;
       if (Object.keys(cobros).length > 1) _entregasCache[idx].detalle_cobro = detalleCobroStr;
     }
-    cerrarEntregaModal();
-    renderEntregas(_entregasCache);
-    renderResumenChofer(_entregasCache);
+
+    // v14.0: animación flash verde + colapso ANTES de re-renderizar
+    const itemEl = document.getElementById('entrega-item-' + _entregaModalId);
+    if (itemEl) {
+      itemEl.classList.add('acaba-entregada');
+      setTimeout(function() {
+        itemEl.classList.add('colapsando');
+        setTimeout(function() {
+          cerrarEntregaModal();
+          renderEntregas(_entregasCache);
+          renderResumenChofer(_entregasCache);
+        }, 350);
+      }, 500);
+    } else {
+      cerrarEntregaModal();
+      renderEntregas(_entregasCache);
+      renderResumenChofer(_entregasCache);
+    }
     toast('✅ Entrega registrada','ok');
   } catch(err) {
     console.error('❌ Error en _ejecutarConfirmacionEntrega (PATCH entregas):', err);
