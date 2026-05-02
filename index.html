@@ -12689,6 +12689,48 @@ function hayAlgoAbierto() {
 
 let _pedidosPendientesNotif = 0;
 
+// v14.5.0 OPTIMISTIC UI: pedidos creados localmente que aún no aparecen
+// en la Sheet (Apps Script tarda 5-15 seg en escribir). Se mantienen en
+// el array local hasta que el server confirma o pasan 90 segundos.
+// Map<pedidoId, { creadoEn: timestamp, datos: pedido }>
+const _optimisticPedidos = new Map();
+const OPTIMISTIC_TTL_MS = 90000; // 90 segundos
+
+function _registrarOptimistico(pedido) {
+  _optimisticPedidos.set(pedido.pedidoId, {
+    creadoEn: Date.now(),
+    datos: pedido
+  });
+  // Auto-cleanup defensivo: liberar tras TTL
+  setTimeout(function() {
+    _optimisticPedidos.delete(pedido.pedidoId);
+  }, OPTIMISTIC_TTL_MS + 5000);
+}
+
+function _mergeOptimisticos(pedidosFromServer) {
+  // Quitar optimistas vencidos antes de mergear
+  const ahora = Date.now();
+  const idsServer = new Set(pedidosFromServer.map(function(p){ return p.pedidoId; }));
+  const result = pedidosFromServer.slice();
+
+  _optimisticPedidos.forEach(function(entry, id) {
+    if (ahora - entry.creadoEn > OPTIMISTIC_TTL_MS) {
+      // Vencido: ya no lo defendemos. Si el server lo tiene, lo veremos
+      // en el siguiente fetch. Si no, se perdió.
+      _optimisticPedidos.delete(id);
+      return;
+    }
+    if (!idsServer.has(id)) {
+      // Server aún no lo tiene → defenderlo, agregarlo al inicio
+      result.unshift(entry.datos);
+    } else {
+      // Server lo confirmó → soltar el optimista
+      _optimisticPedidos.delete(id);
+    }
+  });
+  return result;
+}
+
 function mostrarBadgeNuevosPedidos(cant) {
   var badge = document.getElementById('badge-nuevos-pedidos');
   if (!badge) {
@@ -12719,6 +12761,11 @@ function mostrarBadgeNuevosPedidos(cant) {
 setInterval(function() {
   if (!vendedorActual) return;
 
+  // v14.5.0 FIX 5: si la pestaña NO está visible (usuario en otra app o
+  // en otro tab), no hacer polling. Ahorra batería + datos. Cuando vuelva
+  // a primer plano, el evento 'visibilitychange' dispara una recarga única.
+  if (document.hidden) return;
+
   // Si hay algo abierto, NO hacer nada — ni siquiera el fetch
   if (hayAlgoAbierto()) return;
 
@@ -12745,7 +12792,25 @@ setInterval(function() {
     }
     if (dupNuevos.length > 0) notificarDuplicados(dupNuevos);
   });
-}, 30000);
+}, 60000);  // v14.5.0 FIX 7: era 30000, subido a 60000 (60 seg)
+            // El optimistic UI cubre el delay percibido de pedidos nuevos.
+
+// v14.5.0 FIX 5: cuando el usuario vuelve al tab (estaba en otra app/tab),
+// hacer UN fetch inmediato para sincronizar. Sin esto, podía estar 60s
+// sin actualizar después de volver.
+let _ultimoFetchPorVisibilidad = 0;
+document.addEventListener('visibilitychange', function() {
+  if (!document.hidden && vendedorActual) {
+    // Throttle: máximo 1 fetch cada 10s por visibilidad (evita abuso si
+    // alterna entre apps rápido)
+    const ahora = Date.now();
+    if (ahora - _ultimoFetchPorVisibilidad < 10000) return;
+    _ultimoFetchPorVisibilidad = ahora;
+    if (!hayAlgoAbierto()) {
+      cargarPedidos(true);
+    }
+  }
+});
 
 // ── SONIDOS ──────────────────────────────────────────────────────
 function sonarTono(frecuencias, duracion) {
@@ -13175,6 +13240,9 @@ async function cargarPedidos(silencioso, _reintentos) {
         }
       });
     }
+    // v14.5.0 OPTIMISTIC: mergear pedidos optimistas (creados localmente
+    // hace <90s que aún no aparecen en la Sheet) antes de pisar el array.
+    pedidos = _mergeOptimisticos(pedidos);
     _pedidosCache = pedidos.slice(); // actualizar cache
     todosLosPedidos = pedidos;
 
@@ -13392,6 +13460,14 @@ function pedidosFiltrados() {
   var q = document.getElementById('buscador').value.toLowerCase();
   var hoy = new Date(); hoy.setHours(0,0,0,0);
 
+  // v14.5.0 FIX 8: cap default a últimos 30 días cuando filtroFecha='todos'.
+  // Reduce render de 716 → ~80 pedidos. Si el vendedor quiere ver pedidos
+  // viejos, usa filtro 'personalizado' con rango específico.
+  if (filtroFecha === 'todos') {
+    var hace30 = new Date(hoy); hace30.setDate(hace30.getDate() - 30);
+    lista = lista.filter(function(p){ return fechaPedido(p) >= hace30; });
+  }
+
   if (filtroFecha === 'hoy') {
     lista = lista.filter(function(p){ var f=fechaPedido(p); f.setHours(0,0,0,0); return f.getTime()===hoy.getTime(); });
   } else if (filtroFecha === 'ayer') {
@@ -13429,14 +13505,112 @@ function pedidosFiltrados() {
 }
 
 // ── RENDER ────────────────────────────────────────────────────────
-function renderPedidos() {
+
+// v14.5.0: estado del último render. Se compara con el actual para
+// decidir si hace falta tocar el DOM. Si nada cambió → no re-renderizar.
+let _ultimoRenderHash = null;
+let _ultimoRenderLista = [];
+
+function _hashPedido(p) {
+  // Hash mínimo que represente "el render visible de este pedido cambió".
+  // Si alguno de estos campos cambia, hay que re-renderizar la card.
+  return p.pedidoId + '|' +
+    (p.estado || '') + '|' +
+    (p.total || '') + '|' +
+    (p.xubioEstado || '') + '|' +
+    (p.choferAsignado || '') + '|' +
+    (p.fechaEntrega || '') + '|' +
+    (p.esDuplicado ? '1' : '0');
+}
+
+function _hashLista(lista) {
+  // Hash de toda la lista visible. Suma de hashes individuales + count
+  // (count para detectar agregar/quitar un pedido sin cambiar otros).
+  return lista.length + ':' + lista.map(_hashPedido).join(';');
+}
+
+function _capturarCardsAbiertas() {
+  // Devuelve Set de pedidoIds cuyas cards están expandidas.
+  // Esto se usa para restaurarlas después del re-render.
+  const set = new Set();
+  document.querySelectorAll('.pedido-body.on').forEach(function(el) {
+    const card = el.closest('[data-pedido-id]');
+    if (card) {
+      const id = card.getAttribute('data-pedido-id');
+      if (id) set.add(id);
+    }
+  });
+  return set;
+}
+
+function _restaurarCardsAbiertas(set) {
+  // Re-aplica la clase .on a las cards que estaban expandidas.
+  if (!set.size) return;
+  set.forEach(function(id) {
+    const card = document.querySelector('[data-pedido-id="' + id + '"]');
+    if (!card) return;
+    const body = card.querySelector('.pedido-body');
+    if (body) body.classList.add('on');
+  });
+}
+
+function renderPedidos(forzar) {
   actualizarStats();
   actualizarTitle();
   actualizarBadgePendientes();
   var lista = pedidosFiltrados();
   var cont = document.getElementById('lista-pedidos');
-  if (!lista.length) { cont.innerHTML = '<div class="empty">📭 No hay pedidos para mostrar</div>'; return; }
+  if (!cont) return;
+
+  // v14.5.0 FIX 2 — Diff: si nada cambió y NO se fuerza, no tocar el DOM.
+  // Esto evita el "saltito" molesto cuando el polling refresca y no hay
+  // cambios reales (mismos pedidos, mismos estados).
+  var hashNuevo = _hashLista(lista);
+  if (!forzar && hashNuevo === _ultimoRenderHash) {
+    return; // Sin cambios → no toco nada
+  }
+
+  if (!lista.length) {
+    cont.innerHTML = '<div class="empty">📭 No hay pedidos para mostrar</div>';
+    _ultimoRenderHash = hashNuevo;
+    _ultimoRenderLista = [];
+    return;
+  }
+
+  // v14.5.0 FIX 3 — Preservar scrollTop. Capturar antes de innerHTML.
+  // El scroll real puede estar en cont, en su padre, o en window según layout.
+  var scrollEl = cont;
+  var scrollAntes = scrollEl.scrollTop;
+  // Fallback: si cont no scrollea, probar el ancestro scrolleable
+  if (scrollAntes === 0 && cont.scrollHeight <= cont.clientHeight) {
+    var p = cont.parentElement;
+    while (p && p !== document.body) {
+      if (p.scrollHeight > p.clientHeight) { scrollEl = p; scrollAntes = p.scrollTop; break; }
+      p = p.parentElement;
+    }
+    if (scrollAntes === 0) { scrollEl = window; scrollAntes = window.scrollY || document.documentElement.scrollTop; }
+  }
+
+  // v14.5.0 FIX 4 — Capturar cards expandidas para restaurarlas después
+  var cardsAbiertas = _capturarCardsAbiertas();
+
   cont.innerHTML = lista.map(function(p){ return renderCard(p); }).join('');
+
+  // Restaurar scroll y cards. Doble rAF para asegurar que el layout terminó.
+  requestAnimationFrame(function() {
+    requestAnimationFrame(function() {
+      if (scrollEl === window) {
+        window.scrollTo(0, scrollAntes);
+      } else {
+        scrollEl.scrollTop = scrollAntes;
+      }
+      _restaurarCardsAbiertas(cardsAbiertas);
+    });
+  });
+
+  _ultimoRenderHash = hashNuevo;
+  _ultimoRenderLista = lista.slice();
+
   // v13.3: actualizar barras de sync Xubio recién insertadas en el DOM
   if (typeof xubioActualizarBarrasSync === 'function') xubioActualizarBarrasSync();
 }
@@ -13586,7 +13760,7 @@ function renderCard(p) {
   var detalle = p.detalle ? p.detalle.replace(/\|/g,'\n').replace(/ · /g,' — ') : (p.resumen || '');
   var hora = (p.fechaHora||'').split(' ')[1] || (p.fechaHora||'').split('T')[1] || '';
 
-  return '<div class="pedido-card' + claseCard + '" id="card-' + id + '">' +
+  return '<div class="pedido-card' + claseCard + '" id="card-' + id + '" data-pedido-id="' + p.pedidoId + '">' +
     '<div class="pedido-head" onclick="toggleCard(\'' + id + '\')">' +
       '<div class="pedido-head-left">' +
         '<div class="pedido-id">' + p.pedidoId + '</div>' +
@@ -23522,10 +23696,15 @@ async function manualWAGuardar(cliente, localidad, entrega, sucursal) {
   };
   todosLosPedidos.unshift(nuevoPedido);
   _pedidosCache = todosLosPedidos.slice();
+  // v14.5.0 OPTIMISTIC: registrar el pedido como "recién creado" para que
+  // el próximo fetch NO lo borre aunque la Sheet aún no lo tenga.
+  _registrarOptimistico(nuevoPedido);
   renderPedidos();
 
-  setTimeout(function() { cargarPedidos(true); }, 3000);
-  setTimeout(function() { cargarPedidos(true); }, 8000);
+  // v14.5.0: REMOVIDOS los 4 setTimeout(cargarPedidos) post-guardado.
+  // Ya no son necesarios — el optimista mantiene el pedido visible y el
+  // polling normal lo confirmará cuando llegue. Sin estos reintentos, el
+  // pedido NO va a "desaparecer y volver a aparecer" (bug histórico v14.x).
   } finally {
     // v14.3.0 ANTI-DUP: liberar lock + restaurar botón pase lo que pase.
     // Sin esto, si algo falla a mitad de la función, el botón queda
