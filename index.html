@@ -19617,7 +19617,7 @@ async function tomadorConfirmar() {
     + '<div style="font-family:Barlow Condensed,sans-serif;font-size:28px;font-weight:900;color:#8B0000">$' + resumenTotal.toLocaleString('es-AR') + '</div>'
     + '</div>'
     + '<div style="padding:0 20px 20px">'
-    + '<button onclick="tomadorConfirmarFinal()" style="width:100%;padding:16px;background:linear-gradient(135deg,#1B5E20,#2E7D32);color:#fff;border:none;border-radius:14px;font-family:Barlow Condensed,sans-serif;font-size:20px;font-weight:900;cursor:pointer">✅ Confirmar y registrar pedido</button>'
+    + '<button id="tomador-final-btn" onclick="tomadorConfirmarFinal()" style="width:100%;padding:16px;background:linear-gradient(135deg,#1B5E20,#2E7D32);color:#fff;border:none;border-radius:14px;font-family:Barlow Condensed,sans-serif;font-size:20px;font-weight:900;cursor:pointer">✅ Confirmar y registrar pedido</button>'
     + '</div>'
     + '</div>';
   document.body.appendChild(resumenModal);
@@ -19625,6 +19625,23 @@ async function tomadorConfirmar() {
 }
 
 async function tomadorConfirmarFinal() {
+  // v14.5.0 ANTI-DUP: lock global + botón disabled para impedir doble click.
+  // Mismo patrón que manualWAConfirmar (v14.3.0). Sin esto, doble tap del
+  // chofer/vendedor en el campo generaba 2-3 pedidos con IDs distintos.
+  if (window._tomadorEnviando) {
+    console.warn('[ANTI-DUP] tomadorConfirmarFinal bloqueado por lock activo');
+    return;
+  }
+  window._tomadorEnviando = true;
+  var _btnTom = document.getElementById('tomador-final-btn');
+  if (_btnTom) {
+    _btnTom._textoOriginal = _btnTom.textContent;
+    _btnTom.disabled = true;
+    _btnTom.textContent = 'Enviando...';
+    _btnTom.style.opacity = '0.6';
+    _btnTom.style.cursor = 'wait';
+  }
+
   var modal = document.getElementById('tomador-resumen-modal');
   if (modal) modal.remove();
 
@@ -19633,6 +19650,8 @@ async function tomadorConfirmarFinal() {
   var cliente = _gpsCheckinActivo ? _gpsCheckinActivo.nombre_cliente : '';
   abrirSelectorSucursalSiAplica(cliente, function(res){
     if (!res.continuar) {
+      // v14.5.0 ANTI-DUP: si canceló, liberar lock para que pueda reintentar
+      window._tomadorEnviando = false;
       // Usuario canceló el selector → volvemos al resumen (reabrimos)
       // En la práctica: reabrimos la vista de resumen llamando a tomadorConfirmar de nuevo
       tomadorConfirmar();
@@ -19690,6 +19709,8 @@ function tomadorPedirLocalidadYReintentar(callback) {
 }
 
 async function tomadorConfirmarConEntrega(entregaData) {
+  // v14.5.0 ANTI-DUP: try/finally garantiza liberación del lock pase lo que pase.
+  try {
   var items = Object.keys(_tomadorQtys);
   var cliente   = _gpsCheckinActivo ? _gpsCheckinActivo.nombre_cliente : 'Cliente';
   var vendedor  = vendedorActual || 'Vendedor';
@@ -19845,11 +19866,30 @@ async function tomadorConfirmarConEntrega(entregaData) {
       pedidoSucursalVincular(pedidoId, _tomadorSucursalElegida.id);
     }
 
-    // Recargar pedidos silencioso — no borrar lista si aún no llegó al Sheet
-    setTimeout(function() { cargarPedidos(true); }, 2000);
-    setTimeout(function() { cargarPedidos(true); }, 6000);
-    setTimeout(function() { cargarPedidos(true); }, 12000);
-    setTimeout(function() { cargarPedidos(true); }, 20000);
+    // v14.5.0 OPTIMISTIC: insertar el pedido al array local + registrar
+    // como optimista. Así aparece inmediato y NO desaparece al próximo polling.
+    // Reemplaza los 4 setTimeout(cargarPedidos) que había antes (causaban el
+    // bug "aparece y desaparece").
+    var nuevoPedidoOpt = {
+      pedidoId:    pedidoId,
+      fechaHora:   fecha + ' ' + hora,
+      vendedor:    vendedor,
+      cliente:     cliente,
+      comercio:    '',
+      localidad:   localidadCheckin || '',
+      total:       String(total),
+      items:       items.length,
+      resumen:     lineas.slice(0,3).join(' · ') + (lineas.length > 3 ? '...' : ''),
+      detalle:     detalleSheet,
+      estado:      'Pendiente',
+      fechaEntrega: entregaData && entregaData.dia || '',
+      turnoEntrega: entregaData && entregaData.turno || '',
+      fila:        todosLosPedidos.length + 2
+    };
+    todosLosPedidos.unshift(nuevoPedidoOpt);
+    _pedidosCache = todosLosPedidos.slice();
+    _registrarOptimistico(nuevoPedidoOpt);
+    renderPedidos();
   } catch(e) {
     toast('✅ Pedido enviado por WhatsApp', 'ok');
   }
@@ -19857,6 +19897,10 @@ async function tomadorConfirmarConEntrega(entregaData) {
   tomadorCerrar();
   // Recargar historial GPS para mostrar la visita con pedido
   setTimeout(function() { gpsCargarHistorial(); }, 1500);
+  } finally {
+    // v14.5.0 ANTI-DUP: liberar lock pase lo que pase
+    window._tomadorEnviando = false;
+  }
 }
 
 
