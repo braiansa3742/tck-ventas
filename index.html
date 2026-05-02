@@ -8861,6 +8861,29 @@ body {
   font-size: 11.5px; color: #6D4C00; line-height: 1.45;
 }
 
+/* v14.7.0: botón "🔓 Editar pedido" — destrabar pedido con presupuesto Xubio */
+.xubio-btn-desbloquear {
+  display: block;
+  width: 100%;
+  margin-top: 10px;
+  padding: 12px 14px;
+  background: #fff;
+  color: #B71C1C;
+  border: 1.5px solid #B71C1C;
+  border-radius: 8px;
+  font-family: 'Barlow Condensed', sans-serif;
+  font-size: 14px; font-weight: 800;
+  letter-spacing: 0.3px;
+  cursor: pointer;
+  transition: background 0.15s, color 0.15s;
+  -webkit-tap-highlight-color: transparent;
+}
+.xubio-btn-desbloquear:hover { background: #B71C1C; color: #fff; }
+.xubio-btn-desbloquear:active { transform: scale(0.98); }
+.xubio-btn-desbloquear:disabled {
+  opacity: 0.6; cursor: wait; background: #f0f0f0; color: #888; border-color: #888;
+}
+
 /* Intro arriba del panel */
 .xubio-panel-intro {
   font-size: 12px; color: #8B6F50; line-height: 1.5;
@@ -14163,6 +14186,72 @@ async function cambiarEstado(pedidoId, fila, nuevoEstado, event) {
   }
 }
 
+// v14.7.0: Desbloquear pedido con presupuesto Xubio creado.
+// Solo el vendedor dueño puede usarlo. Anula el presupuesto en Xubio
+// (DELETE /presupuestoBean/{id}) y deja el pedido como Pendiente para editar.
+async function desbloquearPedidoXubio(pedidoId, transaccionid, nroPresupuesto, btnEl) {
+  // Validación previa
+  if (!transaccionid) {
+    toast('⚠️ Falta el ID interno Xubio (transaccionid). Avisá al admin.', 'err');
+    return;
+  }
+  // Confirmación al vendedor
+  var msg = '¿Anular el presupuesto Xubio N° ' + nroPresupuesto + ' y editar el pedido?\n\n' +
+            'Vas a poder modificar el pedido y crear un presupuesto nuevo después.';
+  if (!confirm(msg)) return;
+
+  // Lock del botón mientras espera respuesta (Apps Script tarda ~5seg)
+  var textoOriginal = '';
+  if (btnEl) {
+    textoOriginal = btnEl.textContent;
+    btnEl.disabled = true;
+    btnEl.textContent = '⏳ Anulando presupuesto...';
+  }
+
+  try {
+    var params = new URLSearchParams({
+      accion:         'desbloquearPedidoXubio',
+      pedidoId:       pedidoId,
+      transaccionid:  String(transaccionid),
+      nroPresupuesto: nroPresupuesto || '',
+      vendedor:       vendedorActual || ''
+    });
+    // Estricto: el vendedor TIENE que saber si falló.
+    var resp = await appsScriptFetch(params, { timeout: 30000 });
+    // Apps Script responde con JSON — leerlo
+    var data = await resp.response.json();
+
+    if (data.status !== 'ok') {
+      var msgErr = data.message || 'Error desconocido';
+      console.error('[desbloquearPedidoXubio] Apps Script error:', data);
+      toast('⚠️ ' + msgErr, 'err');
+      if (btnEl) { btnEl.disabled = false; btnEl.textContent = textoOriginal; }
+      return;
+    }
+
+    // OK — actualizar pedido localmente
+    var p = todosLosPedidos.find(function(x){ return x.pedidoId === pedidoId; });
+    if (p) {
+      p.estado = 'Pendiente';
+      p.xubioNroPresupuesto = '';
+      p.xubioTransaccionid  = '';
+      p.xubioEstado         = '';
+      _estadosCambiados[pedidoId] = { estado: 'Pendiente', ts: Date.now() };
+    }
+    renderPedidos(true); // forzar render aunque el hash diga igual
+    toast('✅ Presupuesto N° ' + nroPresupuesto + ' anulado. Editá el pedido y creá uno nuevo.', 'ok');
+
+  } catch(e) {
+    console.error('[desbloquearPedidoXubio]', e);
+    var msgFinal = '⚠️ No se pudo desbloquear el pedido';
+    if (e && e.name === 'AbortError') msgFinal += ' (sin internet o muy lento — Xubio tarda)';
+    else if (e && e.status) msgFinal += ' (server ' + e.status + ')';
+    msgFinal += '\nReintentá en unos segundos. Si persiste, hacelo a mano en Xubio.';
+    toast(msgFinal, 'err');
+    if (btnEl) { btnEl.disabled = false; btnEl.textContent = textoOriginal; }
+  }
+}
+
 // ── TOAST ─────────────────────────────────────────────────────────
 function toast(msg, tipo) {
   var el = document.getElementById('toast');
@@ -15935,6 +16024,14 @@ var _xubioSeleccion = {};
 function buildXubioPanel(p, id) {
   // Si el pedido ya tiene presupuesto Xubio creado, mostrar card de estado
   if (p.xubioNroPresupuesto) {
+    // v14.7.0: el vendedor dueño puede destrabar el pedido para editarlo.
+    // Anula el presupuesto Xubio + lo pasa a Pendiente. Solo el dueño puede.
+    var esVendedorDueno = vendedorActual && p.vendedor &&
+      p.vendedor.toLowerCase().indexOf(vendedorActual.toLowerCase()) !== -1;
+    var btnDesbloquear = '';
+    if (esVendedorDueno) {
+      btnDesbloquear = '<button class="xubio-btn-desbloquear" onclick="desbloquearPedidoXubio(\'' + p.pedidoId + '\', \'' + (p.xubioTransaccionid||'') + '\', \'' + (p.xubioNroPresupuesto||'') + '\', this)">🔓 Editar pedido (anula presupuesto)</button>';
+    }
     return '<div class="xubio-panel xubio-panel-done">'
       + '<div class="xubio-panel-titulo">✅ Presupuesto creado en Xubio</div>'
       + '<div class="xubio-done-card">'
@@ -15944,7 +16041,8 @@ function buildXubioPanel(p, id) {
       +   '</div>'
       +   '<a href="https://xubio.com/NXV/ventas/presupuestos" target="_blank" class="xubio-done-link">Ver en Xubio →</a>'
       + '</div>'
-      + '<div class="xubio-done-warning">⚠️ Este pedido ya no se puede editar ni cancelar. Si hace falta algún cambio, avisale al admin.</div>'
+      + '<div class="xubio-done-warning">⚠️ Si necesitás modificar este pedido, podés anular el presupuesto y editarlo nuevamente. Vas a tener que crear un presupuesto nuevo después.</div>'
+      + btnDesbloquear
       + '</div>';
   }
 
