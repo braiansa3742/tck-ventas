@@ -10978,6 +10978,53 @@ const APPS_SCRIPT_URL = 'https://script.google.com/macros/s/AKfycbxbx9ma8S5wcuRq
 const SHEET_CSV = 'https://docs.google.com/spreadsheets/d/e/2PACX-1vQDZk6Z5pejrI_djbUYBLEvh-X7H_sLF5ZCW2RQr0Bc03r8LOL17_C3pCmwwyLe2iXf3Fan0tgl7IJG/pub?gid=0&single=true&output=csv';
 const NUM_ADMIN = '5492314475357';
 const PINS = { 'Miguel':'3356', 'Juan':'4256', 'Lisandro':'8020', 'ADMIN':'3050', 'Joan':'9060', 'Luis':'7040', 'Juan Pablo':'3070' };
+
+// v14.6.0: Helper para fetches a Apps Script CON manejo de errores real.
+// Reemplaza el patrón anterior `fetch(..., {mode:'no-cors'}).catch(()=>{})`
+// que silenciaba errores y causaba el bug ALMIRON ($105.000 perdidos).
+//
+// Uso:
+//   await appsScriptFetch(params)              → throw si falla
+//   await appsScriptFetch(params, { silent: true }) → loggea, no lanza
+//
+// Apps Script doGet acepta GET con query string y devuelve texto/JSON.
+// Como el endpoint está en script.google.com, hay restricciones CORS:
+// el browser no puede leer el body de la respuesta sin que Apps Script
+// devuelva los headers correctos. Pero SÍ podemos detectar errores HTTP
+// (status >= 400) y errores de red (fetch reject).
+async function appsScriptFetch(params, opts) {
+  opts = opts || {};
+  const silent = !!opts.silent;
+  const timeoutMs = opts.timeout || 15000;
+
+  const url = APPS_SCRIPT_URL + '?' + (typeof params === 'string' ? params : params.toString());
+
+  // AbortController para timeout — clave en celular con red mala
+  const controller = new AbortController();
+  const tid = setTimeout(function(){ controller.abort(); }, timeoutMs);
+
+  try {
+    const res = await fetch(url, { signal: controller.signal });
+    clearTimeout(tid);
+    if (!res.ok) {
+      const err = new Error('Apps Script respondió ' + res.status);
+      err.status = res.status;
+      if (silent) {
+        console.warn('[appsScriptFetch silent]', err.message);
+        return { ok: false, error: err.message };
+      }
+      throw err;
+    }
+    return { ok: true, response: res };
+  } catch (e) {
+    clearTimeout(tid);
+    const tipo = (e.name === 'AbortError') ? 'timeout' : 'red';
+    const msg = '[appsScriptFetch ' + tipo + ']: ' + (e.message || 'desconocido');
+    console.warn(msg, { url: url.substring(0, 120) + '...' });
+    if (silent) return { ok: false, error: msg, tipo: tipo };
+    throw e;
+  }
+}
 const SESSION_KEY   = 'tck_session';
 const SESSION_HORAS = 720; // 30 días — cada vendedor tiene su propio celular
 
@@ -14094,15 +14141,25 @@ async function cambiarEstado(pedidoId, fila, nuevoEstado, event) {
     // Siempre mandamos pedidoId además de fila — el Apps Script puede buscar por pedidoId
     // si la fila está desactualizada (ej: pedidos de campo recién enviados)
     var params = new URLSearchParams({accion:'cambiarEstado', pedidoId:pedidoId, fila:fila, estado:nuevoEstado});
-    await fetch(APPS_SCRIPT_URL+'?'+params.toString(), {mode:'no-cors'});
+    // v14.6.0 NO-CORS FIX: estricto. Si Apps Script falla, el vendedor se entera.
+    // Antes usaba {mode:'no-cors'} que silenciaba errores → cambio aparente OK
+    // pero en realidad no se aplicaba en la Sheet.
+    await appsScriptFetch(params);
     var p = todosLosPedidos.find(function(x){return x.pedidoId===pedidoId;});
     if (p) p.estado = nuevoEstado;
     _estadosCambiados[pedidoId] = { estado: nuevoEstado, ts: Date.now() };
     renderPedidos();
     toast('Estado: '+nuevoEstado, 'ok');
   } catch(e) {
-    btn.disabled=false; btn.textContent=txtOrig;
-    toast('Error al guardar','err');
+    btn.disabled = false; btn.textContent = txtOrig;
+    // v14.6.0 NO-CORS FIX: mostrar el error real al vendedor.
+    // Antes se silenciaba y el cambio "se aplicaba" en pantalla pero no en Sheet.
+    console.error('[cambiarEstado]', e);
+    var msgError = '⚠️ No se pudo guardar el cambio';
+    if (e && e.name === 'AbortError') msgError += ' (sin internet o muy lento)';
+    else if (e && e.status) msgError += ' (Sheet error ' + e.status + ')';
+    msgError += '\nReintentá en unos segundos';
+    toast(msgError, 'err');
   }
 }
 
@@ -19837,7 +19894,10 @@ async function tomadorConfirmarConEntrega(entregaData) {
       turno_entrega: entregaData ? entregaData.turno : ''
     });
 
-    fetch(APPS_SCRIPT_URL + '?' + params.toString(), {mode: 'no-cors'}).catch(function(){});
+    // v14.6.0 NO-CORS FIX: estricto. Si Apps Script falla, el catch externo
+    // de tomadorConfirmarConEntrega (try/finally del lock) maneja el error
+    // y muestra toast. Antes era fire-and-forget silencioso → bug ALMIRON.
+    await appsScriptFetch(params);
 
     // v9.2: Descontar stock de combos en Supabase (fire-and-forget)
     if (combosAplicados.length > 0) {
@@ -19891,7 +19951,14 @@ async function tomadorConfirmarConEntrega(entregaData) {
     _registrarOptimistico(nuevoPedidoOpt);
     renderPedidos();
   } catch(e) {
-    toast('✅ Pedido enviado por WhatsApp', 'ok');
+    // v14.6.0 NO-CORS FIX: error real visible (antes decía "✅ Pedido enviado
+    // por WhatsApp" aunque hubiera fallado el guardado en la Sheet — bug ALMIRON).
+    console.error('[tomadorConfirmarConEntrega]', e);
+    var msgErrTom = '⚠️ El pedido NO se guardó';
+    if (e && e.name === 'AbortError') msgErrTom += ' (sin internet)';
+    else if (e && e.status) msgErrTom += ' (server ' + e.status + ')';
+    msgErrTom += '\nReintentá. Si persiste, avisá al admin.';
+    toast(msgErrTom, 'err');
   }
 
   tomadorCerrar();
@@ -25035,7 +25102,9 @@ async function _dupLogAccion(payload) {
       fila: p.fila,
       nota: notaNueva
     });
-    fetch(APPS_SCRIPT_URL + '?' + params.toString(), { mode: 'no-cors' }).catch(function(){});
+    // v14.6.0 NO-CORS FIX: silent porque es solo log de auditoría.
+    // Si falla no afecta UX, pero loggea en console para debug.
+    await appsScriptFetch(params, { silent: true });
     p.nota = notaNueva;
   } catch(e) {
     console.warn('[v9.0] No se pudo anotar en Sheet:', e);
@@ -25081,7 +25150,9 @@ async function dupCancelarPedido(pedidoId) {
 
   try {
     var params = new URLSearchParams({ accion: 'cambiarEstado', pedidoId: pedidoId, fila: p.fila, estado: 'Cancelado' });
-    await fetch(APPS_SCRIPT_URL + '?' + params.toString(), { mode: 'no-cors' });
+    // v14.6.0 NO-CORS FIX: estricto. Si falla, el pedido NO queda cancelado en
+    // la Sheet y vendedor/admin tienen que saberlo.
+    await appsScriptFetch(params);
     p.estado = 'Cancelado';
     _estadosCambiados[pedidoId] = { estado: 'Cancelado', ts: Date.now() };
     _dupModalState.cancelados.add(pedidoId);
@@ -25101,7 +25172,13 @@ async function dupCancelarPedido(pedidoId) {
     renderPedidos();
     toast('✕ Pedido cancelado', 'ok');
   } catch(e) {
-    toast('Error al cancelar', 'err');
+    // v14.6.0 NO-CORS FIX: error real
+    console.error('[dupCancelarPedido]', e);
+    var msgErrCanc = '⚠️ No se pudo cancelar el pedido';
+    if (e && e.name === 'AbortError') msgErrCanc += ' (sin internet)';
+    else if (e && e.status) msgErrCanc += ' (server ' + e.status + ')';
+    msgErrCanc += '\nReintentá en unos segundos.';
+    toast(msgErrCanc, 'err');
   }
 }
 
@@ -25284,7 +25361,9 @@ async function dupMarcarDistintosDirecto(pedidoId) {
       vendedor: (vendedorActual || ''),
       motivo:   'Marcado como legítimo desde card (sin abrir modal)'
     });
-    fetch(APPS_SCRIPT_URL + '?' + params.toString(), { mode: 'no-cors' }).catch(function(){});
+    // v14.6.0 NO-CORS FIX: silent — el resultado se ve en el cache local
+    // de inmediato. Si el fetch falla, log en console para debug.
+    appsScriptFetch(params, { silent: true });
     // Actualizar cache local también
     try {
       if (window._dupNoDupSet) {
@@ -25357,7 +25436,8 @@ async function dupMarcarDistintos() {
       vendedor: (vendedorActual || ''),
       motivo:   'Marcado como legítimo desde app'
     });
-    fetch(APPS_SCRIPT_URL + '?' + params.toString(), { mode: 'no-cors' }).catch(function(){});
+    // v14.6.0 NO-CORS FIX: silent (idem dupMarcarDistintosDirecto)
+    appsScriptFetch(params, { silent: true });
     // Actualizar cache local también (si existe)
     try {
       if (window._dupNoDupSet) {
@@ -25762,7 +25842,14 @@ async function dupUnirPedidos() {
       resumenPedido: resumenNuevo,
       detallePedido: nuevoDetalle
     });
-    await fetch(APPS_SCRIPT_URL + '?' + paramsUpd.toString(), { mode: 'no-cors' });
+    // v14.6.0 NO-CORS FIX: silent pero detecta fallo. Si paso 1 falla, abortamos
+    // toda la operación de unir — mejor no avanzar y dejar todo como estaba.
+    var r1 = await appsScriptFetch(paramsUpd, { silent: true });
+    if (!r1.ok) {
+      console.error('[dupUnirPedidos paso 1]', r1.error);
+      toast('⚠️ No se pudo unir los pedidos (paso 1)\nRevisá manualmente en la Sheet', 'err');
+      return;
+    }
 
     // Actualizar en memoria
     principal.vendedor = s.acreditarA;
@@ -25778,26 +25865,37 @@ async function dupUnirPedidos() {
     if (principal.nota && principal.nota.trim()) {
       notaPrincipal = principal.nota + ' | ' + notaPrincipal;
     }
-    await fetch(APPS_SCRIPT_URL + '?accion=guardarNota&pedidoId=' + encodeURIComponent(principal.pedidoId)
-      + '&nota=' + encodeURIComponent(notaPrincipal), { mode: 'no-cors' });
+    // v14.6.0 NO-CORS FIX: silent (la nota es info auxiliar, no rompe el flujo si falla)
+    var r2 = await appsScriptFetch('accion=guardarNota&pedidoId=' + encodeURIComponent(principal.pedidoId)
+      + '&nota=' + encodeURIComponent(notaPrincipal), { silent: true });
+    if (!r2.ok) console.warn('[dupUnirPedidos paso 2 nota]', r2.error);
     principal.nota = notaPrincipal;
 
     // PASO 3: Cancelar los restantes con nota vinculante
     for (var i = 0; i < restantes.length; i++) {
       var r = restantes[i];
       var notaCancel = '❌ Unido al pedido ' + principal.pedidoId;
-      await fetch(APPS_SCRIPT_URL + '?accion=guardarNota&pedidoId=' + encodeURIComponent(r.pedidoId)
-        + '&nota=' + encodeURIComponent(notaCancel), { mode: 'no-cors' });
+      // v14.6.0 NO-CORS FIX: silent en nota, estricto en cancelación
+      var r3a = await appsScriptFetch('accion=guardarNota&pedidoId=' + encodeURIComponent(r.pedidoId)
+        + '&nota=' + encodeURIComponent(notaCancel), { silent: true });
+      if (!r3a.ok) console.warn('[dupUnirPedidos paso 3 nota]', r3a.error);
       var paramsCancel = new URLSearchParams({
         accion:   'cambiarEstado',
         pedidoId: r.pedidoId,
         fila:     String(r.fila),
         estado:   'Cancelado'
       });
-      await fetch(APPS_SCRIPT_URL + '?' + paramsCancel.toString(), { mode: 'no-cors' });
-      r.estado = 'Cancelado';
-      r.nota = notaCancel;
-      _estadosCambiados[r.pedidoId] = { estado: 'Cancelado', ts: Date.now() };
+      // Esta SÍ es crítica: si no se cancela, queda el pedido duplicado activo
+      var r3b = await appsScriptFetch(paramsCancel, { silent: true });
+      if (!r3b.ok) {
+        console.error('[dupUnirPedidos paso 3 cancelar]', r3b.error);
+        toast('⚠️ Pedido ' + r.pedidoId + ' no se pudo cancelar\nVerificá en la Sheet', 'err');
+        // No abortamos el resto — los demás todavía pueden intentarse
+      } else {
+        r.estado = 'Cancelado';
+        r.nota = notaCancel;
+        _estadosCambiados[r.pedidoId] = { estado: 'Cancelado', ts: Date.now() };
+      }
     }
 
     // PASO 4: Marcar el grupo como revisado localmente
