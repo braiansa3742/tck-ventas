@@ -12770,28 +12770,21 @@ function notificarNuevoPedido(cantidad) {
 }
 
 function notificarDuplicados(dups) {
-  // Los choferes no necesitan ver alertas de duplicados
+  // v14.4.0: Opción 4 — toast + tono corto, sin banner persistente ni botón
+  // "Avisar admin". El banner rojo abajo (mostrarBotonAlertaAdmin) era muy
+  // invasivo: tapaba contenido hasta cerrarlo. Después del fix anti-dup
+  // v14.3.0, los duplicados deberían ser excepción, no rutina.
   const esChofer = vendedorActual === 'Joan' || vendedorActual === 'Luis' || vendedorActual === 'Juan Pablo';
   if (esChofer) return;
   const nuevos = dups.filter(p => !duplicadosNotificados.has(p.pedidoId));
   if (!nuevos.length) return;
   nuevos.forEach(p => duplicadosNotificados.add(p.pedidoId));
-  sonarTono([1200, 800, 1200, 600], 0.15);
-  if (navigator.vibrate) navigator.vibrate([300, 100, 300, 100, 300]);
-  toast('⚠️ ' + nuevos.length + ' duplicado' + (nuevos.length > 1 ? 's' : '') + ' detectado' + (nuevos.length > 1 ? 's' : '') + '!', 'err');
-  setTimeout(function() {
-    const hora = new Date().toLocaleTimeString('es-AR', {hour:'2-digit', minute:'2-digit'});
-    let msg = '⚠️ *TCK — Pedidos duplicados detectados*\n🕐 ' + hora + '\n\n';
-    nuevos.forEach(function(p) {
-      msg += '👤 *' + p.cliente + '*';
-      if (p.comercio) msg += ' (' + p.comercio + ')';
-      msg += '\n💰 ' + fmtTotal(p.total) + ' · ' + p.localidad;
-      msg += '\n📋 ' + p.pedidoId;
-      msg += '\n⚠️ También en: ' + (p.duplicadoCon || 'otro vendedor') + '\n\n';
-    });
-    msg += '_Verificar antes de remitir_';
-    mostrarBotonAlertaAdmin(msg);
-  }, 1000);
+  // Tono corto (1 nota, no 4) y vibración mínima
+  sonarTono([1000], 0.12);
+  if (navigator.vibrate) navigator.vibrate(150);
+  toast('⚠️ ' + nuevos.length + ' duplicado' + (nuevos.length > 1 ? 's' : '') + ' detectado' + (nuevos.length > 1 ? 's' : '') + ' — verificá antes de remitir', 'err');
+  // v14.4.0: REMOVIDO el banner persistente y el botón "Avisar admin".
+  // El admin ve los duplicados directamente en su panel.
 }
 
 function mostrarBotonAlertaAdmin(msg) {
@@ -12952,7 +12945,8 @@ function login(nombre) {
   }, 300);
   mostrarTabs();
   mostrarBotonesManual();
-  checkPrimeraVez();
+  // v14.4.0: removido checkPrimeraVez() — el manual ya no se abre solo al inicio.
+  // Sigue accesible vía botón 📖 en el header. Razón: nadie lo miraba y molestaba.
   // Pantalla de inicio según rol:
   //   Vendedor real (Miguel/Juan/Lisandro) → Mi Ronda (es el flujo principal)
   //   Admin → Pedidos (resumen del día)
