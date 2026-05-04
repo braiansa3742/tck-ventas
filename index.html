@@ -2,7 +2,24 @@
 <html lang="es">
 <head>
 <!-- ═══════════════════════════════════════════════════════════════════════
-     TCK VENTAS — v14.2 — 02/05/2026
+     TCK VENTAS — v14.8.0 — 04/05/2026
+
+    Cambios v14.8.0 (sobre v14.7.0):
+      - NUEVO: Chips horizontales arriba de la lista de entregas con el recorrido
+        del chofer. Cada ciudad numerada según rutas.orden de Supabase (no más
+        ordenamiento alfabético / RUTA_FIJA hardcoded).
+      - Próxima parada destacada en rojo TCK (#E65100) con etiqueta "próxima"
+      - Ciudades completadas se atenúan, se tachan y muestran ✓ N/N
+      - Tap en chip → scroll suave a la card de esa ciudad con flash visual
+      - Auto-scroll inicial a la próxima parada pendiente al cargar la app
+        (Luis ya no tiene que pasar Berutti/Paso si ya entregó esas)
+      - Cache de tabla rutas (1h) para no consultar Supabase en cada render
+      - Helper ordenDeCiudad() con match exacto y match parcial (fallback)
+      
+    Sin cambios en: lógica de marcar entregado/no encontrado, modal de detalle,
+    login, comunicación con Apps Script. El cambio es 100% client-side.
+
+    TCK VENTAS — v14.2 — 02/05/2026
      ──────────────────────────────────────────────────────────────────────
      ENTREGA: Vendedor — F3 + F9 + F-Modal
 
@@ -4971,6 +4988,117 @@ body {
 .entrega-card.completada .entrega-card-hdr { background: linear-gradient(135deg,#2E7D32,#388E3C); }
 .entrega-card-ciudad { font-family: 'Barlow Condensed',sans-serif; font-size: 16px; font-weight: 900; color: #fff; }
 .entrega-card-orden { background: rgba(255,255,255,.2); border-radius: 20px; padding: 3px 10px; font-size: 11px; font-weight: 800; color: #fff; }
+
+/* ── v14.8: chips horizontales del recorrido ── */
+.ch-chips-wrap {
+  background: #fff;
+  border-radius: 14px;
+  margin-bottom: 10px;
+  border: 1.5px solid rgba(0,0,0,.06);
+  overflow: hidden;
+  box-shadow: 0 2px 8px rgba(0,0,0,.05);
+}
+.ch-chips-header {
+  padding: 8px 14px 6px;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  border-bottom: 1px solid rgba(0,0,0,.05);
+}
+.ch-chips-titulo {
+  font-family: 'Barlow Condensed', sans-serif;
+  font-size: 12px;
+  font-weight: 700;
+  color: #666;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+.ch-chips-progreso {
+  font-size: 11px;
+  color: #999;
+  font-weight: 600;
+}
+.ch-chips-scroll {
+  display: flex;
+  gap: 8px;
+  overflow-x: auto;
+  padding: 10px 14px;
+  scrollbar-width: none;
+  -ms-overflow-style: none;
+  -webkit-overflow-scrolling: touch;
+}
+.ch-chips-scroll::-webkit-scrollbar { display: none; }
+.ch-chip {
+  flex-shrink: 0;
+  min-width: 78px;
+  padding: 8px 12px;
+  border-radius: 10px;
+  cursor: pointer;
+  touch-action: manipulation;
+  transition: transform 0.1s ease;
+  user-select: none;
+}
+.ch-chip:active { transform: scale(0.95); }
+.ch-chip-num {
+  font-size: 10px;
+  line-height: 1;
+  margin-bottom: 3px;
+  font-weight: 600;
+  opacity: 0.7;
+}
+.ch-chip-nombre {
+  font-family: 'Barlow Condensed', sans-serif;
+  font-size: 14px;
+  font-weight: 800;
+  line-height: 1.1;
+  white-space: nowrap;
+}
+.ch-chip-meta {
+  font-size: 10px;
+  margin-top: 3px;
+  line-height: 1;
+  opacity: 0.85;
+}
+/* Pendiente (estado por defecto) */
+.ch-chip-pendiente {
+  background: #fff;
+  border: 1.5px solid rgba(0,0,0,.12);
+  color: #333;
+}
+.ch-chip-pendiente .ch-chip-num { color: #999; }
+.ch-chip-pendiente .ch-chip-meta { color: #666; }
+/* Próxima parada — destacada en rojo TCK */
+.ch-chip-proxima {
+  background: #E65100;
+  border: 1.5px solid #E65100;
+  color: #fff;
+  box-shadow: 0 2px 8px rgba(230,81,0,.3);
+  min-width: 92px;
+}
+.ch-chip-proxima .ch-chip-num { color: rgba(255,255,255,0.9); opacity: 1; }
+.ch-chip-proxima .ch-chip-nombre { font-size: 15px; }
+.ch-chip-proxima .ch-chip-meta { color: rgba(255,255,255,0.95); opacity: 1; }
+/* Completada — atenuada y tachada */
+.ch-chip-completada {
+  background: #F5F5F5;
+  border: 1.5px solid rgba(0,0,0,.08);
+  opacity: 0.55;
+}
+.ch-chip-completada .ch-chip-nombre {
+  text-decoration: line-through;
+  color: #888;
+}
+.ch-chip-completada .ch-chip-num { color: #aaa; }
+.ch-chip-completada .ch-chip-meta { color: #2E7D32; font-weight: 700; opacity: 1; }
+/* Flash al hacer scroll a una card */
+@keyframes ch-card-flash-anim {
+  0% { box-shadow: 0 0 0 0 rgba(230,81,0,0); }
+  30% { box-shadow: 0 0 0 4px rgba(230,81,0,0.4); }
+  100% { box-shadow: 0 0 0 0 rgba(230,81,0,0); }
+}
+.ch-card-flash {
+  animation: ch-card-flash-anim 1.2s ease-out;
+}
 
 /* ── Items de cliente — tappable ── */
 .entrega-item {
@@ -20097,6 +20225,205 @@ let _entregasCache = [];
 let _viajeActivo = null;
 let _viajeActivoLoadedAt = null;
 let _rutasCache = null;
+let _rutasCacheLoadedAt = null;
+const RUTAS_CACHE_TTL_MS = 60 * 60 * 1000; // 1 hora
+
+// ───────────────────────────────────────────────────────────────
+// v14.8 — Cargar tabla rutas de Supabase con cache 1h
+// Devuelve un mapa { 'ciudad_normalizada': orden_int }
+// Si falla la query, devuelve {} (no rompe el flujo del chofer)
+// ───────────────────────────────────────────────────────────────
+async function cargarRutasOrden() {
+  // Cache válida y reciente
+  if (_rutasCache && _rutasCacheLoadedAt &&
+      (Date.now() - _rutasCacheLoadedAt.getTime()) < RUTAS_CACHE_TTL_MS) {
+    return _rutasCache;
+  }
+  try {
+    const data = await sbFetch('rutas?select=ciudad,orden,zona&activo=eq.true&order=orden.asc');
+    const map = {};
+    if (Array.isArray(data)) {
+      data.forEach(function(r) {
+        if (r && r.ciudad && typeof r.orden === 'number') {
+          map[normalizarCiudad(r.ciudad)] = {
+            orden: r.orden,
+            ciudadOriginal: r.ciudad,
+            zona: r.zona
+          };
+        }
+      });
+    }
+    _rutasCache = map;
+    _rutasCacheLoadedAt = new Date();
+    return _rutasCache;
+  } catch(err) {
+    console.warn('cargarRutasOrden falló:', err);
+    // En caso de error, devolver mapa vacío (el render funciona igual,
+    // solo que el orden será alfabético como antes)
+    return {};
+  }
+}
+
+// Helper: normalizar nombre de ciudad para match (lowercase, sin acentos)
+function normalizarCiudad(s) {
+  if (!s) return '';
+  return String(s).toLowerCase().trim()
+    .normalize('NFD').replace(/[\u0300-\u036f]/g, '');
+}
+
+// ───────────────────────────────────────────────────────────────
+// v14.8 — Devuelve el orden de una ciudad según rutas Supabase.
+// Si no encuentra, devuelve 999 (va al final)
+// ───────────────────────────────────────────────────────────────
+function ordenDeCiudad(ciudad) {
+  if (!_rutasCache) return 999;
+  const key = normalizarCiudad(ciudad);
+  if (_rutasCache[key]) return _rutasCache[key].orden;
+  // Match parcial: si la ciudad del pedido contiene/es contenida en una ruta
+  const keys = Object.keys(_rutasCache);
+  for (var i = 0; i < keys.length; i++) {
+    if (key.indexOf(keys[i]) >= 0 || keys[i].indexOf(key) >= 0) {
+      return _rutasCache[keys[i]].orden;
+    }
+  }
+  return 999;
+}
+
+
+// ───────────────────────────────────────────────────────────────
+// v14.8 — CHIPS DE CIUDADES (recorrido del chofer)
+// Renderiza la barra horizontal con todas las paradas del viaje,
+// numeradas según rutas.orden, con estado:
+//   - completada (todos los pedidos entregados/no_encontrado): atenuada + tachado + ✓
+//   - próxima pendiente: rojo TCK destacado
+//   - pendiente: blanco con borde
+// ───────────────────────────────────────────────────────────────
+function renderChipsCiudades(entregas) {
+  if (!entregas || !entregas.length) return '';
+  
+  // Agrupar TODAS las entregas (no solo activas) por ciudad
+  // para mostrar todos los chips, completados y pendientes
+  const porCiudad = {};
+  entregas.forEach(function(e) {
+    const c = e.ciudad || 'Sin ciudad';
+    if (!porCiudad[c]) porCiudad[c] = [];
+    porCiudad[c].push(e);
+  });
+  
+  // Ordenar por rutas.orden
+  const ciudades = Object.keys(porCiudad).sort(function(a, b) {
+    const oa = ordenDeCiudad(a);
+    const ob = ordenDeCiudad(b);
+    if (oa !== ob) return oa - ob;
+    return a.localeCompare(b);
+  });
+  
+  if (ciudades.length === 0) return '';
+  
+  // Calcular estado de cada ciudad y encontrar la próxima pendiente
+  const estados = ciudades.map(function(c) {
+    const items = porCiudad[c];
+    const total = items.length;
+    const finalizados = items.filter(function(e) {
+      return e.estado === 'entregado' || e.estado === 'no_encontrado';
+    }).length;
+    const pendientes = total - finalizados;
+    const completada = (pendientes === 0 && total > 0);
+    return {
+      ciudad: c,
+      orden: ordenDeCiudad(c),
+      total: total,
+      pendientes: pendientes,
+      completada: completada
+    };
+  });
+  
+  // La "próxima" es la primera no completada en orden de ruta
+  var proximaIdx = -1;
+  for (var i = 0; i < estados.length; i++) {
+    if (!estados[i].completada) { proximaIdx = i; break; }
+  }
+  
+  // Header arriba de los chips: progreso de ciudades
+  const ciudadesCompletadas = estados.filter(function(s) { return s.completada; }).length;
+  const totalCiudades = estados.length;
+  
+  let html = '<div class="ch-chips-wrap">';
+  html += '  <div class="ch-chips-header">';
+  html += '    <span class="ch-chips-titulo">Recorrido</span>';
+  html += '    <span class="ch-chips-progreso">' + ciudadesCompletadas + ' / ' + totalCiudades + ' ciudades</span>';
+  html += '  </div>';
+  html += '  <div class="ch-chips-scroll" id="ch-chips-scroll">';
+  
+  estados.forEach(function(s, idx) {
+    const numeroVisible = (s.orden && s.orden !== 999) ? s.orden : (idx + 1);
+    const esProxima = (idx === proximaIdx);
+    let cls = 'ch-chip';
+    if (s.completada) cls += ' ch-chip-completada';
+    else if (esProxima) cls += ' ch-chip-proxima';
+    else cls += ' ch-chip-pendiente';
+    
+    // Atributo data-ciudad para el handler de scroll
+    const ciudadEsc = s.ciudad.replace(/"/g, '&quot;').replace(/'/g, "\\'");
+    html += '<div class="' + cls + '" data-ciudad="' + ciudadEsc + '" onclick="scrollAChip(\'' + ciudadEsc + '\')">';
+    
+    if (esProxima) {
+      html += '  <div class="ch-chip-num">' + numeroVisible + ' · próxima</div>';
+      html += '  <div class="ch-chip-nombre">' + s.ciudad + '</div>';
+      html += '  <div class="ch-chip-meta">' + s.pendientes + ' pedido' + (s.pendientes !== 1 ? 's' : '') + '</div>';
+    } else if (s.completada) {
+      html += '  <div class="ch-chip-num">' + numeroVisible + '</div>';
+      html += '  <div class="ch-chip-nombre">' + s.ciudad + '</div>';
+      html += '  <div class="ch-chip-meta">✓ ' + s.total + '/' + s.total + '</div>';
+    } else {
+      html += '  <div class="ch-chip-num">' + numeroVisible + '</div>';
+      html += '  <div class="ch-chip-nombre">' + s.ciudad + '</div>';
+      html += '  <div class="ch-chip-meta">' + s.pendientes + ' pedido' + (s.pendientes !== 1 ? 's' : '') + '</div>';
+    }
+    html += '</div>';
+  });
+  
+  html += '  </div>';
+  html += '</div>';
+  return html;
+}
+
+// ───────────────────────────────────────────────────────────────
+// v14.8 — Tap en chip → scroll suave a la card de esa ciudad
+// ───────────────────────────────────────────────────────────────
+function scrollAChip(ciudad) {
+  if (!ciudad) return;
+  const ciudadNorm = normalizarCiudad(ciudad);
+  // Buscar la card de esa ciudad por data-attr
+  const cards = document.querySelectorAll('.entrega-card[data-ciudad-norm]');
+  for (var i = 0; i < cards.length; i++) {
+    if (cards[i].getAttribute('data-ciudad-norm') === ciudadNorm) {
+      cards[i].scrollIntoView({ behavior: 'smooth', block: 'start' });
+      // Pequeño "flash" para indicar dónde llegó
+      cards[i].classList.add('ch-card-flash');
+      setTimeout(function() { cards[i].classList.remove('ch-card-flash'); }, 1200);
+      return;
+    }
+  }
+  // Si no encontró la card (todos los pedidos están en sección "completadas"), scroll arriba
+  const lista = document.getElementById('entregas-lista');
+  if (lista) lista.scrollIntoView({ behavior: 'smooth', block: 'start' });
+}
+
+// ───────────────────────────────────────────────────────────────
+// v14.8 — Auto-scroll a la próxima ciudad pendiente al cargar
+// (se llama 100ms después de renderEntregas)
+// ───────────────────────────────────────────────────────────────
+function scrollAProximaCiudad() {
+  const proximoChip = document.querySelector('.ch-chip-proxima');
+  if (!proximoChip) return;
+  const ciudad = proximoChip.getAttribute('data-ciudad');
+  if (!ciudad) return;
+  scrollAChip(ciudad);
+  // También centrar el chip en la barra horizontal
+  proximoChip.scrollIntoView({ behavior: 'smooth', block: 'nearest', inline: 'center' });
+}
+
 
 // ───────────────────────────────────────────────────────────────
 // Cargar el viaje activo del chofer (en_ruta) — si tiene
@@ -20830,10 +21157,16 @@ async function cargarEntregas() {
 
     _entregasCache = entregas || [];
     
-    // Cargar coordenadas GPS de los clientes en paralelo
-    await cargarCoordsClientes(_entregasCache);
+    // v14.8: Cargar rutas (orden) y coordenadas GPS en paralelo
+    await Promise.all([
+      cargarCoordsClientes(_entregasCache),
+      cargarRutasOrden()
+    ]);
     renderEntregas(_entregasCache);
     renderResumenChofer(_entregasCache);
+    
+    // v14.8: auto-scroll a la próxima ciudad pendiente
+    setTimeout(scrollAProximaCiudad, 100);
 
   } catch(e) {
     el.innerHTML = '<div style="text-align:center;padding:40px;color:var(--text3);">Error al cargar. Tocá para reintentar.</div>';
@@ -21013,6 +21346,9 @@ function renderEntregas(entregas) {
 
   // v14.0: prepend del header de viaje activo
   const headerHtml = renderViajeHeader();
+  
+  // v14.8: chips horizontales de ciudades del recorrido
+  const chipsHtml = renderChipsCiudades(entregas);
 
   if (!entregas.length) {
     el.innerHTML = headerHtml + '<div style="text-align:center;padding:40px;color:var(--text3);font-size:14px;">📭 No hay entregas asignadas para hoy.</div>';
@@ -21039,10 +21375,13 @@ function renderEntregas(entregas) {
     porCiudad[c].push(e);
   });
 
+  // v14.8: ordenar por rutas.orden de Supabase (con fallback a RUTA_FIJA)
   const ciudades = Object.keys(porCiudad).sort((a, b) => {
-    const ia = RUTA_FIJA.findIndex(c => a.toLowerCase().includes(c.toLowerCase()));
-    const ib = RUTA_FIJA.findIndex(c => b.toLowerCase().includes(c.toLowerCase()));
-    return (ia === -1 ? 999 : ia) - (ib === -1 ? 999 : ib);
+    const oa = ordenDeCiudad(a);
+    const ob = ordenDeCiudad(b);
+    if (oa !== ob) return oa - ob;
+    // Empate (ambos 999): orden alfabético como fallback
+    return a.localeCompare(b);
   });
 
   let html = '';
@@ -21057,7 +21396,9 @@ function renderEntregas(entregas) {
       return s + (m < 1000 && m > 0 ? m*1000 : m);
     }, 0);
 
-    html += '<div class="entrega-card' + (allDone ? ' completada' : '') + '">' +
+    // v14.8: data-ciudad-norm para el handler de scroll desde chips
+    var _ciudadNorm = normalizarCiudad(ciudad);
+    html += '<div class="entrega-card' + (allDone ? ' completada' : '') + '" data-ciudad-norm="' + _ciudadNorm + '">' +
       '<div class="entrega-card-hdr">' +
         '<div>' +
           '<div class="entrega-card-ciudad">📍 ' + ciudad + '</div>' +
@@ -21242,7 +21583,7 @@ function renderEntregas(entregas) {
   }
 
   // v14.0: prepend del header de viaje activo
-  el.innerHTML = headerHtml + html;
+  el.innerHTML = headerHtml + chipsHtml + html;
 }
 
 // v14.0: toggle de sección "Completadas hoy"
