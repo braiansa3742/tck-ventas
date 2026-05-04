@@ -2,7 +2,21 @@
 <html lang="es">
 <head>
 <!-- ═══════════════════════════════════════════════════════════════════════
-     TCK VENTAS — v14.8.0 — 04/05/2026
+     TCK VENTAS — v14.8.1 — 04/05/2026
+
+    Cambios v14.8.1 (sobre v14.8.0):
+      - Búsqueda de clientes en "Cargar pedido por WA" mejorada:
+        · Match INSENSIBLE A TILDES: "gimenez" matchea "Giménez" y viceversa
+          (resuelve corrector del celular que mete tildes solas)
+        · Xubio PRIMERO en la lista (fuente confiable). Antes los locales
+          tapaban a Xubio y un cliente nuevo de Xubio quedaba fuera.
+        · Límite subido de 6 a 10 sugerencias visibles.
+        · Query usa columna `nombre_norm` (sin tildes) en Supabase para
+          match server-side correcto.
+      - Helper nuevo _mwaNormalizarTexto() para deduplicar y matchear
+        sin tildes ni mayúsculas.
+
+    TCK VENTAS — v14.8.0 — 04/05/2026
 
     Cambios v14.8.0 (sobre v14.7.0):
       - NUEVO: Chips horizontales arriba de la lista de entregas con el recorrido
@@ -23733,6 +23747,16 @@ function cerrarCargaManualWA() {
 }
 
 let _mwaBuscarTimer = null;
+// v14.8.1: helper para normalizar texto (sacar tildes/acentos)
+// Usado por la búsqueda de clientes para que "Gimenez" matchee "Giménez"
+// y viceversa cuando el autocorrector del cel pone tildes raras.
+function _mwaNormalizarTexto(s) {
+  if (!s) return '';
+  return String(s).toLowerCase()
+    .normalize('NFD').replace(/[\u0300-\u036f]/g, '')
+    .trim();
+}
+
 function manualWABuscarCliente(q) {
   clearTimeout(_mwaBuscarTimer);
   const el = document.getElementById('mwa-sugerencias');
@@ -23743,28 +23767,38 @@ function manualWABuscarCliente(q) {
   el.innerHTML = '<div style="padding:8px;color:var(--text3);font-size:12px;">Buscando...</div>';
 
   _mwaBuscarTimer = setTimeout(function() {
-    // 1. Buscar en historial local
+    // v14.8.1: normalizar query (sin tildes, lowercase) para match local
+    const qNorm = _mwaNormalizarTexto(q);
+    
+    // 1. Buscar en historial local (insensible a tildes)
     const nombresLocal = new Set();
     todosLosPedidos.forEach(function(p) {
-      if (p.cliente && p.cliente.toLowerCase().includes(q.toLowerCase())) {
+      if (p.cliente && _mwaNormalizarTexto(p.cliente).includes(qNorm)) {
         nombresLocal.add(p.cliente + '|||' + (p.localidad||''));
       }
     });
 
     function renderSugerencias(extras) {
       const todos = new Map();
-      // Locales primero
+      // v14.8.1: Xubio PRIMERO (fuente confiable, prioritaria)
+      (extras || []).forEach(function(c) {
+        const nombre = c.nombre || c.razonSocial || '';
+        const key = _mwaNormalizarTexto(nombre);
+        if (key) {
+          todos.set(key, {
+            nombre: nombre,
+            loc: c.localidad || '',
+            fuente: 'xubio'
+          });
+        }
+      });
+      // Locales DESPUÉS (solo agregan los que no estaban en Xubio)
       Array.from(nombresLocal).forEach(function(s) {
         const [nombre, loc] = s.split('|||');
-        todos.set(nombre.toLowerCase(), { nombre, loc, fuente: 'historial' });
-      });
-      // Xubio encima (más confiable)
-      (extras || []).forEach(function(c) {
-        todos.set((c.nombre||c.razonSocial||'').toLowerCase(), {
-          nombre: c.nombre || c.razonSocial || '',
-          loc: c.localidad || '',
-          fuente: 'xubio'
-        });
+        const key = _mwaNormalizarTexto(nombre);
+        if (key && !todos.has(key)) {
+          todos.set(key, { nombre: nombre, loc: loc, fuente: 'historial' });
+        }
       });
 
       if (!todos.size) {
@@ -23772,7 +23806,8 @@ function manualWABuscarCliente(q) {
         return;
       }
 
-      el.innerHTML = Array.from(todos.values()).slice(0,6).map(function(c) {
+      // v14.8.1: subido de 6 a 10 sugerencias visibles
+      el.innerHTML = Array.from(todos.values()).slice(0,10).map(function(c) {
         const badge = c.fuente === 'xubio'
           ? '<span style="background:#E8F5E9;color:#2E7D32;border-radius:10px;padding:1px 6px;font-size:10px;font-weight:700;margin-left:4px;">Xubio</span>'
           : '';
@@ -23783,10 +23818,14 @@ function manualWABuscarCliente(q) {
       }).join('');
     }
 
-    // 2. v14.2 F3: Buscar también en Xubio DIRECTO en Supabase (más rápido que Apps Script)
+    // 2. v14.2 F3: Buscar en Xubio DIRECTO en Supabase
+    //    v14.8.1: usar nombre_norm (insensible a tildes) si el query tiene tildes
+    //    El campo nombre_norm en Supabase ya viene sin tildes (lo arma _xubioNormalizarTexto)
+    var qParaXubio = qNorm; // sin tildes
     var path = 'clientes_xubio?select=id,nombre,cuit,localidad'
-             + '&or=(nombre.ilike.*' + encodeURIComponent(q) + '*,cuit.ilike.*' + encodeURIComponent(q) + '*)'
-             + '&limit=10';
+             + '&or=(nombre_norm.ilike.*' + encodeURIComponent(qParaXubio) + '*'
+             +     ',cuit.ilike.*' + encodeURIComponent(qParaXubio) + '*)'
+             + '&limit=15';
     sbFetch(path)
       .then(function(filas) {
         if (!Array.isArray(filas)) { renderSugerencias([]); return; }
