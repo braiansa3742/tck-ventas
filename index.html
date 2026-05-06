@@ -2,7 +2,14 @@
 <html lang="es">
 <head>
 <!-- ═══════════════════════════════════════════════════════════════════════
-     TCK VENTAS — v14.9.0 — 05/05/2026
+     TCK VENTAS — v14.9.1 — 05/05/2026
+
+    Cambio v14.9.1 (sobre v14.9.0):
+      - ALTA DE STOCK: Suprema IQF (x 15 Kg) sale del set
+        TOMADOR_SIN_STOCK_AVISO. El aviso amarillo desaparece y queda
+        disponible normal en el tomador.
+
+    TCK VENTAS — v14.9.0 — 05/05/2026
 
     UNIFICACIÓN PRECIOS SHEET → TOMADOR_CAT + 4 PRODUCTOS NUEVOS
 
@@ -18973,7 +18980,9 @@ const TOMADOR_SIN_STOCK_AVISO = new Set([
   // v13.7.6 (29/4/2026):
   //   - ALTA DE STOCK (quitados): Maple N° 1, Maple N° 2.
   //   - BAJA DE STOCK (agregado): Suprema IQF (15kg).
-  'Suprema IQF',
+  // v14.9.1 (5/5/2026):
+  //   - ALTA DE STOCK (quitado): Suprema IQF (15kg).
+  // 'Suprema IQF',  // ← rehabilitado 5/5/2026
   // v14.3.2 (2/5/2026): nuevos sin stock reportados por Braian
   'Medallon Pollo c/Cheddar',
   'Medallon Pollo JyQ',
