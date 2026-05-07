@@ -2,6 +2,56 @@
 <html lang="es">
 <head>
 <!-- ═══════════════════════════════════════════════════════════════════════
+     TCK VENTAS — v14.13.0 — 07/05/2026
+     ──────────────────────────────────────────────────────────────────────
+     N42 FIX C+D: Multi-viaje en panel chofer + Cierre con pendientes definidos
+
+     Bug reportado por Francisco (07/05/2026 — extensión sesión):
+       "Joan tiene 4 viajes abiertos simultáneamente. No los cerró
+        porque le quedan pendientes. ¿Cómo cierra un viaje viejo si
+        en su panel solo ve uno?"
+
+     Causas raíz:
+       1. cargarViajeActivo traía limit:1 — solo 1 viaje en_ruta visible
+          al chofer. Si tenía varios, los otros eran invisibles.
+       2. Botón "Cerrar viaje y rendir" SOLO aparecía si todas las
+          entregas estaban en estado final (entregado/no_encontrado).
+          Con pendientes el chofer veía "Cuando termines vas a poder
+          cerrar..." pero NUNCA podía si quedaban clientes ausentes.
+
+     Cambios v14.13.0 (sobre v14.12.0):
+
+       FIX C — Multi-viaje en el panel del chofer:
+         · cargarViajeActivo ahora trae TODOS los en_ruta del chofer
+           (no limit:1). Variable _viajesActivos[].
+         · Si hay >1, aparece strip horizontal scrolleable arriba del
+           header con cards pequeñas (zona, badge HOY/AYER/⚠️Nd,
+           n° de pedidos).
+         · Click en card → seleccionarViaje() recarga entregas del
+           viaje elegido. La activa tiene borde verde grueso.
+         · CSS: .multi-viaje-strip, .mv-strip-card, badges hoy/ayer/viejo
+
+       FIX D — Cerrar viaje con pendientes definidos:
+         · El botón "Cerrar viaje y rendir" SIEMPRE aparece.
+         · Si hay pendientes → abre modal "Definir pendientes" con
+           3 acciones por entrega:
+             ✅ Entregada → abre modal de cobro normal, después retoma
+             🚪 No estaba → estado=no_encontrado (queda en no_entregados
+                           del admin para reagendar manual)
+             🔄 Reagendar → estado=reagendada + viaje_id=NULL en
+                           entregas Y pedidos_zona (vuelve al pool de
+                           Francisco para reasignar)
+         · Una vez todas definidas, dispara cierre normal automáticamente.
+         · CSS: .def-pend-overlay, .def-pend-card, etc.
+
+     PRESERVADO desde v14.12.0:
+       - FIX A: sync Sheet al confirmar entrega
+       - FIX B: mostrar novedades guardadas (cobró menos + devolución)
+       - Polling 30s productos_canonicos
+       - Maple N°3, etc.
+
+═════════════════════════════════════════════════════════════════════════ -->
+<!-- ═══════════════════════════════════════════════════════════════════════
      TCK VENTAS — v14.12.0 — 07/05/2026
      ──────────────────────────────────────────────────────────────────────
      N42 FIX A+B: Sincronización Sheet + Visibilidad de novedades guardadas
@@ -5519,6 +5569,172 @@ body {
   margin-bottom: 14px;
   box-shadow: 0 3px 12px rgba(46,125,50,.25);
 }
+
+/* ── FIX N42-D: Strip selector multi-viaje (chofer con varios abiertos) ── */
+.multi-viaje-strip-wrap {
+  margin: 0 0 12px;
+  padding: 10px 12px;
+  background: linear-gradient(135deg, #FFF8E1, #FFECB3);
+  border: 1.5px solid #FFB74D;
+  border-radius: 12px;
+}
+.multi-viaje-strip-title {
+  font-size: 12px;
+  font-weight: 700;
+  color: #E65100;
+  margin-bottom: 8px;
+  text-transform: uppercase;
+  letter-spacing: .5px;
+}
+.multi-viaje-strip {
+  display: flex;
+  gap: 8px;
+  overflow-x: auto;
+  padding: 2px 0 4px;
+  -webkit-overflow-scrolling: touch;
+  scrollbar-width: thin;
+}
+.multi-viaje-strip::-webkit-scrollbar { height: 4px; }
+.multi-viaje-strip::-webkit-scrollbar-thumb { background: #FFB74D; border-radius: 4px; }
+.mv-strip-card {
+  flex: 0 0 auto;
+  min-width: 90px;
+  padding: 8px 10px;
+  background: #fff;
+  border: 1.5px solid #E0E0E0;
+  border-radius: 10px;
+  text-align: center;
+  cursor: pointer;
+  transition: transform .1s, border-color .15s;
+  position: relative;
+}
+.mv-strip-card:active { transform: scale(0.96); }
+.mv-strip-card.activa {
+  border-color: #2E7D32;
+  border-width: 2.5px;
+  background: #E8F5E9;
+  box-shadow: 0 2px 8px rgba(46,125,50,.2);
+}
+.mv-strip-zona {
+  font-size: 13px;
+  font-weight: 800;
+  color: #1B5E20;
+  margin-bottom: 4px;
+}
+.mv-strip-card.activa .mv-strip-zona { color: #2E7D32; }
+.mv-strip-badge {
+  display: inline-block;
+  font-size: 9px;
+  font-weight: 800;
+  padding: 2px 6px;
+  border-radius: 8px;
+  text-transform: uppercase;
+  letter-spacing: .3px;
+  margin-bottom: 4px;
+}
+.mv-strip-badge.hoy { background: #C8E6C9; color: #1B5E20; }
+.mv-strip-badge.ayer { background: #FFE082; color: #E65100; }
+.mv-strip-badge.viejo { background: #FFCDD2; color: #C62828; }
+.mv-strip-stats {
+  font-size: 11px;
+  color: #666;
+  font-weight: 600;
+}
+/* ── FIN FIX N42-D ── */
+
+/* ── FIX N42-A: Modal "Definir pendientes antes de cerrar" ── */
+.def-pend-overlay {
+  position: fixed; inset: 0;
+  background: rgba(0,0,0,.55);
+  z-index: 9999;
+  display: none;
+  overflow-y: auto;
+}
+.def-pend-overlay.open { display: block; }
+.def-pend-sheet {
+  background: var(--bg, #fff);
+  max-width: 600px;
+  margin: 20px auto;
+  border-radius: 18px;
+  overflow: hidden;
+  padding-bottom: env(safe-area-inset-bottom, 0);
+}
+.def-pend-hdr {
+  background: linear-gradient(135deg, #FB8C00, #E65100);
+  color: #fff;
+  padding: 18px 20px 16px;
+  position: relative;
+}
+.def-pend-titulo {
+  font-size: 18px;
+  font-weight: 800;
+}
+.def-pend-sub {
+  font-size: 13px;
+  margin-top: 4px;
+  opacity: .95;
+}
+.def-pend-cerrar {
+  position: absolute; right: 12px; top: 12px;
+  width: 32px; height: 32px;
+  background: rgba(255,255,255,.2);
+  color: #fff;
+  border: none; border-radius: 50%;
+  font-size: 18px; font-weight: 800;
+  cursor: pointer;
+}
+.def-pend-body {
+  padding: 14px 14px 18px;
+  display: flex; flex-direction: column;
+  gap: 12px;
+  max-height: calc(100vh - 200px);
+  overflow-y: auto;
+}
+.def-pend-card {
+  background: #fff;
+  border: 1.5px solid #E0E0E0;
+  border-radius: 12px;
+  padding: 12px 14px;
+}
+.def-pend-card-hdr { margin-bottom: 10px; }
+.def-pend-cliente {
+  font-size: 15px;
+  font-weight: 700;
+  color: var(--text, #222);
+}
+.def-pend-ciudad {
+  font-size: 12px;
+  color: var(--text2, #666);
+  margin-top: 3px;
+}
+.def-pend-comercio {
+  font-size: 12px;
+  color: var(--text3, #888);
+  margin-top: 2px;
+}
+.def-pend-acciones {
+  display: grid;
+  grid-template-columns: 1fr 1fr 1fr;
+  gap: 6px;
+}
+.def-pend-btn {
+  padding: 10px 6px;
+  border-radius: 10px;
+  font-size: 12px;
+  font-weight: 700;
+  border: 1.5px solid;
+  cursor: pointer;
+  text-align: center;
+  line-height: 1.2;
+  touch-action: manipulation;
+}
+.def-pend-btn:active { transform: scale(0.96); }
+.def-pend-btn.entregada { background: #E8F5E9; border-color: #66BB6A; color: #1B5E20; }
+.def-pend-btn.no-estaba { background: #FFEBEE; border-color: #EF5350; color: #C62828; }
+.def-pend-btn.reagendar { background: #E3F2FD; border-color: #42A5F5; color: #0D47A1; }
+/* ── FIN FIX N42-A modal ── */
+
+
 .ch-viaje-hdr.luis { background: linear-gradient(135deg, #E65100, #BF360C); box-shadow: 0 3px 12px rgba(230,81,0,.25); }
 .ch-viaje-hdr-top {
   display: flex;
@@ -21148,27 +21364,57 @@ function scrollAProximaCiudad() {
 // ───────────────────────────────────────────────────────────────
 // Cargar el viaje activo del chofer (en_ruta) — si tiene
 // ───────────────────────────────────────────────────────────────
+// FIX N42-D (07/05/2026): un chofer puede tener varios viajes en_ruta
+// abiertos al mismo tiempo (porque hasta hoy no se podían cerrar con
+// pendientes). Ahora traemos TODOS y permitimos al chofer alternar.
+let _viajesActivos = [];   // todos los en_ruta del chofer
+let _viajeSeleccionadoId = null; // id del viaje que está mostrando ahora
+
 async function cargarViajeActivo() {
   if (!vendedorActual) return null;
   try {
+    // Traer TODOS los viajes en_ruta del chofer (no limit:1)
     const url = APPS_SCRIPT_URL +
       '?accion=viajeListar' +
       '&chofer=' + encodeURIComponent(vendedorActual) +
       '&estado=en_ruta' +
-      '&limit=1';
+      '&orden=fecha_salida.desc';
     const resp = await fetch(url);
     const data = await resp.json();
     if (data.status === 'ok' && Array.isArray(data.viajes) && data.viajes.length > 0) {
-      _viajeActivo = data.viajes[0];
+      _viajesActivos = data.viajes;
+      // Si no hay seleccionado o el seleccionado ya no está en la lista,
+      // tomar el más reciente (el primero, porque vino orden desc)
+      if (!_viajeSeleccionadoId ||
+          !_viajesActivos.find(v => v.id === _viajeSeleccionadoId)) {
+        _viajeSeleccionadoId = _viajesActivos[0].id;
+      }
+      _viajeActivo = _viajesActivos.find(v => v.id === _viajeSeleccionadoId) || _viajesActivos[0];
     } else {
+      _viajesActivos = [];
+      _viajeSeleccionadoId = null;
       _viajeActivo = null;
     }
     _viajeActivoLoadedAt = new Date();
     return _viajeActivo;
   } catch(err) {
     console.error('[v14.0] cargarViajeActivo:', err);
+    _viajesActivos = [];
     _viajeActivo = null;
     return null;
+  }
+}
+
+// FIX N42-D: cambiar el viaje seleccionado y recargar entregas
+async function seleccionarViaje(viajeId) {
+  if (!viajeId || _viajeSeleccionadoId === viajeId) return;
+  const v = _viajesActivos.find(x => x.id === viajeId);
+  if (!v) return;
+  _viajeSeleccionadoId = viajeId;
+  _viajeActivo = v;
+  // Recargar entregas del nuevo viaje
+  if (typeof cargarEntregas === 'function') {
+    await cargarEntregas();
   }
 }
 
@@ -21249,7 +21495,50 @@ function renderViajeHeader() {
     return map[z] || z;
   })(v.zona);
 
-  let html = '<div class="ch-viaje-hdr' + colorClase + '">';
+  let html = '';
+
+  // ── FIX N42-D: Strip selector multi-viaje ──────────────────────
+  // Solo aparece si el chofer tiene >1 viaje en_ruta abierto.
+  if (_viajesActivos && _viajesActivos.length > 1) {
+    const cantidad = _viajesActivos.length;
+    html += '<div class="multi-viaje-strip-wrap">';
+    html += '  <div class="multi-viaje-strip-title">⚠️ Tenés ' + cantidad + ' viajes abiertos · tocá uno para verlo</div>';
+    html += '  <div class="multi-viaje-strip">';
+    _viajesActivos.forEach(function(viaje) {
+      const isActivo = viaje.id === _viajeSeleccionadoId;
+      const z = (function(zz) {
+        const map = {
+          'zona1': 'Zona 1', 'zona2': 'Zona 2',
+          'tl_manana': 'TL Mañ.', 'tl_tarde': 'TL Tar.', 'tl': 'TL',
+          'america_fortin': 'Am/Fort'
+        };
+        return map[zz] || zz;
+      })(viaje.zona);
+      // Antigüedad del viaje (días desde fecha_salida)
+      const fechaSalida = viaje.fecha_salida ? new Date(viaje.fecha_salida + 'T00:00:00') : null;
+      const hoy = new Date(); hoy.setHours(0,0,0,0);
+      const diasAtras = fechaSalida ? Math.floor((hoy - fechaSalida) / 86400000) : 0;
+      let badgeAge = '';
+      if (diasAtras === 0) badgeAge = '<span class="mv-strip-badge hoy">HOY</span>';
+      else if (diasAtras === 1) badgeAge = '<span class="mv-strip-badge ayer">AYER</span>';
+      else if (diasAtras > 1) badgeAge = '<span class="mv-strip-badge viejo">⚠️ ' + diasAtras + 'd</span>';
+      // Stats rápidas — entregadas / total
+      const totalP = viaje.total_pedidos || 0;
+      // Solo mostramos contador real para el viaje activo (cache local).
+      // Para los otros, mostramos el total.
+      html += '    <div class="mv-strip-card' + (isActivo ? ' activa' : '') + '" ' +
+              'onclick="seleccionarViaje(\'' + viaje.id + '\')">';
+      html += '      <div class="mv-strip-zona">' + z + '</div>';
+      html += '      ' + badgeAge;
+      html += '      <div class="mv-strip-stats">' + totalP + ' ped.</div>';
+      html += '    </div>';
+    });
+    html += '  </div>';
+    html += '</div>';
+  }
+  // ── FIN FIX N42-D ──────────────────────────────────────────────
+
+  html += '<div class="ch-viaje-hdr' + colorClase + '">';
   html += '  <div class="ch-viaje-hdr-top">';
   html += '    <div class="ch-viaje-avatar">' + avatar + '</div>';
   html += '    <div class="ch-viaje-info">';
@@ -21423,14 +21712,19 @@ function mvRenderViajeActivo() {
   html += '      </div>';
   html += '    </div>';
 
-  // Botón "Cerrar viaje y rendir" si todas las entregas tienen estado final
+  // FIX N42-A (07/05/2026): El botón "Cerrar viaje y rendir" siempre
+  // aparece. Si hay pendientes, redirige al modal de definición que
+  // obliga al chofer a decidir qué pasó con cada uno antes de cerrar.
   if (todasFinales) {
     html += '    <button class="mv-btn-cerrar-rendir" onclick="mvCerrarViajeYRendir()">';
     html += '      🏁 Cerrar viaje y rendir';
     html += '    </button>';
   } else {
-    html += '    <div class="mv-banner-info">';
-    html += '      💡 Cuando termines todas las entregas, vas a poder cerrar el viaje y rendir desde acá.';
+    html += '    <button class="mv-btn-cerrar-rendir" style="background:linear-gradient(135deg,#FB8C00,#E65100);" onclick="mvAbrirDefinirPendientes()">';
+    html += '      🏁 Cerrar viaje (' + pendientes + ' pendientes)';
+    html += '    </button>';
+    html += '    <div class="mv-banner-info" style="margin-top:10px;">';
+    html += '      💡 Tenés ' + pendientes + ' pendientes. Tocá "Cerrar viaje" para definir qué pasó con cada uno.';
     html += '    </div>';
   }
   html += '  </div>';
@@ -21683,6 +21977,203 @@ function mvRenderEntregaHist(e) {
 // ───────────────────────────────────────────────────────────────
 // CERRAR VIAJE Y RENDIR — el botón principal del chofer
 // ───────────────────────────────────────────────────────────────
+// ── FIX N42-A: Modal "Definir pendientes antes de cerrar" ────────
+// Cuando el chofer toca "Cerrar viaje" con pendientes, se abre un
+// modal que muestra cada entrega pendiente con 3 acciones:
+//   ✅ Entregada → abre modal normal de cobro (el flujo existente)
+//   🚪 No estaba → marca entrega.estado='no_encontrado' (queda en
+//                  no_entregados de admin para reagendar manualmente)
+//   🔄 Reagendar → marca entrega.estado='reagendada' + remueve viaje_id
+//                  para que vuelva al pool de logística
+//
+// Una vez todas las pendientes están definidas, el modal cierra
+// automáticamente y dispara mvCerrarViajeYRendir() del flujo normal.
+
+let _defPendientesEntregas = []; // entregas pendientes a definir
+let _defPendientesEntregaActiva = null; // la que se está procesando
+
+async function mvAbrirDefinirPendientes() {
+  // Guardar referencia al viaje activo (puede que cambie por error)
+  if (!_mvViajeActivo) {
+    if (typeof _viajeActivo !== 'undefined' && _viajeActivo) {
+      _mvViajeActivo = _viajeActivo;
+    } else {
+      toast('No hay viaje activo', 'err');
+      return;
+    }
+  }
+  // Cargar entregas frescas del viaje (puede que cache esté viejo)
+  if (typeof cargarEntregas === 'function' &&
+      (!_entregasCache || !_entregasCache.length ||
+       _entregasCache[0].viaje_id !== _mvViajeActivo.id)) {
+    await cargarEntregas();
+  }
+  _defPendientesEntregas = (_entregasCache || []).filter(function(e) {
+    return e.estado !== 'entregado' && e.estado !== 'no_encontrado';
+  });
+  if (!_defPendientesEntregas.length) {
+    // No hay pendientes — proceder al cierre directo
+    return mvCerrarViajeYRendir();
+  }
+  _defPendientesRender();
+}
+
+function _defPendientesRender() {
+  // Crear overlay si no existe
+  let overlay = document.getElementById('def-pend-overlay');
+  if (!overlay) {
+    overlay = document.createElement('div');
+    overlay.id = 'def-pend-overlay';
+    overlay.className = 'def-pend-overlay';
+    document.body.appendChild(overlay);
+  }
+
+  // Lista de pendientes restantes
+  const restantes = _defPendientesEntregas.filter(function(e) {
+    return e.estado !== 'entregado' && e.estado !== 'no_encontrado' && e.estado !== 'reagendada';
+  });
+
+  if (restantes.length === 0) {
+    // Todas definidas — cerrar overlay y proceder al cierre
+    _defPendientesCerrar();
+    toast('✅ Pendientes definidas. Cerrando viaje...', 'ok');
+    setTimeout(function() { mvCerrarViajeYRendir(); }, 400);
+    return;
+  }
+
+  let html = '<div class="def-pend-sheet">';
+  html += '  <div class="def-pend-hdr">';
+  html += '    <div class="def-pend-titulo">🚛 Definir pendientes</div>';
+  html += '    <div class="def-pend-sub">Quedan <strong>' + restantes.length +
+          '</strong> entregas. Decidí qué pasó con cada una.</div>';
+  html += '    <button class="def-pend-cerrar" onclick="_defPendientesCerrar()">✕</button>';
+  html += '  </div>';
+
+  html += '  <div class="def-pend-body">';
+  restantes.forEach(function(e) {
+    const monto = (parseFloat(e.monto) || 0);
+    const montoReal = (monto > 0 && monto < 1000) ? monto * 1000 : monto;
+    const fmt = '$' + Math.round(montoReal).toLocaleString('es-AR');
+    html += '    <div class="def-pend-card" data-eid="' + e.id + '">';
+    html += '      <div class="def-pend-card-hdr">';
+    html += '        <div class="def-pend-cliente">' + (e.cliente || '—') + '</div>';
+    html += '        <div class="def-pend-ciudad">📍 ' + (e.ciudad || '') + ' · ' + fmt + '</div>';
+    if (e.comercio) {
+      html += '        <div class="def-pend-comercio">🏪 ' + e.comercio + '</div>';
+    }
+    html += '      </div>';
+    html += '      <div class="def-pend-acciones">';
+    html += '        <button class="def-pend-btn entregada" onclick="_defPendientesAccion(\'' + e.id + '\',\'entregada\')">✅ Entregada</button>';
+    html += '        <button class="def-pend-btn no-estaba" onclick="_defPendientesAccion(\'' + e.id + '\',\'no_estaba\')">🚪 No estaba</button>';
+    html += '        <button class="def-pend-btn reagendar" onclick="_defPendientesAccion(\'' + e.id + '\',\'reagendar\')">🔄 Reagendar</button>';
+    html += '      </div>';
+    html += '    </div>';
+  });
+  html += '  </div>';
+  html += '</div>';
+
+  overlay.innerHTML = html;
+  overlay.classList.add('open');
+}
+
+function _defPendientesCerrar() {
+  const overlay = document.getElementById('def-pend-overlay');
+  if (overlay) overlay.classList.remove('open');
+  _defPendientesEntregas = [];
+  _defPendientesEntregaActiva = null;
+}
+
+async function _defPendientesAccion(entregaId, accion) {
+  const e = _defPendientesEntregas.find(function(x) { return x.id === entregaId; });
+  if (!e) return;
+
+  // Acción "Entregada" → cerrar este modal y abrir el modal de entrega normal
+  if (accion === 'entregada') {
+    _defPendientesEntregaActiva = entregaId;
+    // Guardar el ID antes de cerrar el overlay
+    const eid = entregaId;
+    // Cerrar overlay de pendientes
+    _defPendientesCerrar();
+    // Abrir el modal de entrega normal
+    if (typeof abrirEntregaModal === 'function') {
+      abrirEntregaModal(eid);
+      // Cuando el chofer confirme la entrega o cancele, debería volver
+      // al modal de pendientes. Lo manejamos via flag _defPendientesPendienteRetomar.
+      window._defPendientesPendienteRetomar = true;
+    }
+    return;
+  }
+
+  // Acción "No estaba"
+  if (accion === 'no_estaba') {
+    if (!confirm('¿Marcar a "' + (e.cliente || 'cliente') + '" como NO ENCONTRADO?')) return;
+    try {
+      await sbFetch('entregas?id=eq.' + entregaId, {
+        method: 'PATCH',
+        headers: { 'Prefer': 'return=minimal' },
+        body: JSON.stringify({
+          estado: 'no_encontrado',
+          fecha_no_encontrado: new Date().toISOString(),
+          resultado_final: 'no_encontrado'
+        })
+      });
+      // Actualizar cache local
+      e.estado = 'no_encontrado';
+      const cacheE = _entregasCache && _entregasCache.find(function(x) { return x.id === entregaId; });
+      if (cacheE) cacheE.estado = 'no_encontrado';
+      // Re-render del modal y de la lista de entregas
+      _defPendientesRender();
+      if (typeof renderEntregasLista === 'function') renderEntregasLista();
+      toast('🚪 Marcado como no encontrado', 'ok');
+    } catch(err) {
+      console.error('[def-pend] no_estaba:', err);
+      toast('❌ Error guardando. Reintentá', 'err');
+    }
+    return;
+  }
+
+  // Acción "Reagendar"
+  if (accion === 'reagendar') {
+    if (!confirm('¿Reagendar a "' + (e.cliente || 'cliente') + '" para otro viaje?\n\nVa a volver al pool de logística para que el admin lo reasigne.')) return;
+    try {
+      // 1. Actualizar entrega: estado=reagendada, sin viaje_id
+      await sbFetch('entregas?id=eq.' + entregaId, {
+        method: 'PATCH',
+        headers: { 'Prefer': 'return=minimal' },
+        body: JSON.stringify({
+          estado: 'reagendada',
+          resultado_final: 'reagendada',
+          viaje_id: null
+        })
+      });
+      // 2. Liberar pedidos_zona del viaje (vuelve al pool de logística)
+      if (e.pedido_id) {
+        try {
+          await sbFetch('pedidos_zona?pedido_id=eq.' + encodeURIComponent(e.pedido_id), {
+            method: 'PATCH',
+            headers: { 'Prefer': 'return=minimal' },
+            body: JSON.stringify({ viaje_id: null })
+          });
+        } catch(errPz) {
+          // No fatal: lo principal (entrega) ya quedó como reagendada
+          console.warn('[def-pend reagendar] No se pudo liberar pedidos_zona:', errPz);
+        }
+      }
+      e.estado = 'reagendada';
+      const cacheE = _entregasCache && _entregasCache.find(function(x) { return x.id === entregaId; });
+      if (cacheE) cacheE.estado = 'reagendada';
+      _defPendientesRender();
+      if (typeof renderEntregasLista === 'function') renderEntregasLista();
+      toast('🔄 Reagendado para otro viaje', 'ok');
+    } catch(err) {
+      console.error('[def-pend] reagendar:', err);
+      toast('❌ Error guardando. Reintentá', 'err');
+    }
+    return;
+  }
+}
+// ── FIN FIX N42-A ───────────────────────────────────────────────
+
 async function mvCerrarViajeYRendir() {
   if (!_mvViajeActivo) return;
 
@@ -22861,6 +23352,17 @@ function cerrarEntregaModal() {
   // FIX N42-B: limpiar tarjetas de novedades guardadas
   const novWrap = document.getElementById('entrega-novedades-wrap');
   if (novWrap) { novWrap.innerHTML = ''; novWrap.style.display = 'none'; }
+  // FIX N42-A: si veníamos del modal de "Definir pendientes" y el chofer
+  // canceló la entrega, retomar el modal de pendientes para que pueda
+  // elegir otra acción para esta entrega.
+  if (window._defPendientesPendienteRetomar) {
+    window._defPendientesPendienteRetomar = false;
+    setTimeout(function() {
+      if (typeof mvAbrirDefinirPendientes === 'function') {
+        mvAbrirDefinirPendientes();
+      }
+    }, 250);
+  }
 }
 
 // Helper: monto "real" (compatibilidad con valores guardados en miles).
@@ -23218,12 +23720,30 @@ async function _ejecutarConfirmacionEntrega(cobros) {
           cerrarEntregaModal();
           renderEntregas(_entregasCache);
           renderResumenChofer(_entregasCache);
+          // FIX N42-A: si veníamos del modal de "Definir pendientes",
+          // re-abrirlo para que el chofer siga definiendo las restantes
+          if (window._defPendientesPendienteRetomar) {
+            window._defPendientesPendienteRetomar = false;
+            setTimeout(function() {
+              if (typeof mvAbrirDefinirPendientes === 'function') {
+                mvAbrirDefinirPendientes();
+              }
+            }, 600);
+          }
         }, 350);
       }, 500);
     } else {
       cerrarEntregaModal();
       renderEntregas(_entregasCache);
       renderResumenChofer(_entregasCache);
+      if (window._defPendientesPendienteRetomar) {
+        window._defPendientesPendienteRetomar = false;
+        setTimeout(function() {
+          if (typeof mvAbrirDefinirPendientes === 'function') {
+            mvAbrirDefinirPendientes();
+          }
+        }, 400);
+      }
     }
     toast('✅ Entrega registrada','ok');
   } catch(err) {
