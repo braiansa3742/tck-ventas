@@ -2,6 +2,62 @@
 <html lang="es">
 <head>
 <!-- ═══════════════════════════════════════════════════════════════════════
+     TCK VENTAS — v14.11.0 — 06/05/2026
+     ──────────────────────────────────────────────────────────────────────
+     N40b — STOCK CON SUPABASE COMO SINGLE SOURCE OF TRUTH
+
+     Cambios v14.11.0 (sobre v14.10.2):
+
+       1. Eliminado el Set hardcoded TOMADOR_SIN_STOCK_AVISO con sus 13
+          strings. Ahora arranca como `new Set()` vacío y se llena
+          dinámicamente desde productos_canonicos.sin_stock=true.
+
+       2. Polling automático cada 30 segundos a productos_canonicos.
+          Cuando vos hacés UPDATE en Supabase, todos los vendedores con
+          sesión abierta ven el cambio en menos de 30 segundos sin tocar
+          nada. Cero coordinación humana necesaria.
+
+       3. Aprovecha el sistema EXISTENTE de cache localStorage 1h
+          (PROD_CANON_CACHE_KEY) y _refrescarProductosCanonicosBg().
+          Solo agrega un setInterval(30000) que hace fetch + comparar.
+
+       4. Comportamiento de fallback:
+            - Si Supabase falla al login: usa cache localStorage si existe.
+            - Si el cache también falla: TOMADOR_SIN_STOCK_AVISO queda
+              vacío (decisión segura: "todos con stock" es mejor que
+              "todos sin stock" cuando hay duda).
+            - El polling reintenta cada 30s indefinidamente.
+
+       5. Beneficio operativo:
+            - Cambiar stock = 1 SQL en Supabase (30 segundos).
+            - Cero deploy de código.
+            - Cero versiones nuevas de archivos.
+            - Cero coordinación con vendedores.
+            - Próxima vez que cambia stock: BORDARMI EL TAB STOCK EN ADMIN
+              (sesión futura N40c) para que sea toggle visual sin SQL.
+
+     PRESERVADO desde v14.10.2:
+       - Bloque productos_canonicos completo (carga, cache, refresh bg)
+       - cargarRutasOrden / ordenDeCiudad
+       - Toda la lógica de tomador, edición, GPS, manual WA, viajes
+
+     DEPLOY v14.11.0:
+       1. Verificar Supabase tiene los 9 productos correctos con sin_stock=true
+            (Brocoli, Gnoquis Espinaca, Nuggets, Pulpa Palta, Ravioles
+            Calabaza, Raviolones Espinaca, Sorrentinos JyQ, Sorrentinos
+            Ricota, Suprema B IQF)
+       2. Subir este archivo al repo tck-ventas como index.html
+       3. Hard refresh (Cmd+Shift+R)
+       4. Smoke test:
+            a) Login como Miguel → tomador → verificar que aparezcan
+               aviso amarillo solo en los 9 productos correctos.
+            b) Hacer SQL: UPDATE productos_canonicos SET sin_stock=true
+               WHERE id=10 (Medallon Clasico). Esperar 30s. Refrescar
+               grilla del tomador. Debe aparecer aviso amarillo nuevo.
+            c) Revertir: SET sin_stock=false WHERE id=10.
+
+═════════════════════════════════════════════════════════════════════════ -->
+<!-- ═══════════════════════════════════════════════════════════════════════
      TCK VENTAS — v14.10.2 — 06/05/2026
      ──────────────────────────────────────────────────────────────────────
      ALTA DE STOCK — pedido operativo de Miguel (06/05/2026 noche)
@@ -11486,6 +11542,54 @@ function _aplicarProductosCanonicos(productos) {
       });
     }
   });
+
+  // v14.11.0 N40b: rellenar TOMADOR_SIN_STOCK_AVISO desde Supabase.
+  // Mutamos el Set existente (clear + add) en lugar de reasignar la
+  // variable, para que el alias TOMADOR_SIN_STOCK siga apuntando al
+  // mismo objeto. Esto preserva las 4 referencias existentes
+  // (TOMADOR_SIN_STOCK.has(...) en líneas ~19960, ~23395, ~23914)
+  // sin necesidad de tocar nada más.
+  if (typeof TOMADOR_SIN_STOCK_AVISO !== 'undefined' && TOMADOR_SIN_STOCK_AVISO instanceof Set) {
+    TOMADOR_SIN_STOCK_AVISO.clear();
+    _prodCanonicos.forEach(function(p) {
+      if (p.sin_stock === true && p.activo !== false && p.nombre) {
+        TOMADOR_SIN_STOCK_AVISO.add(p.nombre);
+      }
+    });
+  }
+}
+
+// v14.11.0 N40b: Polling cada 30s para detectar cambios en
+// productos_canonicos.sin_stock. Cuando Braian hace UPDATE en Supabase,
+// los vendedores con sesión abierta ven el cambio en <30s sin tocar nada.
+//
+// El polling reusa _refrescarProductosCanonicosBg() existente (que ya
+// hace fetch + setItem cache + _aplicarProductosCanonicos).
+//
+// Comportamiento:
+//   - setInterval cada 30s mientras la pestaña esté ACTIVA.
+//   - Si el documento queda hidden (background tab), pausa para no
+//     gastar batería ni red en celulares.
+//   - Al volver al foreground, reanuda inmediatamente.
+
+var _prodCanonPollingTimer = null;
+var _PROD_CANON_POLL_MS = 30 * 1000; // 30 segundos
+
+function _iniciarPollingProductosCanonicos() {
+  if (_prodCanonPollingTimer) return; // ya está corriendo
+
+  _prodCanonPollingTimer = setInterval(function() {
+    if (document.hidden) return; // pausa si la pestaña está en background
+    _refrescarProductosCanonicosBg();
+  }, _PROD_CANON_POLL_MS);
+
+  // Si la pestaña vuelve a foreground después de estar hidden, refrescar
+  // inmediatamente (no esperar 30s) para minimizar latencia.
+  document.addEventListener('visibilitychange', function() {
+    if (!document.hidden) {
+      _refrescarProductosCanonicosBg();
+    }
+  });
 }
 
 function canonizarProducto(nombreCrudo) {
@@ -13552,6 +13656,10 @@ function login(nombre) {
   mostrarBotonesManual();
   // v14.10.0 N40b: cargar productos canónicos en background (no bloquea login)
   cargarProductosCanonicos();
+  // v14.11.0 N40b: polling cada 30s para detectar cambios de stock
+  // (Supabase como SSOT — Braian cambia stock con 1 SQL y todos los
+  // vendedores con sesión abierta lo ven en <30s sin tocar nada)
+  _iniciarPollingProductosCanonicos();
   // v14.4.0: removido checkPrimeraVez() — el manual ya no se abre solo al inicio.
   // Sigue accesible vía botón 📖 en el header. Razón: nadie lo miraba y molestaba.
   // Pantalla de inicio según rol:
@@ -19299,36 +19407,19 @@ const TOMADOR_CAT = [{"id":"pollos","sec":"POLLOS CONGELADOS","items":[{"n":"Pol
 // v9.1: TOMADOR_SIN_STOCK_AVISO — ya NO bloquea la carga, solo muestra aviso amarillo
 // El vendedor puede cargar igual sabiendo que el producto está sin stock real
 // (decisión: vendedores tienen contexto del proveedor y saben qué entrará)
-// v13.6.3 (24/4/2026): se dieron de ALTA MDM, Cuarto Trasero IQF, Pollo Ginosa y Pollo A.
-// Ya hay stock real de esos productos.
-// v13.7.3 (28/4/2026): agregados 6 productos según reporte de Joan en viaje.
-// v14.10.2 (06/05/2026): ALTA DE STOCK (Miguel) — quitados:
-//   · Formita Clasica · Bocadito de Papa y Jamon
-//   · Filet Merluza Finas Hierbas · Filet de Merluza Rebozado
-//   (todos rebozados de Shaday — entró stock fresco)
-const TOMADOR_SIN_STOCK_AVISO = new Set([
-  // Existentes:
-  'Nuggets de Pollo Crocante',
-  'Ravioles de Calabaza',
-  'Raviolones Espinaca y Mozz',
-  'Gnoquis de Espinaca',
-  'Sorrentinos Jamon y Queso',
-  'Sorrentinos Ricota 4 Quesos',
-  'Suprema B IQF',
-  'Brocoli',
-  // v13.7.6 (29/4/2026):
-  //   - ALTA DE STOCK (quitados): Maple N° 1, Maple N° 2.
-  //   - BAJA DE STOCK (agregado): Suprema IQF (15kg).
-  // v14.9.1 (5/5/2026):
-  //   - ALTA DE STOCK (quitado): Suprema IQF (15kg).
-  // 'Suprema IQF',  // ← rehabilitado 5/5/2026
-  // v14.3.2 (2/5/2026): nuevos sin stock reportados por Braian
-  'Medallon Pollo c/Cheddar',
-  'Medallon Pollo JyQ',
-  'Papa Baston Balcarce',
-  'Pulpa de Palta',
-  'Primavera'
-]);
+//
+// v14.11.0 N40b (06/05/2026): el Set arranca VACÍO y se llena dinámicamente
+// desde productos_canonicos.sin_stock en Supabase (single source of truth).
+// Polling cada 30s en _iniciarPollingProductosCanonicos() detecta cambios
+// automáticamente. Cero hardcoded.
+//
+// Historia (preservada como referencia):
+//   v13.6.3 (24/4/2026): se dieron de ALTA MDM, Cuarto Trasero IQF, Pollo Ginosa y Pollo A.
+//   v13.7.3 (28/4/2026): agregados 6 productos según reporte de Joan en viaje.
+//   v14.10.2 (06/05/2026): ALTA DE STOCK (Miguel) — quitados:
+//     · Formita Clasica · Bocadito de Papa y Jamon
+//     · Filet Merluza Finas Hierbas · Filet de Merluza Rebozado
+const TOMADOR_SIN_STOCK_AVISO = new Set();
 // Alias retro-compatible — TODA la lógica de "sin stock" ahora es solo aviso, NO bloqueo
 const TOMADOR_SIN_STOCK = TOMADOR_SIN_STOCK_AVISO;
 
