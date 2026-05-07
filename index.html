@@ -2,6 +2,56 @@
 <html lang="es">
 <head>
 <!-- ═══════════════════════════════════════════════════════════════════════
+     TCK VENTAS — v14.10.0 — 06/05/2026
+     ──────────────────────────────────────────────────────────────────────
+     N40b — PRODUCTOS CANÓNICOS (canonización en parseProds)
+
+     Cambios v14.10.0 (sobre v14.9.1):
+
+       1. Nuevo bloque productos_canonicos:
+          - Carga desde Supabase tabla productos_canonicos al login.
+          - Cache localStorage 1h con refresh background.
+          - Función canonizarProducto(nombreCrudo) → producto canónico
+            o null. Match estricto: nombre o aliases[].
+
+       2. parseProds() canoniza nombres:
+          - Filtra encabezados WA (PROMOS 50% OFF, OFERTAS 1+1, etc).
+          - Limpia prefijos de promo (50% OFF:, PROMO 1+1:, 1+1).
+          - Si matchea contra productos_canonicos, devuelve nombre
+            canónico + emoji canónico.
+          - Si no matchea, devuelve nombre crudo + registra grafía en
+            productos_sin_canonizar para revisión humana en tckadmin.lat
+            (tab "🔧 Sin canonizar").
+
+       3. NOTA: el tab de revisión "Sin canonizar" vive en admin
+          (tckadmin.lat), no en ventas. Los vendedores no ven nada
+          nuevo en su UI — solo se benefician de productos mejor
+          agrupados en sus reportes (Mi Día, Productos del día, etc).
+
+     PRESERVADO desde v14.9.1:
+       - Mi Ronda + GPS check-in/out
+       - Tomador campo + WA + editar pedido
+       - Integración Xubio v23 (presupuestos)
+       - Tabs Pedidos/Mi Día/Clientes/Reportes
+       - Tab Bot (admin)
+       - Tab Entregas (chofer)
+       - Tab Rendiciones
+       - SIN STOCK / DEPRECADOS sets sin cambios
+
+     DEPLOY:
+       1. Asegurar que tabla productos_canonicos en Supabase tenga
+          poblados los 57 productos.
+       2. Asegurar que tabla productos_sin_canonizar exista.
+       3. Subir este archivo al repo tck-ventas como index.html.
+       4. Hard refresh.
+       5. Validar:
+          a) Login funciona normal con cualquier vendedor.
+          b) Mi Día muestra productos agrupados correctamente.
+          c) Console: "[TCK ProdCanon] 57 productos canónicos cargados"
+          d) Las grafías nuevas que aparezcan deberían entrar limpias
+             (no aparecer como pendientes en el tab admin).
+
+     ═══════════════════════════════════════════════════════════════════════
      TCK VENTAS — v14.9.1 — 05/05/2026
 
     Cambio v14.9.1 (sobre v14.9.0):
@@ -11262,6 +11312,168 @@ function limpiarSesion() {
 const SUPABASE_URL  = 'https://frhevcgxcuqkkakwnmrw.supabase.co';
 const SUPABASE_KEY  = 'sb_publishable_rRuseS1OttY_jisrsBc3qg_JBCE8vkH';
 
+// ═══════════════════════════════════════════════════════════════════
+// v14.10.0 — PRODUCTOS CANÓNICOS (N40b)
+// ═══════════════════════════════════════════════════════════════════
+// Lee la tabla productos_canonicos de Supabase y construye un índice
+// en memoria para canonización rápida en parseProds().
+// Replicado de tck-admin v12.7.1.
+//
+// _prodCanonicos: array crudo de productos_canonicos
+// _prodCanonAliasMap: { 'pollo a x6' → { nombre, emoji, ... } }
+// Refresca cada 1 hora (cache TTL en localStorage).
+// Si falla la carga, fallback: parseProds devuelve el nombre crudo.
+// ═══════════════════════════════════════════════════════════════════
+
+var _prodCanonicos      = [];
+var _prodCanonAliasMap  = {};
+var _prodCanonNombreMap = {};
+var _prodCanonLoaded    = false;
+var _prodSinCanonBuffer = {};
+var _prodSinCanonFlushTimer = null;
+
+const PROD_CANON_CACHE_KEY = 'tck_prod_canon_v1';
+const PROD_CANON_CACHE_TTL = 60 * 60 * 1000; // 1 hora
+
+function _prodCanonNormalizar(s) {
+  if (!s) return '';
+  return String(s).trim().toLowerCase()
+    .normalize('NFD').replace(/[\u0300-\u036f]/g, '')
+    .replace(/[°º]/g, '')
+    .replace(/[^a-z0-9 \/\-]/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+async function cargarProductosCanonicos() {
+  // 1. Intentar cache local
+  try {
+    var cached = localStorage.getItem(PROD_CANON_CACHE_KEY);
+    if (cached) {
+      var data = JSON.parse(cached);
+      if (data && data.ts && (Date.now() - data.ts) < PROD_CANON_CACHE_TTL && Array.isArray(data.productos)) {
+        _aplicarProductosCanonicos(data.productos);
+        _prodCanonLoaded = true;
+        _refrescarProductosCanonicosBg();
+        return;
+      }
+    }
+  } catch(e) {}
+
+  // 2. Sin cache válida — fetch directo
+  try {
+    var resp = await fetch(SUPABASE_URL + '/rest/v1/productos_canonicos?select=nombre,emoji,categoria,activo,sin_stock,aliases&order=orden.asc', {
+      headers: {
+        'apikey': SUPABASE_KEY,
+        'Authorization': 'Bearer ' + SUPABASE_KEY
+      }
+    });
+    if (!resp.ok) throw new Error('HTTP ' + resp.status);
+    var productos = await resp.json();
+    _aplicarProductosCanonicos(productos);
+    _prodCanonLoaded = true;
+    try {
+      localStorage.setItem(PROD_CANON_CACHE_KEY, JSON.stringify({ ts: Date.now(), productos: productos }));
+    } catch(e) {}
+    console.log('[TCK ProdCanon] ' + productos.length + ' productos canónicos cargados');
+  } catch(e) {
+    console.warn('[TCK ProdCanon] Error al cargar productos canónicos:', e.message);
+  }
+}
+
+function _refrescarProductosCanonicosBg() {
+  setTimeout(async function() {
+    try {
+      var resp = await fetch(SUPABASE_URL + '/rest/v1/productos_canonicos?select=nombre,emoji,categoria,activo,sin_stock,aliases&order=orden.asc', {
+        headers: { 'apikey': SUPABASE_KEY, 'Authorization': 'Bearer ' + SUPABASE_KEY }
+      });
+      if (!resp.ok) return;
+      var productos = await resp.json();
+      _aplicarProductosCanonicos(productos);
+      try {
+        localStorage.setItem(PROD_CANON_CACHE_KEY, JSON.stringify({ ts: Date.now(), productos: productos }));
+      } catch(e) {}
+    } catch(e) {}
+  }, 200);
+}
+
+function _aplicarProductosCanonicos(productos) {
+  _prodCanonicos = productos || [];
+  _prodCanonAliasMap = {};
+  _prodCanonNombreMap = {};
+  _prodCanonicos.forEach(function(p) {
+    var nombreNorm = _prodCanonNormalizar(p.nombre);
+    if (nombreNorm) _prodCanonNombreMap[nombreNorm] = p;
+    if (Array.isArray(p.aliases)) {
+      p.aliases.forEach(function(a) {
+        var aliasNorm = _prodCanonNormalizar(a);
+        if (aliasNorm) _prodCanonAliasMap[aliasNorm] = p;
+      });
+    }
+  });
+}
+
+function canonizarProducto(nombreCrudo) {
+  if (!nombreCrudo || !_prodCanonLoaded) return null;
+  var norm = _prodCanonNormalizar(nombreCrudo);
+  if (!norm) return null;
+  var match = _prodCanonNombreMap[norm];
+  if (match) return match;
+  match = _prodCanonAliasMap[norm];
+  if (match) return match;
+  _registrarGrafiaSinCanonizar(nombreCrudo);
+  return null;
+}
+
+function _registrarGrafiaSinCanonizar(nombreCrudo) {
+  var key = _prodCanonNormalizar(nombreCrudo);
+  if (!key || _prodSinCanonBuffer[key]) return;
+  _prodSinCanonBuffer[key] = nombreCrudo;
+  if (_prodSinCanonFlushTimer) clearTimeout(_prodSinCanonFlushTimer);
+  _prodSinCanonFlushTimer = setTimeout(_flushGrafiasSinCanonizar, 5000);
+}
+
+async function _flushGrafiasSinCanonizar() {
+  var keys = Object.keys(_prodSinCanonBuffer);
+  if (!keys.length) return;
+  var batch = keys.map(function(k) {
+    return { nombre_crudo: _prodSinCanonBuffer[k] };
+  });
+  _prodSinCanonBuffer = {};
+  try {
+    for (var i = 0; i < batch.length; i++) {
+      try {
+        await fetch(SUPABASE_URL + '/rest/v1/productos_sin_canonizar', {
+          method: 'POST',
+          headers: {
+            'apikey': SUPABASE_KEY,
+            'Authorization': 'Bearer ' + SUPABASE_KEY,
+            'Content-Type': 'application/json',
+            'Prefer': 'return=minimal'
+          },
+          body: JSON.stringify(batch[i])
+        });
+      } catch(e) {
+        try {
+          var nombreCrudoEnc = encodeURIComponent(batch[i].nombre_crudo);
+          await fetch(SUPABASE_URL + '/rest/v1/productos_sin_canonizar?nombre_crudo=eq.' + nombreCrudoEnc + '&resuelto=eq.false', {
+            method: 'PATCH',
+            headers: {
+              'apikey': SUPABASE_KEY,
+              'Authorization': 'Bearer ' + SUPABASE_KEY,
+              'Content-Type': 'application/json',
+              'Prefer': 'return=minimal'
+            },
+            body: JSON.stringify({ ultimo_visto: new Date().toISOString() })
+          });
+        } catch(e2) {}
+      }
+    }
+  } catch(e) {
+    console.warn('[TCK ProdCanon] Error flush grafías:', e.message);
+  }
+}
+
 async function sbFetch(path, options = {}) {
   const url = SUPABASE_URL + '/rest/v1/' + path;
   const headers = {
@@ -13263,6 +13475,8 @@ function login(nombre) {
   }, 300);
   mostrarTabs();
   mostrarBotonesManual();
+  // v14.10.0 N40b: cargar productos canónicos en background (no bloquea login)
+  cargarProductosCanonicos();
   // v14.4.0: removido checkPrimeraVez() — el manual ya no se abre solo al inicio.
   // Sigue accesible vía botón 📖 en el header. Razón: nadie lo miraba y molestaba.
   // Pantalla de inicio según rol:
@@ -14444,6 +14658,48 @@ function toast(msg, tipo) {
 }
 
 // ── PRODUCT CHIPS EN HEADER DE CARD ──────────────────────────────
+// ── PRODUCT CHIPS EN HEADER DE CARD ──────────────────────────────
+
+// v14.10.0 N40b: encabezados conocidos del WA que NO son productos.
+var _PARSEPRODS_ENCABEZADOS_RAW = [
+  'PROMOS 50% OFF',
+  'OFERTAS — COMBOS',
+  'OFERTAS - COMBOS',
+  'OFERTAS COMBOS',
+  'OFERTAS 1+1',
+  'OFERTAS 1+1 — COMPRÁS 1 LLEVÁS 2',
+  'OFERTAS 1+1 - COMPRÁS 1 LLEVÁS 2',
+  'OFERTAS 1+1 - COMPRAS 1 LLEVAS 2',
+  'COMBOS',
+  'PRODUCTOS',
+  'PEDIDO TCK',
+  'MI PEDIDO'
+];
+var _PARSEPRODS_ENCABEZADOS_NORM = {};
+_PARSEPRODS_ENCABEZADOS_RAW.forEach(function(h) {
+  var n = _prodCanonNormalizar(h);
+  if (n) _PARSEPRODS_ENCABEZADOS_NORM[n] = true;
+});
+
+// v14.10.0 N40b: limpia prefijos de promo antes de canonizar.
+function _parseProdsLimpiarPrefijoPromo(name) {
+  if (!name) return name;
+  var clean = name;
+  clean = clean.replace(/^🎁\s*/, '');
+  var prefijos = [
+    /^50\s*%?\s*off\s*[:\-—–]\s*/i,
+    /^promo\s+1\s*\+\s*1\s*[:\-—–]\s*/i,
+    /^1\s*\+\s*1\s+/i
+  ];
+  for (var i = 0; i < prefijos.length; i++) {
+    if (prefijos[i].test(clean)) {
+      clean = clean.replace(prefijos[i], '').trim();
+      break;
+    }
+  }
+  return clean;
+}
+
 function parseProds(detalle) {
   if (!detalle) return [];
   var prods = [];
@@ -14454,13 +14710,22 @@ function parseProds(detalle) {
     var nameMatch = seg.match(/\*([^*]+)\*/);
     var name = nameMatch ? nameMatch[1] : '';
     if (!name) return;
+    // v14.10.0 N40b: filtrar encabezados (no son productos)
+    var nameNormChk = _prodCanonNormalizar(name);
+    if (_PARSEPRODS_ENCABEZADOS_NORM[nameNormChk]) return;
     var afterName = seg.slice(seg.indexOf('*', seg.indexOf('*')+1)+1).trim();
     var qtyMatch = afterName.match(/^(\d+)/);
     var qty = qtyMatch ? parseInt(qtyMatch[1]) : 1;
     var emojiMatch = seg.match(/^(\S+)\s/);
     var emoji = emojiMatch && emojiMatch[1].length <= 3 ? emojiMatch[1] : '';
-    var shortName = name;  // nombre completo sin truncar
-    prods.push({ emoji: emoji, name: shortName, qty: qty });
+    // v14.10.0 N40b: limpiar prefijos de promo antes de canonizar.
+    var nameForCanon = _parseProdsLimpiarPrefijoPromo(name);
+    // v14.10.0 N40b: canonizar nombre. Si no matchea, devuelve nombre crudo
+    // y registra la grafía en productos_sin_canonizar para revisión humana.
+    var canon = canonizarProducto(nameForCanon);
+    var shortName = canon ? canon.nombre : name;
+    if (canon && canon.emoji) emoji = canon.emoji;
+    prods.push({ emoji: emoji, name: shortName, qty: qty, _canon: !!canon });
   });
   return prods;
 }
