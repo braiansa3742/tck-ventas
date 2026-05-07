@@ -2,6 +2,62 @@
 <html lang="es">
 <head>
 <!-- ═══════════════════════════════════════════════════════════════════════
+     TCK VENTAS — v14.12.0 — 07/05/2026
+     ──────────────────────────────────────────────────────────────────────
+     N42 FIX A+B: Sincronización Sheet + Visibilidad de novedades guardadas
+
+     Bug reportado por Francisco (07/05/2026):
+       "Los choferes ponen devoluciones o cobro menor, lo guardan, y
+        cuando vuelve a entrar al cliente, no aparece. Se le borra."
+       + No veía pedidos como entregados en admin.
+
+     Causa raíz (DOS BUGS):
+       1. El chofer marca entrega → entregas.estado='entregado' en
+          Supabase, PERO el Sheet (col 10) NO se actualiza. Admin lee
+          del Sheet, entonces nunca veía pedidos como entregados.
+       2. Al re-abrir el modal de una entrega entregada,
+          abrirEntregaModal NO leía las columnas diferencia_motivo,
+          monto_cobrado_real, ni la tabla devoluciones. Los datos
+          ESTABAN guardados (verificado: 26 cobros-menos + 19
+          devoluciones en últimos 30 días) pero el modal no los
+          mostraba.
+
+     Cambios v14.12.0 (sobre v14.11.1):
+
+       1. FIX A — Sincronizar Sheet al confirmar entrega.
+          En _ejecutarConfirmacionEntrega, después del PATCH a Supabase
+          dispara appsScriptFetch con accion=cambiarEstado&estado=Entregado
+          en background (timeout 5s, silent).
+          - Si el Sheet falla: log + toast "guardada pero admin puede
+            no verla aún". La entrega SIEMPRE queda persistida en
+            Supabase aunque el Sheet falle.
+          - Apps Script ya soporta esto: cambiarEstado busca por pedidoId
+            si la fila pasada (0) no matchea.
+
+       2. FIX B — Mostrar novedades guardadas en modo lectura.
+          Nueva función _renderNovedadesGuardadas(e, entregado).
+          Cuando entregado===true, muestra tarjetas con:
+          - Cobró menos: monto_cobrado_real + diferencia_motivo
+            (campos ya en _entregasCache, no requiere fetch)
+          - Devolución: items + motivo_categoria + motivo + monto_devuelto
+            (lazy fetch a tabla `devoluciones`)
+          - Hint: "Para corregir, usá Deshacer y volvé a registrar"
+          Modo solo lectura. Para editar, usar el flujo Deshacer existente.
+          CSS nuevo: .novedad-card, .novedad-cobromenos, .novedad-devolucion.
+          cerrarEntregaModal limpia el wrap.
+
+       3. Helper _escapeHtmlBasic agregado para seguridad XSS en texto
+          libre (motivo de cobró menos, detalle de devolución).
+
+     PRESERVADO desde v14.11.1:
+       - Polling 30s a productos_canonicos (N40b)
+       - TOMADOR_SIN_STOCK_AVISO dinámico
+       - Maple N° 3 + IMGMAP fix
+       - cargarRutasOrden / ordenDeCiudad
+       - Toda la lógica del tomador, edición, GPS, manual WA, viajes
+
+═════════════════════════════════════════════════════════════════════════ -->
+<!-- ═══════════════════════════════════════════════════════════════════════
      TCK VENTAS — v14.11.1 — 06/05/2026
      ──────────────────────────────────────────────────────────────────────
      Producto nuevo: Maple N° 3 — huevos blancos x30 — $4,500
@@ -3294,6 +3350,22 @@ body {
 .devolucion-qty-num { min-width:20px;text-align:center;font-family:'Barlow Condensed',sans-serif;font-size:16px;font-weight:900;color:#E65100; }
 .devolucion-motivo { width:100%;margin-top:8px;padding:8px 10px;border:1.5px solid #FFE082;border-radius:8px;font-size:13px;resize:none;background:#fff;color:var(--text); }
 .devolucion-badge { display:inline-block;background:#FFF3E0;color:#E65100;border:1.5px solid #FFB74D;border-radius:20px;padding:2px 10px;font-size:11px;font-weight:800; }
+
+/* ── FIX N42-B: Tarjetas de novedades guardadas (modo lectura) ── */
+#entrega-novedades-wrap { margin: 0 18px 12px; display: flex; flex-direction: column; gap: 8px; }
+.novedad-card { border-radius: 12px; padding: 12px 14px; border: 1.5px solid; }
+.novedad-card.novedad-cobromenos { background: #FFEBEE; border-color: #EF9A9A; }
+.novedad-card.novedad-devolucion { background: #FFF8E1; border-color: #FFE082; }
+.novedad-titulo { font-family: 'Barlow Condensed', sans-serif; font-size: 14px; font-weight: 800; text-transform: uppercase; letter-spacing: .8px; margin-bottom: 8px; }
+.novedad-card.novedad-cobromenos .novedad-titulo { color: #C62828; }
+.novedad-card.novedad-devolucion .novedad-titulo { color: #E65100; }
+.novedad-fila { font-size: 13px; color: var(--text); margin-bottom: 4px; line-height: 1.4; }
+.novedad-fila strong { font-weight: 700; }
+.novedad-label { color: var(--text2); font-size: 12px; font-weight: 600; }
+.novedad-items { margin: 4px 0 4px 18px; padding: 0; font-size: 13px; color: var(--text); list-style: disc; }
+.novedad-items li { margin-bottom: 2px; }
+.novedad-qty { font-weight: 800; color: #E65100; }
+.novedad-hint { margin-top: 8px; padding: 6px 10px; background: rgba(0,0,0,.04); border-radius: 6px; font-size: 11px; color: var(--text2); font-style: italic; }
 
 /* ── Categorías de devolución (selector de motivo) ── */
 .dev-cat-label {
@@ -22422,6 +22494,20 @@ function abrirEntregaModal(entregaId) {
 
   btns.innerHTML = btnsHtml;
 
+  // ── FIX N42-B (07/05/2026): MOSTRAR NOVEDADES GUARDADAS ───────────
+  // Cuando una entrega ya está entregada, mostrar resumen de:
+  // - Cobró menos (motivo + monto real) si lo hubo
+  // - Devolución registrada (items + motivo) si la hubo
+  //
+  // ANTES: chofer/admin abría entrega marcada como entregada y NO veía
+  // ninguna novedad → asumía que se había borrado, recargaba el dato.
+  //
+  // SOLUCIÓN: leer en lazy-load desde Supabase (campos diferencia_motivo,
+  // monto_cobrado_real ya están en _entregasCache; devoluciones requieren fetch).
+  // Modo solo-lectura. Para corregir: usar "Deshacer" y volver a registrar.
+  _renderNovedadesGuardadas(e, entregado);
+  // ── FIN FIX N42-B ─────────────────────────────────────────────────
+
   // Mostrar modal
   const overlay = document.getElementById('entrega-modal');
   overlay.classList.remove('hidden');
@@ -22430,6 +22516,145 @@ function abrirEntregaModal(entregaId) {
     if (sheet) sheet.scrollTop = 0;
   }, 50);
 }
+
+// ── FIX N42-B: Render novedades guardadas (07/05/2026) ────────────
+// Muestra resumen de devolución y "cobró menos" cuando una entrega
+// ya está marcada como entregada. Modo solo lectura.
+//
+// Datos:
+//   - cobró menos: e.diferencia_motivo + e.monto_cobrado_real (en _entregasCache, no requiere fetch)
+//   - devolución: tabla `devoluciones` filtrada por entrega_id (lazy fetch)
+//
+// El render busca/crea un contenedor #entrega-novedades-wrap dentro
+// del modal-body. Se borra y reconstruye cada vez (estado limpio).
+async function _renderNovedadesGuardadas(e, entregado) {
+  // Buscar/crear contenedor
+  let wrap = document.getElementById('entrega-novedades-wrap');
+  if (!wrap) {
+    wrap = document.createElement('div');
+    wrap.id = 'entrega-novedades-wrap';
+    // Insertar después del wrap de productos (que existe siempre)
+    const prodsWrap = document.getElementById('entrega-modal-prods-wrap');
+    if (prodsWrap && prodsWrap.parentNode) {
+      prodsWrap.parentNode.insertBefore(wrap, prodsWrap.nextSibling);
+    }
+  }
+  // Limpiar estado anterior (importante: cada apertura del modal arranca limpio)
+  wrap.innerHTML = '';
+  wrap.style.display = 'none';
+
+  // Solo mostrar si la entrega está marcada como entregada
+  if (!entregado || !e) return;
+
+  let html = '';
+  let tieneAlgo = false;
+
+  // ── 1. COBRÓ MENOS ──
+  if (e.diferencia_motivo && String(e.diferencia_motivo).trim()) {
+    tieneAlgo = true;
+    const montoReal = parseFloat(e.monto_cobrado_real) || 0;
+    const fmt = n => '$' + Math.round(n).toLocaleString('es-AR');
+    html += '<div class="novedad-card novedad-cobromenos">';
+    html += '  <div class="novedad-titulo">⚠️ Cobró menos</div>';
+    if (montoReal > 0) {
+      html += '  <div class="novedad-fila"><span class="novedad-label">Monto real cobrado:</span> <strong>' + fmt(montoReal) + '</strong></div>';
+    }
+    html += '  <div class="novedad-fila"><span class="novedad-label">Motivo:</span> ' +
+      _escapeHtmlBasic(e.diferencia_motivo) + '</div>';
+    html += '</div>';
+  }
+
+  // ── 2. DEVOLUCIÓN (lazy fetch) ──
+  // Mostrar placeholder mientras se carga
+  const devContainerId = 'novedad-dev-' + (e.id || 'x');
+  html += '<div id="' + devContainerId + '"></div>';
+
+  if (tieneAlgo || true) {
+    wrap.innerHTML = html;
+    wrap.style.display = '';
+  }
+
+  // Fetch async de devoluciones
+  try {
+    const rows = await sbFetch('devoluciones?entrega_id=eq.' + encodeURIComponent(e.id) +
+      '&select=*&order=fecha_devolucion.desc&limit=1');
+    const devContainer = document.getElementById(devContainerId);
+    if (!devContainer) return; // modal ya se cerró
+    if (rows && rows.length) {
+      const dev = rows[0];
+      const fmt = n => '$' + Math.round(parseFloat(n) || 0).toLocaleString('es-AR');
+      let devHtml = '<div class="novedad-card novedad-devolucion">';
+      devHtml += '  <div class="novedad-titulo">↩️ Devolución registrada</div>';
+      // Categoría
+      const categoriasMap = {
+        'sin_stock': '🚫 Sin stock',
+        'mal_estado': '🤢 Mal estado',
+        'vencido': '📅 Vencido',
+        'no_quiso': '🙅 Cliente no quiso',
+        'error_pedido': '❌ Error en el pedido',
+        'otro': '❓ Otro motivo'
+      };
+      const catLabel = categoriasMap[dev.motivo_categoria] || dev.motivo_categoria || '-';
+      devHtml += '  <div class="novedad-fila"><span class="novedad-label">Motivo:</span> <strong>' +
+        _escapeHtmlBasic(catLabel) + '</strong></div>';
+      // Items devueltos
+      if (dev.items) {
+        let itemsArr = dev.items;
+        if (typeof itemsArr === 'string') {
+          try { itemsArr = JSON.parse(itemsArr); } catch(_) { itemsArr = []; }
+        }
+        if (Array.isArray(itemsArr) && itemsArr.length) {
+          devHtml += '  <div class="novedad-fila"><span class="novedad-label">Productos:</span></div>';
+          devHtml += '  <ul class="novedad-items">';
+          itemsArr.forEach(function(it) {
+            const nombre = _escapeHtmlBasic(it.nombre || it.n || '');
+            const qty = it.qty || it.cantidad || 0;
+            devHtml += '<li>' + nombre + ' <span class="novedad-qty">×' + qty + '</span></li>';
+          });
+          devHtml += '  </ul>';
+        }
+      }
+      // Detalle adicional
+      if (dev.motivo && String(dev.motivo).trim()) {
+        devHtml += '  <div class="novedad-fila"><span class="novedad-label">Detalle:</span> ' +
+          _escapeHtmlBasic(dev.motivo) + '</div>';
+      }
+      // Monto devuelto
+      if (parseFloat(dev.monto_devuelto) > 0) {
+        devHtml += '  <div class="novedad-fila"><span class="novedad-label">Monto devuelto:</span> <strong>' +
+          fmt(dev.monto_devuelto) + '</strong></div>';
+      }
+      devHtml += '  <div class="novedad-hint">💡 Para corregir, tocá "Deshacer" y volvé a registrar.</div>';
+      devHtml += '</div>';
+      devContainer.innerHTML = devHtml;
+      tieneAlgo = true;
+    } else {
+      // Sin devolución registrada → no mostrar nada (no es error)
+      devContainer.innerHTML = '';
+    }
+  } catch(err) {
+    console.warn('[novedades] No se pudo leer devoluciones:', err);
+    const devContainer = document.getElementById(devContainerId);
+    if (devContainer) devContainer.innerHTML = '';
+  }
+
+  // Si nada para mostrar, ocultar wrap
+  if (!tieneAlgo && wrap.querySelector('.novedad-card') === null) {
+    wrap.style.display = 'none';
+  }
+}
+
+// Helper: escapar HTML básico para evitar inyección en texto libre
+function _escapeHtmlBasic(s) {
+  if (s === null || s === undefined) return '';
+  return String(s)
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;');
+}
+// ── FIN FIX N42-B ─────────────────────────────────────────────────
 
 // ── DEVOLUCIONES ────────────────────────────────────────────
 async function toggleDevolucionSection() {
@@ -22633,6 +22858,9 @@ function cerrarEntregaModal() {
   // Limpiar selección visual de categorías
   const grid = document.getElementById('entrega-devolucion-cats');
   if (grid) grid.querySelectorAll('.dev-cat-btn').forEach(function(b) { b.classList.remove('sel'); });
+  // FIX N42-B: limpiar tarjetas de novedades guardadas
+  const novWrap = document.getElementById('entrega-novedades-wrap');
+  if (novWrap) { novWrap.innerHTML = ''; novWrap.style.display = 'none'; }
 }
 
 // Helper: monto "real" (compatibilidad con valores guardados en miles).
@@ -22849,6 +23077,41 @@ async function _ejecutarConfirmacionEntrega(cobros) {
   try {
     await sbFetch('entregas?id=eq.' + _entregaModalId, { method:'PATCH', body:JSON.stringify(payload) });
     const e = _entregasCache.find(x => x.id === _entregaModalId);
+
+    // ── FIX N42-A (07/05/2026): SINCRONIZAR SHEET ──────────────────
+    // Cuando el chofer confirma entrega, también actualizar el Sheet
+    // (col 10: estado='Entregado') para que admin lo vea correctamente.
+    //
+    // ANTES: chofer marcaba entrega → entregas.estado='entregado' en
+    // Supabase, pero el Sheet quedaba en 'Confirmado'. Admin lee del
+    // Sheet, entonces nunca veía pedidos como entregados.
+    //
+    // DECISIÓN: best-effort con timeout 5s y silent.
+    // - Si falla, log en consola y toast al chofer (sin romper el flujo).
+    // - La entrega ya está persistida en Supabase (línea anterior).
+    // - El Sheet queda desfasado solo si Apps Script muere — visible
+    //   en consola para que se reintente o se sincronice manualmente.
+    if (e && e.pedido_id) {
+      (async function() {
+        try {
+          const params = new URLSearchParams({
+            accion:   'cambiarEstado',
+            pedidoId: e.pedido_id,
+            fila:     '0',  // 0 = Apps Script busca por pedidoId si la fila es desconocida
+            estado:   'Entregado'
+          });
+          const r = await appsScriptFetch(params, { silent: true, timeout: 5000 });
+          if (r && r.ok) {
+            console.log('✅ Sheet sincronizado: ' + e.pedido_id + ' → Entregado');
+          } else {
+            console.warn('⚠️ No se pudo sincronizar Sheet (entrega guardada igual):', r && r.error);
+            toast('⚠️ Entrega guardada, pero admin puede no verla aún', 'err');
+          }
+        } catch(errSync) {
+          console.warn('⚠️ Sync Sheet falló (entrega guardada igual):', errSync);
+        }
+      })();
+    }
 
     // ── ESCRITURA DUAL: guardar en tabla devoluciones (para historial estructurado) ──
     // Esto es best-effort: si falla, no afecta la entrega (ya persistida en 'entregas.devolucion')
