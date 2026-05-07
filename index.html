@@ -2,6 +2,39 @@
 <html lang="es">
 <head>
 <!-- ═══════════════════════════════════════════════════════════════════════
+     TCK VENTAS — v14.10.2 — 06/05/2026
+     ──────────────────────────────────────────────────────────────────────
+     ALTA DE STOCK — pedido operativo de Miguel (06/05/2026 noche)
+
+     Cambios v14.10.2 (sobre v14.10.1):
+
+       1. ALTA DE STOCK — quitados del set TOMADOR_SIN_STOCK_AVISO:
+            · Formita Clasica
+            · Bocadito de Papa y Jamon
+            · Filet Merluza Finas Hierbas
+            · Filet de Merluza Rebozado
+
+          Razón: Miguel reportó por WhatsApp que entró stock de Shaday
+          (todos sus rebozados con stock real). Aviso amarillo desaparece
+          en el tomador para esos 4 productos.
+
+       2. Cambios complementarios en Supabase (aplicados desde SQL Editor):
+            UPDATE productos_canonicos SET sin_stock = false
+              WHERE id IN (17, 20);  -- Bocadito Papa Jamón + Filet Rebozado
+          (los otros 2 ya estaban con sin_stock=false en Supabase)
+
+     PENDIENTE DE NORMALIZAR (no en esta versión):
+       Hay 2 fuentes de verdad de "sin stock" — el set hardcoded
+       TOMADOR_SIN_STOCK_AVISO (este archivo) y la columna
+       productos_canonicos.sin_stock en Supabase. Cambios manuales
+       requieren tocar AMBAS. Frente a unificar en N40b.
+
+     PRESERVADO desde v14.10.1:
+       - Bloque productos_canonicos completo
+       - cargarRutasOrden / ordenDeCiudad
+       - Toda la lógica de tomador, edición, GPS, manual WA, viajes
+═════════════════════════════════════════════════════════════════════════ -->
+<!-- ═══════════════════════════════════════════════════════════════════════
      TCK VENTAS — v14.10.1 — 06/05/2026
      ──────────────────────────────────────────────────────────────────────
      N41 — Limpieza de código muerto: RUTA_FIJA + asignarPedidosChofer
@@ -19269,6 +19302,10 @@ const TOMADOR_CAT = [{"id":"pollos","sec":"POLLOS CONGELADOS","items":[{"n":"Pol
 // v13.6.3 (24/4/2026): se dieron de ALTA MDM, Cuarto Trasero IQF, Pollo Ginosa y Pollo A.
 // Ya hay stock real de esos productos.
 // v13.7.3 (28/4/2026): agregados 6 productos según reporte de Joan en viaje.
+// v14.10.2 (06/05/2026): ALTA DE STOCK (Miguel) — quitados:
+//   · Formita Clasica · Bocadito de Papa y Jamon
+//   · Filet Merluza Finas Hierbas · Filet de Merluza Rebozado
+//   (todos rebozados de Shaday — entró stock fresco)
 const TOMADOR_SIN_STOCK_AVISO = new Set([
   // Existentes:
   'Nuggets de Pollo Crocante',
@@ -19279,11 +19316,6 @@ const TOMADOR_SIN_STOCK_AVISO = new Set([
   'Sorrentinos Ricota 4 Quesos',
   'Suprema B IQF',
   'Brocoli',
-  // v13.7.3 (28/4/2026) — nuevos sin stock:
-  'Filet Merluza Finas Hierbas',
-  'Filet de Merluza Rebozado',
-  'Bocadito de Papa y Jamon',
-  'Formita Clasica',
   // v13.7.6 (29/4/2026):
   //   - ALTA DE STOCK (quitados): Maple N° 1, Maple N° 2.
   //   - BAJA DE STOCK (agregado): Suprema IQF (15kg).
