@@ -2,6 +2,48 @@
 <html lang="es">
 <head>
 <!-- ═══════════════════════════════════════════════════════════════════════
+     TCK VENTAS — v14.10.1 — 06/05/2026
+     ──────────────────────────────────────────────────────────────────────
+     N41 — Limpieza de código muerto: RUTA_FIJA + asignarPedidosChofer
+
+     Cambios v14.10.1 (sobre v14.10.0):
+
+       1. Eliminada la constante `RUTA_FIJA` que contenía hardcoded:
+            ['Trenque Lauquen','Pehuajó','Henderson','Carlos Casares',
+             'Daireaux','Pellegrini','Salliqueló','Tres Lomas',
+             'Guaminí','30 de Agosto','Lincoln','Quemú Quemú']
+          Esa lista incluía 3 ciudades que NO están en `rutas` (Carlos
+          Casares, Lincoln, Quemú Quemú). Reemplazada en producción por
+          `cargarRutasOrden()` desde N31 (v14.8). Sólo quedaba muerta.
+
+       2. Eliminada la función `asignarPedidosChofer()` — código muerto
+          desde el rediseño VIAJES (N31-N34). 60 líneas que insertaban
+          en `entregas` desde el CSV del Sheet, sin canonizar localidad.
+          Ya identificada como huérfana en las reglas N34.
+          Confirmado: cero llamadores en todo el archivo.
+
+       3. Actualizado comentario línea ~21834 (vetGenerar): el fallback
+          a RUTA_FIJA ya no existe. El fallback real es orden alfabético
+          si Supabase no responde.
+
+       4. Beneficio: -1 lista hardcoded desfasada de la realidad,
+          -60 líneas de código muerto que generaban grafías sucias en
+          `entregas.ciudad` (caso Pehuajo/bolivar/Mones Cazon — limpiadas
+          en backfill SQL N41 paso 3).
+
+     DEPLOY v14.10.1:
+       1. Subir este archivo al repo tck-ventas como index.html
+       2. Hard refresh
+       3. Smoke test: hacer login como Joan/Luis (chofer), verificar que
+          el orden de ciudades en pantalla de entregas no cambia
+          (cargarRutasOrden ya estaba activo desde v14.8).
+
+     PRESERVADO desde v14.10.0:
+       - Bloque productos_canonicos completo
+       - cargarRutasOrden / ordenDeCiudad (sistema de orden por rutas)
+       - Toda la lógica de tomador, edición, GPS, manual WA, viajes
+═════════════════════════════════════════════════════════════════════════ -->
+<!-- ═══════════════════════════════════════════════════════════════════════
      TCK VENTAS — v14.10.0 — 06/05/2026
      ──────────────────────────────────────────────────────────────────────
      N40b — PRODUCTOS CANÓNICOS (canonización en parseProds)
@@ -20659,12 +20701,9 @@ async function tomadorConfirmarConEntrega(entregaData) {
 //  PANEL CHOFER — ENTREGAS
 // ════════════════════════════════════════════════════════════════
 
-// Ruta fija: orden de ciudades
-const RUTA_FIJA = [
-  'Trenque Lauquen', 'Pehuajó', 'Henderson', 'Carlos Casares',
-  'Daireaux', 'Pellegrini', 'Salliqueló', 'Tres Lomas',
-  'Guaminí', '30 de Agosto', 'Lincoln', 'Quemú Quemú'
-];
+// v14.10.1 N41: la const RUTA_FIJA fue eliminada. El orden de ciudades
+// en este panel se resuelve via cargarRutasOrden() + ordenDeCiudad()
+// (definidas más abajo) que leen la tabla `rutas` de Supabase.
 
 let _entregasPedidoActual = null; // pedido_id en proceso de cobro
 let _entregaClienteActual = null; // cliente en proceso de cobro
@@ -21630,67 +21669,12 @@ async function cargarEntregas() {
   }
 }
 
-async function asignarPedidosChofer() {
-  try {
-    // Leer pedidos confirmados del sheet CSV
-    const res = await fetch(SHEET_CSV + '&_t=' + Date.now());
-    const csv = await res.text();
-        const lines = csv.trim().split('\n');
-    const hoy = new Date(); hoy.setHours(0,0,0,0);
-    const pedidos = [];
-
-    for (let i = 1; i < lines.length; i++) {
-      const cols = parseCsv(lines[i]);
-      if (!cols[0] || !/^TCK-\d{8}-/.test(cols[0].trim())) continue;
-      const estado = (cols[10] || '').trim();
-      if (estado !== 'Confirmado') continue;
-      const fechaRow = new Date((cols[1] || '').replace(' ', 'T'));
-      fechaRow.setHours(0,0,0,0);
-      if (fechaRow.getTime() !== hoy.getTime()) continue;
-
-      const ciudad = (cols[5] || '').trim();
-      const total = parseInt((cols[6] || '0').replace(/[^0-9]/g, '')) || 0;
-
-      pedidos.push({
-        pedido_id:        cols[0].trim(),
-        chofer:           vendedorActual,
-        cliente:          (cols[3] || '').trim(),
-        telefono_cliente: (cols[12] || '').trim(),
-        ciudad:           ciudad,
-        estado:           'pendiente',
-        monto:            total
-      });
-    }
-
-    if (!pedidos.length) return [];
-
-    // Ordenar por ruta fija
-    pedidos.sort((a, b) => {
-      const ia = RUTA_FIJA.findIndex(c => a.ciudad.toLowerCase().includes(c.toLowerCase()));
-      const ib = RUTA_FIJA.findIndex(c => b.ciudad.toLowerCase().includes(c.toLowerCase()));
-      return (ia === -1 ? 999 : ia) - (ib === -1 ? 999 : ib);
-    });
-
-    // Insertar en tabla entregas (ignorar duplicados)
-    for (const p of pedidos) {
-      try {
-        await sbFetch('entregas', {
-          method: 'POST',
-          headers: { 'Prefer': 'resolution=ignore-duplicates' },
-          body: JSON.stringify(p)
-        });
-      } catch(e) {}
-    }
-
-    // Releer desde Supabase
-    const hoyStr = new Date().toISOString().split('T')[0];
-    return await sbFetch('entregas?chofer=eq.' + encodeURIComponent(vendedorActual) +
-      '&fecha_asignacion=gte.' + hoyStr + 'T00:00:00&select=*&order=ciudad.asc') || pedidos;
-  } catch(e) {
-    console.error('asignarPedidosChofer:', e);
-    return [];
-  }
-}
+// v14.10.1 N41: la función `asignarPedidosChofer()` fue eliminada.
+// Era código muerto desde el rediseño VIAJES (N31-N34): leía pedidos
+// confirmados del CSV del Sheet y los insertaba en `entregas` con
+// localidad cruda (sin canonizar), ordenando por la const RUTA_FIJA
+// (también eliminada). Cero llamadores en todo el archivo.
+// Confirmado en auditoría N41.
 
 function renderResumenChofer(entregas) {
   // v8.8: actualizar también banner "tenés sin rendir"
@@ -21831,7 +21815,8 @@ function renderEntregas(entregas) {
     porCiudad[c].push(e);
   });
 
-  // v14.8: ordenar por rutas.orden de Supabase (con fallback a RUTA_FIJA)
+  // v14.8: ordenar por rutas.orden de Supabase. Fallback: si Supabase no
+  // responde, ordenDeCiudad() devuelve 999 → orden alfabético abajo.
   const ciudades = Object.keys(porCiudad).sort((a, b) => {
     const oa = ordenDeCiudad(a);
     const ob = ordenDeCiudad(b);
