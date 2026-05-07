@@ -13,7 +13,14 @@
           - Posición: después de Maple N° 1.
           - Precio: $4,500.
 
-       2. Mismos cambios complementarios en Supabase (paso aparte):
+       2. FIX: agregado "Maple N° 3":"Maple N° 2.jpg" al IMGMAP.
+          Sin esta entrada, el fallback `item.img + '.jpg'` (que
+          generaría 'huevos_maple.jpg') no existe en el directorio
+          /img/ y la imagen quedaba en blanco. Como visualmente todos
+          los maples son iguales, reusa la imagen de Maple N° 2 (igual
+          que ya hace Maple N° 1).
+
+       3. Mismos cambios complementarios en Supabase (paso aparte):
           - INSERT productos_canonicos (id 58) con aliases canónicos.
           - UPDATE id=16 (Nuggets) con sin_stock=false.
 
@@ -20005,7 +20012,7 @@ const IMGMAP = {
         "Milanesa de Nalga":"Milanesa de Nalga.jpg","Milanesa de Pollo":"Milanesa de Pollo.jpg",
         "Hamburguesa 100% Carne":"Hamburguesa Carne.jpg",
         "Pulpa de Palta":"Pulpa de Palta.jpg","Papa Baston Balcarce":"Papa Baston Balcarce.jpg",
-        "Maple N° 2":"Maple N° 2.jpg","Maple N° 1":"Maple N° 2.jpg",
+        "Maple N° 2":"Maple N° 2.jpg","Maple N° 1":"Maple N° 2.jpg","Maple N° 3":"Maple N° 2.jpg",
         "Cajita 1/2 Docena N° 2":"Cajita 12 Docena N° 2.jpg",
         "Arándanos Solimeno":"Arándanos Solimeno.jpg",
         "Brocoli":"Brocoli.jpg","Espinacas":"Espinacas.jpg","Morron":"Morron.jpg",
