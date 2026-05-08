@@ -2,6 +2,81 @@
 <html lang="es">
 <head>
 <!-- ═══════════════════════════════════════════════════════════════════════
+     TCK VENTAS — v14.13.5 — 08/05/2026
+     ──────────────────────────────────────────────────────────────────────
+     CANALIZACIÓN DE CLIENTES — Pieza 2 (módulo modal canal+días)
+
+     Contexto operativo:
+       Necesidad de Ariel/Lucas: clasificar a cada cliente TCK por tipo
+       de comercio (canal) para poder calcular KPIs de negocio (facturación
+       por canal, ticket promedio por canal, mix de productos por canal).
+
+     Decisiones cerradas (sesión 08/05/2026):
+       · 13 categorías cerradas (CHECK constraint en Supabase)
+       · El VENDEDOR carga el canal (no el cliente catálogo)
+       · Modal obligatorio: sin canal NO se puede cargar pedido
+       · Multi-día de visita (lunes-sábado) también obligatorio
+       · Reasignación: solo el vendedor original. ADMIN reasigna cualquiera.
+       · Lanzamiento frío: 1053 clientes empiezan en NULL, se llenan operando.
+       · Sin internet: cola en localStorage, sync diferido cuando vuelve la red.
+
+     Schema Supabase (Pieza 1 - aplicada 08/05):
+       clientes_activos:
+         + canal TEXT (CHECK: 13 categorías)
+         + canal_asignado_por TEXT
+         + canal_asignado_at TIMESTAMPTZ
+         + dias_visita TEXT[]
+         + dias_visita_por TEXT
+         + dias_visita_at TIMESTAMPTZ
+
+     Cambios v14.13.5 sobre v14.13.4:
+
+       1. NUEVO MÓDULO `_canalCliente` (~250 líneas):
+          · canalClienteCargar(clienteIdOrNombre)
+          · canalClienteNecesitaModal(cliente)
+          · canalClienteAbrirModal(cliente, callback)
+          · canalClienteGuardar(cliente, canal, dias, vendedor)
+          · canalClienteSyncCola() — procesa pendientes en localStorage
+          · canalClienteVerificarRed() — listener online/offline
+
+       2. INTEGRACIÓN en 3 flujos:
+          · tomadorAbrir() → chequea canal del cliente del check-in
+          · manualWAAbrir / mwaConfirmarCliente → chequea canal
+          · editarAbrir → chequea canal del pedido
+
+       3. UI:
+          · Modal full-screen mobile-first con 2 secciones
+          · Sección 1: grid 2x6 con 13 canales + "Otros" full-width
+          · Sección 2: grid 6x1 con días lunes-sábado (multi-select)
+          · Barra de progreso visual (2 puntos)
+          · Botón "Confirmar" deshabilitado hasta tener canal + 1+ día
+          · Sin botón "Cancelar" (modal obligatorio)
+
+       4. BLOQUEO REASIGNACIÓN:
+          · Si cliente.canal_asignado_por !== vendedorActual && vendedorActual !== 'ADMIN'
+            → modal aparece en modo lectura con mensaje "Asignado por X"
+            → permite continuar a cargar pedido sin modificar canal
+
+       5. OFFLINE SUPPORT:
+          · localStorage key: 'tck_canal_pendientes'
+          · Cola de canalizaciones pendientes de subir
+          · Procesamiento al iniciar app, al reconectar, cada 60s
+          · Toast "Canal guardado offline, se sincronizará" cuando aplica
+
+       6. CARGA DE DATOS en login:
+          · Al loguear vendedor, carga clientes_activos en variable global
+            _clientesActivosCache para poder consultar sin red.
+          · Refresh al cargar pedido nuevo (consulta puntual a Supabase).
+
+     PRESERVADO desde v14.13.4:
+       · Migración promos 1+1 → 50% OFF
+       · Todo el módulo de combos
+       · UX strip viajes
+       · El resto del flujo intacto
+
+═══════════════════════════════════════════════════════════════════════ -->
+
+<!-- ═══════════════════════════════════════════════════════════════════════
      TCK VENTAS — v14.13.4 — 08/05/2026
      ──────────────────────────────────────────────────────────────────────
      FIX CRÍTICO promos: migración 1+1 → 50% OFF (alineación con catálogo
@@ -20565,16 +20640,469 @@ const IMGMAP = {
         "Fino de Ave Cocida":"Fino de ave cocido.png"
       };
 
+// ═══════════════════════════════════════════════════════════════════════
+// v14.13.5 — MÓDULO _canalCliente (canalización de clientes TCK)
+// ═══════════════════════════════════════════════════════════════════════
+//
+// PROPÓSITO:
+//   Capturar el "tipo de comercio" (canal) y los "días de visita" de cada
+//   cliente TCK. Datos cargados por el VENDEDOR (decisión humana, no auto).
+//
+// CUÁNDO APARECE EL MODAL:
+//   Antes de cargar un pedido (3 flujos: tomador GPS, manualWA, editar).
+//   Solo si el cliente NO tiene canal asignado todavía.
+//
+// REGLAS DE BLOQUEO:
+//   Si el cliente ya tiene canal asignado por otro vendedor:
+//     · ADMIN puede reasignar.
+//     · Otros vendedores NO ven el modal (canal ya está, siguen al tomador).
+//
+// OFFLINE SUPPORT:
+//   Si Supabase no responde, guarda en localStorage y sincroniza al volver.
+//
+// SCHEMA SUPABASE (Pieza 1 N1 - aplicada 08/05/2026):
+//   clientes_activos.canal               (TEXT, CHECK 13 categorías)
+//   clientes_activos.canal_asignado_por  (TEXT)
+//   clientes_activos.canal_asignado_at   (TIMESTAMPTZ)
+//   clientes_activos.dias_visita         (TEXT[], CHECK lunes-sábado)
+//   clientes_activos.dias_visita_por     (TEXT)
+//   clientes_activos.dias_visita_at      (TIMESTAMPTZ)
+//
+// 13 CATEGORÍAS:
+//   granja, carniceria, almacen_autoservicio, pescaderia, fiambreria,
+//   roticeria_casa_comida, restaurante_parrilla, pizzeria_hamburgueseria,
+//   parripollo, catering_eventos, comedor_institucional, cliente_particular,
+//   otros
+
+const CANAL_CATEGORIAS = [
+  { id: 'granja',                  emoji: '🐔', nombre: 'Granja',           desc: 'Desposta y revende' },
+  { id: 'carniceria',              emoji: '🥩', nombre: 'Carnicería',       desc: 'Carnes al público' },
+  { id: 'almacen_autoservicio',    emoji: '🛒', nombre: 'Almacén/Autoserv.',desc: 'Variedad gral.' },
+  { id: 'pescaderia',              emoji: '🐟', nombre: 'Pescadería',       desc: 'Pescados y mariscos' },
+  { id: 'fiambreria',              emoji: '🧀', nombre: 'Fiambrería',       desc: 'Fiambres y quesos' },
+  { id: 'roticeria_casa_comida',   emoji: '🍱', nombre: 'Rotisería',        desc: 'Comida para llevar' },
+  { id: 'restaurante_parrilla',    emoji: '🍴', nombre: 'Resto/Parrilla',   desc: 'Comer en el lugar' },
+  { id: 'pizzeria_hamburgueseria', emoji: '🍕', nombre: 'Pizz/Hambur.',     desc: 'Pizzas y burgers' },
+  { id: 'parripollo',              emoji: '🔥', nombre: 'Parripollo',       desc: 'Pollo a la parrilla' },
+  { id: 'catering_eventos',        emoji: '🎉', nombre: 'Catering/Eventos', desc: 'Eventos y fiestas' },
+  { id: 'comedor_institucional',   emoji: '🏫', nombre: 'Comedor/Inst.',    desc: 'Escuelas, hosp.' },
+  { id: 'cliente_particular',      emoji: '🏠', nombre: 'Particular',       desc: 'Consumo personal' },
+  { id: 'otros',                   emoji: '📦', nombre: 'Otros',            desc: 'No encaja en ninguna' }
+];
+
+const CANAL_DIAS = [
+  { id: 'lunes',     letra: 'L', corto: 'Lun' },
+  { id: 'martes',    letra: 'M', corto: 'Mar' },
+  { id: 'miercoles', letra: 'M', corto: 'Mié' },
+  { id: 'jueves',    letra: 'J', corto: 'Jue' },
+  { id: 'viernes',   letra: 'V', corto: 'Vie' },
+  { id: 'sabado',    letra: 'S', corto: 'Sáb' }
+];
+
+const CANAL_LS_KEY = 'tck_canal_pendientes';
+
+// Cache local para evitar refetch en cada flujo (TTL 5 min)
+const _canalCache = new Map();
+const _CANAL_CACHE_TTL_MS = 5 * 60 * 1000;
+
+// ─── A) BUSCAR cliente en Supabase por nombre ────────────────────────
+// Devuelve { cliente_id, canal, canal_asignado_por, dias_visita } | null
+async function canalClienteCargar(nombreCliente) {
+  if (!nombreCliente) return null;
+  const k = nombreCliente.trim().toLowerCase();
+
+  // Cache hit (no expirado)
+  const cached = _canalCache.get(k);
+  if (cached && (Date.now() - cached.ts) < _CANAL_CACHE_TTL_MS) {
+    return cached.data;
+  }
+
+  try {
+    // Buscar por nombre EXACTO (case-insensitive con ilike)
+    // Si no encuentra, devuelve null y deja que el flujo siga sin modal
+    const enc = encodeURIComponent(nombreCliente.trim());
+    const path = 'clientes_activos?nombre=ilike.' + enc +
+                 '&select=cliente_id,nombre,canal,canal_asignado_por,canal_asignado_at,' +
+                 'dias_visita,dias_visita_por,dias_visita_at&limit=1';
+    const arr = await sbFetch(path);
+    const data = (arr && arr.length > 0) ? arr[0] : null;
+    _canalCache.set(k, { data, ts: Date.now() });
+    return data;
+  } catch (err) {
+    console.warn('[canal] error cargando cliente', nombreCliente, err);
+    return null;
+  }
+}
+
+// ─── B) DECIDIR si necesita modal ────────────────────────────────────
+// Retorna:
+//   { mostrar: false }                              → cliente OK, seguir
+//   { mostrar: true, modo: 'asignar' }              → primera vez
+//   { mostrar: true, modo: 'reasignar', cliente }   → ADMIN o el mismo vendedor
+//   { mostrar: false, motivo: 'asignado_por_otro' } → otro vendedor, seguir
+function canalClienteDecidirModal(clienteRow, vendedor) {
+  // No está en clientes_activos → no aparece modal (cliente nuevo o ad-hoc)
+  if (!clienteRow) return { mostrar: false, motivo: 'cliente_no_registrado' };
+
+  const tieneCanal = !!clienteRow.canal;
+  const tieneDias  = clienteRow.dias_visita && clienteRow.dias_visita.length > 0;
+
+  // Caso 1: ya tiene canal Y días → no molestamos
+  if (tieneCanal && tieneDias) {
+    return { mostrar: false, motivo: 'ya_canalizado' };
+  }
+
+  // Caso 2: nunca canalizado → modal en modo "asignar"
+  if (!tieneCanal && !tieneDias) {
+    return { mostrar: true, modo: 'asignar' };
+  }
+
+  // Caso 3: canalizado a medias (raro, pero defendemos): modal para completar
+  if (clienteRow.canal_asignado_por === vendedor || vendedor === 'ADMIN') {
+    return { mostrar: true, modo: 'asignar' };
+  }
+
+  // Caso 4: otro vendedor lo canalizó parcial → no bloqueamos al actual
+  return { mostrar: false, motivo: 'asignado_por_otro' };
+}
+
+// ─── C) GUARDAR canal + días en Supabase ──────────────────────────────
+// Si falla la red → guarda en localStorage y resuelve OK igual.
+async function canalClienteGuardar(clienteId, canal, dias, vendedor) {
+  const ahora = new Date().toISOString();
+  const payload = {
+    canal: canal,
+    canal_asignado_por: vendedor,
+    canal_asignado_at:  ahora,
+    dias_visita:        dias,
+    dias_visita_por:    vendedor,
+    dias_visita_at:     ahora
+  };
+
+  // Invalidar cache local
+  _canalCache.clear();
+
+  // Intento online
+  try {
+    const enc = encodeURIComponent(clienteId);
+    await sbFetch('clientes_activos?cliente_id=eq.' + enc, {
+      method: 'PATCH',
+      body: JSON.stringify(payload)
+    });
+    console.log('[canal] guardado online para', clienteId, canal, dias);
+    return { ok: true, modo: 'online' };
+  } catch (err) {
+    // Sin red o Supabase caído → encolar
+    console.warn('[canal] sin red, encolando para sync', err);
+    _canalEncolar(clienteId, payload);
+    return { ok: true, modo: 'offline' };
+  }
+}
+
+// ─── D) COLA OFFLINE en localStorage ─────────────────────────────────
+function _canalEncolar(clienteId, payload) {
+  let cola = [];
+  try {
+    cola = JSON.parse(localStorage.getItem(CANAL_LS_KEY) || '[]');
+  } catch(e) { cola = []; }
+  // Si ya existe entrada para este cliente, la pisamos (último gana)
+  cola = cola.filter(function(x){ return x.cliente_id !== clienteId; });
+  cola.push({
+    cliente_id: clienteId,
+    payload:    payload,
+    ts:         Date.now()
+  });
+  try {
+    localStorage.setItem(CANAL_LS_KEY, JSON.stringify(cola));
+  } catch(e) {
+    console.error('[canal] error guardando cola', e);
+  }
+}
+
+async function canalClienteSyncCola() {
+  let cola = [];
+  try {
+    cola = JSON.parse(localStorage.getItem(CANAL_LS_KEY) || '[]');
+  } catch(e) { return; }
+
+  if (!cola.length) return;
+  if (!navigator.onLine) return;
+
+  console.log('[canal] sincronizando cola, items:', cola.length);
+  const restantes = [];
+  for (const item of cola) {
+    try {
+      const enc = encodeURIComponent(item.cliente_id);
+      await sbFetch('clientes_activos?cliente_id=eq.' + enc, {
+        method: 'PATCH',
+        body: JSON.stringify(item.payload)
+      });
+      console.log('[canal] sync OK para', item.cliente_id);
+    } catch (err) {
+      console.warn('[canal] sync FAIL para', item.cliente_id, err);
+      restantes.push(item);
+    }
+  }
+  try {
+    localStorage.setItem(CANAL_LS_KEY, JSON.stringify(restantes));
+  } catch(e) {}
+}
+
+// Listener: cuando vuelve la red, intenta sync
+window.addEventListener('online', function() {
+  console.log('[canal] red restaurada, sincronizando');
+  canalClienteSyncCola();
+});
+
+// Sync periódico cada 60s
+setInterval(canalClienteSyncCola, 60 * 1000);
+
+// ─── E) UI MODAL (HTML inline) ────────────────────────────────────────
+let _canalModalCallback = null;
+let _canalModalCliente  = null;
+let _canalSeleccionado  = null;
+let _canalDiasSelec     = new Set();
+
+function canalClienteAbrirModal(clienteRow, callback) {
+  _canalModalCallback = callback;
+  _canalModalCliente  = clienteRow;
+  _canalSeleccionado  = null;
+  _canalDiasSelec     = new Set();
+
+  const overlay = document.createElement('div');
+  overlay.id = 'canal-modal-overlay';
+  overlay.style.cssText =
+    'position:fixed;inset:0;background:rgba(0,0,0,0.6);z-index:99999;' +
+    'display:flex;align-items:flex-end;justify-content:center;' +
+    'animation:canalFadeIn 0.2s ease-out;';
+
+  const cards = CANAL_CATEGORIAS.map(function(c) {
+    return '<button class="canal-card" data-canal="' + c.id + '" ' +
+           'onclick="canalSeleccionarCanal(\'' + c.id + '\')" ' +
+           'style="' + (c.id === 'otros' ? 'grid-column:1/-1;background:#f5f5f5;border-style:dashed;' : '') + '">' +
+           '<div class="canal-emoji">' + c.emoji + '</div>' +
+           '<div class="canal-text">' +
+             '<div class="canal-nombre">' + c.nombre + '</div>' +
+             '<div class="canal-desc">' + c.desc + '</div>' +
+           '</div></button>';
+  }).join('');
+
+  const dias = CANAL_DIAS.map(function(d) {
+    return '<button class="canal-dia-card" data-dia="' + d.id + '" ' +
+           'onclick="canalToggleDia(\'' + d.id + '\')">' +
+           '<div class="canal-dia-letra">' + d.letra + '</div>' +
+           '<div class="canal-dia-nombre">' + d.corto + '</div>' +
+           '</button>';
+  }).join('');
+
+  overlay.innerHTML =
+    '<div id="canal-modal-container">' +
+      '<div class="canal-modal-header">' +
+        '<div class="canal-modal-icon">🏷️</div>' +
+        '<div class="canal-modal-title-wrap">' +
+          '<div class="canal-modal-title">Clasificá a <span class="canal-cliente-name">' +
+          _escapeHtml(clienteRow.nombre) + '</span></div>' +
+          '<div class="canal-modal-subtitle">Solo se pregunta una vez por cliente</div>' +
+        '</div>' +
+      '</div>' +
+      '<div class="canal-progress-bar">' +
+        '<div class="canal-progress-step" id="canal-prog-1"></div>' +
+        '<div class="canal-progress-step" id="canal-prog-2"></div>' +
+      '</div>' +
+      '<div class="canal-section">' +
+        '<div class="canal-section-title"><span class="canal-section-step">1</span>¿Qué tipo de comercio es?</div>' +
+        '<div class="canal-grid">' + cards + '</div>' +
+      '</div>' +
+      '<div class="canal-section">' +
+        '<div class="canal-section-title"><span class="canal-section-step">2</span>¿Qué día(s) lo visitás?</div>' +
+        '<div class="canal-dias-info">💡 Tocá uno o más días.</div>' +
+        '<div class="canal-dias-grid">' + dias + '</div>' +
+        '<div class="canal-dias-resumen" id="canal-dias-resumen"></div>' +
+      '</div>' +
+      '<div class="canal-actions">' +
+        '<button class="canal-btn-confirmar" id="canal-btn-ok" onclick="canalConfirmarModal()" disabled>Confirmar y seguir</button>' +
+      '</div>' +
+    '</div>';
+
+  document.body.appendChild(overlay);
+  document.body.style.overflow = 'hidden';
+}
+
+function _escapeHtml(s) {
+  return String(s || '').replace(/[&<>"']/g, function(c){
+    return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c];
+  });
+}
+
+function canalSeleccionarCanal(id) {
+  _canalSeleccionado = id;
+  document.querySelectorAll('#canal-modal-overlay .canal-card').forEach(function(b){
+    b.classList.toggle('selected', b.dataset.canal === id);
+  });
+  _canalActualizarEstado();
+}
+
+function canalToggleDia(id) {
+  if (_canalDiasSelec.has(id)) _canalDiasSelec.delete(id);
+  else _canalDiasSelec.add(id);
+  document.querySelectorAll('#canal-modal-overlay .canal-dia-card').forEach(function(b){
+    b.classList.toggle('selected', _canalDiasSelec.has(b.dataset.dia));
+  });
+  _canalActualizarEstado();
+}
+
+function _canalActualizarEstado() {
+  const p1 = document.getElementById('canal-prog-1');
+  const p2 = document.getElementById('canal-prog-2');
+  const btn = document.getElementById('canal-btn-ok');
+  const res = document.getElementById('canal-dias-resumen');
+
+  if (_canalSeleccionado) p1.classList.add('completo'); else p1.classList.remove('completo');
+  if (_canalDiasSelec.size > 0) p2.classList.add('completo'); else p2.classList.remove('completo');
+
+  if (btn) btn.disabled = !_canalSeleccionado || _canalDiasSelec.size === 0;
+
+  if (res) {
+    if (_canalDiasSelec.size > 0) {
+      const lista = Array.from(_canalDiasSelec).map(function(id){
+        const d = CANAL_DIAS.find(function(x){ return x.id === id; });
+        return d ? d.corto : id;
+      }).join(', ');
+      res.textContent = '✓ Visita: ' + lista;
+    } else {
+      res.textContent = '';
+    }
+  }
+}
+
+async function canalConfirmarModal() {
+  if (!_canalSeleccionado || _canalDiasSelec.size === 0) return;
+  if (!_canalModalCliente || !_canalModalCliente.cliente_id) {
+    console.error('[canal] cliente sin cliente_id');
+    canalCerrarModal();
+    return;
+  }
+
+  const btn = document.getElementById('canal-btn-ok');
+  if (btn) { btn.disabled = true; btn.textContent = 'Guardando...'; }
+
+  const dias = Array.from(_canalDiasSelec);
+  const vendedor = (typeof vendedorActual !== 'undefined' && vendedorActual) ? vendedorActual : 'desconocido';
+
+  const r = await canalClienteGuardar(
+    _canalModalCliente.cliente_id,
+    _canalSeleccionado,
+    dias,
+    vendedor
+  );
+
+  if (r.modo === 'offline') {
+    if (typeof toast === 'function') toast('Guardado offline, se sincroniza cuando vuelva la red', 'warn');
+  }
+
+  const cb = _canalModalCallback;
+  canalCerrarModal();
+  if (typeof cb === 'function') cb();
+}
+
+function canalCerrarModal() {
+  const el = document.getElementById('canal-modal-overlay');
+  if (el) el.remove();
+  document.body.style.overflow = '';
+  _canalModalCallback = null;
+  _canalModalCliente  = null;
+  _canalSeleccionado  = null;
+  _canalDiasSelec     = new Set();
+}
+
+// ─── F) ENTRY POINT: chequear y abrir si corresponde ──────────────────
+// Llamado desde tomadorAbrir / manualWAConfirmar / abrirEditarPedido.
+// Ejecuta callback() si: cliente OK o el vendedor completó el modal.
+async function canalClienteChequearYAbrir(nombreCliente, callback) {
+  if (!nombreCliente || !callback) {
+    if (callback) callback();
+    return;
+  }
+
+  const vendedor = (typeof vendedorActual !== 'undefined' && vendedorActual) ? vendedorActual : 'desconocido';
+  const cliente = await canalClienteCargar(nombreCliente);
+  const decision = canalClienteDecidirModal(cliente, vendedor);
+
+  if (!decision.mostrar) {
+    callback();
+    return;
+  }
+
+  // Mostrar modal — solo continúa si confirma
+  canalClienteAbrirModal(cliente, callback);
+}
+
+// ─── G) ESTILOS del modal ─────────────────────────────────────────────
+(function _canalInyectarEstilos() {
+  if (document.getElementById('canal-modal-styles')) return;
+  const css = document.createElement('style');
+  css.id = 'canal-modal-styles';
+  css.textContent =
+    '@keyframes canalFadeIn{from{opacity:0}to{opacity:1}}' +
+    '@keyframes canalSlideUp{from{transform:translateY(100%)}to{transform:translateY(0)}}' +
+    '#canal-modal-container{background:#fff;width:100%;max-width:480px;max-height:92vh;' +
+      'border-radius:20px 20px 0 0;overflow-y:auto;padding:18px 16px calc(16px + env(safe-area-inset-bottom));' +
+      'box-shadow:0 -8px 32px rgba(0,0,0,.25);animation:canalSlideUp .25s ease-out}' +
+    '.canal-modal-header{display:flex;align-items:center;gap:10px;margin-bottom:12px;padding-bottom:10px;border-bottom:1.5px solid #f0e8e0}' +
+    '.canal-modal-icon{width:36px;height:36px;background:linear-gradient(135deg,#8B0000,#B71C1C);border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:18px;flex-shrink:0}' +
+    '.canal-modal-title-wrap{flex:1;min-width:0}' +
+    ".canal-modal-title{font-family:'Barlow Condensed',sans-serif;font-size:17px;font-weight:900;color:#1A0800;line-height:1.1;margin:0}" +
+    '.canal-modal-subtitle{font-size:11px;color:#888;margin-top:2px}' +
+    '.canal-cliente-name{color:#8B0000;font-weight:800}' +
+    '.canal-progress-bar{display:flex;gap:4px;margin-bottom:12px}' +
+    '.canal-progress-step{flex:1;height:4px;background:#e8e0d8;border-radius:2px;transition:background .2s}' +
+    '.canal-progress-step.completo{background:linear-gradient(90deg,#8B0000,#B71C1C)}' +
+    '.canal-section{margin-bottom:14px}' +
+    '.canal-section-title{font-size:11px;font-weight:900;color:#8B0000;letter-spacing:.8px;margin-bottom:8px;text-transform:uppercase;display:flex;align-items:center;gap:6px}' +
+    '.canal-section-step{background:#8B0000;color:#fff;width:18px;height:18px;border-radius:50%;display:inline-flex;align-items:center;justify-content:center;font-size:10px;font-weight:900}' +
+    '.canal-grid{display:grid;grid-template-columns:repeat(2,1fr);gap:6px}' +
+    '.canal-card{background:#fafafa;border:1.5px solid #e8e0d8;border-radius:9px;padding:8px 7px;cursor:pointer;transition:all .15s;display:flex;align-items:center;gap:6px;text-align:left;font-family:inherit;width:100%;touch-action:manipulation}' +
+    '.canal-card:active{background:#fff5e6;transform:scale(.97)}' +
+    '.canal-card.selected{background:linear-gradient(135deg,#fff5e6,#ffefd4);border-color:#8B0000;box-shadow:0 0 0 2px rgba(139,0,0,.15)}' +
+    '.canal-emoji{font-size:18px;flex-shrink:0}' +
+    '.canal-text{flex:1;min-width:0}' +
+    '.canal-nombre{font-size:11px;font-weight:700;color:#1A0800;line-height:1.15}' +
+    '.canal-desc{font-size:9px;color:#999;line-height:1.2;margin-top:1px}' +
+    '.canal-dias-info{background:#FFF8E1;border-left:3px solid #D4A574;padding:6px 9px;border-radius:5px;font-size:10px;color:#6D4C2D;margin-bottom:8px;line-height:1.3}' +
+    '.canal-dias-grid{display:grid;grid-template-columns:repeat(6,1fr);gap:5px}' +
+    '.canal-dia-card{background:#fafafa;border:1.5px solid #e8e0d8;border-radius:9px;padding:9px 4px;cursor:pointer;transition:all .15s;text-align:center;font-family:inherit;touch-action:manipulation;user-select:none}' +
+    '.canal-dia-card:active{transform:scale(.94)}' +
+    '.canal-dia-card.selected{background:linear-gradient(135deg,#E8F5E8,#C8E6C9);border-color:#2E7D32;box-shadow:0 0 0 2px rgba(46,125,50,.15)}' +
+    ".canal-dia-letra{font-size:16px;font-weight:900;color:#1A0800;font-family:'Barlow Condensed',sans-serif;line-height:1}" +
+    '.canal-dia-card.selected .canal-dia-letra{color:#2E7D32}' +
+    '.canal-dia-nombre{font-size:9px;color:#999;margin-top:2px;text-transform:uppercase;letter-spacing:.3px}' +
+    '.canal-dia-card.selected .canal-dia-nombre{color:#2E7D32;font-weight:700}' +
+    '.canal-dias-resumen{font-size:11px;color:#2E7D32;margin-top:8px;text-align:center;font-weight:600;min-height:16px}' +
+    '.canal-actions{display:flex;gap:8px;margin-top:10px;padding-top:12px;border-top:1px solid #f0e8e0}' +
+    ".canal-btn-confirmar{flex:1;padding:13px;background:linear-gradient(135deg,#8B0000,#B71C1C);color:#fff;border:none;border-radius:11px;font-family:'Barlow Condensed',sans-serif;font-size:15px;font-weight:900;cursor:pointer;touch-action:manipulation;letter-spacing:.3px}" +
+    '.canal-btn-confirmar:disabled{opacity:.4;cursor:not-allowed;background:#ccc}';
+  document.head.appendChild(css);
+})();
+
+// Sync inicial al cargar (si quedó algo en cola de la sesión anterior)
+setTimeout(canalClienteSyncCola, 3000);
+
+// ═══════════════════════════════════════════════════════════════════════
+// FIN MÓDULO _canalCliente
+// ═══════════════════════════════════════════════════════════════════════
+
 function tomadorAbrir() {
   if (!_gpsCheckinActivo) { toast('Hacé check-in primero', 'err'); return; }
-  // v8.6: antes de abrir el tomador, chequeamos si el cliente tiene sucursales.
-  // Si tiene 2+, pedimos elegir una. Si tiene 1, la usa auto. Si 0, seguimos.
+  // v14.13.5: antes de cualquier cosa, chequear canal del cliente
   var clienteNombre = _gpsCheckinActivo.nombre_cliente || '';
-  sucElegirAbrir(clienteNombre, function(suc, modo) {
-    if (modo === 'cancelado') return; // vendedor canceló: no abrir tomador
-    // Guardar sucursal elegida (o null) en variable global que usa el confirmar
-    _tomadorSucursalElegida = suc || null;
-    _tomadorAbrirInterno();
+  canalClienteChequearYAbrir(clienteNombre, function() {
+    // v8.6: una vez canalizado (o no necesario), seguir con sucursal
+    sucElegirAbrir(clienteNombre, function(suc, modo) {
+      if (modo === 'cancelado') return; // vendedor canceló: no abrir tomador
+      // Guardar sucursal elegida (o null) en variable global que usa el confirmar
+      _tomadorSucursalElegida = suc || null;
+      _tomadorAbrirInterno();
+    });
   });
 }
 
@@ -24353,6 +24881,16 @@ function editarPedidoBtn(btn, event) {
 }
 
 function abrirEditarPedido(p, detalle) {
+  // v14.13.5: chequear canal del cliente antes de abrir el editor.
+  // Si el cliente no tiene canal asignado, abre el modal de canalización.
+  // Cuando el vendedor confirma (o el cliente ya está canalizado), se abre el editor.
+  var nombreCli = p && p.cliente ? p.cliente : '';
+  canalClienteChequearYAbrir(nombreCli, function() {
+    _abrirEditarPedidoInterno(p, detalle);
+  });
+}
+
+function _abrirEditarPedidoInterno(p, detalle) {
   _editarPedidoId = p.pedidoId;
   _editarCliente  = p.cliente || 'Cliente';
   _editarFila     = p.fila;
@@ -25514,6 +26052,14 @@ function manualWAElegirCliente(nombre, localidad) {
   if (el) el.innerHTML = '';
   _manualWACliente = nombre;
   _manualWALocalidad = locInp && locInp.value ? locInp.value : '';
+
+  // v14.13.5: chequear canal al seleccionar cliente del autocomplete.
+  // Si el cliente no tiene canal, abre modal antes de seguir cargando productos.
+  // No bloquea: si el cliente no está en clientes_activos, sigue normal.
+  canalClienteChequearYAbrir(nombre, function() {
+    // No hace falta hacer nada acá — el modal ya hizo su PATCH y se cerró,
+    // o el cliente no necesitaba canalización. El vendedor sigue con el flujo.
+  });
 }
 
 // v9.2: agregar combo completo al pedido por WA
@@ -25737,6 +26283,16 @@ function manualWAConfirmar() {
   var _dCheck = mwaCalcularDesglose();
   if (_dCheck.itemsCount === 0) { toast('Agregá al menos un producto', 'err'); return; }
 
+  // v14.13.5: bloqueo defensivo — si el cliente no tiene canal, abrir modal
+  // y bloquear hasta completar. Cubre el caso donde el vendedor:
+  // a) escribió el nombre a mano (no usó autocomplete)
+  // b) cerró el modal sin completar al seleccionar cliente
+  canalClienteChequearYAbrir(cliente, function() {
+    _manualWAConfirmarContinuar(cliente, localidad);
+  });
+}
+
+function _manualWAConfirmarContinuar(cliente, localidad) {
   // v8.6: antes del selector de entrega, pedimos sucursal si corresponde.
   // Si el cliente tiene 0, sigue como antes. Si tiene 1, se usa auto.
   // Si cancela el vendedor el selector, NO avanzamos (queda en el form manual WA).
