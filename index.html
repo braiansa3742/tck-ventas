@@ -2,6 +2,76 @@
 <html lang="es">
 <head>
 <!-- ═══════════════════════════════════════════════════════════════════════
+     TCK VENTAS — v14.13.4 — 08/05/2026
+     ──────────────────────────────────────────────────────────────────────
+     FIX CRÍTICO promos: migración 1+1 → 50% OFF (alineación con catálogo
+     y Apps Script v25.3.0+).
+
+     Bug detectado el 8/5/2026 (pedido TCK-20260508-1108-JUA-WW2LD):
+     Juan cargó pedido por WA manual con 2 promos. El detalle generado
+     usaba el formato viejo "🎁 *PROMO 1+1: Nombre* × N" que el parser
+     de Apps Script v25.3.0+ NO reconoce desde 29/4/2026 (decisión N28-N29).
+     Resultado: items perdidos en presupuesto Xubio, $6.500 que no se
+     facturaron. Email de alerta llegó OK.
+
+     Causa raíz: el módulo "PROMOS 1+1 DE ABRIL" en tck-ventas (v13.4)
+     nunca se migró cuando el catálogo + Apps Script pasaron al modelo
+     "50% off por unidad". Quedó como deuda técnica desde abril.
+
+     Cambios v14.13.4 sobre v14.13.3:
+
+       1. MODELO: cada qty ahora es 1 UNIDAD (antes era 1 PAR).
+          El cliente pide N unidades y paga N × precio_unitario.
+          Eliminado el concepto "1 paga + 1 gratis = 2 unidades".
+
+       2. UI carousel:
+          · Badge "1+1" → "50% OFF"
+          · Texto "🎁 1 PAGA + 1 GRATIS" → "🎁 50% OFF"
+          · Stepper "N par/pares" → "N u"
+          · Eliminada línea "= 2N unidades" (ya no aplica)
+          · Precio tachado: ahora lee `precio_normal` de Supabase (N29)
+            con fallback `precio*2` por compatibilidad
+          · Header sección: "Ofertas de Abril · 1+1" → "Ofertas 50% OFF"
+
+       3. STOCK: validación cambiada de `(actual+1)*2 > stockDisp`
+          a `(actual+1) > stockDisp`. Cada qty consume 1 unidad de stock.
+
+       4. WA OUTPUT (formato exacto del catálogo v3.7.x, parser-friendly):
+            🎁 *50% OFF: NOMBRE_MAYÚSCULAS* × N
+               💰 $TOTAL
+          Eliminada línea intermedia "✓ 2Nx Nombre" (no la usa el parser).
+          Eliminada línea "(-50%)" del cierre (no la usa el parser).
+
+       5. PARSER: regex actualizado a `🎁 *50% OFF: NOMBRE* × N`.
+          Mantiene fallback `🎁 *PROMO 1+1: NOMBRE* × N` para que el
+          modo editar pueda leer pedidos viejos cargados pre-fix.
+
+          IMPORTANTE: pedidos VIEJOS al unir mantienen el formato 1+1
+          en el detalle final (flag legacy=true). NO se convierten a
+          50% OFF porque el `precio_unitario` cambió de significado al
+          migrar (antes precio del par, ahora precio de la unidad).
+          Forzar la conversión introduciría un error de cálculo del
+          doble. Por seguridad: pedidos viejos quedan como están,
+          pedidos nuevos en 50% OFF.
+
+       6. SUPABASE: query `productos_promo` agregado filtro
+          `tipo_promo=eq.50_off` (defensivo por si en el futuro hay
+          otros tipos de promo).
+
+       7. Variables internas: `pares` → `unidades`, `cantPares` → `qty`
+          en estructuras de retorno de promosTotalVentas.
+
+     Validación: los 3 modos del tomador (campo, WA manual, editar)
+     usan las mismas funciones del módulo. El fix se aplica a los 3
+     en una sola edición.
+
+     PRESERVADO desde v14.13.3:
+       - UX strip viajes variante B
+       - Todo lo demás de v14.13.3
+
+═══════════════════════════════════════════════════════════════════════ -->
+
+<!-- ═══════════════════════════════════════════════════════════════════════
      TCK VENTAS — v14.13.3 — 08/05/2026
      ──────────────────────────────────────────────────────────────────────
      UX FIX strip viajes — variante B con fecha + colores semáforo.
@@ -12402,21 +12472,25 @@ async function combosCargarVentas() {
 }
 
 // ═══════════════════════════════════════════════════════════════════════
-// v13.4 — PROMOS 1+1 DE ABRIL (tomador campo, tomador WA, editar)
+// v14.13.4 — PROMOS 50% OFF (tomador campo, tomador WA, editar)
 // ═══════════════════════════════════════════════════════════════════════
-// Mecánica: cada "qty" = 1 par (1 precio pagado + 1 gratis = 2 unidades físicas).
+// MIGRACIÓN 1+1 → 50% OFF (8/5/2026):
+// Mecánica nueva: cada "qty" = 1 UNIDAD al precio promo (50% del normal).
 // - Carousel horizontal compacto arriba de la grilla de productos.
 // - Variables por modo: _tomadorPromos, _editarPromos, _manualWAPromos.
-// - Formato WA: "🎁 *PROMO 1+1: Nombre* × N / ✓ 2Nx Nombre / 💰 $X (-50%)"
-//   reusa el parser de combos del Apps Script v24.4.
+// - Formato WA: "🎁 *50% OFF: NOMBRE* × N\n   💰 $TOTAL"
+//   alineado con catálogo v3.7.x y parser Apps Script v25.3.0+.
 // - Al crear presupuesto Xubio: parser detecta la línea y arma el item con
-//   cantidad = 2*pares y porcentajeDescuento = 50.
+//   cantidad = N y precioUnitario = precio_unitario (ya promo final, dto=0).
+// - Compat: el módulo de duplicados (_dupParsearDetalle) acepta AMBOS
+//   formatos (1+1 viejo y 50% OFF nuevo) para poder leer pedidos viejos.
 // ═══════════════════════════════════════════════════════════════════════
 var _promosData = [];  // catálogo activo de promos
 
 async function promosCargarVentas() {
   try {
-    const data = await sbFetch('productos_promo?activo=eq.true&stock_disponible=gt.0&order=orden.asc');
+    // v14.13.4: filtro tipo_promo=eq.50_off (defensivo por si en el futuro hay otros tipos)
+    const data = await sbFetch('productos_promo?activo=eq.true&tipo_promo=eq.50_off&stock_disponible=gt.0&order=orden.asc');
     _promosData = Array.isArray(data) ? data : [];
   } catch(e) {
     console.error('[promos] Error al cargar:', e);
@@ -12427,7 +12501,7 @@ async function promosCargarVentas() {
 // Render del carousel horizontal de promos.
 // contextId: 'tomador' | 'editar' | 'manualwa'
 // agregarFn/quitarFn: nombres de funciones globales para onclick
-// qtysMap: map { promoId: cantPares } específico del modo
+// qtysMap: map { promoId: qty } específico del modo (qty = unidades, v14.13.4)
 function promosRenderCarousel(contextId, agregarFn, quitarFn, qtysMap) {
   if (!_promosData || _promosData.length === 0) return '';
   const fmtPr = function(n) { return '$' + Number(n).toLocaleString('es-AR'); };
@@ -12436,17 +12510,17 @@ function promosRenderCarousel(contextId, agregarFn, quitarFn, qtysMap) {
     const q = Number((qtysMap||{})[p.id] || 0);
     const stockDisp = Number(p.stock_disponible || 0);
     const precio = Number(p.precio_unitario || 0);
+    // v14.13.4: leer precio_normal desde Supabase (N29). Fallback: precio*2 (compat).
+    const precioNormal = Number(p.precio_normal || precio * 2);
     const esCritico = stockDisp <= 10;
     const urgHtml = esCritico
       ? '<div class="vpromo-urg">⚠️ ÚLTIMAS ' + stockDisp + '</div>'
       : '';
     const imgSrc = p.imagen_url || '';
     const nombre = (p.producto_nombre || '').replace(/"/g,'&quot;');
-    const totalU = q * 2;
     const tieneCls = q > 0 ? ' tiene' : '';
-    const totalStyle = q > 0 ? '' : 'style="visibility:hidden"';
     cards += '<div class="vpromo-card' + tieneCls + '" data-promo-id="' + p.id + '">' +
-      '<div class="vpromo-badge">1+1</div>' +
+      '<div class="vpromo-badge">50% OFF</div>' +
       urgHtml +
       (imgSrc
         ? '<img class="vpromo-img" src="' + imgSrc + '" loading="lazy" onerror="this.style.display=\'none\'">'
@@ -12454,16 +12528,15 @@ function promosRenderCarousel(contextId, agregarFn, quitarFn, qtysMap) {
       '<div class="vpromo-body">' +
         '<div class="vpromo-nombre">' + (p.producto_nombre || '') + '</div>' +
         '<div class="vpromo-precios">' +
-          '<span class="vpromo-precio-viejo">' + fmtPr(precio * 2) + '</span>' +
+          '<span class="vpromo-precio-viejo">' + fmtPr(precioNormal) + '</span>' +
           '<span class="vpromo-precio">' + fmtPr(precio) + '</span>' +
         '</div>' +
-        '<div class="vpromo-regalo">🎁 1 PAGA + 1 GRATIS</div>' +
+        '<div class="vpromo-regalo">🎁 50% OFF</div>' +
         '<div class="vpromo-qty">' +
           '<button class="vpromo-qty-btn" onclick="' + quitarFn + '(\'' + p.id + '\')">−</button>' +
-          '<div class="vpromo-qty-val">' + q + ' ' + (q === 1 ? 'par' : 'pares') + '</div>' +
+          '<div class="vpromo-qty-val">' + q + ' u</div>' +
           '<button class="vpromo-qty-btn" onclick="' + agregarFn + '(\'' + p.id + '\')">+</button>' +
         '</div>' +
-        '<div class="vpromo-qty-total" ' + totalStyle + '>= ' + totalU + ' unidades</div>' +
       '</div>' +
     '</div>';
   });
@@ -12471,7 +12544,7 @@ function promosRenderCarousel(contextId, agregarFn, quitarFn, qtysMap) {
     '<div class="vpromos-header">' +
       '<div class="vpromos-title-wrap">' +
         '<span style="font-size:15px;">🔥</span>' +
-        '<div class="vpromos-title">Ofertas de Abril · 1+1</div>' +
+        '<div class="vpromos-title">Ofertas 50% OFF</div>' +
       '</div>' +
       '<div class="vpromos-sub">Deslizá →</div>' +
     '</div>' +
@@ -12479,13 +12552,14 @@ function promosRenderCarousel(contextId, agregarFn, quitarFn, qtysMap) {
   '</div>';
 }
 
-// Agregar 1 par al map de qty. Devuelve true si se pudo, false si falta stock.
+// Agregar 1 unidad al map de qty. Devuelve true si se pudo, false si falta stock.
+// v14.13.4: cada qty = 1 unidad (antes era 1 par = 2 unidades).
 function promosAgregarAlMap(promoId, qtysMap) {
   const promo = (_promosData || []).find(function(p){ return p.id === promoId; });
   if (!promo) return false;
   const actual = Number((qtysMap||{})[promoId] || 0);
   const stockDisp = Number(promo.stock_disponible || 0);
-  if ((actual + 1) * 2 > stockDisp) {
+  if ((actual + 1) > stockDisp) {
     if (typeof toast === 'function') {
       toast('Solo quedan ' + stockDisp + ' unidades de ' + promo.producto_nombre, 'warn');
     } else {
@@ -12503,8 +12577,10 @@ function promosQuitarDelMap(promoId, qtysMap) {
   else qtysMap[promoId] = actual - 1;
 }
 
-// Genera las líneas WA para las promos, formato similar a combos.
-// Parser del Apps Script reconoce: "🎁 *PROMO 1+1: Nombre* × N" + "✓ 2Nx Nombre" + "💰 $X (-50%)"
+// Genera las líneas WA para las promos.
+// v14.13.4: formato 50% OFF alineado con catálogo + Apps Script v25.3.0+.
+// Parser AS reconoce: "🎁 *50% OFF: NOMBRE* × N" + "💰 $TOTAL"
+// Nombre va en MAYÚSCULAS (consistencia con catálogo v3.7.x).
 function promosLineasWAVentas(qtysMap) {
   const lineas = [];
   Object.keys(qtysMap || {}).forEach(function(promoId) {
@@ -12514,20 +12590,19 @@ function promosLineasWAVentas(qtysMap) {
     if (!promo) return;
     const nombre = promo.producto_nombre || '';
     const precio = Number(promo.precio_unitario || 0);
-    const totalU = q * 2;
     const totalImporte = precio * q;
-    lineas.push('🎁 *PROMO 1+1: ' + nombre + '* × ' + q);
-    lineas.push('   ✓ ' + totalU + 'x ' + nombre);
-    lineas.push('   💰 $' + totalImporte.toLocaleString('es-AR') + ' (-50%)');
+    lineas.push('🎁 *50% OFF: ' + nombre.toUpperCase() + '* × ' + q);
+    lineas.push('   💰 $' + totalImporte.toLocaleString('es-AR'));
     lineas.push('');
   });
   return lineas;
 }
 
-// Suma de totales de promos en el map (para mwaCalcularDesglose, etc)
+// Suma de totales de promos en el map (para mwaCalcularDesglose, etc).
+// v14.13.4: cada qty = 1 unidad. Campo `pares` mantenido por compat con
+// consumidores externos pero ahora vale lo mismo que `unidades`.
 function promosTotalVentas(qtysMap) {
   let total = 0;
-  let pares = 0;
   let unidades = 0;
   Object.keys(qtysMap || {}).forEach(function(promoId) {
     const q = Number(qtysMap[promoId] || 0);
@@ -12535,18 +12610,19 @@ function promosTotalVentas(qtysMap) {
     const promo = (_promosData || []).find(function(p){ return p.id === promoId; });
     if (!promo) return;
     total    += Number(promo.precio_unitario || 0) * q;
-    pares    += q;
-    unidades += q * 2;
+    unidades += q;
   });
-  return { total: total, pares: pares, unidades: unidades };
+  // pares = unidades (compat con consumidores que aún leen .pares)
+  return { total: total, pares: unidades, unidades: unidades };
 }
 
 // Consumir stock en Supabase — llamada al confirmar pedido (fire-and-forget).
+// v14.13.4: cada qty = 1 unidad de stock (antes era qty*2).
 async function promosConsumirStockVentas(qtysMap) {
   const items = [];
   Object.keys(qtysMap || {}).forEach(function(promoId) {
     const q = Number(qtysMap[promoId] || 0);
-    if (q > 0) items.push({ id: promoId, unidades: q * 2 });
+    if (q > 0) items.push({ id: promoId, unidades: q });
   });
   for (const item of items) {
     try {
@@ -12571,26 +12647,51 @@ async function promosConsumirStockVentas(qtysMap) {
 
 // Parsear promos desde el campo "detalle" de un pedido guardado.
 // Uso: modo editar → recupera _editarPromos al abrir un pedido existente.
+// v14.13.4: acepta AMBOS formatos:
+//   - Nuevo: "🎁 *50% OFF: NOMBRE* × N"  (qty = unidades)
+//   - Viejo: "🎁 *PROMO 1+1: Nombre* × N pares"  (qty = pares, conv: × 2 = unidades)
 function promosParsearDetalle(detalle) {
   const result = {};
   if (!detalle || typeof detalle !== 'string') return result;
-  // Matches "🎁 *PROMO 1+1: Nombre* × N"
-  const re = /🎁\s*\*PROMO\s*1\+1:\s*([^*]+?)\*\s*×\s*(\d+)/g;
-  let m;
-  while ((m = re.exec(detalle)) !== null) {
-    const nombre = (m[1] || '').trim();
-    const pares  = parseInt(m[2], 10);
-    if (!nombre || !pares) continue;
-    // Buscar la promo cargada en _promosData que matchee por nombre
-    const promo = (_promosData || []).find(function(p){
-      return (p.producto_nombre || '').trim() === nombre;
+
+  // Helper: buscar promo en _promosData por nombre (insensible a mayús/min)
+  const buscarPromo = function(nombre) {
+    const norm = (nombre || '').trim().toLowerCase();
+    return (_promosData || []).find(function(p){
+      return (p.producto_nombre || '').trim().toLowerCase() === norm;
     });
-    if (promo) result[promo.id] = pares;
+  };
+
+  // 1) Formato nuevo: "🎁 *50% OFF: NOMBRE* × N"
+  const reNuevo = /🎁\s*\*50%\s*OFF:\s*([^*]+?)\*\s*[×x]\s*(\d+)/gi;
+  let m;
+  while ((m = reNuevo.exec(detalle)) !== null) {
+    const nombre = (m[1] || '').trim();
+    const unidades = parseInt(m[2], 10);
+    if (!nombre || !unidades) continue;
+    const promo = buscarPromo(nombre);
+    if (promo) result[promo.id] = unidades;
   }
+
+  // 2) Formato viejo (pedidos pre-fix 8/5/2026): "🎁 *PROMO 1+1: Nombre* × N"
+  // Conversión: en el modelo viejo N era PARES (= 2N unidades). En el modelo nuevo
+  // un par viejo equivale a 2 unidades nuevas (mismo producto físico).
+  const reViejo = /🎁\s*\*PROMO\s*1\+1:\s*([^*]+?)\*\s*[×x]\s*(\d+)/g;
+  while ((m = reViejo.exec(detalle)) !== null) {
+    const nombre = (m[1] || '').trim();
+    const pares = parseInt(m[2], 10);
+    if (!nombre || !pares) continue;
+    const promo = buscarPromo(nombre);
+    // Si ya estaba en result por el formato nuevo, no pisar
+    if (promo && result[promo.id] === undefined) {
+      result[promo.id] = pares * 2;
+    }
+  }
+
   return result;
 }
 // ═══════════════════════════════════════════════════════════════════════
-// Fin módulo PROMOS 1+1
+// Fin módulo PROMOS 50% OFF (v14.13.4)
 // ═══════════════════════════════════════════════════════════════════════
 
 // Consumir stock en Supabase al confirmar pedido
@@ -20937,9 +21038,9 @@ async function tomadorConfirmar() {
     + '</div>'
     + '<div style="padding:14px 20px 0;font-size:13px;color:#666">👤 ' + cliente + '</div>'
     + (function(){
-        // v13.4: bloque de promos 1+1 arriba de productos
-        var tp = (typeof promosTotalVentas === 'function') ? promosTotalVentas(_tomadorPromos) : { total:0, pares:0, unidades:0 };
-        if (tp.pares === 0) return '';
+        // v14.13.4: bloque de promos 50% OFF arriba de productos
+        var tp = (typeof promosTotalVentas === 'function') ? promosTotalVentas(_tomadorPromos) : { total:0, unidades:0 };
+        if (tp.unidades === 0) return '';
         resumenTotal += tp.total;
         var filas = '';
         Object.keys(_tomadorPromos||{}).forEach(function(pid){
@@ -20950,12 +21051,12 @@ async function tomadorConfirmar() {
           var precio = Number(promo.precio_unitario||0);
           filas += '<div style="display:flex;align-items:center;gap:10px;padding:8px 0;border-bottom:1px solid #f0e8e8">'
             + '<img src="' + (promo.imagen_url||'') + '" style="width:44px;height:44px;object-fit:cover;border-radius:8px;flex-shrink:0;border:2px solid #D4A574" onerror="this.style.display=&quot;none&quot;">'
-            + '<div style="flex:1"><div style="font-weight:800;font-size:13px;color:#8B0000">🎁 1+1 · ' + (promo.producto_nombre||'') + '</div>'
-            + '<div style="font-size:11px;color:#2E7D32;font-weight:700">' + q + ' par' + (q>1?'es':'') + ' · ' + (q*2) + 'u total · 1 paga + 1 gratis</div></div>'
+            + '<div style="flex:1"><div style="font-weight:800;font-size:13px;color:#8B0000">🎁 50% OFF · ' + (promo.producto_nombre||'') + '</div>'
+            + '<div style="font-size:11px;color:#2E7D32;font-weight:700">' + q + ' u · 50% off</div></div>'
             + '<div style="font-family:Barlow Condensed,sans-serif;font-size:16px;font-weight:900;color:#8B0000;text-align:right">$' + (precio*q).toLocaleString('es-AR') + '</div>'
             + '</div>';
         });
-        return '<div style="padding:6px 20px 0;font-size:11px;font-weight:900;color:#8B0000;letter-spacing:0.5px">🔥 OFERTAS 1+1</div>'
+        return '<div style="padding:6px 20px 0;font-size:11px;font-weight:900;color:#8B0000;letter-spacing:0.5px">🔥 OFERTAS 50% OFF</div>'
           + '<div style="padding:0 20px 4px;background:linear-gradient(135deg,#fff9f0,#fff4e1);border-left:3px solid #D4A574;margin:4px 10px 8px;border-radius:6px">' + filas + '</div>';
       })()
     + '<div style="padding:10px 20px">'
@@ -24631,12 +24732,12 @@ function editarActualizarTotal() {
       });
     });
   });
-  // v13.4: sumar promos 1+1 al total de edición
-  var tpEd = (typeof promosTotalVentas === 'function') ? promosTotalVentas(_editarPromos) : { total:0, pares:0 };
+  // v14.13.4: sumar promos 50% OFF al total de edición
+  var tpEd = (typeof promosTotalVentas === 'function') ? promosTotalVentas(_editarPromos) : { total:0, unidades:0 };
   total += tpEd.total;
-  // v13.4: sumar combos al total (para detectar si hay items sin productos sueltos)
+  // v14.13.4: sumar combos al total (para detectar si hay items sin productos sueltos)
   var tieneCombos = Object.keys(_editarCombos||{}).some(function(k){ return _editarCombos[k] > 0; });
-  var tienePromos = tpEd.pares > 0;
+  var tienePromos = tpEd.unidades > 0;
   const el = document.getElementById('editar-total');
   if (el) el.textContent = '$' + Math.round(total).toLocaleString('es-AR');
   const btn = document.getElementById('editar-confirmar-btn');
@@ -24717,9 +24818,9 @@ async function editarConfirmar() {
   let resumenLineas = [];
   let detalleParts = [];
 
-  // v13.4: líneas de promos 1+1 PRIMERO (formato parser Xubio)
+  // v14.13.4: líneas de promos 50% OFF PRIMERO (formato parser Apps Script v25.3.0+)
   var promosLineasEd = (typeof promosLineasWAVentas === 'function') ? promosLineasWAVentas(_editarPromos) : [];
-  var tpEd = (typeof promosTotalVentas === 'function') ? promosTotalVentas(_editarPromos) : { total:0, pares:0, unidades:0 };
+  var tpEd = (typeof promosTotalVentas === 'function') ? promosTotalVentas(_editarPromos) : { total:0, unidades:0 };
   if (promosLineasEd.length > 0) {
     // Compactar formato combo-like: cada promo en una sola línea con "|" separando campos
     Object.keys(_editarPromos||{}).forEach(function(pid){
@@ -24731,14 +24832,13 @@ async function editarConfirmar() {
       var nombre = promo.producto_nombre || '';
       var sub = precio * q;
       var partes = [
-        '🎁 *PROMO 1+1: ' + nombre + '* × ' + q,
-        '✓ ' + (q*2) + 'x ' + nombre,
-        '💰 $' + sub.toLocaleString('es-AR') + ' (-50%)'
+        '🎁 *50% OFF: ' + nombre.toUpperCase() + '* × ' + q,
+        '💰 $' + sub.toLocaleString('es-AR')
       ];
       detalleParts.push(partes.join(' | '));
-      resumenLineas.push('🎁 1+1 ' + nombre + ' x' + q + ' pares');
+      resumenLineas.push('🎁 50% OFF ' + nombre + ' x' + q + 'u');
       total += sub;
-      items += q * 2;
+      items += q;  // v14.13.4: 1 qty = 1 unidad (antes era q*2)
     });
   }
 
@@ -25159,25 +25259,27 @@ function manualWAQuitarPromo(promoId) {
 function mwaCalcularDesglose() {
   var desglose = { combos: [], sueltos: [], promos: [], totalCombos: 0, totalSueltos: 0, totalPromos: 0, total: 0, itemsCount: 0 };
 
-  // v13.4: 0. Promos 1+1 (primero por prioridad visual/ofertas)
+  // v14.13.4: 0. Promos 50% OFF (primero por prioridad visual/ofertas).
+  // Cada qty = 1 unidad (antes era 1 par = 2 unidades).
   Object.keys(_manualWAPromos || {}).forEach(function(promoId) {
-    var pares = _manualWAPromos[promoId];
-    if (!pares || pares <= 0) return;
+    var qty = _manualWAPromos[promoId];
+    if (!qty || qty <= 0) return;
     var promo = (_promosData||[]).find(function(p){ return p.id === promoId; });
     if (!promo) return;
     var precio = Number(promo.precio_unitario || 0);
-    var subtotal = precio * pares;
+    var subtotal = precio * qty;
     desglose.promos.push({
       id: promoId,
       nombre: promo.producto_nombre || '',
-      pares: pares,
-      unidades: pares * 2,
+      qty: qty,           // v14.13.4: campo nuevo (unidades)
+      pares: qty,         // compat: igual a qty (1 unidad = 1 unidad de stock)
+      unidades: qty,      // compat: idem
       precio_unitario: precio,
       subtotal: subtotal,
       imagen_url: promo.imagen_url || ''
     });
     desglose.totalPromos += subtotal;
-    desglose.itemsCount  += pares * 2;
+    desglose.itemsCount  += qty;
   });
 
   // 1. Combos
@@ -25684,13 +25786,13 @@ async function manualWAGuardar(cliente, localidad, entrega, sucursal) {
   var d = mwaCalcularDesglose();
   var lineas = [];
 
-  // v13.4: 0. Promos 1+1 PRIMERO (formato esperado por parser Xubio:
-  //    🎁 *PROMO 1+1: Nombre* × N | ✓ 2Nx Nombre | 💰 $XXXX (-50%))
+  // v14.13.4: 0. Promos 50% OFF PRIMERO (formato esperado por parser Apps Script v25.3.0+:
+  //    🎁 *50% OFF: NOMBRE* × N | 💰 $TOTAL)
+  // Nombre en MAYÚSCULAS, alineado con catálogo v3.7.x.
   d.promos.forEach(function(pr){
     var partes = [];
-    partes.push('🎁 *PROMO 1+1: ' + pr.nombre + '* × ' + pr.pares);
-    partes.push('✓ ' + pr.unidades + 'x ' + pr.nombre);
-    partes.push('💰 $' + pr.subtotal.toLocaleString('es-AR') + ' (-50%)');
+    partes.push('🎁 *50% OFF: ' + (pr.nombre || '').toUpperCase() + '* × ' + pr.qty);
+    partes.push('💰 $' + pr.subtotal.toLocaleString('es-AR'));
     lineas.push(partes.join(' | '));
   });
 
@@ -27510,10 +27612,46 @@ function _dupParsearDetalle(detalle) {
   while (i < bloques.length) {
     var b = bloques[i];
 
-    // Header suelto de promos — saltear sin procesar
+    // Header suelto de promos (formato viejo) — saltear sin procesar
     if (/^🎁\s*\*OFERTAS\s*1\+1\b[^*]*\*\s*$/u.test(b)) { i++; continue; }
 
-    // PROMO 1+1 (acepta formato ventas "PROMO 1+1:" y catálogo "1+1 ")
+    // v14.13.4: PROMO 50% OFF (formato nuevo, alineado con catálogo y AS v25.3.0+)
+    // Captura: 🎁 *50% OFF: NOMBRE* × N
+    // Sub-líneas opcionales: 💰 $TOTAL (a continuación, separado por | dentro del mismo bloque
+    //   o en bloque siguiente). El formato típico es "🎁 *50% OFF: X* × N | 💰 $TOTAL".
+    var mPromoNuevo = b.match(/🎁\s*\*50%\s*OFF:\s*([^*]+?)\*\s*[×x]\s*(\d+)/ui);
+    if (mPromoNuevo) {
+      var nombrePN = mPromoNuevo[1].trim();
+      var unidadesPN = parseInt(mPromoNuevo[2]);
+      var totalPN = 0;
+      // Buscar el "💰 $TOTAL" que sigue (puede estar en el mismo bloque tras "|" o en bloque siguiente)
+      var jPN = i + 1;
+      // Primero chequear si el bloque actual ya tiene el monto incluido (ej: "...× 2 | 💰 $4.500")
+      var mInline = b.match(/💰\s*\$([\d.,]+)/u);
+      if (mInline) {
+        totalPN = _dupParsearMontoLocal(mInline[1]);
+      } else {
+        while (jPN < bloques.length) {
+          var subPN = bloques[jPN];
+          var mFinPN = subPN.match(/💰\s*\$([\d.,]+)/u);
+          if (mFinPN) { totalPN = _dupParsearMontoLocal(mFinPN[1]); jPN++; break; }
+          break;
+        }
+      }
+      if (nombrePN && unidadesPN && totalPN > 0) {
+        // Estructura interna: campo `pares` mantenido por compat pero conceptualmente UNIDADES.
+        out.promos.push({ nombre: nombrePN, pares: unidadesPN, total: totalPN });
+      } else {
+        out.errores.push('Promo 50% OFF incompleta: "' + nombrePN + '" (faltan unidades o total)');
+      }
+      i = jPN;
+      continue;
+    }
+
+    // PROMO 1+1 viejo (acepta formato ventas "PROMO 1+1:" y catálogo "1+1 ")
+    // v14.13.4: NO convertir pares→unidades (los precios cambiaron de "precio del par"
+    // a "precio de la unidad"). Marcamos legacy=true para que el serializador
+    // mantenga el formato viejo y no introduzca un error de cálculo.
     var mPromo = b.match(/🎁\s*\*(?:PROMO\s*)?1\+1[:\s]\s*([^*]+?)\*\s*[×x]\s*(\d+)(?:\s*par(?:es)?)?/ui);
     if (mPromo) {
       var nombrePromo = mPromo[1].trim();
@@ -27528,7 +27666,9 @@ function _dupParsearDetalle(detalle) {
         break;
       }
       if (nombrePromo && pares && totalPromo > 0) {
-        out.promos.push({ nombre: nombrePromo, pares: pares, total: totalPromo });
+        // Pedido legacy: campo `pares` representa pares (no unidades), legacy=true
+        // se mantiene formato 1+1 al re-serializar para preservar el total original.
+        out.promos.push({ nombre: nombrePromo, pares: pares, total: totalPromo, legacy: true });
       } else {
         out.errores.push('Promo 1+1 incompleta: "' + nombrePromo + '" (faltan pares o total)');
       }
@@ -27635,14 +27775,23 @@ function _dupParsearMontoLocal(str) {
 function _dupSerializarDetalle(estructurado) {
   var partes = [];
 
-  // 1) Promos primero (con header)
+  // 1) Promos primero — v14.13.4: si la promo viene de formato viejo (legacy=true),
+  //    se mantiene el formato 1+1 para preservar el total original (en el modelo viejo
+  //    el precio_unitario en BD era distinto del actual). Si es del modelo nuevo,
+  //    se serializa como "🎁 *50% OFF: NOMBRE* × N | 💰 $TOTAL".
   if (estructurado.promos.length > 0) {
-    partes.push('🎁 *OFERTAS 1+1 — COMPRÁS 1 LLEVÁS 2*');
     estructurado.promos.forEach(function(p) {
-      var totalU = p.pares * 2;
-      partes.push('🎁 *PROMO 1+1: ' + p.nombre + '* × ' + p.pares);
-      partes.push('   ✓ ' + totalU + 'x ' + p.nombre);
-      partes.push('   💰 $' + p.total.toLocaleString('es-AR') + ' (-50%)');
+      if (p.legacy) {
+        // Legacy: re-emitir formato 1+1 viejo (pares + ✓ 2Nx + 💰 con -50%)
+        var totalU = p.pares * 2;
+        partes.push('🎁 *PROMO 1+1: ' + p.nombre + '* × ' + p.pares);
+        partes.push('   ✓ ' + totalU + 'x ' + p.nombre);
+        partes.push('   💰 $' + p.total.toLocaleString('es-AR') + ' (-50%)');
+      } else {
+        // Modelo nuevo: 🎁 *50% OFF: NOMBRE* × N | 💰 $TOTAL
+        var unidades = p.pares;  // legacy field name = unidades en modelo nuevo
+        partes.push('🎁 *50% OFF: ' + (p.nombre || '').toUpperCase() + '* × ' + unidades + ' | 💰 $' + p.total.toLocaleString('es-AR'));
+      }
     });
   }
 
@@ -27697,10 +27846,13 @@ function _dupConsolidarPedidos(detalles) {
   });
   todos.productos = Object.keys(cProd).map(function(k){ return cProd[k]; });
 
-  // Consolidar PROMOS: mismo nombre → sumar pares y total
+  // Consolidar PROMOS: mismo nombre + flag legacy → sumar pares y total
+  // v14.13.4: separamos legacy (1+1 viejo) de nuevas (50% OFF) porque tienen
+  // precios distintos. Si se une legacy + nuevo del mismo producto, quedan
+  // como dos líneas separadas en el detalle final.
   var cPromo = {};
   todos.promos.forEach(function(p) {
-    var key = (p.nombre || '').trim().toLowerCase();
+    var key = (p.nombre || '').trim().toLowerCase() + '||' + (p.legacy ? 'legacy' : 'new');
     if (cPromo[key]) {
       cPromo[key].pares += p.pares;
       cPromo[key].total += p.total;
@@ -27811,18 +27963,27 @@ async function dupUnirPedidos() {
   }, 0);
 
   // Resumen corto — mostrar primeros 4 items (mix de productos, combos, promos)
+  // v14.13.4: distingue legacy (1+1 pares) de nuevas (50% OFF unidades)
   var resumenItems = [];
   itemsPorTipo.productos.forEach(function(pr){ resumenItems.push(pr.qty + '× ' + pr.nombre); });
   itemsPorTipo.combos.forEach(function(c){ resumenItems.push(c.qty + '× ' + c.nombre); });
-  itemsPorTipo.promos.forEach(function(pr){ resumenItems.push(pr.pares + ' par' + (pr.pares > 1 ? 'es' : '') + ' 1+1 ' + pr.nombre); });
+  itemsPorTipo.promos.forEach(function(pr){
+    if (pr.legacy) {
+      resumenItems.push(pr.pares + ' par' + (pr.pares > 1 ? 'es' : '') + ' 1+1 ' + pr.nombre);
+    } else {
+      resumenItems.push(pr.pares + 'u 50% OFF ' + pr.nombre);
+    }
+  });
   var resumenNuevo = resumenItems.slice(0, 4).join(', ');
   if (resumenItems.length > 4) resumenNuevo += '...';
 
-  // Total de items (unidades): productos qty + combos qty + promos pares × 2
+  // Total de items (unidades): productos qty + combos qty + promos:
+  //   legacy → pares × 2 (cada par = 2 unidades físicas)
+  //   nuevas → pares (que YA son unidades en modelo nuevo)
   var itemsTotal = 0;
   itemsPorTipo.productos.forEach(function(pr){ itemsTotal += pr.qty; });
   itemsPorTipo.combos.forEach(function(c){ itemsTotal += c.qty; });
-  itemsPorTipo.promos.forEach(function(pr){ itemsTotal += pr.pares * 2; });
+  itemsPorTipo.promos.forEach(function(pr){ itemsTotal += pr.legacy ? pr.pares * 2 : pr.pares; });
 
   // v13: modal lindo en lugar de confirm() nativo
   // v13.6: mostrar desglose por tipo (productos / combos / promos) para dar claridad
@@ -27830,7 +27991,7 @@ async function dupUnirPedidos() {
   var partesDesglose = [];
   if (itemsPorTipo.productos.length > 0) partesDesglose.push(itemsPorTipo.productos.length + ' productos');
   if (itemsPorTipo.combos.length > 0)    partesDesglose.push(itemsPorTipo.combos.length + ' combos');
-  if (itemsPorTipo.promos.length > 0)    partesDesglose.push(itemsPorTipo.promos.length + ' promos 1+1');
+  if (itemsPorTipo.promos.length > 0)    partesDesglose.push(itemsPorTipo.promos.length + ' promos');
   if (partesDesglose.length > 0) desgloseLinea += ' (' + partesDesglose.join(', ') + ')';
   desgloseLinea += '<br>';
 
@@ -27926,10 +28087,15 @@ async function dupUnirPedidos() {
 
     // v9.0 / v13.6: log de unificación
     // En v13.6 sumamos productos + combos + promos al resumen
+    // v14.13.4: distinguir legacy (pares) vs nuevo (unidades) en el log
     var itemsParaResumen = [];
     itemsPorTipo.productos.forEach(function(pr){ itemsParaResumen.push(pr.qty + 'x ' + pr.nombre); });
     itemsPorTipo.combos.forEach(function(c){ itemsParaResumen.push(c.qty + 'x ' + c.nombre); });
-    itemsPorTipo.promos.forEach(function(pr){ itemsParaResumen.push(pr.pares + ' pares 1+1 ' + pr.nombre); });
+    itemsPorTipo.promos.forEach(function(pr){
+      itemsParaResumen.push(pr.legacy
+        ? (pr.pares + ' pares 1+1 ' + pr.nombre)
+        : (pr.pares + 'u 50% OFF ' + pr.nombre));
+    });
     var prodsResumen = itemsParaResumen.slice(0, 5).join(', ');
     if (itemsParaResumen.length > 5) prodsResumen += ' (+' + (itemsParaResumen.length - 5) + ')';
     var pedidosCancelados = restantes.map(function(r){ return r.pedidoId; }).join(', ');
