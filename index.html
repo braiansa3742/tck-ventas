@@ -2,6 +2,42 @@
 <html lang="es">
 <head>
 <!-- ═══════════════════════════════════════════════════════════════════════
+     TCK VENTAS — v14.13.3 — 08/05/2026
+     ──────────────────────────────────────────────────────────────────────
+     UX FIX strip viajes — variante B con fecha + colores semáforo.
+
+     Cambios v14.13.3 sobre v14.13.2:
+
+       Joan reportó que no podía identificar los viajes en el strip
+       horizontal. Los badges "2D" / "3D" eran crípticos (¿2 días qué?
+       ¿quedan? ¿pasaron?), y dos viajes "TL Tar. 3D" eran
+       indistinguibles entre sí.
+
+       FIX (variante B aprobada):
+         · Zonas escritas completas: "TL Mañana" en lugar de "TL Mañ.",
+           "TL Tarde" en lugar de "TL Tar.", "Am/Fortín" en lugar de
+           "Am/Fort".
+         · Badge con día abreviado + fecha numérica:
+             - Hoy:    "HOY · 7/5"   (verde)
+             - Ayer:   "Ayer · 6/5"  (amarillo)
+             - 2-3d:   "Mar 5/5"     (naranja)
+             - 4+d:    "Lun 4/5"     (rojo)
+         · Nueva clase CSS .mv-strip-badge.medio (naranja) para 2-3 días.
+         · Color amarillo de "Ayer" cambiado a tono más claro (#FFF9C4)
+           para diferenciar mejor de los naranjas de 2-3 días.
+         · Padding del badge ajustado para que entre la fecha sin cortar
+           (font-size 9→10px, padding 2/6→3/7px, white-space nowrap).
+
+       Cards mantienen mismo tamaño (~110px ancho, 3 líneas, mobile-first).
+
+     PRESERVADO desde v14.13.2:
+       - N42-Bloque-C limpieza gpsBuscarMatchMaster (no-op + llamada removida)
+       - Todo el flujo del chofer + cierre de viajes con motivos
+       - FIX C multi-viaje, FIX A sync Sheet col 10, FIX B novedades
+
+═══════════════════════════════════════════════════════════════════════ -->
+
+<!-- ═══════════════════════════════════════════════════════════════════════
      TCK VENTAS — v14.13.2 — 07/05/2026
      ──────────────────────────────────────────────────────────────────────
      N42 Bloque-C: Limpieza tercer escritor a clientes_master.
@@ -5709,17 +5745,20 @@ body {
 .mv-strip-card.activa .mv-strip-zona { color: #2E7D32; }
 .mv-strip-badge {
   display: inline-block;
-  font-size: 9px;
+  font-size: 10px;
   font-weight: 800;
-  padding: 2px 6px;
-  border-radius: 8px;
-  text-transform: uppercase;
-  letter-spacing: .3px;
+  padding: 3px 7px;
+  border-radius: 10px;
+  text-transform: capitalize;
+  letter-spacing: .2px;
   margin-bottom: 4px;
+  white-space: nowrap;
 }
-.mv-strip-badge.hoy { background: #C8E6C9; color: #1B5E20; }
-.mv-strip-badge.ayer { background: #FFE082; color: #E65100; }
-.mv-strip-badge.viejo { background: #FFCDD2; color: #C62828; }
+/* v14.13.3: variante B — fecha + colores semáforo según antigüedad */
+.mv-strip-badge.hoy   { background: #C8E6C9; color: #1B5E20; }   /* verde */
+.mv-strip-badge.ayer  { background: #FFF9C4; color: #827717; }   /* amarillo */
+.mv-strip-badge.medio { background: #FFE0B2; color: #E65100; }   /* naranja (2-3d) */
+.mv-strip-badge.viejo { background: #FFCDD2; color: #B71C1C; }   /* rojo (4+d) */
 .mv-strip-stats {
   font-size: 11px;
   color: #666;
@@ -21610,22 +21649,37 @@ function renderViajeHeader() {
     html += '  <div class="multi-viaje-strip">';
     _viajesActivos.forEach(function(viaje) {
       const isActivo = viaje.id === _viajeSeleccionadoId;
+      // v14.13.3: zonas escritas completas (antes "TL Mañ.", "TL Tar.", "Am/Fort")
       const z = (function(zz) {
         const map = {
           'zona1': 'Zona 1', 'zona2': 'Zona 2',
-          'tl_manana': 'TL Mañ.', 'tl_tarde': 'TL Tar.', 'tl': 'TL',
-          'america_fortin': 'Am/Fort'
+          'tl_manana': 'TL Mañana', 'tl_tarde': 'TL Tarde', 'tl': 'TL',
+          'america_fortin': 'Am/Fortín'
         };
         return map[zz] || zz;
       })(viaje.zona);
+      // v14.13.3: badge variante B — día abreviado + fecha numérica + color semáforo
       // Antigüedad del viaje (días desde fecha_salida)
       const fechaSalida = viaje.fecha_salida ? new Date(viaje.fecha_salida + 'T00:00:00') : null;
       const hoy = new Date(); hoy.setHours(0,0,0,0);
       const diasAtras = fechaSalida ? Math.floor((hoy - fechaSalida) / 86400000) : 0;
+      // Formatear fecha como "7/5" (día/mes)
+      const fechaTxt = fechaSalida
+        ? (fechaSalida.getDate() + '/' + (fechaSalida.getMonth() + 1))
+        : '';
+      // Día abreviado capitalizado: Lun, Mar, Mié, Jue, Vie, Sáb, Dom
+      const diasSemana = ['Dom', 'Lun', 'Mar', 'Mié', 'Jue', 'Vie', 'Sáb'];
+      const diaAbrev = fechaSalida ? diasSemana[fechaSalida.getDay()] : '';
       let badgeAge = '';
-      if (diasAtras === 0) badgeAge = '<span class="mv-strip-badge hoy">HOY</span>';
-      else if (diasAtras === 1) badgeAge = '<span class="mv-strip-badge ayer">AYER</span>';
-      else if (diasAtras > 1) badgeAge = '<span class="mv-strip-badge viejo">⚠️ ' + diasAtras + 'd</span>';
+      if (diasAtras === 0) {
+        badgeAge = '<span class="mv-strip-badge hoy">HOY · ' + fechaTxt + '</span>';
+      } else if (diasAtras === 1) {
+        badgeAge = '<span class="mv-strip-badge ayer">Ayer · ' + fechaTxt + '</span>';
+      } else if (diasAtras >= 2 && diasAtras <= 3) {
+        badgeAge = '<span class="mv-strip-badge medio">' + diaAbrev + ' ' + fechaTxt + '</span>';
+      } else if (diasAtras > 3) {
+        badgeAge = '<span class="mv-strip-badge viejo">' + diaAbrev + ' ' + fechaTxt + '</span>';
+      }
       // Stats rápidas — entregadas / total
       const totalP = viaje.total_pedidos || 0;
       // Solo mostramos contador real para el viaje activo (cache local).
