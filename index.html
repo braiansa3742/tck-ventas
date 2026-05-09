@@ -2,6 +2,94 @@
 <html lang="es">
 <head>
 <!-- ═══════════════════════════════════════════════════════════════════════
+     TCK VENTAS — v14.15.3 — 09/05/2026
+     ──────────────────────────────────────────────────────────────────────
+     FEATURE: Sync Xubio accesible desde Manual WA + Tomador campo
+              + Backfill automático a clientes_activos vía RPC
+
+     CONTEXTO:
+       Hasta v14.15.2, el botón "🔄 Sincronizar" de Xubio solo estaba en
+       el panel "Crear presupuesto en Xubio" (post-confirmación). Cuando
+       un vendedor cargaba un cliente nuevo en Xubio web y quería usarlo
+       en el momento, no tenía cómo forzar el sync desde el flujo de
+       carga de pedido. El sync horario lo cubría tarde.
+
+       Además, el sync solo actualizaba clientes_xubio. Los clientes
+       nuevos no llegaban a clientes_activos, así que el modal de canal
+       no aparecía en el primer pedido del cliente nuevo.
+
+     CAMBIOS v14.15.3 sobre v14.15.2:
+
+       1. Barra de sync (xubio-sync-bar) replicada en:
+          · Manual WhatsApp (manualWAHTML, antes del input cliente)
+          · Tomador campo (gpsIniciarCheckin, antes del input cliente)
+          La barra existente en "Crear presupuesto" sigue intacta.
+
+       2. abrirCargaManualWA + gpsIniciarCheckin disparan
+          xubioCargarUltimaSync() al abrir, para mostrar info actualizada.
+
+       3. xubioSyncManual ampliado: después del sync exitoso de
+          clientes_xubio, dispara RPC backfill_clientes_activos_desde_xubio
+          (no bloqueante). Si insertó N clientes, muestra toast.
+
+     PRE-REQUISITO DEPLOY:
+       Ejecutar en Supabase SQL Editor (una sola vez):
+
+       CREATE OR REPLACE FUNCTION backfill_clientes_activos_desde_xubio()
+       RETURNS TABLE(insertados INTEGER)
+       LANGUAGE plpgsql
+       SECURITY DEFINER
+       AS $$
+       DECLARE v_count INTEGER;
+       BEGIN
+         WITH inserted AS (
+           INSERT INTO clientes_activos (
+             cliente_id, nombre, cuit_dni, telefono, direccion, localidad,
+             vendedor, ritmo, categoria_fiscal, xubio_id, activo_en_ronda,
+             fuente_vendedor, confianza_vendedor, notas
+           )
+           SELECT
+             'TCK_X' || cx.id, cx.nombre, cx.cuit, cx.telefono,
+             cx.direccion, cx.localidad, cx.vendedor, cx.ritmo,
+             CASE cx.condicion_iva
+               WHEN 'RESPONSABLE_INSCRIPTO' THEN 'RI'
+               WHEN 'MONOTRIBUTISTA'        THEN 'MT'
+               WHEN 'CONSUMIDOR_FINAL'      THEN 'CF'
+               ELSE NULL END,
+             cx.id, false, 'backfill_xubio_auto', 'baja',
+             'Auto-insertado el ' || to_char(NOW(), 'YYYY-MM-DD HH24:MI')
+           FROM clientes_xubio cx
+           WHERE cx.activo = true
+             AND NOT EXISTS (
+               SELECT 1 FROM clientes_activos ca
+               WHERE
+                 regexp_replace(translate(LOWER(TRIM(ca.nombre)),
+                   'áéíóúñ', 'aeioun'), '\s+', ' ', 'g') =
+                 regexp_replace(translate(LOWER(TRIM(cx.nombre)),
+                   'áéíóúñ', 'aeioun'), '\s+', ' ', 'g')
+             )
+             AND NOT EXISTS (
+               SELECT 1 FROM clientes_activos ca WHERE ca.xubio_id = cx.id
+             )
+           RETURNING 1
+         )
+         SELECT COUNT(*)::INTEGER INTO v_count FROM inserted;
+         RETURN QUERY SELECT v_count;
+       END;
+       $$;
+       GRANT EXECUTE ON FUNCTION backfill_clientes_activos_desde_xubio()
+         TO anon, authenticated;
+
+     SIN CAMBIOS en:
+       · Módulo _canalCliente.
+       · Las 3 invocaciones obligatorias del modal (al confirmar).
+       · Función xubioCargarUltimaSync (sigue como estaba).
+       · Función xubioActualizarBarrasSync (auto-actualiza las nuevas
+         barras al detectar el className compartido .xubio-sync-bar).
+       · Cancelación de pedidos por vendedor (v14.15.0).
+
+═══════════════════════════════════════════════════════════════════════ -->
+<!-- ═══════════════════════════════════════════════════════════════════════
      TCK VENTAS — v14.15.2 — 09/05/2026
      ──────────────────────────────────────────────────────────────────────
      FIX: modal de canalización ahora aparece SOLO al confirmar pedido
@@ -18253,6 +18341,27 @@ function xubioSyncManual(panelId) {
       if (data.status === 'ok') {
         toast('✓ Sincronizado: ' + data.cantidad + ' clientes en ' + Math.round((data.duracion_ms || 0) / 1000) + 's');
         xubioCargarUltimaSync();
+        // v14.15.3: backfill automático de clientes_activos.
+        // Después de actualizar clientes_xubio, insertar en clientes_activos
+        // los que no existan (para que el modal de canal aparezca al confirmar).
+        // No bloqueante: si falla, el sync principal ya fue exitoso.
+        sbFetch('rpc/backfill_clientes_activos_desde_xubio', {
+          method: 'POST',
+          body: JSON.stringify({})
+        }).then(function(res) {
+          var n = 0;
+          if (Array.isArray(res) && res[0]) {
+            n = res[0].insertados || res[0].backfill_clientes_activos_desde_xubio || 0;
+          } else if (res && typeof res === 'object') {
+            n = res.insertados || 0;
+          }
+          if (n > 0) {
+            console.log('[xubio sync] backfill clientes_activos:', n, 'nuevos');
+            toast('+' + n + ' clientes habilitados para canalización');
+          }
+        }).catch(function(err) {
+          console.warn('[xubio sync] backfill falló (no crítico):', err);
+        });
       } else if (data.status === 'cancelado') {
         alert('⚠️ Sincronización cancelada\n\n' + (data.message || 'Xubio devolvió pocos clientes. Tu base anterior está intacta.'));
         xubioCargarUltimaSync();
@@ -19670,12 +19779,26 @@ function gpsIniciarCheckin() {
     + '<button class="gps-modal-close" onclick="document.getElementById(&quot;gps-modal-checkin&quot;).remove()">✕</button>'
     + '</div>'
     + '<div style="padding:16px 20px 0">'
+    // v14.15.3: barra de sync Xubio antes del input. Si el vendedor cargó
+    // un cliente nuevo en Xubio web y no aparece, puede forzar el sync.
+    + '<div class="xubio-sync-bar" id="xubio-sync-bar-checkin" style="margin-bottom:10px">'
+    +   '<span class="xubio-sync-info" id="xubio-sync-info-checkin">Cargando estado de sincronización...</span>'
+    +   '<button type="button" class="xubio-sync-btn" id="xubio-sync-btn-checkin" onclick="xubioSyncManual(\'checkin\')">🔄 Sincronizar</button>'
+    + '</div>'
     + '<input class="gps-buscar-cliente" id="gps-input-cliente" placeholder="🔍 Buscar cliente en Xubio..." oninput="gpsBuscarClienteXubio(this.value)">'
     + '<div id="gps-lista-clientes"><div style="color:var(--text3);font-size:13px;padding:8px 0">Escribí al menos 2 letras para buscar</div></div>'
     + '<button class="gps-motivo-btn" style="background:var(--cream);margin-top:8px" onclick="gpsCheckinManual()">✏️ Ingresar nombre manualmente</button>'
     + '</div></div>';
   document.body.appendChild(modal);
   setTimeout(function() { var inp = document.getElementById('gps-input-cliente'); if (inp) inp.focus(); }, 100);
+  // v14.15.3: refrescar info de sync al abrir y actualizar la barra
+  if (typeof xubioCargarUltimaSync === 'function') {
+    if (window._xubioUltimaSync) {
+      xubioActualizarBarrasSync();
+    } else {
+      xubioCargarUltimaSync().catch(function(){});
+    }
+  }
 }
 
 // Buscar cliente en Xubio para GPS (igual que el dropdown de remitos)
@@ -26316,6 +26439,14 @@ function abrirCargaManualWA() {
     const inp = document.getElementById('manual-wa-cliente-input');
     if (inp) inp.focus();
   }, 100);
+  // v14.15.3: refrescar info de sync al abrir y actualizar la barra
+  if (typeof xubioCargarUltimaSync === 'function') {
+    if (window._xubioUltimaSync) {
+      xubioActualizarBarrasSync();
+    } else {
+      xubioCargarUltimaSync().catch(function(){});
+    }
+  }
 }
 
 function manualWAHTML() {
@@ -26370,6 +26501,12 @@ function manualWAHTML() {
   '<div class="manual-wa-body">' +
     '<div class="manual-wa-campo">' +
       '<div class="manual-wa-label">👤 Cliente</div>' +
+      // v14.15.3: barra de sync Xubio antes del input. Si el vendedor cargó
+      // un cliente nuevo en Xubio web y no aparece, puede forzar el sync.
+      '<div class="xubio-sync-bar" id="xubio-sync-bar-mwa" style="margin-bottom:8px">' +
+        '<span class="xubio-sync-info" id="xubio-sync-info-mwa">Cargando estado de sincronización...</span>' +
+        '<button type="button" class="xubio-sync-btn" id="xubio-sync-btn-mwa" onclick="xubioSyncManual(\'mwa\')">🔄 Sincronizar</button>' +
+      '</div>' +
       '<input class="manual-wa-input" id="manual-wa-cliente-input" type="text" placeholder="Nombre del cliente..." oninput="manualWABuscarCliente(this.value)">' +
       '<div id="mwa-sugerencias" style="margin-top:4px;"></div>' +
     '</div>' +
