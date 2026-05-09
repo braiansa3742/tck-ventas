@@ -2,6 +2,50 @@
 <html lang="es">
 <head>
 <!-- ═══════════════════════════════════════════════════════════════════════
+     TCK VENTAS — v14.13.6 — 09/05/2026
+     ──────────────────────────────────────────────────────────────────────
+     CANALIZACIÓN DE CLIENTES — Pieza 2.1 (UX fix: opcional/obligatorio)
+
+     CAMBIOS v14.13.6 sobre v14.13.5:
+
+       FEEDBACK DE USO REAL:
+         · v14.13.5 abría el modal sin escape al elegir cliente.
+         · El vendedor no podía revisar otra cosa antes de canalizar.
+         · Era molesto e interrumpía el flujo natural.
+
+       FIX:
+         · canalClienteChequearYAbrir ahora acepta parámetro `obligatorio`.
+         · Modo OPCIONAL (default false): modal con botón "Después" que cierra
+           sin canalizar y deja seguir. Subtítulo: "Podés hacerlo ahora o más tarde".
+         · Modo OBLIGATORIO (true): modal sin escape, solo "Confirmar y seguir".
+           Subtítulo: "⚠️ Para confirmar el pedido necesitamos esta info".
+
+       UBICACIÓN DE CADA HOOK:
+
+         FLUJO                          MODO            FUNCIÓN
+         ─────────────────────────────────────────────────────────────
+         tomadorAbrir (check-in)        opcional        canalClienteChequearYAbrir(..., false)
+         tomadorConfirmarFinal          OBLIGATORIO     canalClienteChequearYAbrir(..., true)
+         manualWAElegirCliente          opcional        canalClienteChequearYAbrir(..., false)
+         manualWAConfirmar              OBLIGATORIO     canalClienteChequearYAbrir(..., true)
+         abrirEditarPedido              opcional        canalClienteChequearYAbrir(..., false)
+         editarConfirmar                OBLIGATORIO     canalClienteChequearYAbrir(..., true)
+
+       NUEVAS FUNCIONES INTERNAS (extraídas para retroceso):
+         · _tomadorConfirmarFinalContinuar — body original de tomadorConfirmarFinal
+         · _editarConfirmarContinuar — body original de editarConfirmar
+         · canalCerrarModalOpcional — cierra modal sin canalizar y ejecuta callback
+
+     PRESERVADO desde v14.13.5:
+       · Módulo _canalCliente completo
+       · Schema Supabase (canal + dias_visita en clientes_activos)
+       · Reglas de bloqueo: solo vendedor original o ADMIN reasignan
+       · Offline support (localStorage cola)
+       · Migración promos 50% OFF (v14.13.4)
+
+═══════════════════════════════════════════════════════════════════════ -->
+
+<!-- ═══════════════════════════════════════════════════════════════════════
      TCK VENTAS — v14.13.5 — 08/05/2026
      ──────────────────────────────────────────────────────────────────────
      CANALIZACIÓN DE CLIENTES — Pieza 2 (módulo modal canal+días)
@@ -20860,12 +20904,14 @@ setInterval(canalClienteSyncCola, 60 * 1000);
 // ─── E) UI MODAL (HTML inline) ────────────────────────────────────────
 let _canalModalCallback = null;
 let _canalModalCliente  = null;
+let _canalModalObligatorio = false;
 let _canalSeleccionado  = null;
 let _canalDiasSelec     = new Set();
 
-function canalClienteAbrirModal(clienteRow, callback) {
+function canalClienteAbrirModal(clienteRow, callback, obligatorio) {
   _canalModalCallback = callback;
   _canalModalCliente  = clienteRow;
+  _canalModalObligatorio = !!obligatorio;
   _canalSeleccionado  = null;
   _canalDiasSelec     = new Set();
 
@@ -20895,6 +20941,18 @@ function canalClienteAbrirModal(clienteRow, callback) {
            '</button>';
   }).join('');
 
+  // v14.13.6: dos modos visuales según obligatorio:
+  //  · Opcional: botón "Después" + título "Clasificar (opcional)"
+  //  · Obligatorio: solo "Confirmar y seguir", título "Clasificación obligatoria"
+  var subtitulo = _canalModalObligatorio
+    ? '⚠️ Para confirmar el pedido necesitamos esta info'
+    : 'Podés hacerlo ahora o más tarde';
+
+  var botonesHTML = _canalModalObligatorio
+    ? '<button class="canal-btn-confirmar" id="canal-btn-ok" onclick="canalConfirmarModal()" disabled>Confirmar y seguir</button>'
+    : '<button class="canal-btn-cancelar" onclick="canalCerrarModalOpcional()">Después</button>' +
+      '<button class="canal-btn-confirmar" id="canal-btn-ok" onclick="canalConfirmarModal()" disabled>Guardar</button>';
+
   overlay.innerHTML =
     '<div id="canal-modal-container">' +
       '<div class="canal-modal-header">' +
@@ -20902,7 +20960,7 @@ function canalClienteAbrirModal(clienteRow, callback) {
         '<div class="canal-modal-title-wrap">' +
           '<div class="canal-modal-title">Clasificá a <span class="canal-cliente-name">' +
           _escapeHtml(clienteRow.nombre) + '</span></div>' +
-          '<div class="canal-modal-subtitle">Solo se pregunta una vez por cliente</div>' +
+          '<div class="canal-modal-subtitle">' + subtitulo + '</div>' +
         '</div>' +
       '</div>' +
       '<div class="canal-progress-bar">' +
@@ -20920,7 +20978,7 @@ function canalClienteAbrirModal(clienteRow, callback) {
         '<div class="canal-dias-resumen" id="canal-dias-resumen"></div>' +
       '</div>' +
       '<div class="canal-actions">' +
-        '<button class="canal-btn-confirmar" id="canal-btn-ok" onclick="canalConfirmarModal()" disabled>Confirmar y seguir</button>' +
+        botonesHTML +
       '</div>' +
     '</div>';
 
@@ -21011,14 +21069,31 @@ function canalCerrarModal() {
   document.body.style.overflow = '';
   _canalModalCallback = null;
   _canalModalCliente  = null;
+  _canalModalObligatorio = false;
   _canalSeleccionado  = null;
   _canalDiasSelec     = new Set();
+}
+
+// v14.13.6: cerrar modal en modo opcional sin canalizar.
+// Ejecuta el callback igual (el flujo continúa, el cliente queda sin canal).
+function canalCerrarModalOpcional() {
+  const cb = _canalModalCallback;
+  canalCerrarModal();
+  if (typeof cb === 'function') cb();
 }
 
 // ─── F) ENTRY POINT: chequear y abrir si corresponde ──────────────────
 // Llamado desde tomadorAbrir / manualWAConfirmar / abrirEditarPedido.
 // Ejecuta callback() si: cliente OK o el vendedor completó el modal.
-async function canalClienteChequearYAbrir(nombreCliente, callback) {
+//
+// v14.13.6: parámetro `obligatorio` (default false):
+//   · false → modal con botón "Después" (cierra sin canalizar, callback se ejecuta)
+//   · true  → modal sin escape, solo se cierra al canalizar
+//
+// USO:
+//   · En selección de cliente (autocomplete, check-in, abrir editor): obligatorio=false
+//   · En CONFIRMAR pedido: obligatorio=true (acá no se escapa)
+async function canalClienteChequearYAbrir(nombreCliente, callback, obligatorio) {
   if (!nombreCliente || !callback) {
     if (callback) callback();
     return;
@@ -21033,8 +21108,8 @@ async function canalClienteChequearYAbrir(nombreCliente, callback) {
     return;
   }
 
-  // Mostrar modal — solo continúa si confirma
-  canalClienteAbrirModal(cliente, callback);
+  // Mostrar modal con flag obligatorio
+  canalClienteAbrirModal(cliente, callback, !!obligatorio);
 }
 
 // ─── G) ESTILOS del modal ─────────────────────────────────────────────
@@ -21080,7 +21155,9 @@ async function canalClienteChequearYAbrir(nombreCliente, callback) {
     '.canal-dias-resumen{font-size:11px;color:#2E7D32;margin-top:8px;text-align:center;font-weight:600;min-height:16px}' +
     '.canal-actions{display:flex;gap:8px;margin-top:10px;padding-top:12px;border-top:1px solid #f0e8e0}' +
     ".canal-btn-confirmar{flex:1;padding:13px;background:linear-gradient(135deg,#8B0000,#B71C1C);color:#fff;border:none;border-radius:11px;font-family:'Barlow Condensed',sans-serif;font-size:15px;font-weight:900;cursor:pointer;touch-action:manipulation;letter-spacing:.3px}" +
-    '.canal-btn-confirmar:disabled{opacity:.4;cursor:not-allowed;background:#ccc}';
+    '.canal-btn-confirmar:disabled{opacity:.4;cursor:not-allowed;background:#ccc}' +
+    ".canal-btn-cancelar{flex:1;padding:13px;background:#f5f5f5;color:#666;border:none;border-radius:11px;font-family:'Barlow Condensed',sans-serif;font-size:15px;font-weight:700;cursor:pointer;touch-action:manipulation}" +
+    '.canal-btn-cancelar:active{background:#e8e8e8}';
   document.head.appendChild(css);
 })();
 
@@ -21093,17 +21170,19 @@ setTimeout(canalClienteSyncCola, 3000);
 
 function tomadorAbrir() {
   if (!_gpsCheckinActivo) { toast('Hacé check-in primero', 'err'); return; }
-  // v14.13.5: antes de cualquier cosa, chequear canal del cliente
+  // v14.13.5: chequear canal del cliente al abrir el tomador.
+  // v14.13.6: modo OPCIONAL — el vendedor puede saltar con "Después" y
+  // cargar productos. El bloqueo obligatorio está en tomadorConfirmarFinal.
   var clienteNombre = _gpsCheckinActivo.nombre_cliente || '';
   canalClienteChequearYAbrir(clienteNombre, function() {
-    // v8.6: una vez canalizado (o no necesario), seguir con sucursal
+    // v8.6: una vez canalizado (o saltado), seguir con sucursal
     sucElegirAbrir(clienteNombre, function(suc, modo) {
       if (modo === 'cancelado') return; // vendedor canceló: no abrir tomador
       // Guardar sucursal elegida (o null) en variable global que usa el confirmar
       _tomadorSucursalElegida = suc || null;
       _tomadorAbrirInterno();
     });
-  });
+  }, false); // false = opcional
 }
 
 // v8.6: extracción del contenido original del tomadorAbrir, sin check de sucursales.
@@ -21626,6 +21705,17 @@ async function tomadorConfirmarFinal() {
     console.warn('[ANTI-DUP] tomadorConfirmarFinal bloqueado por lock activo');
     return;
   }
+
+  // v14.13.6: BLOQUEO OBLIGATORIO de canal antes de confirmar.
+  // Si el cliente no tiene canal asignado, modal sin escape.
+  // Solo se confirma cuando el vendedor canaliza.
+  var clienteFinal = _gpsCheckinActivo ? _gpsCheckinActivo.nombre_cliente : '';
+  canalClienteChequearYAbrir(clienteFinal, function() {
+    _tomadorConfirmarFinalContinuar();
+  }, true); // true = obligatorio
+}
+
+async function _tomadorConfirmarFinalContinuar() {
   window._tomadorEnviando = true;
   var _btnTom = document.getElementById('tomador-final-btn');
   if (_btnTom) {
@@ -24881,13 +24971,13 @@ function editarPedidoBtn(btn, event) {
 }
 
 function abrirEditarPedido(p, detalle) {
-  // v14.13.5: chequear canal del cliente antes de abrir el editor.
-  // Si el cliente no tiene canal asignado, abre el modal de canalización.
-  // Cuando el vendedor confirma (o el cliente ya está canalizado), se abre el editor.
+  // v14.13.5: chequear canal del cliente al abrir el editor.
+  // v14.13.6: modo OPCIONAL — vendedor puede saltar con "Después" y editar.
+  // El bloqueo obligatorio está en editarConfirmar.
   var nombreCli = p && p.cliente ? p.cliente : '';
   canalClienteChequearYAbrir(nombreCli, function() {
     _abrirEditarPedidoInterno(p, detalle);
-  });
+  }, false); // false = opcional
 }
 
 function _abrirEditarPedidoInterno(p, detalle) {
@@ -25347,6 +25437,15 @@ async function editarConfirmar() {
   var _hayPromosEd = Object.keys(_editarPromos||{}).some(function(k){ return _editarPromos[k] > 0; });
   var _hayCombosEd = Object.keys(_editarCombos||{}).some(function(k){ return _editarCombos[k] > 0; });
   if (Object.keys(_editarQtys).length === 0 && !_hayPromosEd && !_hayCombosEd) return;
+
+  // v14.13.6: BLOQUEO OBLIGATORIO de canal antes de guardar la edición.
+  // Si el cliente del pedido no tiene canal asignado, modal sin escape.
+  canalClienteChequearYAbrir(_editarCliente || '', function() {
+    _editarConfirmarContinuar();
+  }, true); // true = obligatorio
+}
+
+async function _editarConfirmarContinuar() {
   const btn = document.getElementById('editar-confirmar-btn');
   if (btn) { btn.disabled = true; btn.textContent = 'Guardando...'; }
 
@@ -26054,12 +26153,12 @@ function manualWAElegirCliente(nombre, localidad) {
   _manualWALocalidad = locInp && locInp.value ? locInp.value : '';
 
   // v14.13.5: chequear canal al seleccionar cliente del autocomplete.
-  // Si el cliente no tiene canal, abre modal antes de seguir cargando productos.
-  // No bloquea: si el cliente no está en clientes_activos, sigue normal.
+  // v14.13.6: modo OPCIONAL — el vendedor puede saltar con "Después" y
+  // cargar productos. El bloqueo obligatorio está en manualWAConfirmar.
   canalClienteChequearYAbrir(nombre, function() {
     // No hace falta hacer nada acá — el modal ya hizo su PATCH y se cerró,
     // o el cliente no necesitaba canalización. El vendedor sigue con el flujo.
-  });
+  }, false); // false = opcional
 }
 
 // v9.2: agregar combo completo al pedido por WA
@@ -26287,9 +26386,10 @@ function manualWAConfirmar() {
   // y bloquear hasta completar. Cubre el caso donde el vendedor:
   // a) escribió el nombre a mano (no usó autocomplete)
   // b) cerró el modal sin completar al seleccionar cliente
+  // v14.13.6: obligatorio=true acá. Sin canal, NO se confirma el pedido.
   canalClienteChequearYAbrir(cliente, function() {
     _manualWAConfirmarContinuar(cliente, localidad);
-  });
+  }, true);
 }
 
 function _manualWAConfirmarContinuar(cliente, localidad) {
