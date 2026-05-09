@@ -2,6 +2,33 @@
 <html lang="es">
 <head>
 <!-- ═══════════════════════════════════════════════════════════════════════
+     TCK VENTAS — v14.14.2 — 09/05/2026 (filtro ciudades fantasma)
+     ──────────────────────────────────────────────────────────────────────
+     FIX: ciudades fantasma en rankings (réplica de admin v12.14.1)
+
+     CAMBIO v14.14.2 sobre v14.14.1:
+
+       Hasta v14.14.1, _ciudadCanonizar(raw) devolvía el raw trimeado
+       cuando no matcheaba en tabla `rutas`. Eso hacía que valores
+       basura tipeados por error (fechas, números, símbolos) aparecieran
+       como ciudades fantasma en los rankings de reportes.
+
+       Fix: nueva función _ciudadEsBasura() detecta 5 patrones (fechas,
+       solo números, ≤2 chars, sin letras, vacío). Cuando el raw es
+       basura, _ciudadCanonizar devuelve la etiqueta uniforme
+       '⚠️ Sin localidad válida' para agruparlos en una sola fila.
+
+       Las ciudades plausibles que aún no están en `rutas` (ej "Carhué")
+       siguen apareciendo raw para que se puedan agregar como aliases.
+
+     SIN CAMBIOS DE COMPORTAMIENTO en:
+       · localidadCanonicaDe (función del modal Mi Ronda) — ya valida
+         contra dropdown estricto, no la afecta el filtro nuevo.
+       · mrZonaGuardar — sigue exigiendo canónica del dropdown.
+       · Cache de localStorage (mismo TTL 24h, mismo formato).
+
+═══════════════════════════════════════════════════════════════════════ -->
+<!-- ═══════════════════════════════════════════════════════════════════════
      TCK VENTAS — v14.14.1 — 09/05/2026 (hotfix)
      ──────────────────────────────────────────────────────────────────────
      HOTFIX: 3 bugs detectados en producción durante sesión de reportes.
@@ -12168,12 +12195,40 @@ function _ciudadNormalizar(s) {
     .trim();
 }
 
-// Canonizar texto crudo a ciudad oficial. Si no hay match, devuelve crudo trimeado.
+// v14.14.2 — Detector de "ciudad basura" (idéntico a admin v12.14.1).
+// El vendedor a veces tipea fechas, números o caracteres en col 5 del
+// Sheet en lugar de la ciudad. Antes esos valores aparecían como
+// ciudades fantasma en rankings (ej: "30/08/2026" como ciudad).
+//
+// Devuelve true si el raw NO es plausiblemente una ciudad. Patrones:
+//   1. Fechas: dd/mm/yy, dd/mm/yyyy, dd-mm-yy, dd-mm-yyyy
+//   2. Solo números: "123", "2026"
+//   3. Texto muy corto (≤ 2 caracteres después del trim)
+//   4. Sin ninguna letra (ej: "...", "---", "666", "??")
+//   5. Vacío/whitespace
+function _ciudadEsBasura(raw) {
+  if (!raw) return true;
+  var t = String(raw).trim();
+  if (!t) return true;
+  if (t.length <= 2) return true;
+  if (/^\d{1,2}[\/\-]\d{1,2}[\/\-]\d{2,4}$/.test(t)) return true;
+  if (/^\d+$/.test(t)) return true;
+  if (!/[a-zA-ZáéíóúÁÉÍÓÚñÑüÜ]/.test(t)) return true;
+  return false;
+}
+
+var CIUDAD_BASURA_LABEL = '⚠️ Sin localidad válida';
+
+// Canonizar texto crudo a ciudad oficial.
+// v14.14.2: si el raw es basura (fechas, números, etc) devuelve la
+// etiqueta uniforme CIUDAD_BASURA_LABEL para agrupar en reportes.
+// Si no matchea pero parece ciudad plausible, devuelve el raw trimeado.
 function _ciudadCanonizar(raw) {
   if (!raw) return '';
   var norm = _ciudadNormalizar(raw);
+  if (norm && _ciudadIndex[norm]) return _ciudadIndex[norm];
+  if (_ciudadEsBasura(raw)) return CIUDAD_BASURA_LABEL;
   if (!norm) return '';
-  if (_ciudadIndex[norm]) return _ciudadIndex[norm];
   return String(raw).trim();
 }
 
