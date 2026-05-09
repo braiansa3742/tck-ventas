@@ -2,6 +2,41 @@
 <html lang="es">
 <head>
 <!-- ═══════════════════════════════════════════════════════════════════════
+     TCK VENTAS — v14.14.1 — 09/05/2026 (hotfix)
+     ──────────────────────────────────────────────────────────────────────
+     HOTFIX: 3 bugs detectados en producción durante sesión de reportes.
+
+     CAMBIOS v14.14.1 sobre v14.14:
+
+       1. FIX renderInactivos_rep: nombres aparecían como "undefined".
+          Causa: agruparClientesFuzzy() devuelve los grupos con la
+          propiedad `canonical`, no `nombre`. La función renderClientes_rep
+          (TOP CLIENTES) hace `c.nombre = c.canonical` antes del render,
+          pero renderInactivos_rep se lo había olvidado. Fix: agregada
+          esa misma asignación en el forEach previo al render.
+
+       2. FIX productos_sin_canonizar HTTP 409 spam: cada apertura de la
+          app generaba 6+ POST con HTTP 409 (Conflict) en consola. Causa:
+          el POST sin Prefer:resolution=merge-duplicates choca con UNIQUE
+          constraint cuando la grafía ya existe. Además, fetch() NO tira
+          excepción ante 4xx, así que el catch nunca corría y el fallback
+          PATCH (para actualizar ultimo_visto) jamás se ejecutaba.
+          Fix: usar upsert nativo (Prefer:resolution=merge-duplicates) +
+          chequear resp.ok para decidir si va el PATCH de ultimo_visto.
+
+       3. FIX banner PWA iOS: ícono 404 (logo.png). El banner usaba ruta
+          relativa /img/logo.png que no existe en tckventas.com.
+          Fix: ruta absoluta a tckcatalogo.com + onerror fallback al
+          emoji 🐔 para no mostrar imagen rota.
+
+     PENDIENTES POSPUESTOS PARA v14.15:
+       · Limpiar clientes_activos.localidad (3 formatos mezclados)
+       · Validar form de pedidos para forzar dropdown canónico de ciudad
+       · Filtro de basura (fechas, números) en _ciudadCanonizar de reportes
+       · Mapa Cobertura: ciudades fantasma "30/08/2026"
+
+═══════════════════════════════════════════════════════════════════════ -->
+<!-- ═══════════════════════════════════════════════════════════════════════
      TCK VENTAS — v14.14 — 09/05/2026
      ──────────────────────────────────────────────────────────────────────
      CANONIZACIÓN DE CIUDADES — Réplica del módulo de admin v12.14
@@ -12421,18 +12456,29 @@ async function _flushGrafiasSinCanonizar() {
   _prodSinCanonBuffer = {};
   try {
     for (var i = 0; i < batch.length; i++) {
+      var inserted = false;
       try {
-        await fetch(SUPABASE_URL + '/rest/v1/productos_sin_canonizar', {
+        // v14.14.1 FIX: usar upsert nativo de PostgREST para evitar HTTP 409
+        // cuando ya existe la grafía. resolution=merge-duplicates le dice
+        // a PostgREST que un duplicado por UNIQUE no es error, simplemente
+        // se ignora o se actualiza. Antes el POST fallaba con 409 silencioso
+        // (fetch NO tira excepción en 4xx) y el catch nunca corría.
+        var resp = await fetch(SUPABASE_URL + '/rest/v1/productos_sin_canonizar', {
           method: 'POST',
           headers: {
             'apikey': SUPABASE_KEY,
             'Authorization': 'Bearer ' + SUPABASE_KEY,
             'Content-Type': 'application/json',
-            'Prefer': 'return=minimal'
+            'Prefer': 'resolution=merge-duplicates,return=minimal'
           },
           body: JSON.stringify(batch[i])
         });
+        inserted = resp.ok;
       } catch(e) {
+        inserted = false;
+      }
+      // Si fue duplicado real (no nuevo), actualizar ultimo_visto vía PATCH.
+      if (!inserted) {
         try {
           var nombreCrudoEnc = encodeURIComponent(batch[i].nombre_crudo);
           await fetch(SUPABASE_URL + '/rest/v1/productos_sin_canonizar?nombre_crudo=eq.' + nombreCrudoEnc + '&resuelto=eq.false', {
@@ -17430,6 +17476,9 @@ function renderInactivos_rep() {
 
   var grupos2 = agruparClientesFuzzy(todos);
   grupos2.forEach(function(c) {
+    // v14.14.1 FIX: agruparClientesFuzzy devuelve `canonical`, no `nombre`.
+    // Sin esto, el render mostraba "undefined" en lugar del nombre real.
+    c.nombre = c.canonical;
     var ultima = c.fechas.length ? new Date(Math.max.apply(null,c.fechas)) : new Date(0);
     c.ultima = ultima;
   });
@@ -27030,8 +27079,9 @@ async function botCargarConversaciones(){var el=document.getElementById('bot-con
     b.innerHTML = '<div style="background:linear-gradient(135deg,#1A0800,#8B0000);' +
       'border-bottom:2px solid #FFD700;padding:10px 16px;' +
       'display:flex;align-items:center;gap:10px;box-shadow:0 4px 16px rgba(0,0,0,.4);">' +
-      '<img src="/img/logo.png" style="width:32px;height:32px;border-radius:8px;' +
-      'border:1.5px solid #FFD700;object-fit:cover;flex-shrink:0;" id="_ped_logo">' +
+      '<img src="https://tckcatalogo.com/img/logo.png" style="width:32px;height:32px;border-radius:8px;' +
+      'border:1.5px solid #FFD700;object-fit:cover;flex-shrink:0;" id="_ped_logo" ' +
+      'onerror="this.outerHTML=\'<div style=&quot;width:32px;height:32px;border-radius:8px;border:1.5px solid #FFD700;background:#8B0000;display:flex;align-items:center;justify-content:center;font-size:18px;flex-shrink:0;&quot;>🐔</div>\'">' +
       '<div style="flex:1;min-width:0;">' +
         '<div style="font-family:Barlow Condensed,sans-serif;font-size:14px;' +
         'font-weight:900;color:#FFD700;letter-spacing:.5px;">Instalá TCK Ventas</div>' +
