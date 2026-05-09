@@ -2,6 +2,58 @@
 <html lang="es">
 <head>
 <!-- ═══════════════════════════════════════════════════════════════════════
+     TCK VENTAS — v14.15.0 — 09/05/2026
+     ──────────────────────────────────────────────────────────────────────
+     FEATURE: Cancelación de pedidos por vendedores con motivo
+
+     CONTEXTO:
+       Hasta v14.14.x, solo el ADMIN (Francisco) podía cancelar pedidos.
+       Los vendedores tenían que escribirle por WA para que él los cancele,
+       y no quedaba registrado el motivo en ningún lado.
+
+     CAMBIOS v14.15.0:
+
+       1. PERMISOS ampliados en renderCard:
+          · ADMIN puede cancelar todos en cualquier estado != Cancelado.
+          · Vendedor puede cancelar SUS propios pedidos en estados
+            Pendiente/Confirmado. Estado Entregado sigue bloqueado para
+            vendedor (solo ADMIN puede revertir).
+          · Choferes (Joan/Luis) NO pueden cancelar.
+
+       2. confirmarCancelar() reemplazado:
+          · Antes: confirm() simple "¿Seguro que querés cancelar?"
+          · Ahora: modal _cancelarPedidoModal con 7 motivos predefinidos
+            + textarea condicional para "Otro".
+          · Si el pedido tiene presupuesto Xubio, modal muestra warning
+            y la cancelación dispara también la anulación del presupuesto
+            (vía _cancelarConXubio).
+
+       3. cambiarEstado() amplió firma (backward compatible):
+          · Antes: (pedidoId, fila, nuevoEstado, event)
+          · Ahora: (pedidoId, fila, nuevoEstado, event, motivo)
+          · motivo es opcional. Si viene y es Cancelado, se manda al AS.
+          · event puede ser null (caso modal cierra antes de llamar).
+
+       4. Constante MOTIVOS_CANCELACION con los 7 motivos predefinidos
+          (Cliente canceló, Sin plata, Sin stock, Error carga, Duplicado,
+          Logístico, Otro).
+
+       5. Parser del Sheet ahora lee col 18 (motivo_cancelacion) y la
+          guarda en p.motivoCancelacion del objeto pedido.
+
+     PRE-REQUISITOS DEPLOY:
+       1. Sheet de Pedidos: col S1 = 'motivo_cancelacion' ✓
+       2. Supabase: ALTER TABLE pedidos_zona ADD COLUMN motivo_cancelacion TEXT NULL;
+       3. Apps Script v25.16.0 deployado.
+       4. RECIÉN AHÍ: deployar este HTML.
+
+     BACKWARD COMPATIBLE:
+       · Llamadas viejas a cambiarEstado(id, fila, estado, event) sin motivo
+         siguen funcionando (es el caso de los botones Entregado/Pendiente
+         que no piden motivo).
+
+═══════════════════════════════════════════════════════════════════════ -->
+<!-- ═══════════════════════════════════════════════════════════════════════
      TCK VENTAS — v14.14.2 — 09/05/2026 (filtro ciudades fantasma)
      ──────────────────────────────────────────────────────────────────────
      FIX: ciudades fantasma en rankings (réplica de admin v12.14.1)
@@ -14693,6 +14745,8 @@ async function cargarPedidos(silencioso, _reintentos) {
         xubioNroPresupuesto: limpiar(cols[15]) || '',
         xubioTransaccionid:  limpiar(cols[16]) || '',
         xubioEstado:         limpiar(cols[17]) || '',
+        // v14.15.0: motivo de cancelación (col S = índice 18)
+        motivoCancelacion:   limpiar(cols[18]) || '',
         fila:           i + 1
       });
     }
@@ -15247,9 +15301,20 @@ function renderCard(p) {
   // Entregado solo lo puede marcar el Admin (los choferes lo marcan desde su panel)
   if (esAdmin && p.estado !== 'Entregado') btns += '<button class="btn-estado btn-entregar" onclick="cambiarEstado(\'' + p.pedidoId + '\',' + p.fila + ',\'Entregado\',event)">📦 Entregado</button>';
   if (esAdmin && p.estado !== 'Pendiente') btns += '<button class="btn-estado btn-pendiente-again" onclick="cambiarEstado(\'' + p.pedidoId + '\',' + p.fila + ',\'Pendiente\',event)">⏳ Pendiente</button>';
-  // v10: Admin puede cancelar SIEMPRE, incluso si tiene presupuesto (porque él sabe cómo gestionarlo en Xubio).
-  // El vendedor común ya NO ve Cancelar si hay presupuesto (se oculta más abajo).
-  if (esAdmin && p.estado !== 'Cancelado') btns += '<button class="btn-estado btn-cancelar" onclick="confirmarCancelar(\'' + p.pedidoId + '\',' + p.fila + ',event)">❌ Cancelar</button>';
+
+  // v14.15.0: ahora los vendedores pueden cancelar SUS propios pedidos.
+  // Reglas:
+  //   · ADMIN puede cancelar todos los pedidos en cualquier estado != Cancelado
+  //   · Vendedor solo puede cancelar SUS pedidos en estados Pendiente/Confirmado.
+  //     Estado "Entregado" sigue bloqueado (solo ADMIN puede revertir).
+  //   · El botón abre el modal nuevo con motivos predefinidos (no `confirm()` simple).
+  // Antes (v14.14.x): solo ADMIN veía el botón. Vendedores no podían cancelar.
+  var esPedidoPropio = !esAdmin && !esChofer && p.vendedor === vendedorActual;
+  var puedeVendedorCancelar = esPedidoPropio && (p.estado === 'Pendiente' || p.estado === 'Confirmado');
+  var puedeAdminCancelar = esAdmin && p.estado !== 'Cancelado';
+  if (puedeAdminCancelar || puedeVendedorCancelar) {
+    btns += '<button class="btn-estado btn-cancelar" onclick="confirmarCancelar(\'' + p.pedidoId + '\',' + p.fila + ',event)">❌ Cancelar</button>';
+  }
 
   // Editar pedido — vendedor puede sumar productos a pedido pendiente o confirmado
   // v10: bloqueado si tiene presupuesto Xubio
@@ -15662,33 +15727,247 @@ function generarMensaje(modo) {
 
 
 // ── CAMBIAR ESTADO ────────────────────────────────────────────────
+// v14.15.0: lista de motivos predefinidos para cancelar pedidos.
+// El motivo final se manda al Apps Script como string formato "🚫 Cliente canceló"
+// (con emoji + label), excepto el caso "Otro" que se manda como "⚠️ Otro: <texto libre>".
+const MOTIVOS_CANCELACION = [
+  { id: 'cliente_cancelo',     emoji: '🚫', label: 'Cliente canceló' },
+  { id: 'cliente_sin_plata',   emoji: '💸', label: 'Cliente sin plata' },
+  { id: 'producto_sin_stock',  emoji: '📦', label: 'Producto sin stock' },
+  { id: 'error_carga',         emoji: '✏️', label: 'Error en la carga' },
+  { id: 'pedido_duplicado',    emoji: '🔄', label: 'Pedido duplicado' },
+  { id: 'problema_logistico',  emoji: '🚚', label: 'Problema logístico' },
+  { id: 'otro',                emoji: '⚠️', label: 'Otro' }
+];
+
+// v14.15.0: ahora abre modal de motivos en lugar de confirm() simple.
+// Si el pedido tiene presupuesto Xubio, el modal lo informa y la cancelación
+// también anula el presupuesto (en un solo flujo).
 function confirmarCancelar(pedidoId, fila, event) {
   event.stopPropagation();
-  if (confirm('⚠️ ¿Seguro que querés cancelar este pedido?\nEsta acción quedará registrada.')) {
-    cambiarEstado(pedidoId, fila, 'Cancelado', event);
+  var p = todosLosPedidos.find(function(x){ return x.pedidoId === pedidoId; });
+  if (!p) {
+    toast('No se encontró el pedido', 'err');
+    return;
+  }
+  _cancelarPedidoModal(pedidoId, fila, p);
+}
+
+// v14.15.0: modal de cancelación con motivos predefinidos.
+// Renderiza una lista de 7 motivos, con textarea condicional cuando se elige "Otro".
+// Si el pedido tiene presupuesto Xubio, agrega un warning y bloquea hasta que el
+// vendedor confirme que entiende que se va a anular el presupuesto también.
+function _cancelarPedidoModal(pedidoId, fila, p) {
+  // Limpiar modal previo si quedó suelto
+  var prev = document.getElementById('cancelar-modal');
+  if (prev) prev.remove();
+
+  var tienePresupuesto = !!p.xubioNroPresupuesto;
+  var nroPresup = p.xubioNroPresupuesto || '';
+
+  var modal = document.createElement('div');
+  modal.id = 'cancelar-modal';
+  modal.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,.7);z-index:99999;display:flex;align-items:center;justify-content:center;padding:20px;';
+
+  var motivosHTML = MOTIVOS_CANCELACION.map(function(m) {
+    return '<button type="button" class="cancelar-motivo-btn" data-id="' + m.id + '" ' +
+      'style="display:flex;align-items:center;gap:10px;width:100%;padding:14px 16px;margin-bottom:8px;' +
+      'background:#FAFAFA;border:1.5px solid #E0E0E0;border-radius:10px;font-family:inherit;font-size:15px;' +
+      'font-weight:700;color:#333;cursor:pointer;text-align:left;transition:all .15s;">' +
+      '<span style="font-size:20px;">' + m.emoji + '</span>' +
+      '<span>' + m.label + '</span>' +
+      '</button>';
+  }).join('');
+
+  var warningXubio = tienePresupuesto
+    ? '<div style="background:#FFF3E0;border:1.5px solid #E65100;border-radius:10px;padding:12px;margin-bottom:14px;">' +
+      '<div style="font-weight:900;color:#E65100;font-size:14px;margin-bottom:4px;">⚠️ Pedido con presupuesto Xubio</div>' +
+      '<div style="font-size:13px;color:#5D4037;">Tiene presupuesto N° <strong>' + nroPresup + '</strong>. Al cancelar se va a anular el presupuesto en Xubio también.</div>' +
+      '</div>'
+    : '';
+
+  modal.innerHTML =
+    '<div style="background:#fff;border-radius:14px;max-width:440px;width:100%;max-height:90vh;overflow-y:auto;padding:20px;box-shadow:0 8px 32px rgba(0,0,0,.3);">' +
+      '<div style="font-family:Barlow Condensed,sans-serif;font-size:22px;font-weight:900;color:#8B0000;margin-bottom:6px;">❌ Cancelar pedido</div>' +
+      '<div style="font-size:13px;color:#666;margin-bottom:14px;">' +
+        '<strong>' + (p.cliente || 'Cliente') + '</strong> — ' + (p.localidad || 'sin localidad') + '<br>' +
+        'Total: $' + (Number(p.total) || 0).toLocaleString('es-AR') +
+      '</div>' +
+      warningXubio +
+      '<div style="font-size:14px;font-weight:800;color:#333;margin-bottom:8px;">¿Por qué se cancela?</div>' +
+      '<div id="cancelar-motivos-lista">' + motivosHTML + '</div>' +
+      '<div id="cancelar-otro-wrap" style="display:none;margin-top:10px;">' +
+        '<label style="display:block;font-size:13px;font-weight:700;color:#333;margin-bottom:6px;">Detallá el motivo:</label>' +
+        '<textarea id="cancelar-otro-texto" maxlength="300" rows="3" ' +
+          'style="width:100%;padding:10px;border:1.5px solid #E0E0E0;border-radius:8px;font-family:inherit;font-size:14px;resize:vertical;box-sizing:border-box;" ' +
+          'placeholder="Ej: cliente cambió a otra distribuidora"></textarea>' +
+      '</div>' +
+      '<div style="display:flex;gap:8px;margin-top:18px;">' +
+        '<button id="cancelar-modal-volver" type="button" style="flex:1;padding:12px;background:#eee;color:#333;border:none;border-radius:10px;font-weight:700;cursor:pointer;">Volver</button>' +
+        '<button id="cancelar-modal-confirmar" type="button" disabled ' +
+          'style="flex:2;padding:12px;background:#ccc;color:#666;border:none;border-radius:10px;font-weight:900;cursor:not-allowed;">Confirmar cancelación</button>' +
+      '</div>' +
+    '</div>';
+
+  document.body.appendChild(modal);
+
+  // Estado del modal
+  var motivoSeleccionado = null;
+  var btnConfirmar = document.getElementById('cancelar-modal-confirmar');
+  var otroWrap = document.getElementById('cancelar-otro-wrap');
+  var otroTexto = document.getElementById('cancelar-otro-texto');
+
+  function actualizarBotonConfirmar() {
+    var habilitado = false;
+    if (motivoSeleccionado) {
+      if (motivoSeleccionado === 'otro') {
+        habilitado = otroTexto && otroTexto.value.trim().length > 0;
+      } else {
+        habilitado = true;
+      }
+    }
+    if (habilitado) {
+      btnConfirmar.disabled = false;
+      btnConfirmar.style.background = 'linear-gradient(135deg,#B71C1C,#8B0000)';
+      btnConfirmar.style.color = '#fff';
+      btnConfirmar.style.cursor = 'pointer';
+    } else {
+      btnConfirmar.disabled = true;
+      btnConfirmar.style.background = '#ccc';
+      btnConfirmar.style.color = '#666';
+      btnConfirmar.style.cursor = 'not-allowed';
+    }
+  }
+
+  // Click en motivo: marcar y, si es "Otro", mostrar textarea
+  document.querySelectorAll('.cancelar-motivo-btn').forEach(function(btn) {
+    btn.onclick = function() {
+      motivoSeleccionado = btn.getAttribute('data-id');
+      // Resaltar el seleccionado
+      document.querySelectorAll('.cancelar-motivo-btn').forEach(function(b) {
+        b.style.background = '#FAFAFA';
+        b.style.borderColor = '#E0E0E0';
+      });
+      btn.style.background = '#FFEBEE';
+      btn.style.borderColor = '#8B0000';
+      // Mostrar textarea si "Otro"
+      otroWrap.style.display = (motivoSeleccionado === 'otro') ? 'block' : 'none';
+      if (motivoSeleccionado === 'otro' && otroTexto) {
+        setTimeout(function(){ otroTexto.focus(); }, 50);
+      }
+      actualizarBotonConfirmar();
+    };
+  });
+
+  // Textarea: revalidar al tipear (para "Otro")
+  if (otroTexto) {
+    otroTexto.oninput = actualizarBotonConfirmar;
+  }
+
+  // Volver
+  document.getElementById('cancelar-modal-volver').onclick = function() {
+    modal.remove();
+  };
+
+  // Confirmar
+  btnConfirmar.onclick = function() {
+    if (btnConfirmar.disabled) return;
+    var motivoObj = MOTIVOS_CANCELACION.find(function(m){ return m.id === motivoSeleccionado; });
+    if (!motivoObj) return;
+    var motivoStr;
+    if (motivoSeleccionado === 'otro') {
+      var libre = (otroTexto.value || '').trim().substring(0, 280);
+      motivoStr = motivoObj.emoji + ' ' + motivoObj.label + ': ' + libre;
+    } else {
+      motivoStr = motivoObj.emoji + ' ' + motivoObj.label;
+    }
+    modal.remove();
+    // Si tiene Xubio, anular presupuesto + cancelar en flujo único
+    if (tienePresupuesto) {
+      _cancelarConXubio(pedidoId, fila, p, motivoStr);
+    } else {
+      cambiarEstado(pedidoId, fila, 'Cancelado', null, motivoStr);
+    }
+  };
+}
+
+// v14.15.0: cancelar pedido que tiene presupuesto Xubio creado.
+// Flujo: 1) anular presupuesto en Xubio, 2) si OK marcar pedido como Cancelado.
+// Si el paso 1 falla, NO se cancela el pedido (queda como estaba).
+async function _cancelarConXubio(pedidoId, fila, p, motivo) {
+  if (!p.xubioTransaccionid) {
+    toast('⚠️ Falta xubio_transaccionid. Avisá al admin para cancelar a mano.', 'err');
+    return;
+  }
+  toast('⏳ Anulando presupuesto Xubio...', '');
+  try {
+    var params = new URLSearchParams({
+      accion:         'desbloquearPedidoXubio',
+      pedidoId:       pedidoId,
+      transaccionid:  String(p.xubioTransaccionid),
+      nroPresupuesto: p.xubioNroPresupuesto || '',
+      vendedor:       vendedorActual || ''
+    });
+    var resp = await appsScriptFetch(params, { timeout: 30000 });
+    var data = await resp.response.json();
+    if (data.status !== 'ok') {
+      var msgErr = data.message || 'Error desconocido en Xubio';
+      console.error('[_cancelarConXubio] Apps Script error:', data);
+      toast('⚠️ No se pudo anular el presupuesto: ' + msgErr + '\nEl pedido NO se canceló.', 'err');
+      return;
+    }
+    // Presupuesto anulado. Limpiar refs Xubio del pedido local
+    if (p) {
+      p.xubioNroPresupuesto = '';
+      p.xubioTransaccionid  = '';
+      p.xubioEstado         = '';
+    }
+    // Ahora sí cancelar
+    cambiarEstado(pedidoId, fila, 'Cancelado', null, motivo);
+  } catch(e) {
+    console.error('[_cancelarConXubio]', e);
+    var msgFinal = '⚠️ No se pudo anular el presupuesto Xubio';
+    if (e && e.name === 'AbortError') msgFinal += ' (sin internet o muy lento)';
+    msgFinal += '\nEl pedido NO se canceló. Reintentá en unos segundos.';
+    toast(msgFinal, 'err');
   }
 }
 
-async function cambiarEstado(pedidoId, fila, nuevoEstado, event) {
-  event.stopPropagation();
-  var btn = event.target;
-  var txtOrig = btn.textContent;
-  btn.disabled = true; btn.textContent = 'Guardando...';
+// v14.15.0: cambiarEstado ahora acepta `motivo` (opcional, 5to param).
+//   · Si nuevoEstado === 'Cancelado' y viene motivo, lo manda a Apps Script
+//     que lo escribe en col S del Sheet y lo replica a pedidos_zona.
+//   · Si event es null, asume que vino del modal (no hay botón a deshabilitar).
+//     Esto pasa cuando _cancelarPedidoModal o _cancelarConXubio cierran su modal
+//     y disparan la cancelación del pedido.
+//   · Si event es un evento real, mantiene el comportamiento previo
+//     (deshabilita el botón mientras guarda).
+async function cambiarEstado(pedidoId, fila, nuevoEstado, event, motivo) {
+  if (event) event.stopPropagation();
+  var btn = (event && event.target) ? event.target : null;
+  var txtOrig = btn ? btn.textContent : '';
+  if (btn) { btn.disabled = true; btn.textContent = 'Guardando...'; }
   try {
     // Siempre mandamos pedidoId además de fila — el Apps Script puede buscar por pedidoId
     // si la fila está desactualizada (ej: pedidos de campo recién enviados)
-    var params = new URLSearchParams({accion:'cambiarEstado', pedidoId:pedidoId, fila:fila, estado:nuevoEstado});
+    var paramsObj = { accion: 'cambiarEstado', pedidoId: pedidoId, fila: fila, estado: nuevoEstado };
+    // v14.15.0: incluir motivo solo cuando aplica (Apps Script lo ignora si no es Cancelado)
+    if (motivo) paramsObj.motivo = motivo;
+    var params = new URLSearchParams(paramsObj);
     // v14.6.0 NO-CORS FIX: estricto. Si Apps Script falla, el vendedor se entera.
     // Antes usaba {mode:'no-cors'} que silenciaba errores → cambio aparente OK
     // pero en realidad no se aplicaba en la Sheet.
     await appsScriptFetch(params);
     var p = todosLosPedidos.find(function(x){return x.pedidoId===pedidoId;});
-    if (p) p.estado = nuevoEstado;
+    if (p) {
+      p.estado = nuevoEstado;
+      // v14.15.0: persistir motivo en memoria para que renderPedidos lo muestre si quiere
+      if (motivo && nuevoEstado === 'Cancelado') p.motivoCancelacion = motivo;
+    }
     _estadosCambiados[pedidoId] = { estado: nuevoEstado, ts: Date.now() };
     renderPedidos();
     toast('Estado: '+nuevoEstado, 'ok');
   } catch(e) {
-    btn.disabled = false; btn.textContent = txtOrig;
+    if (btn) { btn.disabled = false; btn.textContent = txtOrig; }
     // v14.6.0 NO-CORS FIX: mostrar el error real al vendedor.
     // Antes se silenciaba y el cambio "se aplicaba" en pantalla pero no en Sheet.
     console.error('[cambiarEstado]', e);
