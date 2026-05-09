@@ -2,6 +2,46 @@
 <html lang="es">
 <head>
 <!-- ═══════════════════════════════════════════════════════════════════════
+     TCK VENTAS — v14.15.2 — 09/05/2026
+     ──────────────────────────────────────────────────────────────────────
+     FIX: modal de canalización ahora aparece SOLO al confirmar pedido
+
+     CONTEXTO:
+       En v14.13.5 / v14.13.6 se metieron 6 invocaciones a
+       canalClienteChequearYAbrir — 3 obligatorias (al confirmar pedido)
+       y 3 opcionales (al elegir cliente / al hacer check-in / al abrir
+       editor). El modo opcional fue una decisión equivocada: si el
+       vendedor se equivocaba de cliente del autocomplete, ya le
+       quemábamos un modal innecesario, y al confirmar volvía a aparecer.
+
+     CAMBIOS v14.15.2 sobre v14.15.0:
+
+       1. tomadorAbrir (check-in GPS, campo): removida invocación opcional.
+          El modal aparece SOLO en tomadorConfirmarFinal (obligatorio).
+
+       2. abrirEditarPedido: removida invocación opcional.
+          El modal aparece SOLO en editarConfirmar (obligatorio).
+
+       3. manualWAElegirCliente: removida invocación opcional.
+          El modal aparece SOLO en manualWAConfirmar (obligatorio).
+
+     NOTA SOBRE BACKFILL DE clientes_activos:
+       En la misma sesión 09/05/2026 se hizo backfill masivo de 987
+       clientes desde clientes_xubio que no existían en clientes_activos.
+       Esos clientes quedan con activo_en_ronda=false y
+       fuente_vendedor='backfill_xubio_20260509'. El modal ahora puede
+       canalizarlos al confirmar pedidos.
+
+     SIN CAMBIOS en:
+       · Módulo _canalCliente (canalClienteCargar, canalClienteDecidirModal,
+         canalClienteAbrirModal, canalClienteGuardar, canalClienteSyncCola).
+       · Las 3 invocaciones obligatorias (tomadorConfirmarFinal,
+         editarConfirmar, manualWAConfirmar).
+       · Cancelación de pedidos por vendedor (v14.15.0).
+       · Detector de ciudad basura (v14.14.2).
+
+═══════════════════════════════════════════════════════════════════════ -->
+<!-- ═══════════════════════════════════════════════════════════════════════
      TCK VENTAS — v14.15.0 — 09/05/2026
      ──────────────────────────────────────────────────────────────────────
      FEATURE: Cancelación de pedidos por vendedores con motivo
@@ -21713,19 +21753,18 @@ setTimeout(canalClienteSyncCola, 3000);
 
 function tomadorAbrir() {
   if (!_gpsCheckinActivo) { toast('Hacé check-in primero', 'err'); return; }
-  // v14.13.5: chequear canal del cliente al abrir el tomador.
-  // v14.13.6: modo OPCIONAL — el vendedor puede saltar con "Después" y
-  // cargar productos. El bloqueo obligatorio está en tomadorConfirmarFinal.
+  // v14.15.2: removido canalClienteChequearYAbrir opcional al abrir tomador.
+  // El modal de canal ahora aparece SOLO en tomadorConfirmarFinal (obligatorio).
+  // Razón: si el vendedor se equivocó de cliente, abrir modal acá es fricción
+  // innecesaria. Al confirmar es el único momento irreversible.
   var clienteNombre = _gpsCheckinActivo.nombre_cliente || '';
-  canalClienteChequearYAbrir(clienteNombre, function() {
-    // v8.6: una vez canalizado (o saltado), seguir con sucursal
-    sucElegirAbrir(clienteNombre, function(suc, modo) {
-      if (modo === 'cancelado') return; // vendedor canceló: no abrir tomador
-      // Guardar sucursal elegida (o null) en variable global que usa el confirmar
-      _tomadorSucursalElegida = suc || null;
-      _tomadorAbrirInterno();
-    });
-  }, false); // false = opcional
+  // v8.6: ir directo a sucursal
+  sucElegirAbrir(clienteNombre, function(suc, modo) {
+    if (modo === 'cancelado') return; // vendedor canceló: no abrir tomador
+    // Guardar sucursal elegida (o null) en variable global que usa el confirmar
+    _tomadorSucursalElegida = suc || null;
+    _tomadorAbrirInterno();
+  });
 }
 
 // v8.6: extracción del contenido original del tomadorAbrir, sin check de sucursales.
@@ -25514,13 +25553,10 @@ function editarPedidoBtn(btn, event) {
 }
 
 function abrirEditarPedido(p, detalle) {
-  // v14.13.5: chequear canal del cliente al abrir el editor.
-  // v14.13.6: modo OPCIONAL — vendedor puede saltar con "Después" y editar.
-  // El bloqueo obligatorio está en editarConfirmar.
-  var nombreCli = p && p.cliente ? p.cliente : '';
-  canalClienteChequearYAbrir(nombreCli, function() {
-    _abrirEditarPedidoInterno(p, detalle);
-  }, false); // false = opcional
+  // v14.15.2: removido canalClienteChequearYAbrir opcional al abrir editor.
+  // El modal de canal aparece SOLO en editarConfirmar (obligatorio).
+  // Razón: abrir editor para revisar/copiar un pedido no debe forzar canal.
+  _abrirEditarPedidoInterno(p, detalle);
 }
 
 function _abrirEditarPedidoInterno(p, detalle) {
@@ -26695,13 +26731,10 @@ function manualWAElegirCliente(nombre, localidad) {
   _manualWACliente = nombre;
   _manualWALocalidad = locInp && locInp.value ? locInp.value : '';
 
-  // v14.13.5: chequear canal al seleccionar cliente del autocomplete.
-  // v14.13.6: modo OPCIONAL — el vendedor puede saltar con "Después" y
-  // cargar productos. El bloqueo obligatorio está en manualWAConfirmar.
-  canalClienteChequearYAbrir(nombre, function() {
-    // No hace falta hacer nada acá — el modal ya hizo su PATCH y se cerró,
-    // o el cliente no necesitaba canalización. El vendedor sigue con el flujo.
-  }, false); // false = opcional
+  // v14.15.2: removido canalClienteChequearYAbrir opcional al elegir cliente.
+  // El modal de canal aparece SOLO en manualWAConfirmar (obligatorio).
+  // Razón: si el vendedor se equivocó de cliente del autocomplete, abrir modal
+  // acá es fricción innecesaria. Al confirmar es el único momento irreversible.
 }
 
 // v9.2: agregar combo completo al pedido por WA
