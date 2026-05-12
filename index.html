@@ -2,6 +2,70 @@
 <html lang="es">
 <head>
 <!-- ═══════════════════════════════════════════════════════════════════════
+     TCK VENTAS — v14.15.4 — 12/05/2026
+     ──────────────────────────────────────────────────────────────────────
+     FEATURE: Múltiples cheques en una sola entrega
+
+     CONTEXTO:
+       El modal de cobro del chofer (#entrega-modal) ya soportaba multi-
+       pago: efectivo + transferencia + cheque + cuenta corriente con
+       montos independientes. Pero el sub-modal de datos de cheque
+       (#cheque-modal) sólo aceptaba UN cheque.
+
+       Caso bloqueante (12/05/2026, chofer Luis, cliente Casella
+       Henderson): cobró $X en efectivo + 2 cheques distintos. La app
+       le dejaba cargar el monto total en cheques, pero al pedirle los
+       datos sólo aceptaba banco/número/emisor/vencimiento de UNO.
+
+       Workaround manual: cargar 1 cheque, anotar el segundo en papel.
+
+     CAMBIOS v14.15.4 sobre v14.15.3:
+
+       1. Fix bug latente: cheque-modal estaba DUPLICADO en el HTML
+          (líneas 11573 y 11612 idénticas). getElementById siempre
+          agarraba el primero, el segundo quedaba muerto en el DOM.
+          → Borrado el duplicado.
+
+       2. Sub-modal #cheque-modal rediseñado:
+          · Lista dinámica de cheques con botón "+ Agregar cheque".
+          · Cada cheque tiene: banco, número, emisor, fecha vencimiento,
+            monto individual.
+          · Suma de montos individuales debe coincidir (±$50) con el
+            monto total de "cheque" cargado en el modal grande.
+          · Si chofer carga UN solo cheque, comportamiento idéntico al
+            anterior (mismo flujo visual).
+          · Botón eliminar por cheque (sólo aparece si hay 2+).
+
+       3. confirmarChequeModal() rediseñado:
+          · Itera los N cheques cargados.
+          · Inserta N filas en tabla cheques_recibidos (una por cheque).
+          · Mantiene compatibilidad con flujo previo (1 cheque = 1 fila).
+
+       4. _ejecutarConfirmacionEntrega() sin cambios. forma_cobro y
+          detalle_cobro siguen funcionando como antes. El JSON de
+          detalle_cobro sigue siendo {efectivo:X,cheque:Y,...} con el
+          TOTAL del bloque cheque (no los desgloses individuales —
+          esos quedan en cheques_recibidos vinculados por pedido_id).
+
+     SIN CAMBIOS en:
+       · Schema de entregas (forma_cobro / detalle_cobro siguen igual).
+       · Schema de cheques_recibidos (ya admite N filas por pedido).
+       · #entrega-modal (modal grande de cobro).
+       · #cobro-modal (legacy, para reabrir/cambiar cobro post-hoc).
+       · _ejecutarConfirmacionEntrega, GPS, devoluciones, "cobré menos".
+       · 465 entregas históricas y los 6 cheques históricos siguen OK.
+
+     DEPLOY:
+       1. Subir index.html al repo tck-ventas.
+       2. Hard refresh en mobile del chofer (cerrar app + reabrir).
+       3. Smoke test:
+          a) Cobro normal con 1 cheque (debe verse igual que antes).
+          b) Cobro con 2 cheques + efectivo (caso Casella).
+          c) Verificar en Supabase que cheques_recibidos tiene 2 filas
+             para ese pedido_id.
+     ══════════════════════════════════════════════════════════════════════ -->
+
+<!-- ═══════════════════════════════════════════════════════════════════════
      TCK VENTAS — v14.15.3 — 09/05/2026
      ──────────────────────────────────────────────────────────────────────
      FEATURE: Sync Xubio accesible desde Manual WA + Tomador campo
@@ -11569,76 +11633,31 @@ body {
     </div>
   </div>
 
-  <!-- Modal datos del cheque -->
+  <!-- Modal datos del cheque(s) — v14.15.4: soporta N cheques -->
   <div class="entrega-modal-overlay hidden" id="cheque-modal" style="z-index:900;">
     <div class="entrega-modal-sheet" style="max-height:85vh;">
       <div class="entrega-modal-hdr" style="background:linear-gradient(135deg,#1A237E,#283593);border-radius:22px 22px 0 0;">
-        <div class="entrega-modal-ciudad">DATOS DEL CHEQUE</div>
+        <div class="entrega-modal-ciudad">DATOS DE LOS CHEQUES</div>
         <div class="entrega-modal-nombre" id="cheque-modal-cliente"></div>
         <div class="entrega-modal-monto" id="cheque-modal-monto"></div>
       </div>
-      <div class="entrega-modal-body">
+      <div class="entrega-modal-body" style="overflow-y:auto;">
         <div style="background:#FFF8E1;border-radius:10px;padding:10px 12px;margin-bottom:14px;font-size:12px;color:#E65100;">
-          ⚠️ Registrá los datos del cheque antes de confirmar la entrega
+          ⚠️ Cargá los datos de cada cheque. La suma debe coincidir con el monto total.
         </div>
-        <div style="display:flex;flex-direction:column;gap:10px;">
-          <div>
-            <div style="font-size:11px;font-weight:700;color:var(--text3);text-transform:uppercase;letter-spacing:.8px;margin-bottom:4px;">Banco</div>
-            <input id="cheque-banco" type="text" placeholder="Ej: Banco Nación, BBVA..." autocapitalize="words" style="width:100%;padding:11px 12px;border:1.5px solid #E0E0E0;border-radius:10px;font-family:'Barlow',sans-serif;font-size:14px;outline:none;box-sizing:border-box;">
-          </div>
-          <div>
-            <div style="font-size:11px;font-weight:700;color:var(--text3);text-transform:uppercase;letter-spacing:.8px;margin-bottom:4px;">Número de cheque</div>
-            <input id="cheque-numero" type="text" placeholder="Ej: 12345678" inputmode="numeric" style="width:100%;padding:11px 12px;border:1.5px solid #E0E0E0;border-radius:10px;font-family:'Barlow',sans-serif;font-size:14px;outline:none;box-sizing:border-box;">
-          </div>
-          <div>
-            <div style="font-size:11px;font-weight:700;color:var(--text3);text-transform:uppercase;letter-spacing:.8px;margin-bottom:4px;">Nombre del emisor (quien firma)</div>
-            <input id="cheque-emisor" type="text" placeholder="Nombre o razón social" autocapitalize="words" style="width:100%;padding:11px 12px;border:1.5px solid #E0E0E0;border-radius:10px;font-family:'Barlow',sans-serif;font-size:14px;outline:none;box-sizing:border-box;">
-          </div>
-          <div>
-            <div style="font-size:11px;font-weight:700;color:var(--text3);text-transform:uppercase;letter-spacing:.8px;margin-bottom:4px;">Fecha de vencimiento</div>
-            <input id="cheque-vencimiento" type="date" style="width:100%;padding:11px 12px;border:1.5px solid #E0E0E0;border-radius:10px;font-family:'Barlow',sans-serif;font-size:14px;outline:none;box-sizing:border-box;">
-          </div>
-          <div id="cheque-err" style="color:#C62828;font-size:12px;min-height:16px;text-align:center;"></div>
-        </div>
-      </div>
-      <div style="padding:14px 18px 0;display:flex;flex-direction:column;gap:8px;">
-        <button onclick="confirmarChequeModal()" style="width:100%;padding:13px;background:linear-gradient(135deg,#1A237E,#283593);color:#fff;border:none;border-radius:12px;font-family:'Barlow Condensed',sans-serif;font-size:17px;font-weight:900;cursor:pointer;touch-action:manipulation;">✅ Confirmar entrega con cheque</button>
-        <button onclick="cerrarChequeModal()" style="width:100%;padding:11px;background:#f5f5f5;border:none;border-radius:12px;font-family:'Barlow Condensed',sans-serif;font-size:15px;font-weight:700;color:var(--text3);cursor:pointer;">Cancelar</button>
-      </div>
-    </div>
-  </div>
 
-  <!-- Modal datos del cheque -->
-  <div class="entrega-modal-overlay hidden" id="cheque-modal" style="z-index:900;">
-    <div class="entrega-modal-sheet" style="max-height:85vh;">
-      <div class="entrega-modal-hdr" style="background:linear-gradient(135deg,#1A237E,#283593);border-radius:22px 22px 0 0;">
-        <div class="entrega-modal-ciudad">DATOS DEL CHEQUE</div>
-        <div class="entrega-modal-nombre" id="cheque-modal-cliente"></div>
-        <div class="entrega-modal-monto" id="cheque-modal-monto"></div>
-      </div>
-      <div class="entrega-modal-body">
-        <div style="background:#FFF8E1;border-radius:10px;padding:10px 12px;margin-bottom:14px;font-size:12px;color:#E65100;">
-          ⚠️ Registrá los datos del cheque antes de confirmar la entrega
+        <!-- Resumen suma vs total -->
+        <div id="cheque-resumen" style="background:#F8F9FA;border-radius:10px;padding:10px 12px;margin-bottom:12px;font-family:'Barlow Condensed',sans-serif;display:flex;justify-content:space-between;align-items:center;">
+          <span style="font-size:13px;color:var(--text2);">Cargado / Total:</span>
+          <span id="cheque-resumen-monto" style="font-size:15px;font-weight:900;color:#1A237E;">$0 / $0</span>
         </div>
-        <div style="display:flex;flex-direction:column;gap:10px;">
-          <div>
-            <div style="font-size:11px;font-weight:700;color:var(--text3);text-transform:uppercase;letter-spacing:.8px;margin-bottom:4px;">Banco</div>
-            <input id="cheque-banco" type="text" placeholder="Ej: Banco Nación, BBVA..." autocapitalize="words" style="width:100%;padding:11px 12px;border:1.5px solid #E0E0E0;border-radius:10px;font-family:'Barlow',sans-serif;font-size:14px;outline:none;box-sizing:border-box;">
-          </div>
-          <div>
-            <div style="font-size:11px;font-weight:700;color:var(--text3);text-transform:uppercase;letter-spacing:.8px;margin-bottom:4px;">Número de cheque</div>
-            <input id="cheque-numero" type="text" placeholder="Ej: 12345678" inputmode="numeric" style="width:100%;padding:11px 12px;border:1.5px solid #E0E0E0;border-radius:10px;font-family:'Barlow',sans-serif;font-size:14px;outline:none;box-sizing:border-box;">
-          </div>
-          <div>
-            <div style="font-size:11px;font-weight:700;color:var(--text3);text-transform:uppercase;letter-spacing:.8px;margin-bottom:4px;">Nombre del emisor (quien firma)</div>
-            <input id="cheque-emisor" type="text" placeholder="Nombre o razón social" autocapitalize="words" style="width:100%;padding:11px 12px;border:1.5px solid #E0E0E0;border-radius:10px;font-family:'Barlow',sans-serif;font-size:14px;outline:none;box-sizing:border-box;">
-          </div>
-          <div>
-            <div style="font-size:11px;font-weight:700;color:var(--text3);text-transform:uppercase;letter-spacing:.8px;margin-bottom:4px;">Fecha de vencimiento</div>
-            <input id="cheque-vencimiento" type="date" style="width:100%;padding:11px 12px;border:1.5px solid #E0E0E0;border-radius:10px;font-family:'Barlow',sans-serif;font-size:14px;outline:none;box-sizing:border-box;">
-          </div>
-          <div id="cheque-err" style="color:#C62828;font-size:12px;min-height:16px;text-align:center;"></div>
-        </div>
+
+        <!-- Lista de cheques (1 por defecto) -->
+        <div id="cheque-lista" style="display:flex;flex-direction:column;gap:14px;"></div>
+
+        <button id="cheque-add-btn" onclick="agregarChequeModal()" style="width:100%;margin-top:12px;padding:11px;background:#E3F2FD;border:1.5px dashed #1565C0;border-radius:10px;font-family:'Barlow Condensed',sans-serif;font-size:14px;font-weight:800;color:#1565C0;cursor:pointer;touch-action:manipulation;">+ Agregar otro cheque</button>
+
+        <div id="cheque-err" style="color:#C62828;font-size:12px;min-height:16px;text-align:center;margin-top:10px;"></div>
       </div>
       <div style="padding:14px 18px 0;display:flex;flex-direction:column;gap:8px;">
         <button onclick="confirmarChequeModal()" style="width:100%;padding:13px;background:linear-gradient(135deg,#1A237E,#283593);color:#fff;border:none;border-radius:12px;font-family:'Barlow Condensed',sans-serif;font-size:17px;font-weight:900;cursor:pointer;touch-action:manipulation;">✅ Confirmar entrega con cheque</button>
@@ -25104,14 +25123,16 @@ async function confirmarEntregaModal() {
     }
   }
 
-  // Si hay cobro con cheque, pedir datos antes de confirmar
+  // Si hay cobro con cheque, pedir datos antes de confirmar (v14.15.4: multi-cheque)
   if (cobros.cheque && cobros.cheque > 0) {
     const e = _entregasCache.find(x => x.id === _entregaModalId);
     _cobrosPendientes = cobros;
     document.getElementById('cheque-modal-cliente').textContent = e ? (e.cliente||'—') : '—';
     document.getElementById('cheque-modal-monto').textContent = '$' + Math.round(cobros.cheque).toLocaleString('es-AR') + ' en cheque';
-    ['cheque-banco','cheque-numero','cheque-emisor','cheque-vencimiento'].forEach(id => { document.getElementById(id).value = ''; });
     document.getElementById('cheque-err').textContent = '';
+    // Reset: arrancar con UN cheque vacío que cubra el total
+    _chequesData = [{ banco:'', numero:'', emisor:'', vencimiento:'', monto: Math.round(cobros.cheque) }];
+    _renderChequesLista();
     document.getElementById('cheque-modal').classList.remove('hidden');
     return;
   }
@@ -25119,34 +25140,166 @@ async function confirmarEntregaModal() {
 }
 
 let _cobrosPendientes = null;
+let _chequesData = [];  // v14.15.4: array de cheques cargados en el sub-modal
 
 function cerrarChequeModal() {
   document.getElementById('cheque-modal').classList.add('hidden');
   _cobrosPendientes = null;
+  _chequesData = [];
+}
+
+// v14.15.4 — Renderiza la lista de cheques en el sub-modal
+function _renderChequesLista() {
+  const lista = document.getElementById('cheque-lista');
+  if (!lista) return;
+  const N = _chequesData.length;
+  lista.innerHTML = _chequesData.map(function(ch, idx) {
+    const titulo = N === 1 ? 'Datos del cheque' : ('Cheque ' + (idx+1) + ' de ' + N);
+    const btnDel = N > 1
+      ? '<button onclick="eliminarChequeFila(' + idx + ')" style="background:#FFEBEE;border:1.5px solid rgba(198,40,40,.3);color:#C62828;border-radius:8px;width:30px;height:30px;font-size:14px;font-weight:900;cursor:pointer;flex-shrink:0;touch-action:manipulation;">✕</button>'
+      : '';
+    return '' +
+      '<div class="cheque-fila" data-idx="' + idx + '" style="background:#FAFAFA;border:1.5px solid #E0E0E0;border-radius:12px;padding:12px;">' +
+        '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px;">' +
+          '<div style="font-family:\'Barlow Condensed\',sans-serif;font-size:14px;font-weight:800;color:#1A237E;">📋 ' + titulo + '</div>' +
+          btnDel +
+        '</div>' +
+        '<div style="display:flex;flex-direction:column;gap:10px;">' +
+          '<div>' +
+            '<div style="font-size:11px;font-weight:700;color:var(--text3);text-transform:uppercase;letter-spacing:.8px;margin-bottom:4px;">Monto</div>' +
+            '<input type="number" min="0" inputmode="numeric" placeholder="$0" value="' + (ch.monto || '') + '" oninput="_actualizarChequeCampo(' + idx + ',\'monto\',this.value);recalcularChequeResumen();" style="width:100%;padding:11px 12px;border:1.5px solid #E0E0E0;border-radius:10px;font-family:\'Barlow\',sans-serif;font-size:14px;outline:none;box-sizing:border-box;">' +
+          '</div>' +
+          '<div>' +
+            '<div style="font-size:11px;font-weight:700;color:var(--text3);text-transform:uppercase;letter-spacing:.8px;margin-bottom:4px;">Banco</div>' +
+            '<input type="text" placeholder="Ej: Banco Nación, BBVA..." autocapitalize="words" value="' + (ch.banco || '').replace(/"/g,'&quot;') + '" oninput="_actualizarChequeCampo(' + idx + ',\'banco\',this.value);" style="width:100%;padding:11px 12px;border:1.5px solid #E0E0E0;border-radius:10px;font-family:\'Barlow\',sans-serif;font-size:14px;outline:none;box-sizing:border-box;">' +
+          '</div>' +
+          '<div>' +
+            '<div style="font-size:11px;font-weight:700;color:var(--text3);text-transform:uppercase;letter-spacing:.8px;margin-bottom:4px;">Número de cheque</div>' +
+            '<input type="text" placeholder="Ej: 12345678" inputmode="numeric" value="' + (ch.numero || '').replace(/"/g,'&quot;') + '" oninput="_actualizarChequeCampo(' + idx + ',\'numero\',this.value);" style="width:100%;padding:11px 12px;border:1.5px solid #E0E0E0;border-radius:10px;font-family:\'Barlow\',sans-serif;font-size:14px;outline:none;box-sizing:border-box;">' +
+          '</div>' +
+          '<div>' +
+            '<div style="font-size:11px;font-weight:700;color:var(--text3);text-transform:uppercase;letter-spacing:.8px;margin-bottom:4px;">Nombre del emisor (quien firma)</div>' +
+            '<input type="text" placeholder="Nombre o razón social" autocapitalize="words" value="' + (ch.emisor || '').replace(/"/g,'&quot;') + '" oninput="_actualizarChequeCampo(' + idx + ',\'emisor\',this.value);" style="width:100%;padding:11px 12px;border:1.5px solid #E0E0E0;border-radius:10px;font-family:\'Barlow\',sans-serif;font-size:14px;outline:none;box-sizing:border-box;">' +
+          '</div>' +
+          '<div>' +
+            '<div style="font-size:11px;font-weight:700;color:var(--text3);text-transform:uppercase;letter-spacing:.8px;margin-bottom:4px;">Fecha de vencimiento</div>' +
+            '<input type="date" value="' + (ch.vencimiento || '') + '" oninput="_actualizarChequeCampo(' + idx + ',\'vencimiento\',this.value);" style="width:100%;padding:11px 12px;border:1.5px solid #E0E0E0;border-radius:10px;font-family:\'Barlow\',sans-serif;font-size:14px;outline:none;box-sizing:border-box;">' +
+          '</div>' +
+        '</div>' +
+      '</div>';
+  }).join('');
+  recalcularChequeResumen();
+}
+
+// v14.15.4 — Actualizar un campo de un cheque sin re-renderizar todo
+function _actualizarChequeCampo(idx, campo, valor) {
+  if (!_chequesData[idx]) return;
+  if (campo === 'monto') {
+    _chequesData[idx][campo] = parseFloat(valor) || 0;
+  } else {
+    _chequesData[idx][campo] = valor;
+  }
+}
+
+// v14.15.4 — Agregar otro cheque a la lista
+function agregarChequeModal() {
+  const totalCheque = (_cobrosPendientes && _cobrosPendientes.cheque) || 0;
+  // Calcular cuánto falta para sugerir como monto inicial del nuevo cheque
+  const sumaActual = _chequesData.reduce(function(acc, ch) { return acc + (parseFloat(ch.monto) || 0); }, 0);
+  const sugerido = Math.max(0, Math.round(totalCheque - sumaActual));
+  _chequesData.push({ banco:'', numero:'', emisor:'', vencimiento:'', monto: sugerido });
+  _renderChequesLista();
+}
+
+// v14.15.4 — Eliminar un cheque de la lista
+function eliminarChequeFila(idx) {
+  if (_chequesData.length <= 1) return;
+  _chequesData.splice(idx, 1);
+  _renderChequesLista();
+}
+
+// v14.15.4 — Recalcular y mostrar el resumen suma vs total
+function recalcularChequeResumen() {
+  if (!_cobrosPendientes) return;
+  const total = Math.round(_cobrosPendientes.cheque || 0);
+  const suma = Math.round(_chequesData.reduce(function(acc, ch) { return acc + (parseFloat(ch.monto) || 0); }, 0));
+  const el = document.getElementById('cheque-resumen-monto');
+  const cont = document.getElementById('cheque-resumen');
+  if (!el || !cont) return;
+  el.textContent = '$' + suma.toLocaleString('es-AR') + ' / $' + total.toLocaleString('es-AR');
+  // Color según diferencia
+  const diff = Math.abs(suma - total);
+  if (diff <= 50) {
+    cont.style.background = '#E8F5E9';
+    el.style.color = '#2E7D32';
+  } else if (suma > total) {
+    cont.style.background = '#FFEBEE';
+    el.style.color = '#C62828';
+  } else {
+    cont.style.background = '#F8F9FA';
+    el.style.color = '#1A237E';
+  }
 }
 
 async function confirmarChequeModal() {
-  const banco    = document.getElementById('cheque-banco').value.trim();
-  const numero   = document.getElementById('cheque-numero').value.trim();
-  const emisor   = document.getElementById('cheque-emisor').value.trim();
-  const vencimie = document.getElementById('cheque-vencimiento').value;
-  const errEl    = document.getElementById('cheque-err');
-  if (!banco || !numero || !emisor || !vencimie) { errEl.textContent = 'Completá todos los campos'; return; }
+  const errEl = document.getElementById('cheque-err');
+  errEl.textContent = '';
+  if (!_chequesData || _chequesData.length === 0) {
+    errEl.textContent = 'Cargá al menos un cheque';
+    return;
+  }
+  // Validar campos completos de cada cheque
+  for (var i = 0; i < _chequesData.length; i++) {
+    var ch = _chequesData[i];
+    var label = _chequesData.length === 1 ? 'el cheque' : 'el cheque ' + (i+1);
+    if (!ch.banco || !ch.numero || !ch.emisor || !ch.vencimiento) {
+      errEl.textContent = 'Completá todos los campos de ' + label;
+      return;
+    }
+    if (!ch.monto || ch.monto <= 0) {
+      errEl.textContent = 'Ingresá un monto válido en ' + label;
+      return;
+    }
+  }
+  // Validar suma vs total cheque (margen $50)
+  var totalCheque = Math.round(_cobrosPendientes.cheque || 0);
+  var sumaCheques = Math.round(_chequesData.reduce(function(acc, ch) { return acc + (parseFloat(ch.monto) || 0); }, 0));
+  if (Math.abs(sumaCheques - totalCheque) > 50) {
+    errEl.textContent = 'La suma de cheques ($' + sumaCheques.toLocaleString('es-AR') +
+                        ') no coincide con el total ($' + totalCheque.toLocaleString('es-AR') + ')';
+    return;
+  }
+
   const e = _entregasCache.find(x => x.id === _entregaModalId);
+  // Insertar N cheques en cheques_recibidos
   try {
+    var inserts = _chequesData.map(function(ch) {
+      return {
+        pedido_id: e ? e.pedido_id : null,
+        chofer:    vendedorActual,
+        cliente:   e ? e.cliente : null,
+        comercio:  e ? e.comercio : null,
+        ciudad:    e ? e.ciudad : null,
+        monto:     parseFloat(ch.monto) || 0,
+        banco:     ch.banco,
+        numero_cheque: ch.numero,
+        emisor:    ch.emisor,
+        fecha_vencimiento: ch.vencimiento,
+        estado:    'recibido'
+      };
+    });
+    // POST único con array → Supabase inserta N filas en una sola llamada
     await sbFetch('cheques_recibidos', {
       method: 'POST',
-      body: JSON.stringify({
-        pedido_id: e ? e.pedido_id : null, chofer: vendedorActual,
-        cliente: e ? e.cliente : null, comercio: e ? e.comercio : null,
-        ciudad: e ? e.ciudad : null, monto: _cobrosPendientes.cheque,
-        banco, numero_cheque: numero, emisor, fecha_vencimiento: vencimie, estado: 'recibido'
-      })
+      body: JSON.stringify(inserts)
     });
-  } catch(err) { console.warn('No se pudo guardar cheque:', err); }
+  } catch(err) {
+    console.warn('No se pudo guardar cheques:', err);
+  }
   document.getElementById('cheque-modal').classList.add('hidden');
   await _ejecutarConfirmacionEntrega(_cobrosPendientes);
   _cobrosPendientes = null;
+  _chequesData = [];
 }
 
 async function _ejecutarConfirmacionEntrega(cobros) {
