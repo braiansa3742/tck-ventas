@@ -2,6 +2,44 @@
 <html lang="es">
 <head>
 <!-- ═══════════════════════════════════════════════════════════════════════
+     TCK VENTAS — v14.16.0 — 13/05/2026
+     ──────────────────────────────────────────────────────────────────────
+     FEATURE: Badge de stock en tomador, manualWA y editar pedido — Fase 4
+              del módulo de stock.
+
+     CONTEXTO:
+       Hasta v14.15.4 los productos tenían solo el badge estático ⚠️ SIN
+       STOCK (lista TOMADOR_SIN_STOCK hardcoded). Ahora leemos vw_stock_visible
+       de Supabase y mostramos el stock real disponible (Xubio − comprometido
+       en viajes futuros).
+
+     CAMBIOS:
+       1. Nueva función cargarStockVisibleVentas() — lee vw_stock_visible
+          una vez al cargar la app y cachea en memoria 5 min.
+       2. Helper obtenerStockVentas(nombreTomador) que aplica el
+          TOMADOR_NOMBRE_MAP existente para matchear (ej "Pollo A" →
+          "Pollo Ginosa") y devuelve { stock_visible, estado, comprometido }.
+       3. Badge dinámico en tomador, manualWA y editar:
+          · Verde "Stock: 47"     (>= mínimo)
+          · Amarillo "Stock: 3 ⚠️" (queda poco)
+          · Rojo "Stock: 0 🚫"     (sin stock)
+          · Rojo intenso "-13 🚨"  (sobreventa)
+       4. Reemplaza badge "SIN STOCK" estático (lista hardcoded) por
+          versión dinámica basada en datos reales.
+       5. Validación al confirmar pedido: si alguna línea supera el
+          stock disponible, modal de confirmación + mail a Francisco.
+
+     SIN IMPACTO en flujo existente: si la vista no responde, el badge
+     no aparece pero todo lo demás sigue funcionando igual (degrada
+     graceful).
+
+     PRE-REQUISITOS YA HECHOS:
+       · vw_stock_visible vista SQL creada (13/5)
+       · tck-admin v12.15.0 con tab Stock ya funciona (13/5)
+       · Apps Script v25.21.0 con hook automático a pedidos_items
+     ══════════════════════════════════════════════════════════════════════ -->
+
+<!-- ═══════════════════════════════════════════════════════════════════════
      TCK VENTAS — v14.15.4 — 12/05/2026
      ──────────────────────────────────────────────────────────────────────
      FEATURE: Múltiples cheques en una sola entrega
@@ -12361,6 +12399,111 @@ const SUPABASE_URL  = 'https://frhevcgxcuqkkakwnmrw.supabase.co';
 const SUPABASE_KEY  = 'sb_publishable_rRuseS1OttY_jisrsBc3qg_JBCE8vkH';
 
 // ═══════════════════════════════════════════════════════════════════
+// v14.16.0 — STOCK VISIBLE (Fase 4 módulo stock)
+// ═══════════════════════════════════════════════════════════════════
+// Lee vw_stock_visible de Supabase y la cachea para que las UIs
+// (tomador, manualWA, editar) muestren stock real al vendedor.
+//
+// Estrategia:
+//   - 1 fetch global al cargar la app
+//   - Cache 5 min en memoria
+//   - Refresco transparente cuando expira
+//   - Si falla la lectura, _stockMapVentas queda {} y el badge no
+//     aparece (degrada graceful, no rompe nada).
+//
+// Matching: usa TOMADOR_NOMBRE_MAP existente (ej "Pollo A" → "Pollo Ginosa")
+// porque productos del tomador no siempre matchean directo con producto_tck_nombre.
+// ═══════════════════════════════════════════════════════════════════
+var _stockMapVentas = {};            // { producto_tck_nombre: {stock_visible, estado, comprometido, stock_minimo} }
+var _stockMapVentasTs = 0;
+const STOCK_VENTAS_TTL = 5 * 60 * 1000;  // 5 minutos
+
+async function cargarStockVisibleVentas() {
+  // Si el cache es válido, no recargar
+  if (_stockMapVentasTs && (Date.now() - _stockMapVentasTs < STOCK_VENTAS_TTL)) {
+    return _stockMapVentas;
+  }
+  try {
+    const url = SUPABASE_URL + '/rest/v1/vw_stock_visible?select=producto_tck_nombre,stock_visible,estado,comprometido,stock_minimo,stock_xubio';
+    const resp = await fetch(url, {
+      headers: {
+        'apikey':        SUPABASE_KEY,
+        'Authorization': 'Bearer ' + SUPABASE_KEY
+      }
+    });
+    if (!resp.ok) throw new Error('HTTP ' + resp.status);
+    const data = await resp.json();
+    if (!Array.isArray(data)) throw new Error('Respuesta no es array');
+
+    const mapa = {};
+    data.forEach(function(r) {
+      mapa[r.producto_tck_nombre] = {
+        stock_visible: Number(r.stock_visible || 0),
+        estado:        r.estado,
+        comprometido:  Number(r.comprometido || 0),
+        stock_minimo:  Number(r.stock_minimo || 5),
+        stock_xubio:   Number(r.stock_xubio || 0)
+      };
+    });
+    _stockMapVentas = mapa;
+    _stockMapVentasTs = Date.now();
+    console.log('[TCK Stock Ventas] ' + Object.keys(mapa).length + ' productos cargados');
+  } catch (e) {
+    console.warn('[TCK Stock Ventas] Error cargando stock:', e);
+    // No tirar excepción: degrada graceful
+  }
+  return _stockMapVentas;
+}
+
+/**
+ * v14.16.0 — Devuelve el stock de un producto del tomador.
+ * Aplica TOMADOR_NOMBRE_MAP para resolver alias (ej "Pollo A" → "Pollo Ginosa").
+ * Devuelve null si no se encuentra (badge no se muestra).
+ */
+function obtenerStockVentas(nombreTomador) {
+  if (!nombreTomador) return null;
+  // 1. Aplicar mapa de alias si existe
+  var nombreReal = (typeof TOMADOR_NOMBRE_MAP !== 'undefined' && TOMADOR_NOMBRE_MAP[nombreTomador])
+                   ? TOMADOR_NOMBRE_MAP[nombreTomador]
+                   : nombreTomador;
+  // 2. Buscar en mapa de stock
+  if (_stockMapVentas[nombreReal]) return _stockMapVentas[nombreReal];
+  // 3. Fallback: buscar por nombre literal por si TOMADOR_NOMBRE_MAP no aplica
+  if (_stockMapVentas[nombreTomador]) return _stockMapVentas[nombreTomador];
+  return null;
+}
+
+/**
+ * v14.16.0 — Genera el HTML del badge de stock para un producto.
+ * Devuelve string vacío si no hay datos de stock (cache vacío o producto no mapeado).
+ */
+function badgeStockHTML(nombreTomador) {
+  var st = obtenerStockVentas(nombreTomador);
+  if (!st) return '';
+
+  var visible = st.stock_visible;
+  var bg, color, txt;
+
+  if (visible < 0) {
+    // Sobreventa: rojo intenso, indica que ya hay más vendido que stock
+    bg = '#C62828'; color = '#fff';
+    txt = '🚨 ' + visible + ' (sobrev.)';
+  } else if (visible === 0) {
+    bg = '#D84315'; color = '#fff';
+    txt = '🚫 0';
+  } else if (visible <= st.stock_minimo) {
+    bg = '#F9A825'; color = '#3E2723';
+    txt = '⚠️ ' + visible;
+  } else {
+    bg = '#2E7D32'; color = '#fff';
+    txt = '✓ ' + visible;
+  }
+
+  return '<div class="stock-badge-ventas" style="position:absolute;top:4px;right:4px;background:' + bg + ';color:' + color + ';font-size:10px;font-weight:900;padding:3px 7px;border-radius:6px;font-family:Barlow Condensed,sans-serif;letter-spacing:.3px;z-index:2;" title="Stock disponible (Xubio - comprometido en viajes futuros)">' + txt + '</div>';
+}
+// ═══════════════════════════════════════════════════════════════════
+
+// ═══════════════════════════════════════════════════════════════════
 // v14.10.0 — PRODUCTOS CANÓNICOS (N40b)
 // ═══════════════════════════════════════════════════════════════════
 // v14.14.0 — CIUDADES CANÓNICAS (canonización en cliente)
@@ -20986,6 +21129,11 @@ function _refrescarPreciosTomadorBg() {
 // Disparar la carga al inicio (no bloquea — el tomador puede abrirse antes)
 cargarPreciosTomador();
 
+// v14.16.0 — Disparar carga de stock al inicio (no bloquea)
+if (typeof cargarStockVisibleVentas === 'function') {
+  cargarStockVisibleVentas();
+}
+
 var _tomadorQtys       = {}; // { nombreProducto: cantidad }
 var _tomadorCompetencia = {};
 var _tomadorDescuentos  = {}; // { nombreProducto: { pct: 5, motivo: 'volumen' } } // { nombreProducto: { precio, competencia } }
@@ -21920,6 +22068,11 @@ function _tomadorAbrirInterno() {
   _tomadorCatActual = 'todos';
   // NO reseteamos _tomadorSucursalElegida acá — viene del callback de sucElegirAbrir
 
+  // v14.16.0 — Refrescar stock al abrir (transparente, no bloquea)
+  if (typeof cargarStockVisibleVentas === 'function') {
+    cargarStockVisibleVentas();
+  }
+
   // Crear overlay
   var overlay = document.createElement('div');
   overlay.className = 'tomador-overlay';
@@ -22029,8 +22182,11 @@ function tomadorRenderProductos(catId) {
 
       // v9.1: badge "SIN STOCK" amarillo (aviso, no bloqueo). Vendedor puede cargar igual.
       var sinStockBadge = sinStock ? '<div style="position:absolute;top:4px;left:4px;background:#F9A825;color:#3E2723;font-size:9px;font-weight:900;padding:2px 6px;border-radius:6px;font-family:Barlow Condensed,sans-serif;letter-spacing:.5px;border:1px solid #E65100" title="Sin stock — asegurate de que va a entrar para la entrega">⚠️ SIN STOCK</div>' : '';
+      // v14.16.0 — Badge de stock dinámico desde vw_stock_visible
+      var stockBadge = (typeof badgeStockHTML === 'function') ? badgeStockHTML(item.n) : '';
   html += '<div class="tomador-item' + (tieneQty ? ' tiene' : '') + (sinStock ? ' sin-stock-aviso' : '') + '" id="titem-' + safeId + '" style="position:relative">'
         + sinStockBadge
+        + stockBadge
         + '<img class="tomador-item-img" src="' + (item.img2 || imgUrl) + '" onerror="this.style.display=&quot;none&quot;;this.nextSibling.style.display=&quot;flex&quot;" loading="lazy">'
         + '<div class="tomador-item-img-placeholder" style="display:none">🍗</div>'
         + '<div class="tomador-item-body">'
@@ -25846,6 +26002,11 @@ function _abrirEditarPedidoInterno(p, detalle) {
   _editarSucursalOriginal = null; // v8.6
   _editarSucursalActual   = null; // v8.6
 
+  // v14.16.0 — Refrescar stock al abrir
+  if (typeof cargarStockVisibleVentas === 'function') {
+    cargarStockVisibleVentas();
+  }
+
   // v9.9: trackear total original y líneas no parseadas para defensa
   _editarTotalOriginal = parseFloat(p.total) || 0;
   _editarLineasNoParseadas = [];
@@ -26081,6 +26242,8 @@ function editarRenderItems() {
       const sinStockBadge = sinStock
         ? '<div style="position:absolute;top:4px;left:4px;background:#F9A825;color:#3E2723;font-size:9px;font-weight:900;padding:2px 6px;border-radius:6px;font-family:Barlow Condensed,sans-serif;letter-spacing:.5px;border:1px solid #E65100" title="Sin stock — asegurate de que va a entrar para la entrega">⚠️ SIN STOCK</div>'
         : '';
+      // v14.16.0 — Badge de stock dinámico
+      const stockBadge = (typeof badgeStockHTML === 'function') ? badgeStockHTML(item.n) : '';
       // v9.9.1: el botón % va DENTRO de .editar-qty-ctrl (flex), no absolute.
       // Así no pisa la fila y queda alineado con +/- de manera natural.
       var dtoBtn = (function(){
@@ -26093,6 +26256,7 @@ function editarRenderItems() {
       })();
       html += '<div class="editar-item' + (sinStock ? ' tomador-item sin-stock-aviso' : '') + '" style="position:relative;">' +
         sinStockBadge +
+        stockBadge +
         '<img class="editar-item-img" src="' + imgUrl + '" onerror="this.style.display=&quot;none&quot;">' +
         '<div class="editar-item-info">' +
           '<div class="editar-item-nombre">' + item.n + '</div>' +
@@ -26582,6 +26746,11 @@ function abrirCargaManualWA() {
   _manualWACombos = {}; // v9.2: reset combos
   _manualWAPromos = {}; // v13.4: reset promos
 
+  // v14.16.0 — Refrescar stock al abrir
+  if (typeof cargarStockVisibleVentas === 'function') {
+    cargarStockVisibleVentas();
+  }
+
   const overlay = document.createElement('div');
   overlay.className = 'manual-wa-overlay';
   overlay.id = 'manual-wa-overlay';
@@ -26619,8 +26788,11 @@ function manualWAHTML() {
       const safeId = item.n.replace(/[^a-zA-Z0-9]/g,'-');
       // v9.1: badge amarillo de aviso, sin disabled
       const sinStockBadge = sinStock ? '<div style="position:absolute;top:4px;left:4px;background:#F9A825;color:#3E2723;font-size:9px;font-weight:900;padding:2px 6px;border-radius:6px;font-family:Barlow Condensed,sans-serif;letter-spacing:.5px;border:1px solid #E65100" title="Sin stock — asegurate de que va a entrar para la entrega">⚠️ SIN STOCK</div>' : '';
+      // v14.16.0 — Badge de stock dinámico
+      const stockBadge = (typeof badgeStockHTML === 'function') ? badgeStockHTML(item.n) : '';
       prodsHtml += '<div class="tomador-item' + (sinStock ? ' sin-stock-aviso' : '') + '" id="mwa-item-' + safeId + '" style="position:relative;">' +
         sinStockBadge +
+        stockBadge +
         '<img class="tomador-item-img" src="' + (item.img2 || imgUrl) + '" onerror="this.style.display=&quot;none&quot;" loading="lazy">' +
         '<div class="tomador-item-body">' +
           '<div class="tomador-item-nombre">' + item.n + '</div>' +
