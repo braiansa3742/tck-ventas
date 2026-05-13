@@ -2,6 +2,56 @@
 <html lang="es">
 <head>
 <!-- ═══════════════════════════════════════════════════════════════════════
+     TCK VENTAS — v14.16.2 — 13/05/2026
+     ──────────────────────────────────────────────────────────────────────
+     FIX BUG: Cobro mixto (efectivo + cheque) con diferencia bloqueaba
+              la carga de datos del cheque.
+
+     CASO REAL (13/05/2026, Francisco, cliente con pedido $686.700):
+       - Cargó $425.968 efectivo + $227.732 cheque = $653.700 cobrado
+       - Diferencia: $33.000 (producto facturado pero no entregado x
+         falta de stock — caso "entrega pendiente" no resuelto aún)
+       - Al confirmar, se disparaba la validación de "cobró menos" (línea
+         25272), aparecía un textarea AL FINAL del modal grande pidiendo
+         motivo, y se hacía return; ANTES de abrir el modal de cheques.
+       - Francisco no veía el textarea (oculto abajo) y creía que "no
+         le dejaba cargar los datos del cheque".
+
+     CAMBIOS v14.16.2 sobre v14.16.1:
+
+       1. confirmarEntregaModal() reorganizada:
+          · Si hay cheque > 0 → abrir sub-modal de cheques PRIMERO.
+          · Los datos del cheque (banco, número, emisor, vencimiento)
+            son irrecuperables si se pierde el modal, deben pedirse
+            antes que cualquier otra validación.
+          · Después de confirmar los cheques → recién validar diferencia.
+
+       2. Validación de diferencia movida a _validarDiferenciaYConfirmar()
+          que se llama tanto desde flujo SIN cheques como desde el final
+          de confirmarChequeModal().
+
+       3. UI del textarea "cobró menos" mejorada:
+          · Diseño rojo (antes naranja) para más urgencia.
+          · scrollIntoView({behavior:'smooth', block:'center'}) para que
+            Fran lo vea inmediatamente.
+          · Mensaje más claro: "ATENCIÓN: hay diferencia de cobro" y
+            explica que si es por falta de stock debe ir a Devolución.
+
+       4. Sin cambios en esquema de BD ni en el flujo de Supabase.
+
+     SIN IMPACTO en:
+       · Flujos sin cheque (ya funcionaban).
+       · Flujo de cheque sin diferencia (queda igual).
+       · Esquema cheques_recibidos, entregas.detalle_cobro.
+       · Lógica de devoluciones.
+
+     PENDIENTE (otra sesión): caso "entrega pendiente" cuando un
+       producto facturado no se entrega por falta de stock pero se va
+       a entregar después. Decisión administrativa NC vs entrega
+       parcial bloqueada hasta consulta con contadores.
+     ══════════════════════════════════════════════════════════════════════ -->
+
+<!-- ═══════════════════════════════════════════════════════════════════════
      TCK VENTAS — v14.16.1 — 13/05/2026
      ──────────────────────────────────────────────────────────────────────
      FIX UI: el badge de stock estaba como absolute en esquina sup-derecha
@@ -6599,6 +6649,12 @@ body {
 .cobro-menos-alerta textarea:focus {
   outline: none;
   border-color: #E65100;
+}
+
+/* v14.16.2 — Animación de pulso rojo para alerta de diferencia de cobro */
+@keyframes pulse-red {
+  0%, 100% { box-shadow: 0 0 0 0 rgba(198, 40, 40, 0); }
+  50%      { box-shadow: 0 0 0 8px rgba(198, 40, 40, 0.35); }
 }
 
 /* ════════════════════════════════════════════════
@@ -25142,6 +25198,14 @@ function cerrarEntregaModal() {
   _devolucionItems = {};
   _devolucionMotivo = '';
   _devolucionCategoria = '';
+  // v14.16.2 — Limpiar estado de cheques pendientes y alerta de "cobró menos"
+  // para evitar arrastrar datos entre entregas distintas.
+  _cobrosPendientes = null;
+  _chequesData = [];
+  window._cobroMenosMotivo = null;
+  window._cobroMenosMonto = null;
+  var alertaCM = document.getElementById('cobro-menos-alerta');
+  if (alertaCM) alertaCM.remove();
   const wrap = document.getElementById('entrega-devolucion-wrap');
   if (wrap) { wrap.style.display = 'none'; }
   const motEl = document.getElementById('entrega-devolucion-motivo');
@@ -25254,8 +25318,78 @@ async function confirmarEntregaModal() {
   const devData = _getDevolucionData();
   if (devData === 'SIN_CATEGORIA') { toast('❌ Elegí un motivo de devolución', 'err'); return; }
 
-  // v14.0: validación "cobró menos" (alerta + textarea inline obligatorio)
+  // v14.16.2 — REORGANIZACIÓN DEL FLUJO:
+  // Si hay cobro con cheque, abrir sub-modal de cheques PRIMERO.
+  // Los datos del cheque (banco, número, emisor, vencimiento) son
+  // irrecuperables si se pierde el modal. La validación de diferencia
+  // ("cobró menos") se hace DESPUÉS del modal de cheques, dentro de
+  // confirmarChequeModal() → _validarDiferenciaYConfirmar().
+  //
+  // ANTES (v14.16.1 y anteriores):
+  //   validación de diferencia → return; (bloqueaba modal cheques)
+  //   → modal cheques (nunca se abría si había diferencia)
+  //
+  // AHORA (v14.16.2):
+  //   modal cheques (siempre se abre si hay cheque > 0)
+  //   → confirmar cheques → validación de diferencia → ejecutar
+  if (cobros.cheque && cobros.cheque > 0) {
+    const e = _entregasCache.find(x => x.id === _entregaModalId);
+
+    // v14.16.2 — FLUJO DE RECUPERACIÓN:
+    // Si _chequesData ya tiene datos completos (banco/número/emisor/
+    // vencimiento) Y la suma coincide con el cheque actual, significa
+    // que ya pasamos por el sub-modal pero la validación de diferencia
+    // bloqueó el flujo (textarea pidiendo motivo). En ese caso, en
+    // lugar de re-abrir el sub-modal (perdería los datos), saltamos
+    // directo a confirmarChequeModal que valida y ejecuta.
+    var chequesYaCompletos = (
+      _chequesData &&
+      _chequesData.length > 0 &&
+      _chequesData.every(function(ch) {
+        return ch.banco && ch.numero && ch.emisor && ch.vencimiento && ch.monto > 0;
+      })
+    );
+    var sumaChequesActual = chequesYaCompletos
+      ? _chequesData.reduce(function(acc, ch) { return acc + (parseFloat(ch.monto) || 0); }, 0)
+      : 0;
+    var cobroChequeActual = parseFloat(cobros.cheque) || 0;
+    var coincide = Math.abs(sumaChequesActual - cobroChequeActual) <= 50;
+
+    if (chequesYaCompletos && coincide) {
+      // Ya tengo cheques cargados y válidos. Refrescar _cobrosPendientes
+      // con los montos actuales (puede haber cambiado efectivo o ctacte)
+      // y llamar a confirmarChequeModal directamente.
+      _cobrosPendientes = cobros;
+      await confirmarChequeModal();
+      return;
+    }
+
+    // Primera vez (o cambió el monto de cheque): abrir sub-modal limpio.
+    _cobrosPendientes = cobros;
+    document.getElementById('cheque-modal-cliente').textContent = e ? (e.cliente||'—') : '—';
+    document.getElementById('cheque-modal-monto').textContent = '$' + Math.round(cobros.cheque).toLocaleString('es-AR') + ' en cheque';
+    document.getElementById('cheque-err').textContent = '';
+    // Reset: arrancar con UN cheque vacío que cubra el total
+    _chequesData = [{ banco:'', numero:'', emisor:'', vencimiento:'', monto: Math.round(cobros.cheque) }];
+    _renderChequesLista();
+    document.getElementById('cheque-modal').classList.remove('hidden');
+    return;
+  }
+
+  // Sin cheque: validar diferencia directamente y ejecutar.
+  await _validarDiferenciaYConfirmar(cobros, totalCobrado);
+}
+
+// v14.16.2 — Validación de "cobró menos" extraída a función reutilizable.
+// Se llama desde:
+//   · confirmarEntregaModal() cuando NO hay cheque
+//   · confirmarChequeModal() después de cargar datos del/los cheques
+// Devuelve `true` si la validación pasó y la entrega ya se ejecutó.
+// Devuelve `false` si bloqueó (mostró textarea o falló validación).
+async function _validarDiferenciaYConfirmar(cobros, totalCobrado) {
+  const devData = _getDevolucionData();
   const e0 = _entregasCache.find(x => x.id === _entregaModalId);
+
   if (e0) {
     var montoOriginal = (parseFloat(e0.monto)||0);
     if (montoOriginal > 0 && montoOriginal < 1000) montoOriginal = montoOriginal * 1000;
@@ -25273,27 +25407,42 @@ async function confirmarEntregaModal() {
       // Ver si ya hay textarea visible
       var motivoEl = document.getElementById('cobro-menos-motivo');
       if (!motivoEl) {
-        // Mostrar alerta inline + textarea
+        // v14.16.2 — Mostrar alerta inline ARRIBA del botón confirmar,
+        // con scrollIntoView para que Fran la vea sí o sí.
         var wrap = document.getElementById('entrega-modal-cobro-wrap');
         if (wrap) {
-          var alertaHtml = '<div class="cobro-menos-alerta" id="cobro-menos-alerta">' +
-            '<div class="cobro-menos-titulo">⚠️ Cobraste $' + Math.round(totalCobrado).toLocaleString('es-AR') +
+          var alertaHtml = '<div class="cobro-menos-alerta" id="cobro-menos-alerta" style="background:#FFEBEE;border:2px solid #C62828;border-radius:12px;padding:14px;margin-top:12px;animation:pulse-red 1.5s ease-in-out 2;">' +
+            '<div class="cobro-menos-titulo" style="font-family:\'Barlow Condensed\',sans-serif;font-size:16px;font-weight:900;color:#C62828;margin-bottom:6px;">🚨 ATENCIÓN: hay diferencia de cobro</div>' +
+            '<div class="cobro-menos-sub" style="font-size:13px;color:#B71C1C;margin-bottom:4px;font-weight:700;">Cobraste $' + Math.round(totalCobrado).toLocaleString('es-AR') +
             ' de $' + Math.round(montoEsperado).toLocaleString('es-AR') +
             ' (faltan $' + Math.round(diff).toLocaleString('es-AR') + ')</div>' +
-            '<div class="cobro-menos-sub">Justificá por qué cobraste menos. Después se aclara con administración.</div>' +
-            '<textarea id="cobro-menos-motivo" placeholder="Motivo (obligatorio): ej. cliente pidió descuento, faltó plata, etc." rows="2"></textarea>' +
+            '<div class="cobro-menos-sub" style="font-size:12px;color:#B71C1C;margin-bottom:10px;">Si es por falta de stock o producto no entregado, mejor usá la sección ↩️ Devolución arriba. Si no, justificá abajo:</div>' +
+            '<textarea id="cobro-menos-motivo" placeholder="Motivo (obligatorio): ej. cliente pidió descuento, faltó plata, etc." rows="2" style="width:100%;padding:10px;border:1.5px solid #C62828;border-radius:8px;font-family:\'Barlow\',sans-serif;font-size:14px;resize:none;box-sizing:border-box;background:#fff;color:var(--text);"></textarea>' +
             '</div>';
           wrap.insertAdjacentHTML('beforeend', alertaHtml);
+          // Scrollear hacia la alerta para asegurar que Fran la vea
+          setTimeout(function() {
+            var alertaEl = document.getElementById('cobro-menos-alerta');
+            if (alertaEl) {
+              alertaEl.scrollIntoView({ behavior: 'smooth', block: 'center' });
+              // Foco en el textarea después de scrollear
+              setTimeout(function() {
+                var ta = document.getElementById('cobro-menos-motivo');
+                if (ta) ta.focus();
+              }, 400);
+            }
+          }, 100);
         }
-        toast('⚠️ Justificá por qué cobraste menos', 'err');
-        return;
+        toast('🚨 Justificá la diferencia de cobro', 'err');
+        return false;
       } else {
         var motivoTxt = motivoEl.value.trim();
         if (!motivoTxt || motivoTxt.length < 5) {
           motivoEl.style.borderColor = 'var(--red)';
           motivoEl.focus();
+          motivoEl.scrollIntoView({ behavior: 'smooth', block: 'center' });
           toast('❌ Escribí el motivo (mínimo 5 letras)', 'err');
-          return;
+          return false;
         }
         // Guardar motivo en window para que _ejecutarConfirmacionEntrega lo escriba
         window._cobroMenosMotivo = motivoTxt;
@@ -25305,20 +25454,8 @@ async function confirmarEntregaModal() {
     }
   }
 
-  // Si hay cobro con cheque, pedir datos antes de confirmar (v14.15.4: multi-cheque)
-  if (cobros.cheque && cobros.cheque > 0) {
-    const e = _entregasCache.find(x => x.id === _entregaModalId);
-    _cobrosPendientes = cobros;
-    document.getElementById('cheque-modal-cliente').textContent = e ? (e.cliente||'—') : '—';
-    document.getElementById('cheque-modal-monto').textContent = '$' + Math.round(cobros.cheque).toLocaleString('es-AR') + ' en cheque';
-    document.getElementById('cheque-err').textContent = '';
-    // Reset: arrancar con UN cheque vacío que cubra el total
-    _chequesData = [{ banco:'', numero:'', emisor:'', vencimiento:'', monto: Math.round(cobros.cheque) }];
-    _renderChequesLista();
-    document.getElementById('cheque-modal').classList.remove('hidden');
-    return;
-  }
   await _ejecutarConfirmacionEntrega(cobros);
+  return true;
 }
 
 let _cobrosPendientes = null;
@@ -25452,34 +25589,34 @@ async function confirmarChequeModal() {
     return;
   }
 
-  const e = _entregasCache.find(x => x.id === _entregaModalId);
-  // Insertar N cheques en cheques_recibidos
-  try {
-    var inserts = _chequesData.map(function(ch) {
-      return {
-        pedido_id: e ? e.pedido_id : null,
-        chofer:    vendedorActual,
-        cliente:   e ? e.cliente : null,
-        comercio:  e ? e.comercio : null,
-        ciudad:    e ? e.ciudad : null,
-        monto:     parseFloat(ch.monto) || 0,
-        banco:     ch.banco,
-        numero_cheque: ch.numero,
-        emisor:    ch.emisor,
-        fecha_vencimiento: ch.vencimiento,
-        estado:    'recibido'
-      };
-    });
-    // POST único con array → Supabase inserta N filas en una sola llamada
-    await sbFetch('cheques_recibidos', {
-      method: 'POST',
-      body: JSON.stringify(inserts)
-    });
-  } catch(err) {
-    console.warn('No se pudo guardar cheques:', err);
-  }
+  // v14.16.2 — VALIDAR DIFERENCIA DE COBRO ANTES DE INSERTAR CHEQUES.
+  //
+  // Calcular total cobrado total (sumando todos los métodos).
+  var totalCobrado = 0;
+  Object.keys(_cobrosPendientes).forEach(function(k) {
+    totalCobrado += parseFloat(_cobrosPendientes[k]) || 0;
+  });
+
+  // Cerrar modal de cheques antes de potencialmente mostrar el textarea
+  // de "cobró menos" (que aparece en el modal grande de entrega).
+  // _chequesData y _cobrosPendientes se MANTIENEN en memoria. Si Fran
+  // necesita justificar diferencia, al re-apretar "Confirmar entrega"
+  // confirmarEntregaModal detecta que ya hay _chequesData con datos
+  // completos y saltea el sub-modal yendo directo a esta función.
   document.getElementById('cheque-modal').classList.add('hidden');
-  await _ejecutarConfirmacionEntrega(_cobrosPendientes);
+
+  const okDif = await _validarDiferenciaYConfirmar(_cobrosPendientes, totalCobrado);
+  if (!okDif) {
+    // La validación bloqueó (mostró textarea o motivo corto).
+    // El modal de cheques quedó cerrado pero _chequesData sigue en memoria.
+    // Fran tiene que completar el textarea de diferencia y volver a
+    // apretar "Confirmar entrega" → confirmarEntregaModal detectará
+    // _chequesData y nos volverá a llamar.
+    return;
+  }
+  // Si llegamos acá, _validarDiferenciaYConfirmar YA insertó la entrega
+  // en BD (vía _ejecutarConfirmacionEntrega). Los cheques se insertaron
+  // ahí mismo (ver _ejecutarConfirmacionEntrega).
   _cobrosPendientes = null;
   _chequesData = [];
 }
@@ -25513,6 +25650,37 @@ async function _ejecutarConfirmacionEntrega(cobros) {
   try {
     await sbFetch('entregas?id=eq.' + _entregaModalId, { method:'PATCH', body:JSON.stringify(payload) });
     const e = _entregasCache.find(x => x.id === _entregaModalId);
+
+    // v14.16.2 — Insertar cheques en BD acá (movido desde
+    // confirmarChequeModal). Esto asegura que los cheques solo se
+    // persisten si la entrega completa (con validación de diferencia)
+    // se ejecuta exitosamente. Si la validación bloqueaba el flujo
+    // antes, los cheques quedaban en memoria sin tocar BD.
+    if (cobros.cheque && cobros.cheque > 0 && _chequesData && _chequesData.length > 0) {
+      try {
+        var inserts = _chequesData.map(function(ch) {
+          return {
+            pedido_id: e ? e.pedido_id : null,
+            chofer:    vendedorActual,
+            cliente:   e ? e.cliente : null,
+            comercio:  e ? e.comercio : null,
+            ciudad:    e ? e.ciudad : null,
+            monto:     parseFloat(ch.monto) || 0,
+            banco:     ch.banco,
+            numero_cheque: ch.numero,
+            emisor:    ch.emisor,
+            fecha_vencimiento: ch.vencimiento,
+            estado:    'recibido'
+          };
+        });
+        await sbFetch('cheques_recibidos', {
+          method: 'POST',
+          body: JSON.stringify(inserts)
+        });
+      } catch(errCh) {
+        console.warn('No se pudo guardar cheques:', errCh);
+      }
+    }
 
     // ── FIX N42-A (07/05/2026): SINCRONIZAR SHEET ──────────────────
     // Cuando el chofer confirma entrega, también actualizar el Sheet
