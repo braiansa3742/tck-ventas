@@ -2,6 +2,26 @@
 <html lang="es">
 <head>
 <!-- ═══════════════════════════════════════════════════════════════════════
+     TCK VENTAS — v14.16.1 — 13/05/2026
+     ──────────────────────────────────────────────────────────────────────
+     FIX UI: el badge de stock estaba como absolute en esquina sup-derecha
+              y chocaba con el botón % (descuento). Ahora es una línea
+              inline dentro del cuerpo del producto, debajo del precio.
+
+     Texto del badge cambiado:
+       · "✓ 47" → "✓ 47 disponibles"
+       · "⚠️ 3" → "⚠️ 3 disponibles"
+       · "🚫 0" → "🚫 Sin stock"
+       · "🚨 -13 (sobrev.)" → "🚨 Sobreventa (-13)"
+
+     Estilo: fondo claro (#E8F5E9 verde, #FFFDE7 amarillo, #FFF3E0 naranja,
+             #FFEBEE rojo) en lugar de fondo intenso. Más sutil y armoniza
+             con el resto del card.
+
+     v14.16.0 — feat stock + fix buscador (notas debajo)
+     ══════════════════════════════════════════════════════════════════════ -->
+
+<!-- ═══════════════════════════════════════════════════════════════════════
      TCK VENTAS — v14.16.0 — 13/05/2026
      ──────────────────────────────────────────────────────────────────────
      FEATURE: Badge de stock en tomador, manualWA y editar pedido — Fase 4
@@ -12479,6 +12499,8 @@ function obtenerStockVentas(nombreTomador) {
 
 /**
  * v14.16.0 — Genera el HTML del badge de stock para un producto.
+ * v14.16.1 — Cambiado de badge absoluto (chocaba con botón %) a línea
+ *            inline que va dentro del cuerpo del producto, debajo del precio.
  * Devuelve string vacío si no hay datos de stock (cache vacío o producto no mapeado).
  */
 function badgeStockHTML(nombreTomador) {
@@ -12486,24 +12508,24 @@ function badgeStockHTML(nombreTomador) {
   if (!st) return '';
 
   var visible = st.stock_visible;
-  var bg, color, txt;
+  var color, bgFondo, txt;
 
   if (visible < 0) {
-    // Sobreventa: rojo intenso, indica que ya hay más vendido que stock
-    bg = '#C62828'; color = '#fff';
-    txt = '🚨 ' + visible + ' (sobrev.)';
+    // Sobreventa: rojo
+    color = '#C62828'; bgFondo = '#FFEBEE';
+    txt = '🚨 Sobreventa (' + visible + ')';
   } else if (visible === 0) {
-    bg = '#D84315'; color = '#fff';
-    txt = '🚫 0';
+    color = '#D84315'; bgFondo = '#FFF3E0';
+    txt = '🚫 Sin stock';
   } else if (visible <= st.stock_minimo) {
-    bg = '#F9A825'; color = '#3E2723';
-    txt = '⚠️ ' + visible;
+    color = '#F57F17'; bgFondo = '#FFFDE7';
+    txt = '⚠️ ' + visible + ' disponibles';
   } else {
-    bg = '#2E7D32'; color = '#fff';
-    txt = '✓ ' + visible;
+    color = '#2E7D32'; bgFondo = '#E8F5E9';
+    txt = '✓ ' + visible + ' disponibles';
   }
 
-  return '<div class="stock-badge-ventas" style="position:absolute;top:4px;right:4px;background:' + bg + ';color:' + color + ';font-size:10px;font-weight:900;padding:3px 7px;border-radius:6px;font-family:Barlow Condensed,sans-serif;letter-spacing:.3px;z-index:2;" title="Stock disponible (Xubio - comprometido en viajes futuros)">' + txt + '</div>';
+  return '<div class="stock-line-ventas" style="display:inline-block;background:' + bgFondo + ';color:' + color + ';font-size:11px;font-weight:800;padding:2px 8px;border-radius:6px;font-family:Barlow Condensed,sans-serif;letter-spacing:.3px;margin-top:3px;" title="Stock disponible (Xubio - comprometido en viajes futuros)">' + txt + '</div>';
 }
 // ═══════════════════════════════════════════════════════════════════
 
@@ -22186,17 +22208,17 @@ function tomadorRenderProductos(catId) {
 
       // v9.1: badge "SIN STOCK" amarillo (aviso, no bloqueo). Vendedor puede cargar igual.
       var sinStockBadge = sinStock ? '<div style="position:absolute;top:4px;left:4px;background:#F9A825;color:#3E2723;font-size:9px;font-weight:900;padding:2px 6px;border-radius:6px;font-family:Barlow Condensed,sans-serif;letter-spacing:.5px;border:1px solid #E65100" title="Sin stock — asegurate de que va a entrar para la entrega">⚠️ SIN STOCK</div>' : '';
-      // v14.16.0 — Badge de stock dinámico desde vw_stock_visible
+      // v14.16.0/v14.16.1 — Badge de stock dinámico (línea inline, va debajo del precio)
       var stockBadge = (typeof badgeStockHTML === 'function') ? badgeStockHTML(item.n) : '';
   html += '<div class="tomador-item' + (tieneQty ? ' tiene' : '') + (sinStock ? ' sin-stock-aviso' : '') + '" id="titem-' + safeId + '" style="position:relative">'
         + sinStockBadge
-        + stockBadge
         + '<img class="tomador-item-img" src="' + (item.img2 || imgUrl) + '" onerror="this.style.display=&quot;none&quot;;this.nextSibling.style.display=&quot;flex&quot;" loading="lazy">'
         + '<div class="tomador-item-img-placeholder" style="display:none">🍗</div>'
         + '<div class="tomador-item-body">'
         + '<div class="tomador-item-nombre">' + item.n + '</div>'
         + '<div class="tomador-item-presentacion">' + item.p + '</div>'
         + '<div class="tomador-item-precio">$' + item.pr.toLocaleString('es-AR') + '</div>'
+        + stockBadge
         + '<div class="tomador-qty">'
         + '<button class="tomador-qty-btn" onclick="tomadorCambiarQty(&quot;' + safeName + '&quot;,-1)">−</button>'
         + '<span class="tomador-qty-num" id="tqty-' + safeId + '">' + qty + '</span>'
@@ -26260,11 +26282,11 @@ function editarRenderItems() {
       })();
       html += '<div class="editar-item' + (sinStock ? ' tomador-item sin-stock-aviso' : '') + '" style="position:relative;">' +
         sinStockBadge +
-        stockBadge +
         '<img class="editar-item-img" src="' + imgUrl + '" onerror="this.style.display=&quot;none&quot;">' +
         '<div class="editar-item-info">' +
           '<div class="editar-item-nombre">' + item.n + '</div>' +
           '<div class="editar-item-pres">' + item.p + ' · $' + item.pr.toLocaleString('es-AR') + '</div>' +
+          stockBadge +
         '</div>' +
         '<div class="editar-qty-ctrl">' +
           '<button class="editar-qty-btn" data-nombre="' + item.n.replace(/"/g,'&quot;') + '" onclick="editarQty(this,-1)">−</button>' +
@@ -26792,16 +26814,16 @@ function manualWAHTML() {
       const safeId = item.n.replace(/[^a-zA-Z0-9]/g,'-');
       // v9.1: badge amarillo de aviso, sin disabled
       const sinStockBadge = sinStock ? '<div style="position:absolute;top:4px;left:4px;background:#F9A825;color:#3E2723;font-size:9px;font-weight:900;padding:2px 6px;border-radius:6px;font-family:Barlow Condensed,sans-serif;letter-spacing:.5px;border:1px solid #E65100" title="Sin stock — asegurate de que va a entrar para la entrega">⚠️ SIN STOCK</div>' : '';
-      // v14.16.0 — Badge de stock dinámico
+      // v14.16.0/v14.16.1 — Badge de stock dinámico (línea inline debajo del precio)
       const stockBadge = (typeof badgeStockHTML === 'function') ? badgeStockHTML(item.n) : '';
       prodsHtml += '<div class="tomador-item' + (sinStock ? ' sin-stock-aviso' : '') + '" id="mwa-item-' + safeId + '" style="position:relative;">' +
         sinStockBadge +
-        stockBadge +
         '<img class="tomador-item-img" src="' + (item.img2 || imgUrl) + '" onerror="this.style.display=&quot;none&quot;" loading="lazy">' +
         '<div class="tomador-item-body">' +
           '<div class="tomador-item-nombre">' + item.n + '</div>' +
           '<div class="tomador-item-presentacion">' + item.p + '</div>' +
           '<div class="tomador-item-precio">$' + item.pr.toLocaleString('es-AR') + '</div>' +
+          stockBadge +
           '<div class="tomador-qty">' +
             '<button class="tomador-qty-btn" onclick="manualWAQty(&quot;' + safeName + '&quot;,-1)">−</button>' +
             '<span class="tomador-qty-num" id="mwa-qty-' + safeId + '">0</span>' +
