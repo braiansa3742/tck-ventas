@@ -6,37 +6,41 @@
      ──────────────────────────────────────────────────────────────────────
      FEATURE: Badge de stock en tomador, manualWA y editar pedido — Fase 4
               del módulo de stock.
+     FIX:     Buscador de clientes manualWA ampliado.
 
-     CONTEXTO:
+     CONTEXTO STOCK:
        Hasta v14.15.4 los productos tenían solo el badge estático ⚠️ SIN
        STOCK (lista TOMADOR_SIN_STOCK hardcoded). Ahora leemos vw_stock_visible
        de Supabase y mostramos el stock real disponible (Xubio − comprometido
        en viajes futuros).
 
-     CAMBIOS:
+     CAMBIOS STOCK:
        1. Nueva función cargarStockVisibleVentas() — lee vw_stock_visible
           una vez al cargar la app y cachea en memoria 5 min.
        2. Helper obtenerStockVentas(nombreTomador) que aplica el
           TOMADOR_NOMBRE_MAP existente para matchear (ej "Pollo A" →
           "Pollo Ginosa") y devuelve { stock_visible, estado, comprometido }.
        3. Badge dinámico en tomador, manualWA y editar:
-          · Verde "Stock: 47"     (>= mínimo)
-          · Amarillo "Stock: 3 ⚠️" (queda poco)
-          · Rojo "Stock: 0 🚫"     (sin stock)
-          · Rojo intenso "-13 🚨"  (sobreventa)
-       4. Reemplaza badge "SIN STOCK" estático (lista hardcoded) por
-          versión dinámica basada en datos reales.
-       5. Validación al confirmar pedido: si alguna línea supera el
-          stock disponible, modal de confirmación + mail a Francisco.
+          · Verde "✓ 47"          (>= mínimo)
+          · Amarillo "⚠️ 3"        (queda poco)
+          · Naranja "🚫 0"         (sin stock)
+          · Rojo "🚨 -13 (sobrev.)" (sobreventa)
 
-     SIN IMPACTO en flujo existente: si la vista no responde, el badge
-     no aparece pero todo lo demás sigue funcionando igual (degrada
-     graceful).
+     CONTEXTO FIX BUSCADOR:
+       El buscador de clientes en manualWA hacía limit=15 en server y
+       slice(0,10) en cliente. Si había 24+ resultados (ej apellido "Pérez"),
+       algunos quedaban fuera arbitrariamente. Caso real reportado:
+       "DAIANA MARISEL PEREZ" no aparecía buscando "Pérez" pese a estar
+       en Xubio.
 
-     PRE-REQUISITOS YA HECHOS:
-       · vw_stock_visible vista SQL creada (13/5)
-       · tck-admin v12.15.0 con tab Stock ya funciona (13/5)
-       · Apps Script v25.21.0 con hook automático a pedidos_items
+     CAMBIOS FIX BUSCADOR:
+       1. limit server-side: 15 → 50
+       2. order=nombre.asc en server para resultados predecibles
+       3. Ordenamiento alfabético también en cliente (post-merge)
+       4. Visibles: 10 → 25
+       5. Mensaje "Hay N coincidencias. Refiná la búsqueda" si supera 25
+
+     SIN IMPACTO en flujo existente. Pre-requisitos vistos arriba.
      ══════════════════════════════════════════════════════════════════════ -->
 
 <!-- ═══════════════════════════════════════════════════════════════════════
@@ -27124,8 +27128,16 @@ function manualWABuscarCliente(q) {
         return;
       }
 
-      // v14.8.1: subido de 6 a 10 sugerencias visibles
-      el.innerHTML = Array.from(todos.values()).slice(0,10).map(function(c) {
+      // v14.16.0: ordenar alfabéticamente por nombre (más predecible para el vendedor)
+      // y subir el límite a 25 sugerencias. Mostrar mensaje si hay más.
+      const todosArr = Array.from(todos.values()).sort(function(a, b) {
+        return (a.nombre || '').toLowerCase().localeCompare((b.nombre || '').toLowerCase(), 'es');
+      });
+      const LIMITE_VISIBLES = 25;
+      const visibles = todosArr.slice(0, LIMITE_VISIBLES);
+      const hayMas = todosArr.length > LIMITE_VISIBLES;
+
+      var htmlBtns = visibles.map(function(c) {
         const badge = c.fuente === 'xubio'
           ? '<span style="background:#E8F5E9;color:#2E7D32;border-radius:10px;padding:1px 6px;font-size:10px;font-weight:700;margin-left:4px;">Xubio</span>'
           : '';
@@ -27134,16 +27146,26 @@ function manualWABuscarCliente(q) {
           '👤 ' + c.nombre + badge + (c.loc ? '<span style="color:var(--text3);"> · ' + c.loc + '</span>' : '') +
         '</button>';
       }).join('');
+
+      if (hayMas) {
+        htmlBtns += '<div style="padding:8px 12px;color:var(--orange);font-size:11px;background:#FFF8E1;border-radius:8px;margin-top:4px;text-align:center;border:1px dashed #FFB74D;">' +
+                    '💡 Hay ' + todosArr.length + ' coincidencias. Refiná la búsqueda (agregá nombre o apellido) para verlas todas.' +
+                    '</div>';
+      }
+
+      el.innerHTML = htmlBtns;
     }
 
     // 2. v14.2 F3: Buscar en Xubio DIRECTO en Supabase
     //    v14.8.1: usar nombre_norm (insensible a tildes) si el query tiene tildes
     //    El campo nombre_norm en Supabase ya viene sin tildes (lo arma _xubioNormalizarTexto)
+    //    v14.16.0: subir limit server-side de 15 a 50 + agregar order para resultados consistentes
     var qParaXubio = qNorm; // sin tildes
     var path = 'clientes_xubio?select=id,nombre,cuit,localidad'
              + '&or=(nombre_norm.ilike.*' + encodeURIComponent(qParaXubio) + '*'
              +     ',cuit.ilike.*' + encodeURIComponent(qParaXubio) + '*)'
-             + '&limit=15';
+             + '&order=nombre.asc'
+             + '&limit=50';
     sbFetch(path)
       .then(function(filas) {
         if (!Array.isArray(filas)) { renderSugerencias([]); return; }
