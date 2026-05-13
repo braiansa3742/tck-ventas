@@ -2,6 +2,52 @@
 <html lang="es">
 <head>
 <!-- ═══════════════════════════════════════════════════════════════════════
+     TCK VENTAS — v14.17.0 — 13/05/2026
+     ──────────────────────────────────────────────────────────────────────
+     N43: VIAJES ESPECIALES — pill para elegir viaje cuando hay >1 disponible
+
+     CONTEXTO:
+       Francisco ahora puede crear viajes especiales (refuerzos) desde admin
+       para zonas grandes (zona1/zona2/america_fortin) fuera del calendario
+       semanal habitual. Cuando un vendedor carga un pedido para una zona
+       que tiene >1 viaje planificado/preparando, aparece una pill discreta
+       arriba del botón confirmar ofreciendo elegir entre las opciones.
+
+     UX (Opción B confirmada por Braian):
+       · Default automático: sistema sugiere el viaje más cercano (igual
+         que hoy). Si NO hay especial, flujo sin cambios.
+       · Pill violeta "⭐ Hay otro viaje disponible" SOLO aparece si hay
+         más de 1 viaje disponible para esa zona en los próximos 10 días.
+       · Tap en pill → modal con las opciones → vendedor elige → confirmar.
+       · Si elige uno, ese viaje_id se manda al backend como override.
+
+     CAMBIOS v14.17.0 sobre v14.16.2:
+       1. Helper nuevo viajeEspBuscarOpciones(zona) → query Apps Script
+          a viajesPlanificadosZona. Devuelve solo si hay >1 viaje.
+       2. Helper viajeEspMostrarPill(opciones, defaultId, onElegir) inserta
+          la pill arriba del botón confirmar en el modal correspondiente.
+       3. Modal viajeEspAbrirSelector(opciones, seleccionadoId, onConfirm)
+          muestra opciones y devuelve el id elegido.
+       4. tomadorConfirmarConEntrega y manualWAGuardar leen el viaje
+          elegido (si hay) desde una variable global _viajeEspElegido
+          y lo pasan en el param viaje_id_elegido.
+       5. Pre-tomadorConfirmar y pre-manualWAConfirmar:
+          al detectar localidad → buscan opciones de viaje → si hay >1,
+          muestran la pill en el modal de resumen.
+
+     SIN IMPACTO en:
+       · Catálogo (sigue inferido por zona, no aplica viajes especiales).
+       · Editar pedido (mantener flujo actual; reasignar lo hace admin).
+       · Choferes, planillas, rendiciones (todo sigue igual).
+       · Lógica de combos / promos / Xubio.
+
+     PRE-REQUISITOS:
+       · SQL ALTER en `viajes` deployado (es_especial, motivo, creado_por).
+       · Apps Script v25.23.0 con endpoints viajesPlanificadosZona +
+         registrarPedidoEnZona modificado para aceptar viaje_id_elegido.
+     ══════════════════════════════════════════════════════════════════════ -->
+
+<!-- ═══════════════════════════════════════════════════════════════════════
      TCK VENTAS — v14.16.2 — 13/05/2026
      ──────────────────────────────────────────────────────────────────────
      FIX BUG: Cobro mixto (efectivo + cheque) con diferencia bloqueaba
@@ -13268,6 +13314,281 @@ function inferirEntregaDesdeLocalidad(localidad) {
   };
 }
 
+// ═══════════════════════════════════════════════════════════════════════
+// v14.17.0 (N43) — VIAJES ESPECIALES — pill + modal de selección
+// ═══════════════════════════════════════════════════════════════════════
+//
+// Cuando un vendedor está confirmando un pedido cuya zona tiene >1
+// viaje planificado/preparando, mostramos una pill discreta arriba del
+// botón "Confirmar" para que pueda elegir entre el viaje normal y
+// los especiales (refuerzos creados por Francisco).
+//
+// Flujo:
+//   1. tomadorConfirmar / manualWAConfirmar terminan de armar el resumen
+//   2. Llaman a viajeEspPrepararSeleccion(localidad, ctx) ANTES de mostrar
+//      el botón confirmar al usuario
+//   3. Esa función:
+//      a) Si la localidad no infiere zona → no hace nada, sigue como hoy
+//      b) Si infiere, consulta Apps Script ?accion=viajesPlanificadosZona
+//      c) Si hay ≤1 viaje → no hace nada, sigue como hoy
+//      d) Si hay >1 → inserta la pill en el contenedor `ctx.pillContainer`
+//   4. Al guardar el pedido, leen window._viajeEspElegido y lo mandan
+//      como param viaje_id_elegido si está seteado.
+//
+// Estado global por modal abierto (se resetea al cerrar):
+//   window._viajeEspElegido     = id del viaje elegido (o null = automático)
+//   window._viajeEspOpciones    = array de viajes disponibles
+//   window._viajeEspContexto    = 'tomador' | 'manual_wa' (para debug)
+
+window._viajeEspElegido  = null;
+window._viajeEspOpciones = [];
+window._viajeEspContexto = null;
+
+function viajeEspReset() {
+  window._viajeEspElegido  = null;
+  window._viajeEspOpciones = [];
+  window._viajeEspContexto = null;
+}
+
+/**
+ * Consulta Apps Script y devuelve los viajes planificados/preparando
+ * para la zona de la localidad dada, en los próximos N días.
+ *
+ * Filtros aplicados:
+ *   · Solo zonas grandes (zona1, zona2, america_fortin). TL no aplica.
+ *   · Solo se devuelven opciones si hay >1 viaje (no tiene sentido pill
+ *     si solo hay el del calendario habitual).
+ *   · Se filtran viajes cuya fecha sea ANTES de la fecha del viaje
+ *     normal del calendario (no ofrecemos retroceder en el tiempo).
+ *
+ * @param {string} localidad — texto de la localidad del cliente
+ * @returns {Promise<{viajes:Array, defaultId:string}|null>}
+ */
+async function viajeEspBuscarOpciones(localidad) {
+  if (!localidad) return null;
+
+  // Inferir zona desde localidad
+  const canon = (typeof localidadCanonicaDe === 'function')
+    ? localidadCanonicaDe(localidad) : null;
+  if (!canon) return null;
+
+  // Mapear etiqueta DB → clave técnica
+  const zonaTec = (ZONA_DB_A_TECNICA && ZONA_DB_A_TECNICA[canon.zona]) || canon.zona;
+
+  // Solo zonas grandes — TL no acepta viajes especiales por este flujo
+  if (zonaTec !== 'zona1' && zonaTec !== 'zona2' && zonaTec !== 'america_fortin') {
+    return null;
+  }
+
+  try {
+    const url = APPS_SCRIPT_URL + '?accion=viajesPlanificadosZona' +
+                '&zona=' + encodeURIComponent(zonaTec) +
+                '&dias=10';
+    const resp = await fetch(url);
+    const data = await resp.json();
+    if (data.status !== 'ok' || !Array.isArray(data.viajes)) return null;
+
+    let viajes = data.viajes;
+    if (viajes.length < 2) return null; // No hay opción real, no mostrar pill
+
+    // Ordenar por fecha ascendente (más cercano primero)
+    viajes.sort((a, b) => String(a.fecha_salida).localeCompare(String(b.fecha_salida)));
+
+    // Default = el más cercano (el primero después de ordenar)
+    const defaultId = viajes[0].id;
+
+    return { viajes: viajes, defaultId: defaultId, zonaTec: zonaTec, ciudadCanonica: canon.ciudad };
+  } catch(err) {
+    console.warn('[viajeEsp] Error consultando opciones:', err);
+    return null;
+  }
+}
+
+/**
+ * Inserta la pill violeta "⭐ Hay otro viaje disponible" dentro del
+ * contenedor dado (el modal de resumen). Si ya hay una pill ahí
+ * la reemplaza.
+ *
+ * @param {HTMLElement} container — elemento donde insertar la pill
+ * @param {object} opcInfo — { viajes, defaultId, zonaTec, ciudadCanonica }
+ * @param {string} contexto — 'tomador' | 'manual_wa'
+ */
+function viajeEspRenderPill(container, opcInfo, contexto) {
+  if (!container || !opcInfo || !opcInfo.viajes || opcInfo.viajes.length < 2) return;
+
+  // Guardar estado global
+  window._viajeEspOpciones = opcInfo.viajes;
+  window._viajeEspContexto = contexto;
+  if (!window._viajeEspElegido) {
+    window._viajeEspElegido = opcInfo.defaultId; // marcar default
+  }
+
+  // Si ya existe una pill anterior, removerla
+  const prev = container.querySelector('.viaje-esp-pill');
+  if (prev) prev.remove();
+
+  // Cuántos especiales hay en la lista (sin contar el default)
+  const total = opcInfo.viajes.length;
+  const elegidoActual = opcInfo.viajes.find(v => v.id === window._viajeEspElegido) || opcInfo.viajes[0];
+  const fechaElegida = _viajeEspFechaCorta(elegidoActual.fecha_salida);
+  const esEspecial   = !!elegidoActual.es_especial;
+
+  // HTML de la pill
+  const pill = document.createElement('div');
+  pill.className = 'viaje-esp-pill';
+  pill.style.cssText =
+    'background:linear-gradient(135deg,#F3E5F5,#E1BEE7);' +
+    'border:2px solid #7E57C2;border-radius:14px;' +
+    'padding:11px 13px;margin:10px 0;cursor:pointer;' +
+    'box-shadow:0 2px 8px rgba(126,87,194,.2);' +
+    'transition:transform .15s;touch-action:manipulation;';
+  pill.onclick = function() {
+    viajeEspAbrirSelector(opcInfo, function(idElegido) {
+      window._viajeEspElegido = idElegido;
+      // Re-render la pill para reflejar la nueva elección
+      viajeEspRenderPill(container, opcInfo, contexto);
+    });
+  };
+
+  pill.innerHTML =
+    '<div style="display:flex;align-items:center;gap:8px;margin-bottom:4px;">' +
+      '<span style="font-size:18px;">⭐</span>' +
+      '<span style="font-family:Barlow Condensed,sans-serif;font-size:14px;font-weight:900;color:#4A148C;flex:1;">' +
+        (total > 2 ? total + ' viajes disponibles' : 'Hay otro viaje disponible') +
+      '</span>' +
+      '<span style="color:#7E57C2;font-size:12px;font-weight:800;text-decoration:underline;">cambiar →</span>' +
+    '</div>' +
+    '<div style="font-size:12px;color:#4A148C;">' +
+      'Viaje elegido: <b>' + fechaElegida + '</b>' +
+      (esEspecial ? ' <span style="background:#7E57C2;color:#fff;padding:1px 7px;border-radius:8px;font-size:10px;font-weight:800;margin-left:4px;">⭐ ESPECIAL</span>' : '') +
+    '</div>';
+
+  // Insertar al final del container (arriba del botón confirmar, que está fuera)
+  container.appendChild(pill);
+}
+
+/**
+ * Modal grande con las opciones de viaje. El vendedor elige y se
+ * llama al callback con el id elegido.
+ *
+ * @param {object} opcInfo — { viajes, defaultId, zonaTec, ciudadCanonica }
+ * @param {function} onElegir — callback(viajeId)
+ */
+function viajeEspAbrirSelector(opcInfo, onElegir) {
+  // Remover modal previo si existe
+  const prev = document.getElementById('viaje-esp-modal');
+  if (prev) prev.remove();
+
+  const ciudad = opcInfo.ciudadCanonica || '';
+  const seleccionadoActual = window._viajeEspElegido || opcInfo.defaultId;
+
+  let opcionesHTML = '';
+  opcInfo.viajes.forEach(function(v) {
+    const sel = v.id === seleccionadoActual;
+    const fechaCorta = _viajeEspFechaCorta(v.fecha_salida);
+    const diasFaltan = _viajeEspDiasHasta(v.fecha_salida);
+    const motivoTxt  = v.motivo ? ' · ' + _viajeEspEscape(v.motivo) : '';
+    const tagTxt     = v.es_especial ? '⭐ Especial' : 'Normal';
+    const tagBg      = v.es_especial ? '#7E57C2' : '#999';
+    const borderCls  = sel ? '#7E57C2' : '#E8D9B5';
+    const bgCls      = sel ? 'linear-gradient(135deg,#fff,#F3E5F5)' : '#fff';
+
+    opcionesHTML +=
+      '<div data-viaje-id="' + v.id + '" class="viaje-esp-opcion" style="' +
+        'border:2px solid ' + borderCls + ';border-radius:12px;' +
+        'padding:12px;margin-bottom:10px;cursor:pointer;' +
+        'background:' + bgCls + ';transition:all .15s;touch-action:manipulation;' +
+        '" onclick="viajeEspSeleccionarOpcion(\'' + v.id + '\')">' +
+        '<div style="display:flex;align-items:center;gap:10px;margin-bottom:4px;">' +
+          '<div style="width:18px;height:18px;border-radius:50%;border:2px solid ' + (sel ? '#7E57C2' : '#E8D9B5') + ';flex-shrink:0;position:relative;">' +
+            (sel ? '<div style="position:absolute;top:3px;left:3px;width:8px;height:8px;background:#7E57C2;border-radius:50%;"></div>' : '') +
+          '</div>' +
+          '<div style="flex:1;font-family:Barlow Condensed,sans-serif;font-size:16px;font-weight:900;">' + fechaCorta + '</div>' +
+          '<span style="background:' + tagBg + ';color:#fff;font-family:Barlow Condensed,sans-serif;font-size:10px;font-weight:800;padding:2px 7px;border-radius:8px;text-transform:uppercase;">' + tagTxt + '</span>' +
+        '</div>' +
+        '<div style="font-size:12px;color:#6B6B6B;margin-left:28px;">' +
+          'Falta' + (diasFaltan === 1 ? '' : 'n') + ' ' + diasFaltan + ' día' + (diasFaltan === 1 ? '' : 's') + motivoTxt +
+        '</div>' +
+      '</div>';
+  });
+
+  const modal = document.createElement('div');
+  modal.id = 'viaje-esp-modal';
+  modal.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,.5);z-index:99999;display:flex;align-items:center;justify-content:center;padding:20px;';
+  modal.innerHTML =
+    '<div style="background:#fff;border-radius:18px;max-width:420px;width:100%;padding:22px;box-shadow:0 10px 40px rgba(0,0,0,.25);">' +
+      '<div style="font-family:Barlow Condensed,sans-serif;font-size:22px;font-weight:900;margin-bottom:4px;">📅 Elegí el viaje</div>' +
+      '<div style="font-size:13px;color:#6B6B6B;margin-bottom:18px;">¿En qué viaje a ' + _viajeEspEscape(ciudad) + ' sale este pedido?</div>' +
+      opcionesHTML +
+      '<div style="display:flex;gap:10px;margin-top:16px;">' +
+        '<button id="viaje-esp-cancelar-btn" style="flex:1;padding:11px;background:#F5EDD9;color:#2D2D2D;border:none;border-radius:11px;font-family:Barlow Condensed,sans-serif;font-size:15px;font-weight:800;cursor:pointer;">Cancelar</button>' +
+        '<button id="viaje-esp-confirmar-btn" style="flex:2;padding:11px;background:#7E57C2;color:#fff;border:none;border-radius:11px;font-family:Barlow Condensed,sans-serif;font-size:15px;font-weight:800;cursor:pointer;">Usar este viaje</button>' +
+      '</div>' +
+    '</div>';
+  document.body.appendChild(modal);
+
+  document.getElementById('viaje-esp-cancelar-btn').onclick = function() {
+    modal.remove();
+  };
+  document.getElementById('viaje-esp-confirmar-btn').onclick = function() {
+    modal.remove();
+    if (typeof onElegir === 'function') onElegir(window._viajeEspElegido);
+  };
+}
+
+/**
+ * Handler invocado desde el HTML inline al tocar una opción.
+ * Actualiza el estado global y re-pinta el modal.
+ */
+function viajeEspSeleccionarOpcion(viajeId) {
+  window._viajeEspElegido = viajeId;
+  const modal = document.getElementById('viaje-esp-modal');
+  if (!modal) return;
+  // Re-render simple: cambiar borde + radio de cada opción
+  const opciones = modal.querySelectorAll('.viaje-esp-opcion');
+  opciones.forEach(function(el) {
+    const id = el.getAttribute('data-viaje-id');
+    const sel = (id === viajeId);
+    el.style.borderColor = sel ? '#7E57C2' : '#E8D9B5';
+    el.style.background = sel ? 'linear-gradient(135deg,#fff,#F3E5F5)' : '#fff';
+    const radio = el.querySelector('div > div:first-child');
+    if (radio) {
+      radio.style.borderColor = sel ? '#7E57C2' : '#E8D9B5';
+      radio.innerHTML = sel ? '<div style="position:absolute;top:3px;left:3px;width:8px;height:8px;background:#7E57C2;border-radius:50%;"></div>' : '';
+    }
+  });
+}
+
+// ── Helpers internos ──────────────────────────────────────────────
+function _viajeEspFechaCorta(isoYMD) {
+  if (!isoYMD) return '?';
+  const partes = String(isoYMD).split('-');
+  if (partes.length !== 3) return isoYMD;
+  const d = new Date(+partes[0], +partes[1]-1, +partes[2]);
+  const dias = ['Domingo','Lunes','Martes','Miércoles','Jueves','Viernes','Sábado'];
+  const meses = ['enero','febrero','marzo','abril','mayo','junio','julio','agosto','septiembre','octubre','noviembre','diciembre'];
+  return dias[d.getDay()] + ' ' + d.getDate() + ' de ' + meses[d.getMonth()];
+}
+
+function _viajeEspDiasHasta(isoYMD) {
+  if (!isoYMD) return 0;
+  const partes = String(isoYMD).split('-');
+  if (partes.length !== 3) return 0;
+  const fecha = new Date(+partes[0], +partes[1]-1, +partes[2]);
+  fecha.setHours(0,0,0,0);
+  const hoy = new Date();
+  hoy.setHours(0,0,0,0);
+  const diff = Math.round((fecha - hoy) / 86400000);
+  return Math.max(0, diff);
+}
+
+function _viajeEspEscape(txt) {
+  if (!txt) return '';
+  return String(txt)
+    .replace(/&/g, '&amp;').replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+}
+
 // ═══════════════════════════════════════════════════════════════
 // v9.2 — COMBOS OFERTAS (sistema compartido con catálogo)
 // ═══════════════════════════════════════════════════════════════
@@ -22712,7 +23033,24 @@ async function _tomadorConfirmarFinalContinuar() {
       console.log('[F-Modal tomador] Localidad sin zona — guardando sin entrega:', localidadCheckin);
       entrega = { dia: '', turno: '', mensaje: '' };
     }
-    tomadorConfirmarConEntrega(entrega);
+
+    // v14.17.0 (N43): chequear si hay viajes especiales para esa zona.
+    // Si hay >1 → modal de selección antes de guardar.
+    viajeEspReset();
+    viajeEspBuscarOpciones(localidadCheckin).then(function(opcInfo) {
+      if (opcInfo && opcInfo.viajes && opcInfo.viajes.length > 1) {
+        window._viajeEspElegido = opcInfo.defaultId;
+        viajeEspAbrirSelector(opcInfo, function(idElegido) {
+          window._viajeEspElegido = idElegido;
+          tomadorConfirmarConEntrega(entrega);
+        });
+      } else {
+        tomadorConfirmarConEntrega(entrega);
+      }
+    }).catch(function(err) {
+      console.warn('[viajeEsp tomador] Error consultando opciones, fallback:', err);
+      tomadorConfirmarConEntrega(entrega);
+    });
   });
 }
 
@@ -22882,6 +23220,12 @@ async function tomadorConfirmarConEntrega(entregaData) {
       fecha_entrega: entregaData ? entregaData.dia : '',
       turno_entrega: entregaData ? entregaData.turno : ''
     });
+
+    // v14.17.0 (N43): si el vendedor eligió un viaje especial, pasarlo
+    // al backend como override del cálculo automático.
+    if (window._viajeEspElegido) {
+      params.append('viaje_id_elegido', window._viajeEspElegido);
+    }
 
     // v14.6.0 NO-CORS FIX: estricto. Si Apps Script falla, el catch externo
     // de tomadorConfirmarConEntrega (try/finally del lock) maneja el error
@@ -27657,20 +28001,46 @@ function _manualWAConfirmarContinuar(cliente, localidad) {
       console.log('[F-Modal] Localidad sin zona — guardando sin entrega:', localidad);
       entrega = { dia: '', turno: '', mensaje: '' };
     }
-    // v14.3.0 ANTI-DUP: activar lock + disable del botón ANTES de la llamada async.
-    // El lock se libera dentro de manualWAGuardar (try/finally).
-    window._mwaEnviando = true;
-    var _btnConf = document.getElementById('mwa-confirmar-btn');
-    if (_btnConf) {
-      _btnConf._textoOriginal = _btnConf.textContent;
-      _btnConf.disabled = true;
-      _btnConf.textContent = 'Enviando...';
-      _btnConf.style.opacity = '0.6';
-      _btnConf.style.cursor = 'wait';
-    }
 
-    manualWAGuardar(cliente, localidad, entrega, suc);
+    // v14.17.0 (N43): chequear si hay viajes especiales disponibles.
+    // Si hay >1 → modal de selección antes de guardar. Si no, sigue como hoy.
+    viajeEspReset();
+    viajeEspBuscarOpciones(localidad).then(function(opcInfo) {
+      if (opcInfo && opcInfo.viajes && opcInfo.viajes.length > 1) {
+        // Hay >1 viaje disponible → mostrar selector ANTES de guardar
+        window._viajeEspElegido = opcInfo.defaultId;
+        viajeEspAbrirSelector(opcInfo, function(idElegido) {
+          window._viajeEspElegido = idElegido;
+          _manualWAEjecutarGuardado(cliente, localidad, entrega, suc);
+        });
+      } else {
+        // 0 o 1 viaje → flujo automático (sin selector)
+        _manualWAEjecutarGuardado(cliente, localidad, entrega, suc);
+      }
+    }).catch(function(err) {
+      // Si falla la consulta de viajes, fallback al flujo automático
+      console.warn('[viajeEsp] Error consultando opciones, fallback:', err);
+      _manualWAEjecutarGuardado(cliente, localidad, entrega, suc);
+    });
   });
+}
+
+// v14.17.0 (N43): extraído de _manualWAConfirmarContinuar para reusar
+// después de la selección de viaje (si hubo) o directo si no la hubo.
+function _manualWAEjecutarGuardado(cliente, localidad, entrega, suc) {
+  // v14.3.0 ANTI-DUP: activar lock + disable del botón ANTES de la llamada async.
+  // El lock se libera dentro de manualWAGuardar (try/finally).
+  window._mwaEnviando = true;
+  var _btnConf = document.getElementById('mwa-confirmar-btn');
+  if (_btnConf) {
+    _btnConf._textoOriginal = _btnConf.textContent;
+    _btnConf.disabled = true;
+    _btnConf.textContent = 'Enviando...';
+    _btnConf.style.opacity = '0.6';
+    _btnConf.style.cursor = 'wait';
+  }
+
+  manualWAGuardar(cliente, localidad, entrega, suc);
 }
 
 async function manualWAGuardar(cliente, localidad, entrega, sucursal) {
@@ -27766,6 +28136,12 @@ async function manualWAGuardar(cliente, localidad, entrega, sucursal) {
     fecha_entrega: entrega.dia,
     turno_entrega: entrega.turno
   });
+
+  // v14.17.0 (N43): si el vendedor eligió un viaje especial, pasarlo
+  // al backend como override del cálculo automático.
+  if (window._viajeEspElegido) {
+    params.append('viaje_id_elegido', window._viajeEspElegido);
+  }
 
   // v14.2 F9: fetch con cors + await + chequeo real de status
   // Antes: fetch(...{mode:'no-cors'}).catch(()=>{}) → siempre "ok" aunque falle
