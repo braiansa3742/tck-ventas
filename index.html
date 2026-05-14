@@ -2,6 +2,42 @@
 <html lang="es">
 <head>
 <!-- ═══════════════════════════════════════════════════════════════════════
+     TCK VENTAS — v14.17.1 — 14/05/2026
+     ──────────────────────────────────────────────────────────────────────
+     FIX ANTI-DOBLE-TAP — debounce en confirmación de pedido
+
+     PROBLEMA REPORTADO (Lisandro, 14-may-26 10:53):
+       Pedidos legítimamente únicos aparecían duplicados (2 pedidos al
+       mismo cliente, mismo total, 5 segundos de diferencia → detector
+       los marca 🔴 DUPLICADO).
+
+     CAUSA RAÍZ:
+       En manualWAConfirmar y tomadorConfirmarFinal, el lock anti-dup
+       (window._mwaEnviando / window._tomadorEnviando) se setea ADENTRO
+       de la cadena de callbacks async (después de canalClienteChequearYAbrir
+       y sucElegirAbrir, que hacen await a Supabase).
+       Entre el tap del vendedor y el set del lock hay 200-800ms de ventana.
+       Doble tap del vendedor durante esa ventana → ambos pasan el check
+       inicial del lock → 2 pedidos creados con IDs distintos (Math.random).
+
+     FIX (Opción B+C):
+       Debounce por timestamp al INICIO de cada función confirmar.
+       Si llega un tap dentro de 1800ms del anterior, se ignora silencioso.
+       No toca el flujo de validaciones ni el lock existente — actúa como
+       primera barrera antes de cualquier await.
+
+     CAMBIOS v14.17.1 sobre v14.17.0:
+       1. manualWAConfirmar: chequeo window._mwaUltimoTap al inicio.
+       2. tomadorConfirmarFinal: chequeo window._tomadorUltimoTap al inicio.
+       3. Constante MWA_DEBOUNCE_MS = 1800 (1.8s).
+
+     SIN IMPACTO en:
+       · Detector de duplicados (sigue como red de seguridad).
+       · Lock existente (sigue funcionando, ahora es la 2da barrera).
+       · Editar pedido, cancelar, Xubio, choferes, planillas.
+     ══════════════════════════════════════════════════════════════════════ -->
+
+<!-- ═══════════════════════════════════════════════════════════════════════
      TCK VENTAS — v14.17.0 — 13/05/2026
      ──────────────────────────────────────────────────────────────────────
      N43: VIAJES ESPECIALES — pill para elegir viaje cuando hay >1 disponible
@@ -22981,6 +23017,19 @@ async function tomadorConfirmar() {
 }
 
 async function tomadorConfirmarFinal() {
+  // v14.17.1 ANTI-DOBLE-TAP: debounce de 1800ms ANTES de cualquier validación
+  // o await. Cierra la ventana de carrera que dejaba el lock _tomadorEnviando
+  // cuando este se seteaba después de canalClienteChequearYAbrir (async).
+  // Mismo bug que manualWAConfirmar — fix preventivo para cuando los
+  // vendedores empiecen a usar check-in GPS de forma habitual.
+  var _ahoraTap = Date.now();
+  if (window._tomadorUltimoTap && (_ahoraTap - window._tomadorUltimoTap) < 1800) {
+    console.warn('[ANTI-DUP] tomadorConfirmarFinal tap ignorado por debounce (' +
+      (_ahoraTap - window._tomadorUltimoTap) + 'ms desde el anterior)');
+    return;
+  }
+  window._tomadorUltimoTap = _ahoraTap;
+
   // v14.5.0 ANTI-DUP: lock global + botón disabled para impedir doble click.
   // Mismo patrón que manualWAConfirmar (v14.3.0). Sin esto, doble tap del
   // chofer/vendedor en el campo generaba 2-3 pedidos con IDs distintos.
@@ -27943,6 +27992,18 @@ function mwaCerrarDetalleCarrito() {
 }
 
 function manualWAConfirmar() {
+  // v14.17.1 ANTI-DOBLE-TAP: debounce de 1800ms ANTES de cualquier validación
+  // o await. Cierra la ventana de carrera que dejaba el lock _mwaEnviando
+  // cuando este se seteaba después de canalClienteChequearYAbrir (async).
+  // Caso Lisandro 14-may-26: 2 pedidos a 5s con mismo total.
+  var _ahoraTap = Date.now();
+  if (window._mwaUltimoTap && (_ahoraTap - window._mwaUltimoTap) < 1800) {
+    console.warn('[ANTI-DUP] manualWAConfirmar tap ignorado por debounce (' +
+      (_ahoraTap - window._mwaUltimoTap) + 'ms desde el anterior)');
+    return;
+  }
+  window._mwaUltimoTap = _ahoraTap;
+
   // v14.3.0 ANTI-DUP: lock global + botón disabled para impedir doble click.
   // Sin esto, cada toque del vendedor al botón "Confirmar" generaba un pedidoId
   // distinto (Math.random) → INSERT nuevo → duplicados (caso Logotetti 7 pedidos
