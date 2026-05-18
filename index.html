@@ -2,6 +2,95 @@
 <html lang="es">
 <head>
 <!-- ═══════════════════════════════════════════════════════════════════════
+     TCK VENTAS — v14.21.1 — 18/05/2026
+     ──────────────────────────────────────────────────────────────────────
+     ALERTA TIPO A + BOTÓN LLAMAR
+
+     CONTEXTO:
+       v14.21.0 estableció la base del sistema Tipo A (estrellas, marcar
+       confirmados, sugerencia automática top 20%). Esta versión hace que
+       el sistema sea ACCIONABLE: cuando un Tipo A confirmado pasa su
+       frecuencia habitual de compra, aparece destacado arriba de la lista
+       con cartel rojo, antes que cualquier otra cosa.
+
+       Validado con datos reales de Lisandro: 3 clientes ⭐ Tipo A
+       actualmente en riesgo = $1.25M de facturación expuesta. Esta
+       versión hace que esos 3 aparezcan al toque al abrir Mi Ronda.
+
+     CAMBIOS:
+
+       1. SECCIÓN 🚨 ALERTA TIPO A arriba de Pendientes (solo si hay).
+          Aparece en todas las rutas que tengan al menos 1 Tipo A en
+          riesgo. Header rojo con badge contador.
+
+          Lógica de riesgo (solo confirmados ⭐, NO sugeridos ☆):
+            - dias / frec >= 2.0 → 🔴 riesgo alto (card roja)
+            - dias / frec >= 1.5 → 🟠 riesgo medio (card naranja)
+            - Sin frec conocida: fallback 60d/30d.
+
+          Ordenamiento dentro de la sección:
+            1. Rojos primero
+            2. Naranjas después
+            3. Dentro de cada nivel: más días de atraso arriba
+
+       2. ORDENAMIENTO DE PENDIENTES por Tipo A:
+          Dentro de la sección Pendientes (no la alerta), los clientes
+          se ordenan así:
+            1. ⭐ Confirmados que NO están en riesgo
+            2. ☆ Sugeridos (top 20% facturación)
+            3. Resto
+          (Se respeta el orden por derivaciones del v8.3 cuando aplica.)
+
+       3. BOTÓN 📞 LLAMAR junto al de WhatsApp:
+          Card del cliente ahora tiene 2 botones en columna lateral:
+            📞 Azul (#1565C0) — llama con modal de confirmación previa
+            💬 Verde (#25D366) — WhatsApp (sin cambios)
+          Si el cliente no tiene teléfono, ambos quedan grises desactivados.
+
+       4. MODAL CONFIRMACIÓN AL LLAMAR (estilo iOS):
+          - Avatar azul con ícono teléfono
+          - Nombre del cliente + número formateado
+          - 2 botones: "Cancelar" / "📞 Llamar"
+          - Al confirmar dispara <a href="tel:+54..."> nativo del browser.
+          - El SO del celular pide otra confirmación más (su responsabilidad).
+
+       5. CONTEXTO ENRIQUECIDO EN RIESGO:
+          La meta del cliente (línea "Últ. hace Xd") agrega entre paréntesis
+          la frecuencia habitual cuando hay riesgo: "Últ. hace 18d (compra c/12d)".
+          Permite que el vendedor entienda al toque por qué saltó la alerta.
+
+     FUNCIONES NUEVAS:
+       - _calcularRiesgoTipoA(cliente) → { nivel, ratio, diasAtraso, frecPromedio } | null
+       - miRondaAbrirLlamar(tel, nombreEnc) — abre modal confirmación
+
+     CSS NUEVOS:
+       - .mr-alerta-hdr / .mr-alerta-titulo / .mr-alerta-badge / .mr-alerta-sub
+       - .mr-opC-tel / .mr-opC-tel-off — botón llamar azul
+       - .mr-opC-contactos — contenedor columna con los 2 botones
+       - .mr-opC-card.riesgo-alto / .riesgo-medio — bordes rojo/naranja
+
+     HTML NUEVO:
+       - <div id="mr-modal-llamar"> — bottom-sheet de confirmación
+
+     CAMBIOS EN FUNCIONES EXISTENTES:
+       - mrRenderCliente: pasa de btnWa a btnContactos (2 botones).
+       - miRondaRenderModalBody: nueva sección "tipoAEnRiesgo" antes de
+         pendientes. Mensaje "Ronda completa" solo aparece si tampoco hay
+         alertas.
+
+     SIN IMPACTO en:
+       - Xubio automático v14.20.0
+       - Flujo de check-in y módulo Visitas
+       - Mi Ronda en otras vistas (cards de ruta no cambian)
+       - Opción D (sync con Mi Ronda)
+
+     IMPACTO ESPERADO:
+       Lisandro abre Mi Ronda → al toque ve los Tipo A en riesgo arriba.
+       Tap en 📞 → modal limpio confirma → llama. Tap en ⭐ desmarcar
+       (si por algún error confirmó alguno).
+     ══════════════════════════════════════════════════════════════════════ -->
+
+<!-- ═══════════════════════════════════════════════════════════════════════
      TCK VENTAS — v14.21.0 — 18/05/2026
      ──────────────────────────────────────────────────────────────────────
      SISTEMA DE CLIENTES TIPO A (BASE)
@@ -10594,6 +10683,95 @@ body {
   cursor: not-allowed;
 }
 .mr-opC-wsp-off svg { fill: #B0A595; opacity: .55; }
+
+/* ═══════════════════════════════════════════════════════════════════
+   v14.21.1 — Botón LLAMAR (azul) y contenedor con WA + sección ALERTA
+   ═══════════════════════════════════════════════════════════════════ */
+.mr-opC-contactos {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  flex-shrink: 0;
+}
+.mr-opC-tel {
+  width: 32px;
+  height: 32px;
+  border-radius: 50%;
+  background: #1565C0;
+  color: #fff;
+  border: none;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  box-shadow: 0 2px 6px rgba(21,101,192,.35);
+  transition: transform .12s;
+  -webkit-tap-highlight-color: transparent;
+  padding: 0;
+}
+.mr-opC-tel:active { transform: scale(.88); }
+.mr-opC-tel svg { width: 16px; height: 16px; fill: #fff; }
+.mr-opC-tel-off {
+  background: #E8E1D5;
+  box-shadow: none;
+  cursor: not-allowed;
+}
+.mr-opC-tel-off svg { fill: #B0A595; opacity: .55; }
+
+/* Header de la sección ALERTA Tipo A — más fuerte que un section-hdr normal */
+.mr-alerta-hdr {
+  background: linear-gradient(135deg, #FFEBEE 0%, #FFCDD2 100%);
+  border: 1.5px solid #E53935;
+  border-radius: 10px 10px 0 0;
+  padding: 10px 14px 8px;
+  margin: 4px 0 0;
+}
+.mr-alerta-hdr-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.mr-alerta-icon { font-size: 18px; line-height: 1; }
+.mr-alerta-titulo {
+  font-family: 'Barlow Condensed', sans-serif;
+  font-size: 16px;
+  font-weight: 900;
+  color: #B71C1C;
+  letter-spacing: .4px;
+  flex: 1;
+}
+.mr-alerta-badge {
+  background: #B71C1C;
+  color: #fff;
+  font-size: 12px;
+  font-weight: 900;
+  padding: 2px 8px;
+  border-radius: 10px;
+  min-width: 22px;
+  text-align: center;
+}
+.mr-alerta-sub {
+  font-size: 11px;
+  color: #6D2C2C;
+  margin-top: 2px;
+  line-height: 1.3;
+}
+
+/* Cards dentro de la sección alerta con borde rojo/naranja según nivel */
+.mr-opC-card.riesgo-alto {
+  border: 1.5px solid #E53935;
+  border-left: 4px solid #B71C1C;
+  background: #FFFBFB;
+}
+.mr-opC-card.riesgo-medio {
+  border: 1.5px solid #FF9800;
+  border-left: 4px solid #E65100;
+  background: #FFFBF5;
+}
+.mr-opC-card.riesgo-alto:hover  { border-left-color: #C62828; }
+.mr-opC-card.riesgo-medio:hover { border-left-color: #D84315; }
+/* ═══════════════════════════════════════════════════════════════════ */
 
 /* Fila de acciones (pendiente): sello principal + skip discreto */
 .mr-opC-row-acciones {
@@ -33649,18 +33827,70 @@ function miRondaRenderModalBody(filtroLocalidad) {
   }
 
   // Clasificar: vendidos (_mr_estado='verde'), gestionados (en _miRondaGestiones), pendientes (el resto)
-  var vendidos = [], gestionados = [], pendientes = [];
+  // v14.21.1: dentro de pendientes, separar Tipo A en riesgo (atrasados sobre su frec).
+  var vendidos = [], gestionados = [], tipoAEnRiesgo = [], pendientes = [];
   clientes.forEach(function(c) {
     if (c._mr_estado === 'verde') {
       vendidos.push(c);
     } else if (_miRondaGestiones[c.cliente_id]) {
       gestionados.push(c);
     } else {
-      pendientes.push(c);
+      // v14.21.1: si es Tipo A confirmado Y está en riesgo → sección destacada
+      var riesgo = _calcularRiesgoTipoA(c);
+      if (riesgo) {
+        c._mrRiesgo = riesgo;  // guardar para el render
+        tipoAEnRiesgo.push(c);
+      } else {
+        pendientes.push(c);
+      }
     }
   });
 
+  // Ordenar Tipo A en riesgo: rojos primero, naranjas después, dentro de cada
+  // grupo por días de atraso descendente (más urgente arriba).
+  tipoAEnRiesgo.sort(function(a, b) {
+    var ra = a._mrRiesgo, rb = b._mrRiesgo;
+    if (ra.nivel !== rb.nivel) return ra.nivel === 'alto' ? -1 : 1;
+    return rb.diasAtraso - ra.diasAtraso;
+  });
+
+  // v14.21.1: dentro de pendientes "normales", priorizar Tipo A confirmados
+  // y luego sugeridos (top 20% facturación). Esto se aplica DESPUÉS del
+  // sort de derivaciones del v8.3.
+  pendientes.sort(function(a, b) {
+    var aConf = _esTipoAConfirmado(a) ? 2 : 0;
+    var bConf = _esTipoAConfirmado(b) ? 2 : 0;
+    var aSug  = _esTipoASugerido(a)  ? 1 : 0;
+    var bSug  = _esTipoASugerido(b)  ? 1 : 0;
+    var aScore = aConf + aSug;
+    var bScore = bConf + bSug;
+    return bScore - aScore;
+  });
+
   var html = '';
+
+  // v14.21.1: SECCIÓN: ALERTA TIPO A (Tipo A confirmados atrasados sobre su frec)
+  // Solo se muestra si hay al menos 1. Sino, la sección no aparece y la
+  // pantalla queda limpia.
+  if (tipoAEnRiesgo.length > 0) {
+    var hayAlto = tipoAEnRiesgo.some(function(c) { return c._mrRiesgo.nivel === 'alto'; });
+    var subtitulo = hayAlto
+      ? 'Clientes prioritarios sin pedido hace mucho — perderlos cuesta caro'
+      : 'Tus Tipo A están pasando su frecuencia habitual';
+    html += '<div class="mr-alerta-hdr">' +
+      '<div class="mr-alerta-hdr-row">' +
+        '<span class="mr-alerta-icon">🚨</span>' +
+        '<span class="mr-alerta-titulo">ALERTA Tipo A</span>' +
+        '<span class="mr-alerta-badge">' + tipoAEnRiesgo.length + '</span>' +
+      '</div>' +
+      '<div class="mr-alerta-sub">' + subtitulo + '</div>' +
+    '</div>';
+    html += '<div class="mr-section-body">';
+    tipoAEnRiesgo.forEach(function(c) {
+      html += mrRenderCliente(c, 'pendiente');
+    });
+    html += '</div>';
+  }
 
   // SECCIÓN: PENDIENTES (la principal, arriba)
   if (pendientes.length > 0) {
@@ -33685,8 +33915,9 @@ function miRondaRenderModalBody(filtroLocalidad) {
       html += mrRenderCliente(c, 'pendiente');
     });
     html += '</div>';
-  } else if (clientes.length > 0 && !filtroLocalidad) {
-    // Si no hay pendientes pero sí clientes, mostrar mensaje de éxito
+  } else if (clientes.length > 0 && !filtroLocalidad && tipoAEnRiesgo.length === 0) {
+    // v14.21.1: solo "Ronda completa" si tampoco hay alertas Tipo A en riesgo.
+    // Si hay alertas, la sección de arriba ya transmite que falta laburo.
     html += '<div class="mr-modal-empty" style="padding:20px;">' +
       '<div class="mr-modal-empty-icon">🎉</div>' +
       '<div class="mr-modal-empty-txt">Ronda completa</div>' +
@@ -34063,9 +34294,35 @@ function _esTipoASugerido(cliente) {
   return fact > 0 && fact >= _miRondaTipoAUmbral;
 }
 
-// Toggle Tipo A: alterna entre confirmado y no. El sugerido pasa a
-// confirmado con un tap; el confirmado vuelve a "no marcado" (sin ⭐).
-// La sugerencia automática (☆) sigue mostrándose si la facturación
+// v14.21.1: detección de Tipo A "en riesgo" — confirmados que están
+// atrasados sobre su frecuencia habitual de compra.
+//   - 1.5x frecuencia = riesgo medio (naranja)
+//   - 2x frecuencia o más = riesgo alto (rojo)
+//
+// Solo cuenta confirmados (⭐). Los sugeridos (☆) no aparecen en alerta
+// porque el vendedor todavía no validó la prioridad.
+//
+// Retorna { nivel, ratio, diasAtraso, frecPromedio } o null si no aplica.
+function _calcularRiesgoTipoA(cliente) {
+  if (!cliente || cliente.tipo_a !== true) return null;
+  var dias = Number(cliente.dias_desde_ult_pedido);
+  var frec = Number(cliente.frec_dias_prom);
+  if (!isFinite(dias) || dias <= 0) return null;
+  if (!isFinite(frec) || frec <= 0) {
+    // Sin frecuencia conocida: fallback umbral fijo 30 días para naranja
+    if (dias >= 60) return { nivel: 'alto',  ratio: null, diasAtraso: dias, frecPromedio: null };
+    if (dias >= 30) return { nivel: 'medio', ratio: null, diasAtraso: dias, frecPromedio: null };
+    return null;
+  }
+  var ratio = dias / frec;
+  if (ratio >= 2.0) return { nivel: 'alto',  ratio: ratio, diasAtraso: dias, frecPromedio: frec };
+  if (ratio >= 1.5) return { nivel: 'medio', ratio: ratio, diasAtraso: dias, frecPromedio: frec };
+  return null;
+}
+
+// Toggle Tipo A: alterna entre confirmado y no.
+// El sugerido pasa a confirmado con un tap; el confirmado vuelve a "no marcado"
+// (sin ⭐). La sugerencia automática (☆) sigue mostrándose si la facturación
 // supera el umbral, así que un cliente puede ir ⭐ → ☆ sugerido.
 async function mrToggleTipoA(clienteId, event) {
   if (event) {
@@ -34128,6 +34385,10 @@ function mrRenderCliente(c, tipo) {
   var ultPedidoTxt = c.ultimo_pedido
     ? 'Últ. hace ' + (diasDesde !== null && diasDesde !== undefined ? diasDesde : '?') + 'd'
     : 'Sin pedidos recientes';
+  // v14.21.1: si está en riesgo, sumar la frecuencia habitual entre paréntesis
+  if (c._mrRiesgo && c._mrRiesgo.frecPromedio) {
+    ultPedidoTxt += ' (compra c/' + Math.round(c._mrRiesgo.frecPromedio) + 'd)';
+  }
   var ritmoTxt = c.ritmo && c.ritmo !== 'sin_compras_recientes' ? c.ritmo : '';
   var nota = c.notas ? '<div class="mr-cli-nota">📝 ' + escapeHtml(c.notas) + '</div>' : '';
 
@@ -34155,9 +34416,19 @@ function mrRenderCliente(c, tipo) {
 
   // Logo oficial WhatsApp (SVG)
   var waIconSvg = '<svg viewBox="0 0 24 24" width="16" height="16" fill="currentColor"><path d="M17.472 14.382c-.297-.149-1.758-.867-2.03-.967-.273-.099-.471-.148-.67.15-.197.297-.767.966-.94 1.164-.173.199-.347.223-.644.075-.297-.15-1.255-.463-2.39-1.475-.883-.788-1.48-1.761-1.653-2.059-.173-.297-.018-.458.13-.606.134-.133.298-.347.446-.52.149-.174.198-.298.298-.497.099-.198.05-.371-.025-.52-.075-.149-.669-1.612-.916-2.207-.242-.579-.487-.5-.669-.51-.173-.008-.371-.01-.57-.01-.198 0-.52.074-.792.372-.272.297-1.04 1.016-1.04 2.479 0 1.462 1.065 2.875 1.213 3.074.149.198 2.096 3.2 5.077 4.487.709.306 1.262.489 1.694.625.712.227 1.36.195 1.871.118.571-.085 1.758-.719 2.006-1.413.248-.694.248-1.289.173-1.413-.074-.124-.272-.198-.57-.347m-5.421 7.403h-.004a9.87 9.87 0 01-5.031-1.378l-.361-.214-3.741.982.998-3.648-.235-.374a9.86 9.86 0 01-1.51-5.26c.001-5.45 4.436-9.884 9.888-9.884 2.64 0 5.122 1.03 6.988 2.898a9.825 9.825 0 012.893 6.994c-.003 5.45-4.437 9.884-9.885 9.884m8.413-18.297A11.815 11.815 0 0012.05 0C5.495 0 .16 5.335.157 11.892c0 2.096.547 4.142 1.588 5.945L.057 24l6.305-1.654a11.882 11.882 0 005.683 1.448h.005c6.554 0 11.89-5.335 11.893-11.893a11.821 11.821 0 00-3.48-8.413z"/></svg>';
-  var btnWa = telOk
-    ? '<button class="mr-opC-wsp" onclick="event.stopPropagation();miRondaAbrirWa(\'' + tel + '\', &quot;' + encodeURIComponent(c.nombre || '') + '&quot;)" title="WhatsApp">' + waIconSvg + '</button>'
-    : '<button class="mr-opC-wsp mr-opC-wsp-off" title="Sin teléfono">' + waIconSvg + '</button>';
+  // v14.21.1: icono teléfono SVG (azul TCK) — mismo tamaño que WA para alinear
+  var telIconSvg = '<svg viewBox="0 0 24 24" width="16" height="16" fill="currentColor"><path d="M20 15.5c-1.25 0-2.45-.2-3.57-.57a1 1 0 00-1.02.24l-2.2 2.2a15.05 15.05 0 01-6.59-6.59l2.2-2.21a.96.96 0 00.25-1A11.36 11.36 0 018.5 4a1 1 0 00-1-1H4a1 1 0 00-1 1 17 17 0 0017 17 1 1 0 001-1v-3.5a1 1 0 00-1-1z"/></svg>';
+  var nombreEnc = encodeURIComponent(c.nombre || '');
+  var btnTel, btnWa;
+  if (telOk) {
+    btnTel = '<button class="mr-opC-tel" onclick="event.stopPropagation();miRondaAbrirLlamar(\'' + tel + '\', &quot;' + nombreEnc + '&quot;)" title="Llamar" aria-label="Llamar">' + telIconSvg + '</button>';
+    btnWa  = '<button class="mr-opC-wsp" onclick="event.stopPropagation();miRondaAbrirWa(\'' + tel + '\', &quot;' + nombreEnc + '&quot;)" title="WhatsApp" aria-label="WhatsApp">' + waIconSvg + '</button>';
+  } else {
+    btnTel = '<button class="mr-opC-tel mr-opC-tel-off" title="Sin teléfono" aria-label="Sin teléfono">' + telIconSvg + '</button>';
+    btnWa  = '<button class="mr-opC-wsp mr-opC-wsp-off" title="Sin teléfono" aria-label="Sin teléfono">' + waIconSvg + '</button>';
+  }
+  // v14.21.1: contenedor con 2 botones (llamar + wa)
+  var btnContactos = '<div class="mr-opC-contactos">' + btnTel + btnWa + '</div>';
 
   // Card base + clase según tipo (Opción C — Sello TCK)
   var claseCard = 'mr-opC-card';
@@ -34167,6 +34438,10 @@ function mrRenderCliente(c, tipo) {
   if (tipo === 'pendiente') {
     if (esTipoAConf) claseCard += ' tipoa-conf';
     else if (esTipoASug) claseCard += ' tipoa-sug';
+  }
+  // v14.21.1: si tiene riesgo calculado (Tipo A en alerta), agrega clase
+  if (c._mrRiesgo && tipo === 'pendiente') {
+    claseCard += ' riesgo-' + c._mrRiesgo.nivel;  // riesgo-medio / riesgo-alto
   }
 
   // v8.2: calcular badges, variante por vendedor, histórico.
@@ -34262,7 +34537,7 @@ function mrRenderCliente(c, tipo) {
         '</div>' +
         nota +
       '</div>' +
-      btnWa +
+      btnContactos +
     '</div>' +
     v82HistInline +
     bloqueAccion +
@@ -35012,6 +35287,44 @@ function miRondaAbrirWa(tel, nombreEnc) {
     '¡Muchas gracias, saludos!';
   var url = 'https://wa.me/' + num + '?text=' + encodeURIComponent(msj);
   window.open(url, '_blank');
+}
+
+// v14.21.1: Llamar al cliente con confirmación previa (estilo iOS).
+// Mostrar modal con nombre + número formateado + botones Llamar/Cancelar.
+// Al confirmar abre tel: que el sistema operativo dispara la llamada
+// (el celular pide nuevamente confirmación, eso es del SO no nuestro).
+function miRondaAbrirLlamar(tel, nombreEnc) {
+  var nombre = nombreEnc ? decodeURIComponent(nombreEnc) : '';
+  var num = tel.replace(/\D/g, '');
+  if (!num) return;
+  // Asegurar prefijo internacional con +54
+  if (!num.startsWith('54')) num = '54' + num.replace(/^0/, '').replace(/^15/, '');
+  var telFormat = mrFormatTel(tel.replace(/\D/g, ''));
+
+  var prev = document.getElementById('mr-modal-llamar');
+  if (prev) prev.remove();
+  var modal = document.createElement('div');
+  modal.id = 'mr-modal-llamar';
+  modal.className = 'modal-overlay on';
+  modal.style.cssText = 'position:fixed;inset:0;z-index:99999;background:rgba(0,0,0,.55);display:flex;align-items:center;justify-content:center;padding:20px;';
+  modal.onclick = function(e) { if (e.target === modal) modal.remove(); };
+
+  modal.innerHTML = ''
+    + '<div style="background:#fff;border-radius:18px;width:100%;max-width:340px;overflow:hidden;box-shadow:0 8px 32px rgba(0,0,0,.3);">'
+    +   '<div style="padding:22px 20px 16px;text-align:center;">'
+    +     '<div style="width:56px;height:56px;border-radius:50%;background:#E3F2FD;margin:0 auto 12px;display:flex;align-items:center;justify-content:center;">'
+    +       '<svg viewBox="0 0 24 24" width="28" height="28" fill="#1565C0"><path d="M20 15.5c-1.25 0-2.45-.2-3.57-.57a1 1 0 00-1.02.24l-2.2 2.2a15.05 15.05 0 01-6.59-6.59l2.2-2.21a.96.96 0 00.25-1A11.36 11.36 0 018.5 4a1 1 0 00-1-1H4a1 1 0 00-1 1 17 17 0 0017 17 1 1 0 001-1v-3.5a1 1 0 00-1-1z"/></svg>'
+    +     '</div>'
+    +     '<div style="font-family:Barlow Condensed,sans-serif;font-size:17px;font-weight:900;color:#1A0800;letter-spacing:.3px;">LLAMAR A</div>'
+    +     '<div style="font-size:15px;color:#1A0800;margin-top:6px;font-weight:500;">' + escapeHtml(nombre || 'Cliente') + '</div>'
+    +     '<div style="font-size:13px;color:#666;margin-top:2px;">' + escapeHtml(telFormat) + '</div>'
+    +   '</div>'
+    +   '<div style="display:flex;border-top:1px solid #eee;">'
+    +     '<button onclick="document.getElementById(&quot;mr-modal-llamar&quot;).remove()" style="flex:1;padding:14px;background:#fff;color:#666;border:none;font-family:Barlow Condensed,sans-serif;font-size:15px;font-weight:700;cursor:pointer;border-right:1px solid #eee;">Cancelar</button>'
+    +     '<a href="tel:+' + num + '" onclick="setTimeout(function(){var m=document.getElementById(&quot;mr-modal-llamar&quot;);if(m)m.remove();},100)" style="flex:1;padding:14px;background:#fff;color:#1565C0;border:none;font-family:Barlow Condensed,sans-serif;font-size:15px;font-weight:900;cursor:pointer;text-decoration:none;text-align:center;">📞 Llamar</a>'
+    +   '</div>'
+    + '</div>';
+  document.body.appendChild(modal);
 }
 
 function mrFormatTel(tel) {
