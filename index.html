@@ -2,6 +2,72 @@
 <html lang="es">
 <head>
 <!-- ═══════════════════════════════════════════════════════════════════════
+     TCK VENTAS — v14.22.1 — 18/05/2026
+     ──────────────────────────────────────────────────────────────────────
+     JORNADA COMO GUÍA REAL: 4 botones de acción por stop
+
+     PROBLEMA QUE RESUELVE:
+       v14.22.0 dejó Jornada como "lista priorizada por Tipo A" pero sin
+       botones de acción. El vendedor tenía que tocar un stop y volver a
+       Mi Ronda para hacer algo. Eso no era una "guía".
+
+       Esta versión convierte Jornada en el flujo de trabajo del día:
+       cada stop tiene 4 botones de acción directos.
+
+     LOS 4 BOTONES DE CADA STOP:
+
+       🧭 IR EN MAPA (azul gradient, doble ancho)
+          Abre Google Maps con la dirección del cliente. URL universal
+          (https://www.google.com/maps/dir/?api=1&destination=...) que
+          en iOS/Android abre la app nativa, en desktop la web.
+          Se suma "Argentina" al final para que no busque otro país.
+          Si el cliente no tiene dirección cargada, muestra toast.
+
+       💬 WHATSAPP (verde, simple ícono)
+          Reusa miRondaAbrirWa() ya existente. Mensaje con saludo
+          personalizado + link del catálogo del vendedor.
+          Si no hay teléfono → botón gris desactivado.
+
+       📞 LLAMAR (azul TCK, simple ícono)
+          Reusa miRondaAbrirLlamar() del v14.21.1. Modal confirmación
+          con avatar y botón "Llamar" → dispara <a href="tel:+...">.
+          Si no hay teléfono → botón gris desactivado.
+
+       CHECK-IN (rojo TCK gradient)
+          Nueva función jornadaArrancarCheckin(): cambia a tab Visitas
+          y llama directo a gpsConfirmarCheckin(nombre, localidad,
+          xubio_id, cuit). Reusa todo el flujo existente del check-in:
+          inserta visita en Supabase, setea _gpsCheckinActivo con
+          xubio_id (clave para Xubio automático del v14.20.0).
+
+          Si ya hay check-in activo con otro cliente, pregunta antes
+          de cerrarlo (confirm nativo del browser).
+
+     CAMBIOS EN SCHEMA QUERY:
+       Mi Ronda ahora trae también direccion, xubio_id y cuit_dni
+       en el select de clientes_activos. Necesario para que los
+       4 botones tengan toda la info que necesitan sin queries extra.
+
+     LO QUE QUEDA PARA v14.22.2:
+       - Distancia GPS real cliente↔vendedor
+       - Ordenamiento por proximidad dentro de cada sección
+       - Resumen del día al cerrar jornada (KPIs)
+       - Plan semanal recurrente (Juan)
+
+     SIN IMPACTO en:
+       - Mi Ronda (intacta, sigue funcionando igual)
+       - Visitas (tab GPS sigue como soporte; mantener visible)
+       - Xubio automático v14.20.0
+       - Sistema Tipo A v14.21.x
+
+     CASOS DE BORDE MANEJADOS:
+       - Cliente sin dirección → toast informativo, no abre Maps
+       - Cliente sin teléfono → botones grises desactivados
+       - Check-in activo con otro cliente → confirma antes de cambiar
+       - Cliente no encontrado en _miRondaClientes → toast error
+     ══════════════════════════════════════════════════════════════════════ -->
+
+<!-- ═══════════════════════════════════════════════════════════════════════
      TCK VENTAS — v14.22.0 — 18/05/2026
      ──────────────────────────────────────────────────────────────────────
      TAB JORNADA: del modelo "lista abierta" al modelo "asistente del día"
@@ -9744,6 +9810,80 @@ body {
 .jor-section-hdr.normal { color: #8B6F50; }
 .jor-section-hdr.visitado { color: #2E7D32; }
 
+/* v14.22.1: cards de stop con botones de acción */
+.jor-stop-card {
+  background: #fff;
+  border: 1px solid #E0D2B8;
+  border-radius: 8px;
+  padding: 12px;
+  margin-bottom: 8px;
+  border-left: 4px solid #E5DCC8;
+}
+.jor-stop-card.jor-stop-card-conf      { border-left: 4px solid #FFC107; }
+.jor-stop-card.jor-stop-card-sug       { border-left: 4px dashed #FFC107; }
+.jor-stop-card.jor-stop-card-riesgo-alto  { border-left: 4px solid #B71C1C; background: #FFFBFB; }
+.jor-stop-card.jor-stop-card-riesgo-medio { border-left: 4px solid #E65100; background: #FFFBF5; }
+
+.jor-stop-row-info {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+}
+.jor-stop-acciones {
+  display: flex;
+  gap: 6px;
+  margin-top: 10px;
+}
+.jor-stop-btn {
+  padding: 10px 4px;
+  border: none;
+  border-radius: 8px;
+  color: #fff;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  -webkit-tap-highlight-color: transparent;
+  font-family: 'Barlow Condensed', sans-serif;
+  font-size: 12px;
+  font-weight: 900;
+  letter-spacing: .3px;
+  transition: transform .1s;
+}
+.jor-stop-btn:active { transform: scale(.96); }
+.jor-stop-btn-icon { font-size: 16px; line-height: 1; }
+.jor-stop-btn-txt  { font-size: 12px; }
+
+.jor-stop-btn-ir {
+  flex: 2;
+  background: linear-gradient(135deg, #1565C0, #1976D2);
+  box-shadow: 0 2px 6px rgba(21,101,192,.25);
+}
+.jor-stop-btn-wa {
+  flex: 1;
+  background: #25D366;
+  box-shadow: 0 2px 6px rgba(37,211,102,.25);
+}
+.jor-stop-btn-tel {
+  flex: 1;
+  background: #1565C0;
+  box-shadow: 0 2px 6px rgba(21,101,192,.25);
+}
+.jor-stop-btn-check {
+  flex: 1.3;
+  background: linear-gradient(135deg, #4A0000, #8B0000);
+  box-shadow: 0 2px 6px rgba(139,0,0,.3);
+}
+.jor-stop-btn-off {
+  background: #E8E1D5;
+  color: #B0A595;
+  box-shadow: none;
+  cursor: not-allowed;
+}
+
+/* Legacy .jor-stop sin botones — se mantiene por compatibilidad con
+   código que pudiera referenciarlo, pero ya no se usa en v14.22.1 */
 .jor-stop {
   display: flex;
   align-items: flex-start;
@@ -33807,7 +33947,7 @@ async function miRondaCargarClientes(force) {
     var path = 'clientes_activos?' +
       'activo_en_ronda=eq.true' +
       '&vendedor=eq.' + encodeURIComponent(vend) +
-      '&select=cliente_id,nombre,telefono,localidad,vendedor,ruta_viaje,ritmo,ultimo_pedido,dias_desde_ult_pedido,frec_dias_prom,notas,tipo_a,facturacion_90d' +
+      '&select=cliente_id,nombre,telefono,localidad,direccion,vendedor,ruta_viaje,ritmo,ultimo_pedido,dias_desde_ult_pedido,frec_dias_prom,notas,tipo_a,facturacion_90d,xubio_id,cuit_dni' +
       '&order=nombre.asc' +
       '&limit=2000';
     var data = await sbFetch(path);
@@ -36022,19 +36162,26 @@ function jornadaRenderStop(c, tipo) {
 
   // Meta y tag de riesgo
   var tagRiesgo = '';
-  var claseStop = 'jor-stop';
+  var claseStop = 'jor-stop-card';
   if (c._jorRiesgo) {
     var r = c._jorRiesgo;
     if (r.nivel === 'alto') {
-      claseStop += ' jor-stop-riesgo-alto';
+      claseStop += ' jor-stop-card-riesgo-alto';
       tagRiesgo = '<span class="jor-stop-tag alta">URGENTE</span>';
-      meta = (direccion ? direccion + ' · ' : '') + '🔴 ' + r.diasAtraso + 'd sin pedido';
+      meta = (direccion ? direccion + ' · ' : '') + '🔴 ' + r.diasAtraso + 'd sin pedido' +
+        (r.frecPromedio ? ' (compra c/' + Math.round(r.frecPromedio) + 'd)' : '');
     } else if (r.nivel === 'medio') {
-      claseStop += ' jor-stop-riesgo-medio';
+      claseStop += ' jor-stop-card-riesgo-medio';
       tagRiesgo = '<span class="jor-stop-tag media">MEDIO</span>';
-      meta = (direccion ? direccion + ' · ' : '') + '🟠 ' + r.diasAtraso + 'd sin pedido';
+      meta = (direccion ? direccion + ' · ' : '') + '🟠 ' + r.diasAtraso + 'd sin pedido' +
+        (r.frecPromedio ? ' (compra c/' + Math.round(r.frecPromedio) + 'd)' : '');
     }
+  } else if (tipo === 'confirmado') {
+    claseStop += ' jor-stop-card-conf';
+    meta = (direccion ? direccion + ' · ' : '') +
+      (diasDesde != null ? 'Últ. hace ' + diasDesde + 'd' : 'Sin pedidos recientes');
   } else if (tipo === 'sugerido') {
+    claseStop += ' jor-stop-card-sug';
     meta = (direccion ? direccion + ' · ' : '') + 'Top facturación · ' +
       (diasDesde != null ? diasDesde + 'd' : 'sin pedido reciente');
   } else {
@@ -36042,12 +36189,55 @@ function jornadaRenderStop(c, tipo) {
       (diasDesde != null ? diasDesde + 'd sin pedido' : 'Sin pedidos');
   }
 
-  return '<div class="' + claseStop + '" onclick="jornadaAbrirStop(\'' + escapeHtml(c.cliente_id || '') + '\')">'
-    + '<div class="jor-stop-info">'
-    +   '<div class="jor-stop-nombre">' + prefijoNombre + nombre + '</div>'
-    +   '<div class="jor-stop-meta">' + meta + '</div>'
+  // v14.22.1: 4 botones de acción
+  // Encode para los handlers (escapado de comillas y barras)
+  var cidJs   = encodeURIComponent(c.cliente_id || '');
+  var tel     = (c.telefono || '').toString().replace(/\D/g, '');
+  var telOk   = tel.length >= 8;
+  var dirEnc  = encodeURIComponent(((c.direccion || '') + ' ' + (c.localidad || '')).trim());
+
+  // Botón "Ir" — abre Google Maps con dirección si la tiene, sino solo la ciudad
+  var btnIr = '<button class="jor-stop-btn jor-stop-btn-ir" '
+    + 'onclick="event.stopPropagation();jornadaAbrirMapa(&quot;' + dirEnc + '&quot;)" '
+    + 'aria-label="Ir en mapa">'
+    + '<span class="jor-stop-btn-icon">🧭</span>'
+    + '<span class="jor-stop-btn-txt">IR</span>'
+    + '</button>';
+
+  // Botón WhatsApp
+  var btnWa = telOk
+    ? '<button class="jor-stop-btn jor-stop-btn-wa" '
+      + 'onclick="event.stopPropagation();miRondaAbrirWa(\'' + tel + '\', &quot;' + encodeURIComponent(c.nombre || '') + '&quot;)" '
+      + 'aria-label="WhatsApp"><span class="jor-stop-btn-icon">💬</span></button>'
+    : '<button class="jor-stop-btn jor-stop-btn-wa jor-stop-btn-off" aria-label="Sin teléfono">'
+      + '<span class="jor-stop-btn-icon">💬</span></button>';
+
+  // Botón Llamar
+  var btnTel = telOk
+    ? '<button class="jor-stop-btn jor-stop-btn-tel" '
+      + 'onclick="event.stopPropagation();miRondaAbrirLlamar(\'' + tel + '\', &quot;' + encodeURIComponent(c.nombre || '') + '&quot;)" '
+      + 'aria-label="Llamar"><span class="jor-stop-btn-icon">📞</span></button>'
+    : '<button class="jor-stop-btn jor-stop-btn-tel jor-stop-btn-off" aria-label="Sin teléfono">'
+      + '<span class="jor-stop-btn-icon">📞</span></button>';
+
+  // Botón Check-in
+  var btnCheck = '<button class="jor-stop-btn jor-stop-btn-check" '
+    + 'onclick="event.stopPropagation();jornadaArrancarCheckin(&quot;' + cidJs + '&quot;)" '
+    + 'aria-label="Arrancar check-in">'
+    + '<span class="jor-stop-btn-txt">CHECK-IN</span>'
+    + '</button>';
+
+  return '<div class="' + claseStop + '">'
+    + '<div class="jor-stop-row-info">'
+    +   '<div class="jor-stop-info">'
+    +     '<div class="jor-stop-nombre">' + prefijoNombre + nombre + '</div>'
+    +     '<div class="jor-stop-meta">' + meta + '</div>'
+    +   '</div>'
+    +   tagRiesgo
     + '</div>'
-    + tagRiesgo
+    + '<div class="jor-stop-acciones">'
+    +   btnIr + btnWa + btnTel + btnCheck
+    + '</div>'
     + '</div>';
 }
 
@@ -36084,6 +36274,64 @@ function jornadaAbrirStop(clienteId) {
   setTimeout(function() {
     if (typeof miRondaAbrirModal === 'function') {
       miRondaAbrirModal(rutaKey);
+    }
+  }, 300);
+}
+
+// v14.22.1: abrir Google Maps con la dirección del cliente.
+// Usamos URL universal de Google Maps que abre la app nativa en iOS/Android
+// y la versión web en desktop. Si no hay dirección, solo localidad.
+function jornadaAbrirMapa(dirEnc) {
+  var dir = dirEnc ? decodeURIComponent(dirEnc).trim() : '';
+  if (!dir) {
+    toast('Este cliente no tiene dirección cargada', 'err');
+    return;
+  }
+  // Sumar "Argentina" al final para que Maps no busque en otro país
+  var query = encodeURIComponent(dir + ', Argentina');
+  var url = 'https://www.google.com/maps/dir/?api=1&destination=' + query;
+  window.open(url, '_blank');
+}
+
+// v14.22.1: arrancar check-in directo desde Jornada.
+// Setea _gpsCheckinActivo con los datos del cliente y abre el flujo
+// del tomador igual que cuando se busca por autocomplete. Reusa
+// gpsConfirmarCheckin que ya maneja todo (insert visita, set localidad
+// canónica, set xubio_id, etc.).
+function jornadaArrancarCheckin(cidEnc) {
+  var cid = decodeURIComponent(cidEnc || '');
+  if (!cid) return;
+  var c = _miRondaClientes.find(function(x) { return x.cliente_id === cid; });
+  if (!c) {
+    toast('Cliente no encontrado', 'err');
+    return;
+  }
+
+  // Si ya hay un check-in activo, avisar antes de cambiar
+  if (_gpsCheckinActivo && _gpsCheckinActivo.nombre_cliente !== c.nombre) {
+    var ok = confirm('Ya hay un check-in activo con ' + _gpsCheckinActivo.nombre_cliente +
+      '\n\n¿Cerrarlo y empezar uno nuevo con ' + c.nombre + '?');
+    if (!ok) return;
+    // Cerrar el activo silenciosamente
+    if (typeof gpsCheckoutFinal === 'function') {
+      gpsCheckoutFinal('cambio_cliente');
+    }
+  }
+
+  // Cambiar a tab Visitas para que vea el check-in en marcha,
+  // luego invocar gpsConfirmarCheckin con los datos del cliente.
+  cambiarTab('gps');
+
+  setTimeout(function() {
+    if (typeof gpsConfirmarCheckin === 'function') {
+      gpsConfirmarCheckin(
+        c.nombre || '',
+        c.localidad || '',
+        c.xubio_id || '',
+        c.cuit_dni || ''
+      );
+    } else {
+      toast('No se pudo iniciar el check-in', 'err');
     }
   }, 300);
 }
