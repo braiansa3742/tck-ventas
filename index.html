@@ -2,6 +2,66 @@
 <html lang="es">
 <head>
 <!-- ═══════════════════════════════════════════════════════════════════════
+     TCK VENTAS — v14.19.0 — 18/05/2026
+     ──────────────────────────────────────────────────────────────────────
+     LOTE 1: QUICK WINS EN CHECK-IN
+
+     Ideas implementadas de la wishlist del vendedor:
+       #1 Contador "Hace X min" en card check-in activo
+       #2 Botones Llamar / WhatsApp con teléfono del cliente
+       #5 Alerta "Sin pedido hace X días" basada en frec_dias_prom
+
+     CONTEXTO:
+       v14.18.1 sumó info útil al check-in (últimos pedidos + notas).
+       Lisandro empezó a usarlo. Faltaba:
+       - Saber cuánto lleva en el local (sin tener que mirar reloj)
+       - Poder llamar o whatsappear sin buscar el contacto aparte
+       - Alerta si el cliente está atrasado con su frecuencia habitual
+
+     CAMBIO 1: CONTADOR EN VIVO "HACE X MIN"
+       Antes: "Entrada: 10:24"
+       Ahora: "10:24 · hace 8 min" (se actualiza cada 1 min)
+       Implementación: setInterval cada 60s que llama _gpsActualizarSubtitulo.
+       Se inicia/detiene con el check-in/checkout.
+
+     CAMBIO 2: BOTONES LLAMAR / WHATSAPP
+       Aparecen como card de 2 columnas si clientes_activos.telefono != null.
+       - Llamar: <a href="tel:+54..."> abre el dialer del celular
+       - WhatsApp: <a href="https://wa.me/549..."> abre WA
+       Limpieza de teléfono: _gpsTelefonoLimpio normaliza formatos como
+       "2392530008", "2392-341065", "2923 45-9861" → solo dígitos.
+       Para wa.me usamos formato AR móvil: 549 + área + número.
+
+     CAMBIO 3: ALERTA "SIN PEDIDO HACE X DÍAS"
+       Días desde último pedido se calcula desde todosLosPedidos (cache local
+       fresco), NO desde clientes_activos.dias_desde_ult_pedido (está atrasado
+       ~28 días en BD actual).
+       Frecuencia promedio: se toma de clientes_activos.frec_dias_prom (es
+       histórico, no se desactualiza rápido).
+       Niveles de alerta:
+         · diasDesde / frecProm >= 1.5 → ALTA (roja)
+         · diasDesde / frecProm >= 1.2 → MEDIA (amarilla)
+         · sin frec: fallback ALTA si > 30 días
+       Sin alerta si el cliente está dentro de su patrón habitual.
+
+     STATE NUEVO:
+       · _gpsTimerCheckinActivo: handle del setInterval del contador
+
+     FUNCIONES NUEVAS:
+       · _gpsFormatearTiempoTranscurrido(fechaIso) → "hace 8 min"
+       · _gpsActualizarSubtitulo() → repinta el sub de la card
+       · _gpsTelefonoLimpio / _gpsTelefonoParaTel / _gpsTelefonoParaWA
+       · _gpsCalcularDiasUltimoPedido(pedidos)
+       · _gpsCalcularAlertaPedidos(dias, frec) → { nivel, frec } | null
+
+     CAMBIO EN: gpsBuscarClienteActivo ahora trae también telefono y frec_dias_prom.
+
+     SIN IMPACTO en:
+       · Pedido por tomador, manualWA, editar.
+       · Mi Ronda, Opción D, choferes.
+     ══════════════════════════════════════════════════════════════════════ -->
+
+<!-- ═══════════════════════════════════════════════════════════════════════
      TCK VENTAS — v14.18.1 — 18/05/2026
      ──────────────────────────────────────────────────────────────────────
      INFO DEL CLIENTE ACTIVO EN CHECK-IN
@@ -20749,6 +20809,34 @@ async function gpsCargarHistorial() {
   }
 }
 
+// v14.19.0: timer que actualiza el contador "hace X min" cada minuto.
+// Se inicia al hacer check-in y se detiene al hacer checkout.
+var _gpsTimerCheckinActivo = null;
+
+function _gpsFormatearTiempoTranscurrido(fechaInicio) {
+  var ms = Date.now() - new Date(fechaInicio).getTime();
+  var minutos = Math.floor(ms / 60000);
+  if (minutos < 1)  return 'recién';
+  if (minutos === 1) return 'hace 1 min';
+  if (minutos < 60) return 'hace ' + minutos + ' min';
+  var horas = Math.floor(minutos / 60);
+  var minsResto = minutos - horas * 60;
+  if (horas === 1 && minsResto === 0) return 'hace 1 h';
+  if (minsResto === 0) return 'hace ' + horas + ' h';
+  return 'hace ' + horas + ' h ' + minsResto + ' min';
+}
+
+function _gpsActualizarSubtitulo() {
+  if (!_gpsCheckinActivo) return;
+  var sub = document.getElementById('gps-estado-sub');
+  if (!sub) return;
+  var entrada = new Date(_gpsCheckinActivo.fecha).toLocaleTimeString('es-AR', {
+    hour:'2-digit', minute:'2-digit', timeZone:'America/Argentina/Buenos_Aires'
+  });
+  var transcurrido = _gpsFormatearTiempoTranscurrido(_gpsCheckinActivo.fecha);
+  sub.textContent = entrada + ' · ' + transcurrido;
+}
+
 // Actualizar estado visual
 function gpsActualizarEstado(checkinActivo) {
   var card  = document.getElementById('gps-estado-card');
@@ -20764,8 +20852,11 @@ function gpsActualizarEstado(checkinActivo) {
     if (dot2) dot2.style.display = 'block';
     if (icon)   icon.textContent = '✅';
     if (titulo) titulo.textContent = 'En: ' + (checkinActivo.nombre_cliente || 'Cliente');
-    var entrada = new Date(checkinActivo.fecha).toLocaleTimeString('es-AR', {hour:'2-digit',minute:'2-digit',timeZone:'America/Argentina/Buenos_Aires'});
-    if (sub)    sub.textContent = 'Entrada: ' + entrada;
+    // v14.19.0: subtítulo con hora + tiempo transcurrido auto-actualizado
+    _gpsActualizarSubtitulo();
+    // Iniciar timer si no está corriendo
+    if (_gpsTimerCheckinActivo) clearInterval(_gpsTimerCheckinActivo);
+    _gpsTimerCheckinActivo = setInterval(_gpsActualizarSubtitulo, 60 * 1000);
     var sinDiv = document.getElementById('gps-acciones-sin');
     var conDiv = document.getElementById('gps-acciones-con');
     if (sinDiv) sinDiv.style.display = 'none';
@@ -20783,6 +20874,11 @@ function gpsActualizarEstado(checkinActivo) {
     if (icon)   icon.textContent = '📍';
     if (titulo) titulo.textContent = 'Sin check-in activo';
     if (sub)    sub.textContent = 'Registrá tu entrada a un cliente';
+    // v14.19.0: detener timer de tiempo transcurrido
+    if (_gpsTimerCheckinActivo) {
+      clearInterval(_gpsTimerCheckinActivo);
+      _gpsTimerCheckinActivo = null;
+    }
     var dot3 = document.getElementById('gps-estado-dot');
     if (dot3) dot3.style.display = 'none';
     var sinDiv2 = document.getElementById('gps-acciones-sin');
@@ -20842,15 +20938,73 @@ function gpsRenderInfoCliente(nombreCliente) {
   });
 }
 
+// v14.19.0: helpers para formato de teléfono
+// El teléfono en clientes_activos puede venir sucio:
+//   "2392530008" / "2392-341065" / "2923 45-9861"
+// Lo normalizamos a solo dígitos. Para wa.me y tel: se asume Argentina
+// con prefijo móvil 9 (formato: 54 9 XXX XXXX XXXX).
+function _gpsTelefonoLimpio(tel) {
+  if (!tel) return '';
+  return String(tel).replace(/\D/g, '');
+}
+
+function _gpsTelefonoParaTel(tel) {
+  var limpio = _gpsTelefonoLimpio(tel);
+  if (!limpio) return '';
+  // Si ya tiene código país, lo dejamos
+  if (limpio.startsWith('54')) return '+' + limpio;
+  return '+54' + limpio;
+}
+
+function _gpsTelefonoParaWA(tel) {
+  var limpio = _gpsTelefonoLimpio(tel);
+  if (!limpio) return '';
+  // wa.me requiere 549 + área + número para móviles AR
+  // Si ya viene con 54, asegurarse que esté el 9
+  if (limpio.startsWith('549')) return limpio;
+  if (limpio.startsWith('54'))  return '549' + limpio.substring(2);
+  return '549' + limpio;
+}
+
+// Calcula días desde el último pedido del cliente usando todosLosPedidos
+// (más confiable que clientes_activos.dias_desde_ult_pedido que está retrasado).
+// Devuelve null si no hay pedidos.
+function _gpsCalcularDiasUltimoPedido(pedidos) {
+  if (!pedidos || pedidos.length === 0) return null;
+  var fp = fechaPedido(pedidos[0]);  // primer pedido (más reciente, ya ordenado desc)
+  if (!fp) return null;
+  var ms = Date.now() - fp;
+  return Math.floor(ms / (1000 * 60 * 60 * 24));
+}
+
+// Decide si mostrar la alerta de "sin pedido hace X días" según
+// la frecuencia promedio del cliente.
+//   - Si diasDesdeUltimo > frecPromedio * 1.5 → alerta naranja
+//   - Si diasDesdeUltimo > frecPromedio * 1.2 → info amarilla
+//   - Else: sin alerta
+// Si no hay frecPromedio, fallback: alerta si > 30 días.
+function _gpsCalcularAlertaPedidos(diasDesde, frecPromedio) {
+  if (diasDesde === null || diasDesde === undefined) return null;
+  if (frecPromedio && frecPromedio > 0) {
+    var ratio = diasDesde / frecPromedio;
+    if (ratio >= 1.5) return { nivel: 'alta', frec: frecPromedio };
+    if (ratio >= 1.2) return { nivel: 'media', frec: frecPromedio };
+    return null;
+  }
+  // Sin frec — fallback genérico
+  if (diasDesde >= 30) return { nivel: 'media', frec: null };
+  return null;
+}
+
 // Busca cliente en clientes_activos por nombre normalizado.
-// Devuelve { cliente_id, nombre, notas } o null.
+// Devuelve { cliente_id, nombre, notas, telefono, frec_dias_prom } o null.
 async function gpsBuscarClienteActivo(nombreCliente) {
   if (!nombreCliente) return null;
   try {
     // Hacemos una búsqueda ilike por las primeras palabras del nombre
     // para reducir resultados, después filtramos por match exacto normalizado.
     var qNombre = nombreCliente.split(/\s+/).slice(0, 2).join(' ');
-    var path = 'clientes_activos?select=cliente_id,nombre,notas'
+    var path = 'clientes_activos?select=cliente_id,nombre,notas,telefono,frec_dias_prom'
              + '&nombre=ilike.' + encodeURIComponent('*' + qNombre + '*')
              + '&limit=20';
     var data = await sbFetch(path);
@@ -20898,6 +21052,57 @@ function gpsBuscarPedidosCliente(nombreCliente) {
 function gpsRenderInfoClienteFinal(nombreCliente, pedidos) {
   var contenedor = document.getElementById('gps-info-cliente');
   if (!contenedor) return;
+
+  // ── v14.19.0: Card de acciones rápidas (Llamar / WhatsApp) ────
+  var telefono = (_gpsClienteActivoData && _gpsClienteActivoData.telefono) || '';
+  var telLimpio = _gpsTelefonoLimpio(telefono);
+  var accionesHtml = '';
+  if (telLimpio) {
+    var telUrl = _gpsTelefonoParaTel(telefono);
+    var waUrl  = 'https://wa.me/' + _gpsTelefonoParaWA(telefono);
+    accionesHtml =
+      '<div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:10px;">'
+      +   '<a href="' + telUrl + '" style="display:flex;align-items:center;justify-content:center;gap:6px;background:linear-gradient(135deg,#1565C0,#1976D2);color:#fff;padding:11px;border-radius:10px;text-decoration:none;font-family:Barlow Condensed,sans-serif;font-size:14px;font-weight:900;letter-spacing:.3px;">'
+      +     '📞 Llamar'
+      +   '</a>'
+      +   '<a href="' + waUrl + '" target="_blank" style="display:flex;align-items:center;justify-content:center;gap:6px;background:linear-gradient(135deg,#1B5E20,#25D366);color:#fff;padding:11px;border-radius:10px;text-decoration:none;font-family:Barlow Condensed,sans-serif;font-size:14px;font-weight:900;letter-spacing:.3px;">'
+      +     '💬 WhatsApp'
+      +   '</a>'
+      + '</div>';
+  }
+
+  // ── v14.19.0: Alerta "Sin pedido hace X días" si corresponde ──
+  var diasUlt = _gpsCalcularDiasUltimoPedido(pedidos);
+  var frecProm = (_gpsClienteActivoData && _gpsClienteActivoData.frec_dias_prom)
+    ? parseFloat(_gpsClienteActivoData.frec_dias_prom) : null;
+  var alerta = _gpsCalcularAlertaPedidos(diasUlt, frecProm);
+  var alertaHtml = '';
+  if (alerta && diasUlt !== null) {
+    var colorBg, colorBorde, colorTxt, icono, mensaje;
+    if (alerta.nivel === 'alta') {
+      colorBg = '#FFEBEE';
+      colorBorde = '#F44336';
+      colorTxt = '#B71C1C';
+      icono = '⚠️';
+    } else {
+      colorBg = '#FFF8E1';
+      colorBorde = '#FFC107';
+      colorTxt = '#6D4C2D';
+      icono = '⏰';
+    }
+    var diasTxt = diasUlt + ' día' + (diasUlt === 1 ? '' : 's');
+    var detalle = alerta.frec
+      ? 'Habitualmente compra cada ' + Math.round(alerta.frec) + ' días'
+      : 'Le falta hacer pedido hace tiempo';
+    alertaHtml =
+      '<div style="background:' + colorBg + ';border-left:3px solid ' + colorBorde + ';padding:10px 12px;border-radius:0 8px 8px 0;margin-bottom:10px;">'
+      +   '<div style="font-size:12px;color:' + colorTxt + ';font-weight:700;display:flex;align-items:center;gap:6px;line-height:1.3;">'
+      +     '<span style="font-size:14px;">' + icono + '</span>'
+      +     '<span>Sin pedido hace <b>' + diasTxt + '</b></span>'
+      +   '</div>'
+      +   '<div style="font-size:11px;color:' + colorTxt + ';opacity:.8;margin-top:2px;margin-left:20px;">' + detalle + '</div>'
+      + '</div>';
+  }
 
   // ── Notas card ────────────────────────────────────────────────
   var nota = (_gpsClienteActivoData && _gpsClienteActivoData.notas) || '';
@@ -20963,7 +21168,7 @@ function gpsRenderInfoClienteFinal(nombreCliente, pedidos) {
       + '</div>';
   }
 
-  contenedor.innerHTML = notasCardHtml + pedidosHtml;
+  contenedor.innerHTML = accionesHtml + alertaHtml + notasCardHtml + pedidosHtml;
 }
 
 // Extrae la nota libre del vendedor, descartando trazas automáticas
