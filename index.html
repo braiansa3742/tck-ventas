@@ -4,7 +4,10 @@
 <!-- ═══════════════════════════════════════════════════════════════════════
      TCK VENTAS — v14.17.2 — 18/05/2026
      ──────────────────────────────────────────────────────────────────────
-     FIX RACE CONDITION REAL — lock seteado ANTES del primer await
+     PARTE A — FIX RACE CONDITION REAL (lock seteado antes del primer await)
+     PARTE B — AUDITORÍA Y FIX BUGS DEL MÓDULO CHECK-IN
+
+     ───── PARTE A: ANTI-DUP REAL ─────
 
      PROBLEMA REPORTADO (Lisandro, 18-may-26 10:30):
        Seguían apareciendo pedidos duplicados pese a v14.17.1:
@@ -37,26 +40,84 @@
        liberando el lock pase lo que pase al final del flujo.
        El debounce de 1.8s queda como segunda barrera (no se toca).
 
-     CAMBIOS v14.17.2 sobre v14.17.1:
-       1. manualWAConfirmar: lock + disable botón al inicio (antes de
-          validaciones síncronas). Liberar en cada early-return.
-       2. _manualWAEjecutarGuardado: removido el seteo del lock
-          (ya se hizo al inicio de manualWAConfirmar).
-       3. tomadorConfirmarFinal: lock + disable botón al inicio.
-          Liberar si canalClienteChequearYAbrir falla.
-       4. _tomadorConfirmarFinalContinuar: removido el seteo del lock.
+     CAMBIOS PARTE A:
+       1. manualWAConfirmar: lock + disable botón al inicio.
+       2. _mwaLiberarLock(): helper centralizado + clear timeout 90s.
+       3. _manualWAEjecutarGuardado: removido seteo redundante del lock.
+       4. tomadorConfirmarFinal: mismo patrón aplicado.
+       5. _tomadorLiberarLock(): helper espejo.
+       6. Cancelación de modales intermedios libera el lock vía helper.
+       7. viajeEspAbrirSelector: cancelar ahora llama callback con `null`.
+       8. Timeout de seguridad: si el flujo se cuelga +90s, auto-libera.
+
+     ───── PARTE B: BUGS DEL MÓDULO CHECK-IN ─────
+
+     CONTEXTO:
+       Lisandro reportó (18-may-26): "Le tomé pedido a Alvarez pero
+       en las visitas aparece 'Sin pedido'". Investigación:
+         - Tabla visitas hoy de Lisandro: solo checkins/checkouts,
+           CERO eventos pedido_campo.
+         - Tabla pedidos_zona hoy: 6 origen=whatsapp + 1 origen=directo.
+         - Histórico TOTAL: cero pedidos con origen=campo en toda la BD.
+       Diagnóstico: el flujo del tomador del check-in NUNCA se usó.
+       Los vendedores hacen check-in y cargan el pedido por otro flujo
+       (manualWA o directo). Hay varios bugs que vuelven inviable usar
+       el tomador y producen visitas "Sin pedido" falsas:
+
+     BUG 1 (alta): Localidad nunca llega al tomador.
+       gpsConfirmarCheckin guarda en _gpsCheckinActivo.localidad pero
+       tomadorConfirmarConEntrega leía .localidad_cliente (propiedad
+       inexistente). Resultado: siempre caía al modal "elegí localidad"
+       como fricción innecesaria.
+
+     BUG 2 (alta): "✅ Sí, tomé el pedido" en checkout NO marca la visita.
+       El botón solo registraba el checkout, sin insertar un evento
+       que el agrupador reconozca. La visita quedaba como "Sin pedido"
+       aun cuando el vendedor confirmó que sí hubo pedido (cargado por
+       otro flujo).
+
+     BUG 3 (media): _gpsHizoPedido = true se seteaba ANTES del insert.
+       Si el insert a Supabase fallaba (red, RLS, etc.), el flag quedaba
+       en true engañoso → el próximo checkout saltaba el modal
+       "¿hubo pedido?" sin razón.
+
+     BUG 4 (media): Agrupador asocia pedido_campo sin chequear nombre.
+       Si por algún motivo llegaba un pedido_campo de Cliente B mientras
+       visitaActual era Cliente A (ej. timestamps cruzados), se marcaba
+       erróneamente A como con pedido.
+
+     MEJORA UX: detección automática manualWA + check-in activo.
+       Si el vendedor está físicamente en el local (check-in activo) y
+       carga el pedido por WhatsApp manual del MISMO cliente, marca la
+       visita automáticamente como "Con pedido" sin que tenga que
+       confirmarlo en el checkout. Cubre el caso real de Lisandro
+       (carga por WA estando en el local).
+
+     CAMBIOS PARTE B:
+       1. tomadorConfirmarConEntrega: leer .localidad (no .localidad_cliente).
+       2. gpsCheckoutConPedidoExterno: nuevo handler para "Sí tomé el pedido"
+          que inserta marcador pedido_campo antes del checkout.
+       3. tomadorConfirmarConEntrega: _gpsHizoPedido = true se mueve a
+          DESPUÉS del insert exitoso.
+       4. Agrupador gpsCargarHistorial: pedido_campo solo asocia si
+          coincide nombre_cliente con visitaActual.
+       5. manualWAGuardar: hook al final que, si hay check-in activo del
+          mismo cliente, inserta marcador pedido_campo automáticamente.
 
      SIN IMPACTO en:
-       · Editar pedido (flujo distinto, sin ventana de carrera).
+       · Editar pedido (flujo distinto).
        · Detector de duplicados (sigue como red de seguridad).
-       · Modal de canal obligatorio (sigue bloqueando al vendedor
-         hasta completar, ahora con lock activo lo cual es correcto).
        · Choferes, planillas, rendiciones.
+       · Modal de canal obligatorio.
 
-     POST-FIX, ESCENARIO ESPERADO:
-       Tap 1 → lock SET, botón "Verificando...", se abre modal canal/sucursal
-       Tap 2 (5s después, vendedor impaciente) → lock activo, IGNORADO.
-       Modal canal completado → guardado → finally libera lock.
+     POST-FIX, ESCENARIO ESPERADO PARA EL CHECK-IN:
+       Vendedor llega al local → tap "Check-in al cliente" → GPS OK
+       → estado "✅ En: Alvarez" + 2 botones (Tomar pedido / Check-out).
+       Si usa "Tomar pedido": flujo del tomador (origen=campo, queda
+       marcado en BD). Si carga por "Manual WA" del mismo cliente
+       mientras está en el local: queda asociado igual. Al hacer
+       checkout, NO pregunta "¿hubo pedido?" (ya lo sabe).
+       Resultado: la visita aparece "Con pedido" en el historial.
      ══════════════════════════════════════════════════════════════════════ -->
 
 <!-- ═══════════════════════════════════════════════════════════════════════
@@ -20337,11 +20398,17 @@ async function gpsCargarHistorial() {
         };
         visitas_agrupadas.push(visitaActual);
       } else if (v.tipo === 'pedido_campo') {
-        if (visitaActual) {
-          // Asociar al checkin activo (por nombre o por proximidad temporal)
+        // v14.17.2 FIX BUG 4: chequear que el pedido_campo sea del MISMO
+        // cliente que la visitaActual antes de marcar. Antes se marcaba
+        // cualquier visita activa, lo cual podía falsificar el "Con pedido"
+        // si los eventos llegaban cruzados (caso raro pero posible si el
+        // vendedor hizo check-in A → check-in B sin checkout y pedido_campo
+        // llega tarde para A).
+        if (visitaActual && visitaActual.nombre_cliente === v.nombre_cliente) {
           visitaActual.tuvo_pedido = true;
         } else {
-          // Pedido tomado sin checkin — mostrar igual como visita con pedido
+          // Sin visita activa coincidente — mostrar igual como visita
+          // independiente "Con pedido" (pedido tomado fuera de un check-in).
           visitas_agrupadas.push({
             nombre_cliente: v.nombre_cliente,
             hora_entrada:   new Date(v.fecha),
@@ -20825,7 +20892,8 @@ async function gpsCheckout() {
 // Checkout con pregunta de motivo si no hubo pedido
 function gpsCheckoutConMotivo() {
   if (!_gpsCheckinActivo) return;
-  // Si ya tomó pedido, hacer checkout directo sin preguntar
+  // Si ya tomó pedido por el tomador del check-in, hacer checkout directo
+  // sin preguntar. El evento pedido_campo ya está insertado en Supabase.
   if (_gpsHizoPedido) { gpsCheckoutFinal(null); return; }
   var modal = document.createElement('div');
   modal.className = 'gps-modal-overlay';
@@ -20837,7 +20905,7 @@ function gpsCheckoutConMotivo() {
     + '</div>'
     + '<div style="padding:16px 20px">'
     + '<div style="font-family:&apos;Barlow Condensed&apos;,sans-serif;font-size:16px;font-weight:900;color:var(--text);margin-bottom:14px">¿Hubo pedido?</div>'
-    + '<button class="gps-motivo-btn" style="background:var(--green3);border-color:var(--green2);color:var(--green)" onclick="gpsCheckoutFinal(null)">✅ Sí, tomé el pedido</button>'
+    + '<button class="gps-motivo-btn" style="background:var(--green3);border-color:var(--green2);color:var(--green)" onclick="gpsCheckoutConPedidoExterno()">✅ Sí, tomé el pedido</button>'
     + '<div style="font-family:&apos;Barlow Condensed&apos;,sans-serif;font-size:14px;font-weight:900;color:var(--text2);margin:14px 0 8px">❌ No compró — ¿por qué?</div>'
     + '<button class="gps-motivo-btn" onclick="gpsCheckoutFinal(&quot;Precio alto&quot;)">💰 Precio alto</button>'
     + '<button class="gps-motivo-btn" onclick="gpsCheckoutFinal(&quot;Compró a la competencia&quot;)">🏪 Compró a la competencia</button>'
@@ -20847,6 +20915,49 @@ function gpsCheckoutConMotivo() {
     + '<button class="gps-motivo-btn" onclick="gpsCheckoutFinal(&quot;Otro&quot;)">💬 Otro motivo</button>'
     + '</div></div>';
   document.body.appendChild(modal);
+}
+
+// v14.17.2 FIX BUG 2: nuevo handler para "Sí, tomé el pedido" en checkout.
+// Antes: llamaba a gpsCheckoutFinal(null) y la visita quedaba "Sin pedido"
+// en la pantalla porque el agrupador busca un evento pedido_campo en
+// Supabase para marcarla. Ahora inserta un marcador antes del checkout
+// para que la UI refleje correctamente que SÍ hubo pedido.
+//
+// El pedido en sí ya está cargado por otro flujo (WhatsApp manual o
+// directo); este evento es solo un marcador de "asociado a esta visita".
+async function gpsCheckoutConPedidoExterno() {
+  var modal = document.getElementById('gps-modal-checkout');
+  if (modal) modal.remove();
+  if (!_gpsCheckinActivo) {
+    toast('Sin check-in activo', 'err');
+    return;
+  }
+  var cliente = _gpsCheckinActivo.nombre_cliente;
+  // Insertar marcador pedido_campo en Supabase (fire-and-forget; si falla,
+  // igual hacemos checkout). Observación clara para diferenciar de pedido
+  // tomado realmente por el tomador del check-in.
+  try {
+    var vendedorId = await gpsObtenerVendedorId();
+    if (vendedorId) {
+      await sbFetch('visitas', {
+        method: 'POST',
+        body: JSON.stringify({
+          vendedor_id:    vendedorId,
+          nombre_cliente: cliente,
+          tipo:           'pedido_campo',
+          observacion:    'PEDIDO EXTERNO — confirmado en checkout (cargado por WhatsApp/directo)'
+        })
+      });
+    }
+  } catch(e) {
+    console.warn('[checkout pedido externo] No se pudo guardar marcador:', e);
+    // Sigue al checkout igual; mejor checkout sin marca que sin checkout.
+  }
+  // Setear flag local para que la UI muestre "Con pedido" en historial
+  // inmediato (antes del reload de gpsCargarHistorial).
+  _gpsHizoPedido = true;
+  // Ahora sí, checkout normal sin motivo (null = hubo pedido)
+  gpsCheckoutFinal(null);
 }
 
 async function gpsCheckoutFinal(motivo) {
@@ -23171,7 +23282,11 @@ async function _tomadorConfirmarFinalContinuar() {
     // v8.6: guardamos la sucursal elegida en una variable accesible al confirmar
     _tomadorSucursalElegida = res.sucursal; // null si el cliente no tiene
     // v14.2 F-Modal: inferir entrega desde localidad del check-in (NO modal)
-    var localidadCheckin = _gpsCheckinActivo ? _gpsCheckinActivo.localidad_cliente : '';
+    // v14.17.2 FIX BUG: leíamos `.localidad_cliente` (propiedad que NO existe);
+    // gpsConfirmarCheckin guarda en `.localidad`. Por eso siempre caía al modal
+    // de pedir localidad → fricción innecesaria que llevaba a los vendedores
+    // a abandonar el flujo de check-in y volver al WhatsApp manual.
+    var localidadCheckin = _gpsCheckinActivo ? (_gpsCheckinActivo.localidad || '') : '';
     var entrega = inferirEntregaDesdeLocalidad(localidadCheckin);
     if (!entrega) {
       console.log('[F-Modal tomador] Localidad sin zona — guardando sin entrega:', localidadCheckin);
@@ -23288,10 +23403,9 @@ async function tomadorConfirmarConEntrega(entregaData) {
     compLineas.push(nombre + ': $' + c.precio.toLocaleString('es-AR') + (c.nombre ? ' (' + c.nombre + ')' : ''));
   });
 
-  // Guardar en Supabase como visita con pedido
-  _gpsHizoPedido = true;
-  gpsActualizarEstado(_gpsCheckinActivo);
-
+  // v14.17.2 FIX BUG 3: setear _gpsHizoPedido DESPUÉS del insert exitoso.
+  // Antes se seteaba antes y, si Supabase fallaba, quedaba en true engañoso
+  // (el próximo checkout saltaba el modal "¿hubo pedido?" sin razón).
   try {
     var vendedorId = await gpsObtenerVendedorId();
     var detalleStr = lineas.join(' | ');
@@ -23304,6 +23418,9 @@ async function tomadorConfirmarConEntrega(entregaData) {
         observacion:    detalleStr + (compLineas.length ? ' | COMP: ' + compLineas.join(', ') : '')
       })
     });
+    // Recién acá marcamos que el check-in tuvo pedido
+    _gpsHizoPedido = true;
+    gpsActualizarEstado(_gpsCheckinActivo);
   } catch(e) { console.warn('No se pudo guardar pedido campo:', e); }
 
   // Registrar pedido en el Sheet (igual que el catálogo)
@@ -28398,6 +28515,38 @@ async function manualWAGuardar(cliente, localidad, entrega, sucursal) {
     toast('✅ Pedido de ' + cliente + ' registrado', 'ok');
   }
   cerrarCargaManualWA();
+
+  // v14.17.2 MEJORA UX: si el vendedor cargó este pedido manualWA estando
+  // físicamente en el local (check-in activo del mismo cliente), marcar la
+  // visita como "Con pedido" automáticamente. Inserta marcador pedido_campo
+  // en Supabase + setea _gpsHizoPedido para que el checkout siguiente NO
+  // pregunte "¿hubo pedido?" (ya sabemos que sí). Si no coincide cliente
+  // o no hay check-in, no hace nada (caso típico: cliente que pidió por
+  // WhatsApp sin que el vendedor esté presente).
+  if (_gpsCheckinActivo && _gpsCheckinActivo.nombre_cliente === cliente) {
+    (async function _marcarPedidoEnCheckin() {
+      try {
+        var vid = await gpsObtenerVendedorId();
+        if (vid) {
+          await sbFetch('visitas', {
+            method: 'POST',
+            body: JSON.stringify({
+              vendedor_id:    vid,
+              nombre_cliente: cliente,
+              tipo:           'pedido_campo',
+              observacion:    'PEDIDO MANUAL WA — cargado durante check-in (' + pedidoId + ')'
+            })
+          });
+        }
+        _gpsHizoPedido = true;
+        gpsActualizarEstado(_gpsCheckinActivo);
+        // Refrescar el historial para que la visita aparezca como "Con pedido"
+        setTimeout(function() { gpsCargarHistorial(); }, 1500);
+      } catch(e) {
+        console.warn('[manualWA + checkin] No se pudo marcar visita:', e);
+      }
+    })();
+  }
 
   // v8.6: si el vendedor eligió sucursal, vincular en Supabase (fire-and-forget).
   // El pedido al Sheet ya se grabó; esto es metadata secundaria.
