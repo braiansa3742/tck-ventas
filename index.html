@@ -2,6 +2,96 @@
 <html lang="es">
 <head>
 <!-- ═══════════════════════════════════════════════════════════════════════
+     TCK VENTAS — v14.20.0 — 18/05/2026
+     ──────────────────────────────────────────────────────────────────────
+     XUBIO AUTOMÁTICO DESDE TOMADOR PRESENCIAL
+
+     CONTEXTO:
+       Hasta hoy, los pedidos del tomador del check-in se guardaban como
+       'Pendiente' y el vendedor tenía que tocar "Crear presupuesto Xubio"
+       en otro momento. Como el cierre presencial ya está sellado por el
+       acuerdo cara a cara con el cliente, ese paso extra era pura fricción.
+       Lisandro mostró baja adopción del tomador en parte por eso (3 pedidos
+       por tomador vs 16 por WA manual desde el lanzamiento).
+
+       Solución: que el tomador del check-in genere el presupuesto Xubio
+       automáticamente al confirmar, marcando el pedido como 'Confirmado'.
+       Solo aplica cuando el cliente está en clientes_xubio (mapeado).
+       Para clientes manuales sin xubio_id, el flujo viejo sigue funcionando.
+
+     CAMBIOS PRINCIPALES:
+
+       A) DATOS XUBIO EN CHECK-IN
+          - Autocomplete del check-in pasa también data-xubioid y data-cuit.
+          - gpsConfirmarCheckin acepta (nombre, localidad, xubioId, cuit)
+          - _gpsCheckinActivo guarda { xubio_id, xubio_cuit, xubio_nombre }
+          - Si la app se restaura con un check-in viejo, se hace un re-fetch
+            silencioso a clientes_xubio para recuperar el xubio_id.
+
+       B) HOOK XUBIO EN TOMADOR
+          - tomadorConfirmarConEntrega, después de _pedidoGuardadoOK=true,
+            decide entre dos caminos:
+              · Si _gpsCheckinActivo.xubio_id existe → _tomadorEjecutarXubio
+              · Si no → _gpsMostrarModalCheckoutAuto (flujo viejo)
+
+       C) FUNCIONES NUEVAS (todas en bloque marcado v14.20.0):
+          - _tomadorEjecutarXubio(pedidoId, fila, entrega, cliente):
+              Setea _xubioSeleccion[pedidoId] con clienteId/Nombre/Cuit,
+              calcula fecha del presupuesto = fecha del viaje (o viaje
+              especial elegido), llama detectarCalibres, decide flujo.
+          - _tomadorXubioFinalizar(...): ejecuta presupuesto en backend
+              con fecha y calibres ya conocidos (NO usa modal de fecha).
+          - _tomadorMostrarProgreso(cliente): overlay con 3 pasos.
+          - _tomadorMostrarExito(...): modal verde con N° presupuesto y
+              countdown 4s → checkout automático.
+          - _tomadorMostrarErrorXubio(...): modal naranja con botón
+              "Reintentar" y "Dejar pendiente".
+
+       D) FLAG skipFechaModal EN MODAL CALIBRES
+          - xubioCalibreSiguiente respeta args.skipFechaModal: si es true
+            llama args.onCalibresOK(calibresPayload) en lugar de abrir
+            xubioAbrirModalFecha. Compatible 100% con flujo viejo.
+          - xubioCalibreVolver respeta args.onCancel cuando es presencial.
+
+       E) BOTÓN CONFIRMAR DINÁMICO
+          - Si _gpsCheckinActivo tiene xubio_id → "✅ CERRAR VENTA"
+            + subtítulo chico "Cierre presencial · presupuesto Xubio
+            automático".
+          - Si no → "✅ CONFIRMAR PEDIDO" (texto compatible con flujo viejo).
+
+     FECHA DEL PRESUPUESTO XUBIO:
+       Se calcula automáticamente desde la fecha de entrega (que viene de
+       inferirEntregaDesdeLocalidad), no requiere intervención del vendedor.
+       Si hay un viaje especial elegido (window._viajeEspElegido), usa
+       fecha_salida del viaje.
+
+     CASOS DE ERROR MANEJADOS:
+       - Cliente sin xubio_id → fallback al modal viejo (Pendiente).
+       - Falta canal → bloqueante (igual que hoy).
+       - Productos sin mapear en Xubio → modal error con detalle.
+       - YA_TIENE_PRESUPUESTO → trata como éxito retroactivo.
+       - CONDICION_FISCAL_NULL → modal con "Reintentá en 30s".
+       - Sin red → modal con "Reintentar / Dejar pendiente".
+       - Cancela calibres → modal error con explicación.
+
+     SIN IMPACTO en:
+       - manualWA: sigue guardando como Pendiente. Para crear Xubio el
+         vendedor o admin toca el botón existente desde la lista.
+       - Edición de pedido, choferes, planillas.
+       - Detector de duplicados.
+       - Flujo legacy del check-in cuando no hay xubio_id.
+
+     VALIDACIONES VERIFICADAS PRE-DEPLOY:
+       - Calibres reales en BD: productos_xubio_mapping tiene Pollo A x6,
+         Pollo B x6/x7/x8/x9 (fresco/congelado). El modal detectarCalibres
+         los muestra automáticamente, no se hardcodean en el front.
+       - Estética idéntica al flujo manualWA: header rojo gradient,
+         botón verde, total en Barlow Condensed, bottom-sheet rounded.
+       - Reutilización: NO hay modales duplicados. Reusamos el modal de
+         calibres con flag skipFechaModal.
+     ══════════════════════════════════════════════════════════════════════ -->
+
+<!-- ═══════════════════════════════════════════════════════════════════════
      TCK VENTAS — v14.19.0 — 18/05/2026
      ──────────────────────────────────────────────────────────────────────
      LOTE 1: QUICK WINS EN CHECK-IN
@@ -19777,7 +19867,14 @@ function xubioCalibreVolver() {
     st.pasoActual--;
     _xubioPintarPasoCalibre();
   } else {
+    // v14.20.0: si el flujo viene del tomador presencial y el vendedor
+    // cancela el modal de calibres, avisar al caller para que muestre
+    // el modal de error Xubio (pedido ya guardado como Pendiente).
+    var args = st.args;
     xubioCerrarModalCalibre();
+    if (args && args.skipFechaModal && typeof args.onCancel === 'function') {
+      args.onCancel();
+    }
   }
 }
 
@@ -19812,6 +19909,17 @@ function xubioCalibreSiguiente() {
 
   setTimeout(function() {
     var args = st.args;
+    // v14.20.0: si viene flag skipFechaModal, no abrir el modal de fecha;
+    // en su lugar llamar al callback con la fecha ya conocida (flujo presencial
+    // desde el tomador del check-in). Para todo lo demás (flujo legacy
+    // desde el detalle de pedido), seguimos al modal de fecha.
+    if (args && args.skipFechaModal) {
+      xubioCerrarModalCalibre();
+      if (typeof args.onCalibresOK === 'function') {
+        args.onCalibresOK(calibresPayload);
+      }
+      return;
+    }
     xubioCerrarModalCalibre();
     xubioAbrirModalFecha(args.pedidoId, args.fila, args.id, calibresPayload);
   }, 800);
@@ -19991,6 +20099,350 @@ function xubioCambiarFechaPicker(nuevaFechaISO) {
     if (texto) texto.textContent = _xubioFormatearFechaArgHumana(nuevaFechaISO);
   }
 }
+
+// ════════════════════════════════════════════════════════════════════════
+// v14.20.0 — FLUJO PRESUPUESTO XUBIO AUTOMÁTICO DESDE TOMADOR PRESENCIAL
+// ════════════════════════════════════════════════════════════════════════
+//
+// Cuando el vendedor confirma un pedido por el tomador del check-in,
+// si el cliente tiene xubio_id, se ejecuta este flujo en lugar del
+// modal "checkout en 6s" simple.
+//
+// Pasos:
+//   1. Setear _xubioSeleccion[pedidoId] con datos del cliente (ya conocidos
+//      desde el check-in en _gpsCheckinActivo.xubio_id / .xubio_cuit / .xubio_nombre)
+//   2. Llamar detectarCalibres del Apps Script
+//   3. Si necesita calibres → abrir modal con flag skipFechaModal=true
+//      Si no → llamar directo a _tomadorXubioFinalizar
+//   4. _tomadorXubioFinalizar:
+//      a) Mostrar overlay con 3 pasos (Sheet ✓ / Supabase ✓ / Xubio ⏳)
+//      b) Llamar a xubioEjecutarCrearPresupuesto (ya pasamos fecha)
+//      c) Si OK → modal éxito + checkout auto en 4s
+//      d) Si error → modal naranja con "Reintentar / Dejar pendiente"
+//
+// Fallback: si el cliente no está en clientes_xubio o el flujo falla,
+// el pedido queda como Pendiente y aparece en la lista con el botón
+// "Crear presupuesto Xubio" como hoy.
+
+function _tomadorEjecutarXubio(pedidoId, fila, entregaData, clienteNombre) {
+  if (!_gpsCheckinActivo || !_gpsCheckinActivo.xubio_id) {
+    console.warn('[v14.20.0] _tomadorEjecutarXubio sin xubio_id, saltando');
+    _gpsMostrarModalCheckoutAuto(clienteNombre);
+    return;
+  }
+
+  // Calcular fecha del presupuesto = fecha de entrega
+  var fechaXubio = (entregaData && entregaData.fechaISO) ? entregaData.fechaISO : null;
+
+  // Si el vendedor eligió un viaje especial, usar su fecha_salida
+  if (window._viajeEspElegido && window._viajeEspOpciones) {
+    var elegido = window._viajeEspOpciones.find(function(v) { return v.id === window._viajeEspElegido; });
+    if (elegido && elegido.fecha_salida) {
+      fechaXubio = elegido.fecha_salida;
+    }
+  }
+
+  // Setear cliente en _xubioSeleccion (reusa estructura que ya espera xubioCrearPresupuesto)
+  if (!_xubioSeleccion[pedidoId]) _xubioSeleccion[pedidoId] = {};
+  _xubioSeleccion[pedidoId].clienteId     = _gpsCheckinActivo.xubio_id;
+  _xubioSeleccion[pedidoId].clienteNombre = _gpsCheckinActivo.xubio_nombre || clienteNombre;
+  _xubioSeleccion[pedidoId].clienteCuit   = _gpsCheckinActivo.xubio_cuit || '';
+
+  // ID HTML basado en pedidoId (no hay row real, generamos uno temporal)
+  var idHtml = pedidoId.replace(/[^a-zA-Z0-9]/g, '-');
+
+  // Paso 1: detectar calibres genéricos
+  fetch(APPS_SCRIPT_URL + '?accion=detectarCalibres&pedidoId=' + encodeURIComponent(pedidoId))
+    .then(function(r) { return r.json(); })
+    .then(function(data) {
+      if (data.status !== 'ok') {
+        // Backend devolvió error — pedido sigue Pendiente, mostrar modal error
+        _tomadorMostrarErrorXubio(pedidoId, fila, clienteNombre, entregaData,
+          'No se pudo verificar el pedido: ' + (data.message || 'error desconocido'));
+        return;
+      }
+
+      if (data.necesitaModal && data.genericos && data.genericos.length) {
+        // Hay genéricos (Pollo A/B) → abrir modal de calibres con callback custom
+        _xubioCalibresState = {
+          genericos: data.genericos,
+          pasoActual: 1,
+          cantidades: {},
+          args: {
+            pedidoId: pedidoId,
+            fila: fila,
+            id: idHtml,
+            // v14.20.0 flags nuevos para flujo presencial:
+            skipFechaModal: true,
+            onCalibresOK: function(calibresPayload) {
+              _tomadorXubioFinalizar(pedidoId, fila, idHtml, calibresPayload, fechaXubio, clienteNombre, entregaData);
+            },
+            onCancel: function() {
+              _tomadorMostrarErrorXubio(pedidoId, fila, clienteNombre, entregaData,
+                'Cancelaste la selección de calibres. El pedido quedó como Pendiente.');
+            }
+          }
+        };
+        var modal = document.getElementById('modal-xubio-calibre');
+        if (!modal) {
+          modal = document.createElement('div');
+          modal.id = 'modal-xubio-calibre';
+          modal.className = 'modal-overlay';
+          document.body.appendChild(modal);
+        }
+        modal.innerHTML = _xubioRenderModalCalibreShell();
+        modal.classList.add('on');
+        _xubioPintarPasoCalibre();
+      } else {
+        // No hay calibres pendientes → ejecutar Xubio directo
+        _tomadorXubioFinalizar(pedidoId, fila, idHtml, null, fechaXubio, clienteNombre, entregaData);
+      }
+    })
+    .catch(function(err) {
+      console.error('[_tomadorEjecutarXubio] error detectarCalibres:', err);
+      _tomadorMostrarErrorXubio(pedidoId, fila, clienteNombre, entregaData,
+        'Sin conexión para verificar calibres. El pedido se guardó como Pendiente.');
+    });
+}
+
+// Paso final: ejecutar el presupuesto Xubio con fecha y calibres ya conocidos.
+// Espejo de xubioEjecutarCrearPresupuesto pero adaptado al flujo presencial
+// (sin tocar botón "xubio-btn-X" que no existe acá, y con modal de progreso).
+function _tomadorXubioFinalizar(pedidoId, fila, idHtml, calibres, fechaISO, clienteNombre, entregaData) {
+  if (_xubioActivo) { toast('⏳ Ya se está creando un presupuesto. Aguardá...', 'err'); return; }
+  _xubioActivo = true;
+
+  var sel = _xubioSeleccion[pedidoId];
+  if (!sel || !sel.clienteId) {
+    _xubioActivo = false;
+    _tomadorMostrarErrorXubio(pedidoId, fila, clienteNombre, entregaData,
+      'No se encontró el cliente Xubio para este pedido.');
+    return;
+  }
+
+  // Mostrar overlay con progreso (Sheet ✓ / Supabase ✓ / Xubio ⏳)
+  _tomadorMostrarProgreso(clienteNombre);
+
+  var params = new URLSearchParams({
+    accion:         'crearPresupuestoXubio',
+    pedidoId:       pedidoId,
+    xubioClienteId: sel.clienteId
+  });
+  if (calibres && Object.keys(calibres).length) {
+    params.set('calibres', JSON.stringify(calibres));
+  }
+  if (fechaISO) {
+    params.set('fechaPresupuesto', fechaISO);
+  }
+
+  fetch(APPS_SCRIPT_URL + '?' + params.toString())
+    .then(function(r) { return r.json(); })
+    .then(function(data) {
+      _xubioActivo = false;
+      _tomadorCerrarProgreso();
+
+      if (data.status === 'ok') {
+        // Actualizar pedido en memoria
+        var pedido = todosLosPedidos.find(function(x) { return x.pedidoId === pedidoId; });
+        if (pedido) {
+          pedido.estado = 'Confirmado';
+          pedido.xubioNroPresupuesto = data.nroPresupuesto;
+          pedido.xubioTransaccionid = data.transaccionid || '';
+          pedido.xubioEstado = 'creado';
+        }
+        renderPedidos();
+        if (typeof actualizarMiDiaSiAbierto === 'function') actualizarMiDiaSiAbierto();
+
+        // Modal de éxito + checkout auto en 4s
+        _tomadorMostrarExito(pedidoId, clienteNombre, entregaData, data.nroPresupuesto, pedido && pedido.total);
+      } else {
+        // Manejo de errores conocidos
+        var mensajeErr = data.message || 'No se pudo crear el presupuesto';
+        if (data.code === 'PRODUCTOS_SIN_MAPEAR' && data.faltantes) {
+          mensajeErr = 'Hay productos no mapeados en Xubio: ' + data.faltantes.join(', ');
+        } else if (data.code === 'YA_TIENE_PRESUPUESTO') {
+          // Ya tiene presupuesto — tratar como éxito retroactivo
+          var pedido2 = todosLosPedidos.find(function(x) { return x.pedidoId === pedidoId; });
+          if (pedido2) {
+            pedido2.estado = 'Confirmado';
+            pedido2.xubioNroPresupuesto = data.nroPresupuesto;
+            pedido2.xubioEstado = 'creado';
+          }
+          renderPedidos();
+          _tomadorMostrarExito(pedidoId, clienteNombre, entregaData, data.nroPresupuesto, pedido2 && pedido2.total);
+          return;
+        } else if (data.code === 'CONDICION_FISCAL_NULL') {
+          mensajeErr = 'Falta condición fiscal del cliente. Reintentá en 30 segundos.';
+        } else if (data.code === 'LOCK_OCUPADO') {
+          mensajeErr = 'Otra operación en curso. Esperá unos segundos y reintentá.';
+        }
+        _tomadorMostrarErrorXubio(pedidoId, fila, clienteNombre, entregaData, mensajeErr);
+      }
+    })
+    .catch(function(err) {
+      console.error('[_tomadorXubioFinalizar] error red:', err);
+      _xubioActivo = false;
+      _tomadorCerrarProgreso();
+      _tomadorMostrarErrorXubio(pedidoId, fila, clienteNombre, entregaData,
+        'Sin conexión para conectar con Xubio. El pedido se guardó como Pendiente.');
+    });
+}
+
+// Overlay de progreso mientras Xubio trabaja
+function _tomadorMostrarProgreso(clienteNombre) {
+  var prev = document.getElementById('tomador-xubio-progreso');
+  if (prev) prev.remove();
+  var modal = document.createElement('div');
+  modal.id = 'tomador-xubio-progreso';
+  modal.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,.6);z-index:99999;display:flex;align-items:center;justify-content:center;padding:20px;';
+  modal.innerHTML = ''
+    + '<div style="background:#fff;border-radius:20px;width:100%;max-width:380px;overflow:hidden;box-shadow:0 8px 32px rgba(0,0,0,.3);">'
+    +   '<div style="background:linear-gradient(135deg,#4A0000,#8B0000);padding:14px 20px;color:#fff;font-family:Barlow Condensed,sans-serif;font-size:18px;font-weight:900;letter-spacing:.3px;">'
+    +     '⏳ CERRANDO VENTA'
+    +   '</div>'
+    +   '<div style="padding:18px 20px;">'
+    +     '<div style="font-size:12px;color:#666;margin-bottom:12px;">' + _escapeHtml(clienteNombre || 'Cliente') + '</div>'
+    +     '<div style="display:flex;align-items:center;gap:10px;padding:8px 0;">'
+    +       '<div style="width:24px;height:24px;background:#2E7D32;border-radius:50%;display:flex;align-items:center;justify-content:center;color:#fff;font-size:13px;font-weight:900;">✓</div>'
+    +       '<div style="flex:1;font-size:13px;color:#2E7D32;font-weight:700;">Pedido guardado</div>'
+    +     '</div>'
+    +     '<div style="display:flex;align-items:center;gap:10px;padding:8px 0;">'
+    +       '<div style="width:24px;height:24px;background:#2E7D32;border-radius:50%;display:flex;align-items:center;justify-content:center;color:#fff;font-size:13px;font-weight:900;">✓</div>'
+    +       '<div style="flex:1;font-size:13px;color:#2E7D32;font-weight:700;">Visita registrada</div>'
+    +     '</div>'
+    +     '<div style="display:flex;align-items:center;gap:10px;padding:8px 0;">'
+    +       '<div style="width:24px;height:24px;background:#1565C0;border-radius:50%;display:flex;align-items:center;justify-content:center;color:#fff;font-size:13px;animation:spin 1s linear infinite;">⏳</div>'
+    +       '<div style="flex:1;font-size:13px;color:#1565C0;font-weight:700;">Creando presupuesto Xubio...</div>'
+    +     '</div>'
+    +   '</div>'
+    + '</div>';
+  document.body.appendChild(modal);
+}
+
+function _tomadorCerrarProgreso() {
+  var modal = document.getElementById('tomador-xubio-progreso');
+  if (modal) modal.remove();
+}
+
+// Modal de éxito + countdown checkout auto
+function _tomadorMostrarExito(pedidoId, clienteNombre, entregaData, nroPresupuesto, total) {
+  var prev = document.getElementById('tomador-xubio-exito');
+  if (prev) prev.remove();
+
+  var totalNum = parseInt(String(total || '0').replace(/[^\d]/g, '')) || 0;
+  var totalFmt = '$' + totalNum.toLocaleString('es-AR');
+  var fechaTxt = (entregaData && entregaData.dia) ? entregaData.dia : '—';
+  if (entregaData && entregaData.turno && entregaData.zona && entregaData.zona.indexOf('tl') === 0) {
+    fechaTxt += ' · ' + entregaData.turno;
+  }
+
+  var modal = document.createElement('div');
+  modal.id = 'tomador-xubio-exito';
+  modal.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,.6);z-index:99999;display:flex;align-items:center;justify-content:center;padding:20px;';
+  modal.innerHTML = ''
+    + '<div style="background:linear-gradient(135deg,#1B5E20,#2E7D32);border-radius:20px;width:100%;max-width:380px;padding:24px 22px;text-align:center;color:#fff;box-shadow:0 8px 32px rgba(0,0,0,.3);">'
+    +   '<div style="font-size:54px;line-height:1;margin-bottom:6px;">🎉</div>'
+    +   '<div style="font-family:Barlow Condensed,sans-serif;font-size:24px;font-weight:900;letter-spacing:.5px;">¡VENTA CERRADA!</div>'
+    +   '<div style="font-size:13px;opacity:.9;margin-top:6px;">Presupuesto N° ' + _escapeHtml(String(nroPresupuesto || '?')) + ' en Xubio</div>'
+    +   '<div style="background:rgba(255,255,255,.15);border-radius:12px;padding:12px 14px;margin-top:16px;text-align:left;">'
+    +     '<div style="display:flex;justify-content:space-between;padding:4px 0;font-size:13px;">'
+    +       '<span style="opacity:.85;">Cliente</span><b>' + _escapeHtml((clienteNombre || '').substring(0, 22)) + '</b>'
+    +     '</div>'
+    +     '<div style="display:flex;justify-content:space-between;padding:4px 0;font-size:13px;">'
+    +       '<span style="opacity:.85;">Total</span><b>' + totalFmt + '</b>'
+    +     '</div>'
+    +     '<div style="display:flex;justify-content:space-between;padding:4px 0;font-size:13px;">'
+    +       '<span style="opacity:.85;">Viaje</span><b>' + _escapeHtml(fechaTxt) + '</b>'
+    +     '</div>'
+    +   '</div>'
+    +   '<div style="margin-top:14px;display:flex;gap:8px;">'
+    +     '<button id="tom-exito-seguir" style="flex:1;padding:10px;background:rgba(255,255,255,.18);color:#fff;border:1px solid rgba(255,255,255,.3);border-radius:10px;font-family:Barlow Condensed,sans-serif;font-size:13px;font-weight:700;cursor:pointer;">Seguir en el local</button>'
+    +     '<button id="tom-exito-checkout" style="flex:2;padding:10px;background:#fff;color:#1B5E20;border:none;border-radius:10px;font-family:Barlow Condensed,sans-serif;font-size:13px;font-weight:900;cursor:pointer;">🚪 Check-out ahora</button>'
+    +   '</div>'
+    +   '<div id="tom-exito-countdown" style="font-size:11px;opacity:.85;margin-top:10px;">Check-out automático en 4 s…</div>'
+    + '</div>';
+  document.body.appendChild(modal);
+
+  // Countdown 4s con auto-checkout
+  var segundos = 4;
+  var countdownEl = document.getElementById('tom-exito-countdown');
+  var _timer = setInterval(function() {
+    segundos -= 1;
+    if (countdownEl) countdownEl.textContent = 'Check-out automático en ' + segundos + ' s…';
+    if (segundos <= 0) {
+      clearInterval(_timer);
+      var m = document.getElementById('tomador-xubio-exito');
+      if (m) m.remove();
+      if (typeof gpsCheckoutFinal === 'function') gpsCheckoutFinal(null);
+    }
+  }, 1000);
+
+  var btnSeguir = document.getElementById('tom-exito-seguir');
+  if (btnSeguir) btnSeguir.onclick = function() {
+    clearInterval(_timer);
+    var m = document.getElementById('tomador-xubio-exito');
+    if (m) m.remove();
+  };
+  var btnCheckout = document.getElementById('tom-exito-checkout');
+  if (btnCheckout) btnCheckout.onclick = function() {
+    clearInterval(_timer);
+    var m = document.getElementById('tomador-xubio-exito');
+    if (m) m.remove();
+    if (typeof gpsCheckoutFinal === 'function') gpsCheckoutFinal(null);
+  };
+}
+
+// Modal de error Xubio con opción reintentar
+function _tomadorMostrarErrorXubio(pedidoId, fila, clienteNombre, entregaData, mensajeErr) {
+  var prev = document.getElementById('tomador-xubio-error');
+  if (prev) prev.remove();
+
+  var modal = document.createElement('div');
+  modal.id = 'tomador-xubio-error';
+  modal.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,.6);z-index:99999;display:flex;align-items:center;justify-content:center;padding:20px;';
+  modal.innerHTML = ''
+    + '<div style="background:#fff;border-radius:20px;width:100%;max-width:380px;overflow:hidden;box-shadow:0 8px 32px rgba(0,0,0,.3);">'
+    +   '<div style="background:linear-gradient(135deg,#E65100,#F57C00);padding:16px 20px;color:#fff;">'
+    +     '<div style="display:flex;align-items:center;gap:10px;">'
+    +       '<span style="font-size:26px;">⚠️</span>'
+    +       '<div>'
+    +         '<div style="font-family:Barlow Condensed,sans-serif;font-size:18px;font-weight:900;">XUBIO NO RESPONDIÓ</div>'
+    +         '<div style="font-size:12px;opacity:.9;">El pedido se guardó como Pendiente</div>'
+    +       '</div>'
+    +     '</div>'
+    +   '</div>'
+    +   '<div style="padding:14px 20px;">'
+    +     '<div style="background:#FFF3E0;border-left:3px solid #FF9800;padding:10px 12px;border-radius:0 8px 8px 0;font-size:12px;color:#6D4C2D;line-height:1.5;">'
+    +       _escapeHtml(mensajeErr || 'No se pudo crear el presupuesto Xubio. Probá de nuevo cuando tengas señal, o el admin lo puede confirmar desde el panel.')
+    +     '</div>'
+    +     '<div style="display:flex;gap:8px;margin-top:14px;">'
+    +       '<button id="tom-err-dejar" style="flex:1;padding:12px;background:#fff;color:#666;border:1.5px solid #ccc;border-radius:10px;font-family:Barlow Condensed,sans-serif;font-size:13px;font-weight:900;cursor:pointer;">Dejar pendiente</button>'
+    +       '<button id="tom-err-reintentar" style="flex:2;padding:12px;background:linear-gradient(135deg,#E65100,#F57C00);color:#fff;border:none;border-radius:10px;font-family:Barlow Condensed,sans-serif;font-size:13px;font-weight:900;cursor:pointer;">🔄 Reintentar Xubio</button>'
+    +     '</div>'
+    +   '</div>'
+    + '</div>';
+  document.body.appendChild(modal);
+
+  document.getElementById('tom-err-dejar').onclick = function() {
+    var m = document.getElementById('tomador-xubio-error');
+    if (m) m.remove();
+    // Disparar el modal viejo de checkout 6s para que el vendedor cierre la visita
+    if (_gpsCheckinActivo) {
+      _gpsMostrarModalCheckoutAuto(clienteNombre);
+    }
+  };
+  document.getElementById('tom-err-reintentar').onclick = function() {
+    var m = document.getElementById('tomador-xubio-error');
+    if (m) m.remove();
+    // Reintentar todo el flujo desde detectarCalibres
+    _tomadorEjecutarXubio(pedidoId, fila, entregaData, clienteNombre);
+  };
+}
+
+// ════════════════════════════════════════════════════════════════════════
+// FIN bloque v14.20.0
+// ════════════════════════════════════════════════════════════════════════
+
 
 function xubioCerrarModalFecha() {
   var modal = document.getElementById('modal-xubio-fecha');
@@ -20707,6 +21159,36 @@ async function gpsCargarHistorial() {
           });
           if (!tieneCheckout) {
             checkinActivo = visitas[i];
+            // v14.20.0: enriquecer con xubio_id buscando en clientes_xubio.
+            // Necesario para que el flujo de presupuesto Xubio automático
+            // funcione también al restaurar un check-in viejo (recargar la app).
+            // Esto se hace en background; el render inicial muestra el check-in
+            // y cuando llega el xubio_id se actualiza _gpsCheckinActivo.
+            (function(ck) {
+              if (!ck || !ck.nombre_cliente) return;
+              var qNombre = ck.nombre_cliente.split(/\s+/).slice(0, 2).join(' ');
+              var path = 'clientes_xubio?select=id,nombre,cuit,localidad'
+                       + '&nombre=ilike.' + encodeURIComponent('*' + qNombre + '*')
+                       + '&limit=10';
+              sbFetch(path).then(function(rows) {
+                if (!Array.isArray(rows)) return;
+                var nNorm = (typeof mrNormNombre === 'function')
+                  ? mrNormNombre(ck.nombre_cliente)
+                  : ck.nombre_cliente.toLowerCase().trim();
+                var match = rows.find(function(r) {
+                  var rn = (typeof mrNormNombre === 'function')
+                    ? mrNormNombre(r.nombre || '')
+                    : (r.nombre || '').toLowerCase().trim();
+                  return rn === nNorm;
+                });
+                if (match && _gpsCheckinActivo && _gpsCheckinActivo.nombre_cliente === ck.nombre_cliente) {
+                  _gpsCheckinActivo.xubio_id = match.id || '';
+                  _gpsCheckinActivo.xubio_cuit = match.cuit || '';
+                  _gpsCheckinActivo.xubio_nombre = match.nombre || ck.nombre_cliente;
+                  console.log('[v14.20.0] Restaurado xubio_id del cliente activo:', _gpsCheckinActivo.xubio_id);
+                }
+              }).catch(function() { /* silencioso */ });
+            })(checkinActivo);
             break;
           }
         }
@@ -21524,9 +22006,22 @@ function gpsBuscarClienteXubio(q) {
         el.innerHTML = filas.slice(0, 8).map(function(c) {
           var nombre = c.nombre || 'Sin nombre';
           var localidad = c.localidad || '';
+          var xubioId = c.id || '';
+          var cuit = c.cuit || '';
           // v13.7.5: pasar también la localidad al check-in
-          // para poder asignar zona al pedido sin depender del input libre
-          return '<button class="gps-motivo-btn" data-nombre="' + nombre.replace(/"/g,'&quot;') + '" data-localidad="' + localidad.replace(/"/g,'&quot;') + '" onclick="gpsConfirmarCheckin(this.getAttribute(&quot;data-nombre&quot;), this.getAttribute(&quot;data-localidad&quot;))">'
+          // para poder asignar zona al pedido sin depender del input libre.
+          // v14.20.0: pasar también xubio_id y cuit para flujo presupuesto
+          // automático desde el tomador del check-in (presencial).
+          return '<button class="gps-motivo-btn"'
+            + ' data-nombre="' + nombre.replace(/"/g,'&quot;') + '"'
+            + ' data-localidad="' + localidad.replace(/"/g,'&quot;') + '"'
+            + ' data-xubioid="' + String(xubioId).replace(/"/g,'&quot;') + '"'
+            + ' data-cuit="' + String(cuit).replace(/"/g,'&quot;') + '"'
+            + ' onclick="gpsConfirmarCheckin('
+            +   'this.getAttribute(&quot;data-nombre&quot;),'
+            +   'this.getAttribute(&quot;data-localidad&quot;),'
+            +   'this.getAttribute(&quot;data-xubioid&quot;),'
+            +   'this.getAttribute(&quot;data-cuit&quot;))">'
             + '👤 ' + nombre
             + (localidad ? '<span style="color:var(--text3);font-size:12px;display:block"> 📍 ' + localidad + '</span>' : '')
             + '</button>';
@@ -21645,7 +22140,7 @@ async function gpsReintentar(nombreCliente) {
   gpsConfirmarCheckin(nombreCliente);
 }
 
-async function gpsConfirmarCheckin(nombreCliente, localidadCliente) {
+async function gpsConfirmarCheckin(nombreCliente, localidadCliente, xubioId, xubioCuit) {
   // v14.17.3 Cambio 5 (Bug C): lock anti-race. Si el vendedor tap 2 clientes
   // seguidos del autocomplete (porque el GPS del primero tarda), se creaban
   // 2 checkins paralelos en BD. Bloqueamos el segundo tap hasta que termine
@@ -21719,6 +22214,12 @@ async function gpsConfirmarCheckin(nombreCliente, localidadCliente) {
       _gpsCheckinActivo = {
         nombre_cliente: nombreCliente,
         localidad:      locCanon,         // ← NUEVO en v13.7.5
+        // v14.20.0: datos Xubio del cliente para flujo presupuesto presencial.
+        // Si vienen vacíos (check-in manual o sin xubio_id), el flujo de
+        // generación automática de Xubio se omite y el pedido queda Pendiente.
+        xubio_id:       xubioId  || '',
+        xubio_cuit:     xubioCuit || '',
+        xubio_nombre:   nombreCliente,    // mismo que en clientes_xubio
         fecha:          new Date().toISOString()
       };
       gpsActualizarEstado(_gpsCheckinActivo);
@@ -24388,7 +24889,19 @@ async function tomadorConfirmar() {
     + '<div style="font-family:Barlow Condensed,sans-serif;font-size:28px;font-weight:900;color:#8B0000">$' + resumenTotal.toLocaleString('es-AR') + '</div>'
     + '</div>'
     + '<div style="padding:0 20px 20px">'
-    + '<button id="tomador-final-btn" onclick="tomadorConfirmarFinal()" style="width:100%;padding:16px;background:linear-gradient(135deg,#1B5E20,#2E7D32);color:#fff;border:none;border-radius:14px;font-family:Barlow Condensed,sans-serif;font-size:20px;font-weight:900;cursor:pointer">✅ Confirmar y registrar pedido</button>'
+    // v14.20.0: si el cliente tiene xubio_id, el botón dice "Cerrar venta"
+    // y abajo aclara que el presupuesto se genera automáticamente. Si no
+    // tiene xubio_id (cliente manual), texto histórico.
+    + (function() {
+        var tieneXubio = !!(_gpsCheckinActivo && _gpsCheckinActivo.xubio_id);
+        var textoBtn = tieneXubio ? '✅ CERRAR VENTA' : '✅ CONFIRMAR PEDIDO';
+        var subText  = tieneXubio
+          ? '<div style="font-size:10px;color:#999;text-align:center;margin-top:6px;">Cierre presencial · presupuesto Xubio automático</div>'
+          : '';
+        return '<button id="tomador-final-btn" onclick="tomadorConfirmarFinal()" '
+          + 'style="width:100%;padding:16px;background:linear-gradient(135deg,#1B5E20,#2E7D32);color:#fff;border:none;border-radius:14px;font-family:Barlow Condensed,sans-serif;font-size:20px;font-weight:900;cursor:pointer;letter-spacing:.3px;">'
+          + textoBtn + '</button>' + subText;
+      })()
     + '</div>'
     + '</div>';
   document.body.appendChild(resumenModal);
@@ -24780,14 +25293,19 @@ async function tomadorConfirmarConEntrega(entregaData) {
   // Recargar historial GPS para mostrar la visita con pedido
   setTimeout(function() { gpsCargarHistorial(); }, 1500);
 
-  // v14.17.3 Cambio 1: si el guardado fue exitoso y hay check-in activo,
-  // mostrar modal de confirmación para checkout automático. La idea es que
-  // si el vendedor está físicamente en el local y ya tomó el pedido, no
-  // tiene sentido dejar la visita abierta. Confirmación previa porque
-  // podría querer agregar otro pedido al mismo cliente (caso raro pero
-  // posible). Ver _gpsModalCheckoutAuto definido abajo.
+  // v14.20.0: si el pedido se guardó OK y el check-in tiene xubio_id,
+  // disparar el flujo de generación automática de presupuesto Xubio.
+  // Si no tiene xubio_id (check-in manual sin Xubio), caer al flujo viejo
+  // del modal "checkout en 6s".
   if (_pedidoGuardadoOK && _gpsCheckinActivo) {
-    _gpsMostrarModalCheckoutAuto(cliente);
+    var tieneXubio = !!(_gpsCheckinActivo.xubio_id && _gpsCheckinActivo.xubio_id !== '');
+    if (tieneXubio) {
+      // v14.20.0 flujo nuevo: Xubio directo
+      _tomadorEjecutarXubio(pedidoId, nuevoPedidoOpt.fila, entregaData, cliente);
+    } else {
+      // v14.17.3 flujo legacy: modal "checkout en 6s"
+      _gpsMostrarModalCheckoutAuto(cliente);
+    }
   }
   } finally {
     // v14.17.2: usar el helper centralizado que también limpia el timeout
