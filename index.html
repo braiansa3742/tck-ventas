@@ -2,6 +2,64 @@
 <html lang="es">
 <head>
 <!-- ═══════════════════════════════════════════════════════════════════════
+     TCK VENTAS — v14.17.2 — 18/05/2026
+     ──────────────────────────────────────────────────────────────────────
+     FIX RACE CONDITION REAL — lock seteado ANTES del primer await
+
+     PROBLEMA REPORTADO (Lisandro, 18-may-26 10:30):
+       Seguían apareciendo pedidos duplicados pese a v14.17.1:
+         - CARINA SUAREZ 12:19:16 + 12:19:19  → 3 seg
+         - NANCY IBAÑEZ  13:15:06 + 13:15:11  → 5 seg
+       Mismo total exacto cada par. Sistema auto-cancela el segundo
+       (red de seguridad) pero se siguen creando.
+
+     CAUSA RAÍZ (revisión):
+       v14.17.1 agregó debounce de 1800ms al INICIO de manualWAConfirmar.
+       Pero el lock _mwaEnviando se sigue seteando RECIÉN en
+       _manualWAEjecutarGuardado, DESPUÉS de toda la cadena async:
+         manualWAConfirmar
+          └─ canalClienteChequearYAbrir  ← async (fetch Supabase 2-5s en 4G)
+              └─ _manualWAConfirmarContinuar
+                  └─ sucElegirAbrir       ← puede ser async
+                      └─ viajeEspBuscarOpciones ← async (Apps Script 2-3s)
+                          └─ _manualWAEjecutarGuardado ← acá recién set lock
+       En 4G débil del campo, esa cadena tarda 5-10 segundos.
+       El debounce de 1.8s solo cubre el primer tramo.
+       Si el vendedor tap "Confirmar" a los 3-5 segundos (porque pensó
+       que no se guardó, o por inercia), el debounce ya expiró y el
+       lock aún no se seteó → ambos taps pasan ambas barreras.
+
+     FIX (Opción A — cerrar la ventana de verdad):
+       Mover el lock + disable del botón al INICIO de manualWAConfirmar
+       y tomadorConfirmarFinal, ANTES de cualquier llamada async.
+       Liberar el lock en TODOS los early-returns por validación fallida.
+       El finally de manualWAGuardar / tomadorConfirmarConEntrega sigue
+       liberando el lock pase lo que pase al final del flujo.
+       El debounce de 1.8s queda como segunda barrera (no se toca).
+
+     CAMBIOS v14.17.2 sobre v14.17.1:
+       1. manualWAConfirmar: lock + disable botón al inicio (antes de
+          validaciones síncronas). Liberar en cada early-return.
+       2. _manualWAEjecutarGuardado: removido el seteo del lock
+          (ya se hizo al inicio de manualWAConfirmar).
+       3. tomadorConfirmarFinal: lock + disable botón al inicio.
+          Liberar si canalClienteChequearYAbrir falla.
+       4. _tomadorConfirmarFinalContinuar: removido el seteo del lock.
+
+     SIN IMPACTO en:
+       · Editar pedido (flujo distinto, sin ventana de carrera).
+       · Detector de duplicados (sigue como red de seguridad).
+       · Modal de canal obligatorio (sigue bloqueando al vendedor
+         hasta completar, ahora con lock activo lo cual es correcto).
+       · Choferes, planillas, rendiciones.
+
+     POST-FIX, ESCENARIO ESPERADO:
+       Tap 1 → lock SET, botón "Verificando...", se abre modal canal/sucursal
+       Tap 2 (5s después, vendedor impaciente) → lock activo, IGNORADO.
+       Modal canal completado → guardado → finally libera lock.
+     ══════════════════════════════════════════════════════════════════════ -->
+
+<!-- ═══════════════════════════════════════════════════════════════════════
      TCK VENTAS — v14.17.1 — 14/05/2026
      ──────────────────────────────────────────────────────────────────────
      FIX ANTI-DOBLE-TAP — debounce en confirmación de pedido
@@ -13480,6 +13538,8 @@ function viajeEspRenderPill(container, opcInfo, contexto) {
     'transition:transform .15s;touch-action:manipulation;';
   pill.onclick = function() {
     viajeEspAbrirSelector(opcInfo, function(idElegido) {
+      // v14.17.2: si canceló (idElegido === null), no cambiar la elección.
+      if (idElegido === null) return;
       window._viajeEspElegido = idElegido;
       // Re-render la pill para reflejar la nueva elección
       viajeEspRenderPill(container, opcInfo, contexto);
@@ -13565,6 +13625,11 @@ function viajeEspAbrirSelector(opcInfo, onElegir) {
 
   document.getElementById('viaje-esp-cancelar-btn').onclick = function() {
     modal.remove();
+    // v14.17.2: llamar al callback con null para señalar cancelación.
+    // Los call sites deben chequear si el id es null y liberar locks/flags.
+    // Sin esto, los call sites en manualWA/tomador quedaban colgados con
+    // el lock activo (porque el callback nunca se invocaba).
+    if (typeof onElegir === 'function') onElegir(null);
   };
   document.getElementById('viaje-esp-confirmar-btn').onclick = function() {
     modal.remove();
@@ -23016,12 +23081,25 @@ async function tomadorConfirmar() {
   return; // Stop here - actual confirmation happens in tomadorConfirmarFinal
 }
 
+// v14.17.2: helper para liberar lock + restaurar botón en early-returns
+// del flujo del tomador del check-in. Espejo de _mwaLiberarLock.
+function _tomadorLiberarLock() {
+  window._tomadorEnviando = false;
+  if (window._tomadorLockTimeout) {
+    clearTimeout(window._tomadorLockTimeout);
+    window._tomadorLockTimeout = null;
+  }
+  var _btn = document.getElementById('tomador-final-btn');
+  if (_btn) {
+    _btn.disabled = false;
+    _btn.textContent = _btn._textoOriginal || '✅ Confirmar y registrar pedido';
+    _btn.style.opacity = '';
+    _btn.style.cursor = '';
+  }
+}
+
 async function tomadorConfirmarFinal() {
-  // v14.17.1 ANTI-DOBLE-TAP: debounce de 1800ms ANTES de cualquier validación
-  // o await. Cierra la ventana de carrera que dejaba el lock _tomadorEnviando
-  // cuando este se seteaba después de canalClienteChequearYAbrir (async).
-  // Mismo bug que manualWAConfirmar — fix preventivo para cuando los
-  // vendedores empiecen a usar check-in GPS de forma habitual.
+  // v14.17.1 ANTI-DOBLE-TAP: debounce de 1800ms (primera barrera).
   var _ahoraTap = Date.now();
   if (window._tomadorUltimoTap && (_ahoraTap - window._tomadorUltimoTap) < 1800) {
     console.warn('[ANTI-DUP] tomadorConfirmarFinal tap ignorado por debounce (' +
@@ -23030,13 +23108,34 @@ async function tomadorConfirmarFinal() {
   }
   window._tomadorUltimoTap = _ahoraTap;
 
-  // v14.5.0 ANTI-DUP: lock global + botón disabled para impedir doble click.
-  // Mismo patrón que manualWAConfirmar (v14.3.0). Sin esto, doble tap del
-  // chofer/vendedor en el campo generaba 2-3 pedidos con IDs distintos.
+  // v14.17.2 ANTI-DUP: chequear lock ANTES de cualquier acción.
   if (window._tomadorEnviando) {
     console.warn('[ANTI-DUP] tomadorConfirmarFinal bloqueado por lock activo');
     return;
   }
+
+  // v14.17.2 ANTI-DUP: setear lock + disable botón AHORA, antes del primer
+  // await (canalClienteChequearYAbrir). Mismo fix que manualWAConfirmar.
+  // Se libera en _tomadorLiberarLock() si cancelan algún modal intermedio,
+  // y en el finally de tomadorConfirmarConEntrega al completar el flujo.
+  window._tomadorEnviando = true;
+  var _btnTomInit = document.getElementById('tomador-final-btn');
+  if (_btnTomInit) {
+    _btnTomInit._textoOriginal = _btnTomInit.textContent;
+    _btnTomInit.disabled = true;
+    _btnTomInit.textContent = 'Verificando...';
+    _btnTomInit.style.opacity = '0.6';
+    _btnTomInit.style.cursor = 'wait';
+  }
+
+  // v14.17.2: timeout de seguridad — liberar lock si algo se cuelga +90s.
+  if (window._tomadorLockTimeout) clearTimeout(window._tomadorLockTimeout);
+  window._tomadorLockTimeout = setTimeout(function() {
+    if (window._tomadorEnviando) {
+      console.warn('[ANTI-DUP] tomadorConfirmarFinal timeout 90s — liberando lock colgado');
+      _tomadorLiberarLock();
+    }
+  }, 90000);
 
   // v14.13.6: BLOQUEO OBLIGATORIO de canal antes de confirmar.
   // Si el cliente no tiene canal asignado, modal sin escape.
@@ -23048,14 +23147,11 @@ async function tomadorConfirmarFinal() {
 }
 
 async function _tomadorConfirmarFinalContinuar() {
-  window._tomadorEnviando = true;
+  // v14.17.2: el lock _tomadorEnviando + disable del botón ya se setearon
+  // al INICIO de tomadorConfirmarFinal. Acá solo actualizamos el texto.
   var _btnTom = document.getElementById('tomador-final-btn');
   if (_btnTom) {
-    _btnTom._textoOriginal = _btnTom.textContent;
-    _btnTom.disabled = true;
     _btnTom.textContent = 'Enviando...';
-    _btnTom.style.opacity = '0.6';
-    _btnTom.style.cursor = 'wait';
   }
 
   var modal = document.getElementById('tomador-resumen-modal');
@@ -23066,10 +23162,9 @@ async function _tomadorConfirmarFinalContinuar() {
   var cliente = _gpsCheckinActivo ? _gpsCheckinActivo.nombre_cliente : '';
   abrirSelectorSucursalSiAplica(cliente, function(res){
     if (!res.continuar) {
-      // v14.5.0 ANTI-DUP: si canceló, liberar lock para que pueda reintentar
-      window._tomadorEnviando = false;
-      // Usuario canceló el selector → volvemos al resumen (reabrimos)
-      // En la práctica: reabrimos la vista de resumen llamando a tomadorConfirmar de nuevo
+      // v14.17.2: usuario canceló el selector de sucursal. Liberar lock
+      // + limpiar timeout vía helper, y reabrir el resumen.
+      _tomadorLiberarLock();
       tomadorConfirmar();
       return;
     }
@@ -23090,6 +23185,12 @@ async function _tomadorConfirmarFinalContinuar() {
       if (opcInfo && opcInfo.viajes && opcInfo.viajes.length > 1) {
         window._viajeEspElegido = opcInfo.defaultId;
         viajeEspAbrirSelector(opcInfo, function(idElegido) {
+          // v14.17.2: si canceló, liberar lock + timeout vía helper, y reabrir.
+          if (idElegido === null) {
+            _tomadorLiberarLock();
+            tomadorConfirmar();
+            return;
+          }
           window._viajeEspElegido = idElegido;
           tomadorConfirmarConEntrega(entrega);
         });
@@ -23347,8 +23448,9 @@ async function tomadorConfirmarConEntrega(entregaData) {
   // Recargar historial GPS para mostrar la visita con pedido
   setTimeout(function() { gpsCargarHistorial(); }, 1500);
   } finally {
-    // v14.5.0 ANTI-DUP: liberar lock pase lo que pase
-    window._tomadorEnviando = false;
+    // v14.17.2: usar el helper centralizado que también limpia el timeout
+    // de seguridad de 90s (window._tomadorLockTimeout).
+    _tomadorLiberarLock();
   }
 }
 
@@ -27991,11 +28093,26 @@ function mwaCerrarDetalleCarrito() {
   if (modal) modal.classList.remove('on');
 }
 
+// v14.17.2: helper para liberar lock + restaurar botón en early-returns.
+// Usado por manualWAConfirmar cuando una validación síncrona falla
+// DESPUÉS de haber seteado el lock al inicio.
+function _mwaLiberarLock() {
+  window._mwaEnviando = false;
+  if (window._mwaLockTimeout) {
+    clearTimeout(window._mwaLockTimeout);
+    window._mwaLockTimeout = null;
+  }
+  var _btn = document.getElementById('mwa-confirmar-btn');
+  if (_btn) {
+    _btn.disabled = false;
+    _btn.textContent = _btn._textoOriginal || 'Confirmar pedido';
+    _btn.style.opacity = '';
+    _btn.style.cursor = '';
+  }
+}
+
 function manualWAConfirmar() {
-  // v14.17.1 ANTI-DOBLE-TAP: debounce de 1800ms ANTES de cualquier validación
-  // o await. Cierra la ventana de carrera que dejaba el lock _mwaEnviando
-  // cuando este se seteaba después de canalClienteChequearYAbrir (async).
-  // Caso Lisandro 14-may-26: 2 pedidos a 5s con mismo total.
+  // v14.17.1 ANTI-DOBLE-TAP: debounce de 1800ms (primera barrera, taps muy rápidos).
   var _ahoraTap = Date.now();
   if (window._mwaUltimoTap && (_ahoraTap - window._mwaUltimoTap) < 1800) {
     console.warn('[ANTI-DUP] manualWAConfirmar tap ignorado por debounce (' +
@@ -28004,44 +28121,74 @@ function manualWAConfirmar() {
   }
   window._mwaUltimoTap = _ahoraTap;
 
-  // v14.3.0 ANTI-DUP: lock global + botón disabled para impedir doble click.
-  // Sin esto, cada toque del vendedor al botón "Confirmar" generaba un pedidoId
-  // distinto (Math.random) → INSERT nuevo → duplicados (caso Logotetti 7 pedidos
-  // 02-may-26). El lock se libera en finally al final de manualWAGuardar.
+  // v14.17.2 ANTI-DUP: chequear lock ANTES de cualquier acción.
   if (window._mwaEnviando) {
     console.warn('[ANTI-DUP] manualWAConfirmar bloqueado por lock activo');
     return;
   }
+
+  // v14.17.2 ANTI-DUP: setear lock + disable botón AHORA, antes del primer
+  // await (canalClienteChequearYAbrir). En 4G débil esa cadena tarda 5-10s,
+  // y el debounce de 1.8s no la cubre. Sin este lock al inicio, un segundo
+  // tap a los 3-5s pasa ambas barreras (caso Carina/Nancy 18-may-26).
+  // Se libera en _mwaLiberarLock() si falla una validación, y en el
+  // finally de manualWAGuardar al completar el flujo.
+  window._mwaEnviando = true;
+  var _btnConfInit = document.getElementById('mwa-confirmar-btn');
+  if (_btnConfInit) {
+    _btnConfInit._textoOriginal = _btnConfInit.textContent;
+    _btnConfInit.disabled = true;
+    _btnConfInit.textContent = 'Verificando...';
+    _btnConfInit.style.opacity = '0.6';
+    _btnConfInit.style.cursor = 'wait';
+  }
+
+  // v14.17.2: timeout de seguridad. Si el flujo queda colgado por una
+  // excepción async no capturada (canalClienteChequearYAbrir falla, modal
+  // se traba, etc.), liberar el lock automáticamente a los 90 segundos
+  // para que el vendedor no quede bloqueado para siempre. Si el flujo
+  // termina normal, el finally limpia el timeout.
+  if (window._mwaLockTimeout) clearTimeout(window._mwaLockTimeout);
+  window._mwaLockTimeout = setTimeout(function() {
+    if (window._mwaEnviando) {
+      console.warn('[ANTI-DUP] manualWAConfirmar timeout 90s — liberando lock colgado');
+      _mwaLiberarLock();
+    }
+  }, 90000);
 
   const clienteInp  = document.getElementById('manual-wa-cliente-input');
   const localidadInp = document.getElementById('manual-wa-localidad-input');
   const cliente   = clienteInp  ? clienteInp.value.trim()   : '';
   const localidad = localidadInp ? localidadInp.value.trim() : '';
 
-  if (!cliente) { toast('Ingresá el nombre del cliente', 'err'); return; }
+  if (!cliente) { toast('Ingresá el nombre del cliente', 'err'); _mwaLiberarLock(); return; }
 
   // v13.7.5: Validación dura de localidad canónica
   // Si el dropdown está vacío o el valor no coincide con las 27, bloquea.
   if (!localidad) {
     toast('Elegí la localidad del cliente', 'err');
     if (localidadInp) localidadInp.focus();
+    _mwaLiberarLock();
     return;
   }
   if (!localidadCanonicaDe(localidad)) {
     toast('Localidad inválida — elegí una de la lista', 'err');
     if (localidadInp) localidadInp.focus();
+    _mwaLiberarLock();
     return;
   }
 
   // v12: usar desglose para validar (acepta combos solos sin sueltos)
   var _dCheck = mwaCalcularDesglose();
-  if (_dCheck.itemsCount === 0) { toast('Agregá al menos un producto', 'err'); return; }
+  if (_dCheck.itemsCount === 0) { toast('Agregá al menos un producto', 'err'); _mwaLiberarLock(); return; }
 
   // v14.13.5: bloqueo defensivo — si el cliente no tiene canal, abrir modal
   // y bloquear hasta completar. Cubre el caso donde el vendedor:
   // a) escribió el nombre a mano (no usó autocomplete)
   // b) cerró el modal sin completar al seleccionar cliente
   // v14.13.6: obligatorio=true acá. Sin canal, NO se confirma el pedido.
+  // v14.17.2: el lock ya está seteado arriba; el modal de canal obligatorio
+  // siempre llama al callback (no se puede cerrar sin completar).
   canalClienteChequearYAbrir(cliente, function() {
     _manualWAConfirmarContinuar(cliente, localidad);
   }, true);
@@ -28052,7 +28199,12 @@ function _manualWAConfirmarContinuar(cliente, localidad) {
   // Si el cliente tiene 0, sigue como antes. Si tiene 1, se usa auto.
   // Si cancela el vendedor el selector, NO avanzamos (queda en el form manual WA).
   sucElegirAbrir(cliente, function(suc, modo) {
-    if (modo === 'cancelado') return;
+    if (modo === 'cancelado') {
+      // v14.17.2: liberar lock para que el vendedor pueda reintentar.
+      // Sin esto, el botón "Confirmar" queda deshabilitado para siempre.
+      _mwaLiberarLock();
+      return;
+    }
 
     // v14.2 F-Modal: Inferir entrega desde localidad (NO mostrar modal de fecha/turno)
     var entrega = inferirEntregaDesdeLocalidad(localidad);
@@ -28071,6 +28223,12 @@ function _manualWAConfirmarContinuar(cliente, localidad) {
         // Hay >1 viaje disponible → mostrar selector ANTES de guardar
         window._viajeEspElegido = opcInfo.defaultId;
         viajeEspAbrirSelector(opcInfo, function(idElegido) {
+          // v14.17.2: idElegido === null significa que el vendedor canceló
+          // el modal. Liberar el lock para que pueda reintentar.
+          if (idElegido === null) {
+            _mwaLiberarLock();
+            return;
+          }
           window._viajeEspElegido = idElegido;
           _manualWAEjecutarGuardado(cliente, localidad, entrega, suc);
         });
@@ -28089,16 +28247,13 @@ function _manualWAConfirmarContinuar(cliente, localidad) {
 // v14.17.0 (N43): extraído de _manualWAConfirmarContinuar para reusar
 // después de la selección de viaje (si hubo) o directo si no la hubo.
 function _manualWAEjecutarGuardado(cliente, localidad, entrega, suc) {
-  // v14.3.0 ANTI-DUP: activar lock + disable del botón ANTES de la llamada async.
+  // v14.17.2: el lock _mwaEnviando + disable del botón ya se setearon al
+  // INICIO de manualWAConfirmar (antes de canalClienteChequearYAbrir).
+  // Acá solo actualizamos el texto del botón al estado final "Enviando...".
   // El lock se libera dentro de manualWAGuardar (try/finally).
-  window._mwaEnviando = true;
   var _btnConf = document.getElementById('mwa-confirmar-btn');
   if (_btnConf) {
-    _btnConf._textoOriginal = _btnConf.textContent;
-    _btnConf.disabled = true;
     _btnConf.textContent = 'Enviando...';
-    _btnConf.style.opacity = '0.6';
-    _btnConf.style.cursor = 'wait';
   }
 
   manualWAGuardar(cliente, localidad, entrega, suc);
@@ -28278,17 +28433,10 @@ async function manualWAGuardar(cliente, localidad, entrega, sucursal) {
   // polling normal lo confirmará cuando llegue. Sin estos reintentos, el
   // pedido NO va a "desaparecer y volver a aparecer" (bug histórico v14.x).
   } finally {
-    // v14.3.0 ANTI-DUP: liberar lock + restaurar botón pase lo que pase.
-    // Sin esto, si algo falla a mitad de la función, el botón queda
-    // disabled para siempre y el lock global bloquea pedidos futuros.
-    window._mwaEnviando = false;
-    var _btn = document.getElementById('mwa-confirmar-btn');
-    if (_btn) {
-      _btn.disabled = false;
-      _btn.textContent = _btn._textoOriginal || 'Confirmar pedido';
-      _btn.style.opacity = '';
-      _btn.style.cursor = '';
-    }
+    // v14.17.2: usar el helper centralizado que también limpia el timeout
+    // de seguridad de 90s (window._mwaLockTimeout). Antes (v14.3.0) este
+    // bloque liberaba lock + restauraba botón inline; ahora lo hace el helper.
+    _mwaLiberarLock();
   }
 }
 
