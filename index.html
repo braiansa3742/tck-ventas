@@ -2,6 +2,61 @@
 <html lang="es">
 <head>
 <!-- ═══════════════════════════════════════════════════════════════════════
+     TCK VENTAS — v14.18.0 — 18/05/2026
+     ──────────────────────────────────────────────────────────────────────
+     OPCIÓN D — CONEXIÓN VISITAS ↔ MI RONDA
+
+     CONTEXTO:
+       Hasta v14.17.3, los módulos "Visitas" (check-in/out) y "Mi Ronda"
+       eran sistemas paralelos sin conexión. El vendedor hacía check-in,
+       check-out con motivo "Precio alto" y, separadamente, tenía que ir
+       a Mi Ronda y marcar "No compró → Consigue más barato". Doble
+       trabajo y desincronización.
+
+     CAMBIOS v14.18.0:
+
+       1. CHECKOUT CON MOTIVO → GESTIÓN AUTOMÁTICA EN MI RONDA.
+          Cuando el vendedor hace check-out con motivo real (Precio alto,
+          Compró a competencia, etc.), si el cliente está en su ronda y
+          aún no fue cubierto/gestionado, se inserta automáticamente una
+          gestión "sin_venta" con el motivo mapeado.
+
+          Mapeo motivo checkout → motivo mi ronda:
+            "Precio alto"             → mas_barato
+            "Compró a la competencia" → mas_barato + texto
+            "No necesita por ahora"   → tiene_mercaderia
+            "Local cerrado"           → no_atiende + texto
+            "Cliente ausente"         → no_atiende + texto
+            "Otro"                    → otro
+            "Cambio de cliente"       → IGNORADO (técnico)
+            "Sesión cerrada"          → IGNORADO (técnico)
+
+       2. PEDIDO POR TOMADOR → MARCADO COMO VENDIDO EN MI RONDA.
+          Cuando se confirma un pedido por el tomador del check-in, se
+          marca el cliente como verde en Mi Ronda inmediatamente. Antes
+          dependía del próximo recálculo manual.
+
+     FUNCIONES NUEVAS:
+       · _esCheckoutMotivoReal(motivo): filtra motivos técnicos
+       · _mrMapearMotivoCheckout(motivo): mapeo checkout → mi ronda
+       · _mrSincronizarDesdeCheckout(cliente, motivo): inserta gestión
+       · _mrMarcarVendidoDesdeTomador(cliente): marca verde sin esperar
+
+     IMPACTO ESPERADO:
+       · Vendedor que usa check-in tiene Mi Ronda actualizada sin tocar
+         nada manualmente.
+       · Si un cliente no está en la ronda (cliente nuevo, no activo),
+         no se hace nada — solo afecta clientes ya cargados.
+       · No-op si Mi Ronda no se cargó (lazy load on demand).
+
+     SIN IMPACTO en:
+       · Flujo de manualWA (no toca Mi Ronda — los pedidos sí se reflejan
+         en Mi Ronda al recalcular).
+       · Catálogo, choferes, planillas.
+       · Detector de duplicados, anti-dup.
+     ══════════════════════════════════════════════════════════════════════ -->
+
+<!-- ═══════════════════════════════════════════════════════════════════════
      TCK VENTAS — v14.17.3 — 18/05/2026
      ──────────────────────────────────────────────────────────────────────
      CHECK-IN: UX + DEFENSA EN PROFUNDIDAD + BUGS LATENTES
@@ -21340,65 +21395,169 @@ async function gpsCheckoutFinal(motivo) {
       });
     })
     .catch(function(e) { console.error('Checkout background error:', e); });
+
+  // v14.18.0 OPCIÓN D: si el checkout fue con motivo "real" (no técnico),
+  // marcar el cliente como gestionado en Mi Ronda automáticamente.
+  // Beneficio: el vendedor no tiene que ir a Mi Ronda y marcar otra vez
+  // "No compró" después de hacer checkout — un solo paso cubre los 2 lugares.
+  if (motivo && _esCheckoutMotivoReal(motivo) && cliente) {
+    _mrSincronizarDesdeCheckout(cliente, motivo).catch(function(e) {
+      console.warn('[Opción D] No se pudo sincronizar con Mi Ronda:', e);
+    });
+  }
+}
+
+// v14.18.0 OPCIÓN D: marca cliente como vendido en Mi Ronda cuando se
+// confirma un pedido por el tomador del check-in. Sin esto, Mi Ronda
+// solo lo detectaba al próximo recálculo (cuando se recargaban pedidos).
+function _mrMarcarVendidoDesdeTomador(nombreCliente) {
+  if (!nombreCliente) return;
+  if (!_miRondaClientes || _miRondaClientes.length === 0) return;
+  var nombreNorm = mrNormNombre(nombreCliente);
+  if (!nombreNorm) return;
+  var cliente = _miRondaClientes.find(function(c) {
+    return mrNormNombre(c.nombre) === nombreNorm;
+  });
+  if (!cliente) return;
+  // Marcar como verde en el cache local
+  cliente._mr_estado = 'verde';
+  // Si Mi Ronda está montada, refrescar la ruta
+  var rutaKey = cliente.ruta_viaje || 'SIN_RUTA';
+  if (typeof miRondaRecalcularRuta === 'function') {
+    try {
+      miRondaRecalcularRuta(rutaKey);
+      if (typeof miRondaRenderCards === 'function') miRondaRenderCards();
+    } catch(e) { console.warn('[Opción D vendido] Error refrescando Mi Ronda:', e); }
+  }
+  console.log('[Opción D] ✅ Cliente "' + cliente.nombre + '" marcado como vendido en Mi Ronda');
+}
+
+// v14.18.0 OPCIÓN D: ¿el motivo del checkout corresponde a una gestión real
+// del vendedor (que debería contar en Mi Ronda) o es un motivo técnico
+// (sesión cerrada, cambio de cliente) que NO es una gestión?
+function _esCheckoutMotivoReal(motivo) {
+  if (!motivo) return false;
+  // Motivos técnicos a ignorar
+  if (motivo === 'Cambio de cliente') return false;
+  if (motivo.indexOf('Sesión cerrada') === 0) return false;
+  // Todos los otros motivos del modal de checkout SON gestiones reales
+  return true;
+}
+
+// v14.18.0 OPCIÓN D: mapeo de motivos del checkout (GPS visitas) a los
+// motivos del modal de Mi Ronda. Devuelve { motivo, motivo_texto }.
+// Algunos motivos no tienen equivalente directo y se mapean a "otro" con
+// texto descriptivo.
+function _mrMapearMotivoCheckout(motivoCheckout) {
+  var mapeo = {
+    'Precio alto':              { motivo: 'mas_barato',       motivo_texto: null },
+    'Compró a la competencia':  { motivo: 'mas_barato',       motivo_texto: 'Compró a competencia' },
+    'No necesita por ahora':    { motivo: 'tiene_mercaderia', motivo_texto: null },
+    'Local cerrado':            { motivo: 'no_atiende',       motivo_texto: 'Local cerrado' },
+    'Cliente ausente':          { motivo: 'no_atiende',       motivo_texto: 'Cliente ausente' },
+    'Otro':                     { motivo: 'otro',             motivo_texto: null }
+  };
+  return mapeo[motivoCheckout] || { motivo: 'otro', motivo_texto: motivoCheckout };
+}
+
+// v14.18.0 OPCIÓN D: sincroniza un checkout con motivo en Mi Ronda.
+// Si encuentra al cliente en la ronda del vendedor (matching por nombre
+// normalizado) y NO está ya cubierto/gestionado, lo marca como gestionado
+// sin venta con el motivo equivalente.
+async function _mrSincronizarDesdeCheckout(nombreClienteVisita, motivoCheckout) {
+  // Si los datos de Mi Ronda no están cargados, cargarlos
+  if (!_miRondaClientes || _miRondaClientes.length === 0) {
+    try {
+      await miRondaCargarClientes(false);
+    } catch(e) {
+      console.warn('[Opción D] No se pudieron cargar clientes de Mi Ronda:', e);
+      return;
+    }
+  }
+  // Si las gestiones no se cargaron aún, cargarlas
+  if (!_miRondaGestionesCargadas) {
+    await new Promise(function(resolve) {
+      mrSupabaseCargarGestiones(resolve);
+    });
+  }
+
+  var nombreNorm = mrNormNombre(nombreClienteVisita);
+  if (!nombreNorm) return;
+
+  // Buscar el cliente en la ronda del vendedor
+  var cliente = _miRondaClientes.find(function(c) {
+    return mrNormNombre(c.nombre) === nombreNorm;
+  });
+  if (!cliente) {
+    console.log('[Opción D] Cliente "' + nombreClienteVisita + '" no está en la ronda del vendedor — saltando sync');
+    return;
+  }
+
+  // Si ya está vendido (verde) o gestionado, no tocar
+  if (cliente._mr_estado === 'verde') {
+    console.log('[Opción D] Cliente "' + cliente.nombre + '" ya está cubierto — saltando sync');
+    return;
+  }
+  if (_miRondaGestiones[cliente.cliente_id]) {
+    console.log('[Opción D] Cliente "' + cliente.nombre + '" ya está gestionado — saltando sync');
+    return;
+  }
+
+  // Determinar la ruta del cliente para asociar la gestión a la ronda correcta
+  var rutaKey = cliente.ruta_viaje || 'SIN_RUTA';
+  var fechaRonda = mrFechaRonda(rutaKey);
+  if (!fechaRonda) {
+    console.warn('[Opción D] No se pudo determinar fecha de ronda para', rutaKey);
+    return;
+  }
+
+  // Mapear el motivo
+  var mapeado = _mrMapearMotivoCheckout(motivoCheckout);
+
+  // Insertar la gestión en Supabase (mismo formato que mrMotivoGuardar)
+  var vendedor = mrNormVendedor(vendedorActual);
+  var gestion = {
+    cliente_id:     cliente.cliente_id,
+    cliente_nombre: cliente.nombre,
+    vendedor:       vendedor,
+    fecha_ronda:    fechaRonda,
+    ruta_key:       rutaKey,
+    estado:         'sin_venta',
+    motivo:         mapeado.motivo,
+    motivo_texto:   mapeado.motivo_texto
+  };
+
+  mrSupabaseGuardarGestion(gestion, function(ok) {
+    if (!ok) {
+      console.warn('[Opción D] No se pudo guardar gestión sincronizada');
+      return;
+    }
+    // Actualizar cache local
+    _miRondaGestiones[cliente.cliente_id] = {
+      estado:       'sin_venta',
+      motivo:       mapeado.motivo,
+      motivo_texto: mapeado.motivo_texto,
+      fecha_ronda:  fechaRonda,
+      ruta_key:     rutaKey
+    };
+    // Si Mi Ronda está visible, recalcular para que se refleje
+    if (typeof miRondaRecalcularRuta === 'function') {
+      try {
+        miRondaRecalcularRuta(rutaKey);
+        if (typeof miRondaRenderCards === 'function') miRondaRenderCards();
+      } catch(e) { console.warn('[Opción D] Error refrescando Mi Ronda:', e); }
+    }
+    console.log('[Opción D] ✅ Sincronizado: ' + cliente.nombre + ' → gestionado como "' + mapeado.motivo + '"');
+  });
 }
 
 // Visita sin pedido
-function gpsVisitaSinPedido() {
-  var modal = document.createElement('div');
-  modal.className = 'gps-modal-overlay';
-  modal.id = 'gps-modal-visita';
-  modal.innerHTML = '<div class="gps-modal">'
-    + '<div class="gps-modal-hdr">'
-    + '<div class="gps-modal-titulo">📋 Visita sin pedido</div>'
-    + '<button class="gps-modal-close" onclick="document.getElementById(&quot;gps-modal-visita&quot;).remove()">✕</button>'
-    + '</div>'
-    + '<div style="padding:12px 20px 0">'
-    + '<input class="gps-buscar-cliente" id="gps-input-visita" placeholder="🔍 Nombre del cliente..." style="margin-bottom:6px">'
-    + '<div style="font-family:&apos;Barlow Condensed&apos;,sans-serif;font-size:14px;font-weight:900;color:var(--text2);margin:10px 0 6px">¿Por qué no compró?</div>'
-    + '</div>'
-    + '<button class="gps-motivo-btn" onclick="gpsGuardarVisita(&quot;Precio alto&quot;)">💰 Precio alto</button>'
-    + '<button class="gps-motivo-btn" onclick="gpsGuardarVisita(&quot;Compró a la competencia&quot;)">🏪 Compró a la competencia</button>'
-    + '<button class="gps-motivo-btn" onclick="gpsGuardarVisita(&quot;No necesita por ahora&quot;)">📦 No necesita por ahora</button>'
-    + '<button class="gps-motivo-btn" onclick="gpsGuardarVisita(&quot;Local cerrado&quot;)">🔒 Local cerrado</button>'
-    + '<button class="gps-motivo-btn" onclick="gpsGuardarVisita(&quot;Cliente ausente&quot;)">🚶 Cliente ausente</button>'
-    + '<button class="gps-motivo-btn" onclick="gpsGuardarVisita(&quot;Otro&quot;)">💬 Otro motivo</button>'
-    + '</div>';
-  document.body.appendChild(modal);
-}
-
-// Guardar visita sin pedido
-async function gpsGuardarVisita(motivo) {
-  var modal = document.getElementById('gps-modal-visita');
-  var inp = document.getElementById('gps-input-visita');
-  var nombreCliente = inp ? inp.value.trim() : '';
-  if (modal) modal.remove();
-
-  if (!nombreCliente) {
-    nombreCliente = prompt('Nombre del cliente:') || 'Sin nombre';
-  }
-
-  var coords = await gpsGetCoords();
-  var vendedorId = await gpsObtenerVendedorId();
-
-  try {
-    await sbFetch('visitas', {
-      method: 'POST',
-      body: JSON.stringify({
-        vendedor_id:        vendedorId,
-        nombre_cliente:     nombreCliente,
-        tipo:               'visita_sin_pedido',
-        motivo_no_compra:   motivo,
-        lat:                coords.lat,
-        lng:                coords.lng
-      })
-    });
-
-    toast('📋 Visita registrada — ' + motivo, 'ok');
-    gpsCargarHistorial();
-  } catch(e) {
-    toast('Error al registrar visita', 'err');
-  }
-}
+// v14.17.3 limpieza: funciones gpsVisitaSinPedido() y gpsGuardarVisita()
+// eliminadas — código muerto. No se llamaban desde ningún botón visible.
+// El flujo actual de "visita sin pedido" pasa por gpsCheckoutConMotivo,
+// que ya tiene los motivos (Precio alto, Compró a competencia, etc.).
+// Los registros viejos con tipo='visita_sin_pedido' siguen leyéndose
+// correctamente en el agrupador (gpsCargarHistorial).
 
 
 // ── PWA INSTALL ──────────────────────────────────────────────────
@@ -23906,6 +24065,11 @@ async function tomadorConfirmarConEntrega(entregaData) {
     // v14.17.3 Cambio 1: marcar guardado exitoso para disparar modal de
     // checkout automático fuera del try/catch.
     _pedidoGuardadoOK = true;
+
+    // v14.18.0 OPCIÓN D: marcar cliente como vendido en Mi Ronda si está
+    // en la ronda del vendedor. Sin esto, Mi Ronda no reflejaba el pedido
+    // tomado por check-in hasta el próximo recálculo manual.
+    _mrMarcarVendidoDesdeTomador(cliente);
   } catch(e) {
     // v14.6.0 NO-CORS FIX: error real visible (antes decía "✅ Pedido enviado
     // por WhatsApp" aunque hubiera fallado el guardado en la Sheet — bug ALMIRON).
