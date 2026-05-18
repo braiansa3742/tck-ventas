@@ -2,6 +2,86 @@
 <html lang="es">
 <head>
 <!-- ═══════════════════════════════════════════════════════════════════════
+     TCK VENTAS — v14.21.0 — 18/05/2026
+     ──────────────────────────────────────────────────────────────────────
+     SISTEMA DE CLIENTES TIPO A (BASE)
+
+     CONTEXTO:
+       El vendedor necesita una herramienta de planificación que destaque
+       sus clientes prioritarios. Con 200+ clientes activos cada uno, no
+       puede recordar de memoria a quién no se puede dar el lujo de
+       perder. Pareto puro: en Lisandro el top 20% (31 clientes) genera
+       el 56% de la facturación. Esa es la guía concreta.
+
+       Decisión de producto: modelo MIXTO.
+       - Sistema sugiere automáticamente los del top 20% por facturación
+         (90 días). Aparecen con ☆ amarilla punteada.
+       - Vendedor puede CONFIRMAR (pasa a ⭐ sólida amarilla) o agregar
+         clientes que aún no facturan mucho pero quiere proteger.
+       - Vendedor también puede desmarcar un ⭐ (vuelve a ☆ sugerido si
+         supera el umbral, o a ☆ gris normal si no).
+
+     ESQUEMA SUPABASE (aplicado manualmente antes de subir):
+       ALTER TABLE clientes_activos ADD COLUMN tipo_a BOOLEAN DEFAULT false;
+       ALTER TABLE clientes_activos ADD COLUMN tipo_a_por TEXT;
+       ALTER TABLE clientes_activos ADD COLUMN tipo_a_at TIMESTAMP WITH TIME ZONE;
+       ALTER TABLE clientes_activos ADD COLUMN facturacion_90d NUMERIC DEFAULT 0;
+       CREATE INDEX idx_clientes_tipo_a ON clientes_activos (vendedor)
+         WHERE tipo_a = true AND activo_en_ronda = true;
+
+       Después: UPDATE poblando facturacion_90d desde pedidos_zona.
+
+     CAMBIOS EN FRONTEND:
+
+       1. miRondaCargarClientes ahora trae tipo_a y facturacion_90d en
+          el select y calcula _miRondaTipoAUmbral = facturación del
+          cliente en el percentil top-20%.
+
+       2. Helpers nuevos:
+          - _calcularUmbralTipoA(clientes): retorna el umbral
+          - _esTipoAConfirmado(c): c.tipo_a === true
+          - _esTipoASugerido(c): !c.tipo_a && c.facturacion_90d >= umbral
+          - mrToggleTipoA(clienteId, event): async, PATCH a Supabase
+            con rollback en caso de error.
+
+       3. mrRenderCliente ahora muestra una estrella al lado del nombre:
+          ⭐ confirmado (amarillo) — Tipo A marcado por vendedor
+          ☆ sugerido  (punteado amarillo) — top facturación, no confirmado
+          ☆ normal    (gris claro) — cliente regular
+
+       4. La card lleva borde izquierdo dorado cuando es Tipo A:
+          .tipoa-conf → sólido
+          .tipoa-sug  → dashed
+
+     ESTÉTICA TCK respetada:
+       - Color principal: #FFC107 (amarillo TCK)
+       - Border-radius existente de la card
+       - Sin cambios en flujo principal: la card sigue siendo la misma,
+         solo agrega elementos visuales.
+
+     LO QUE NO HACE ESTA VERSIÓN (siguiente: v14.21.1 / v14.21.2):
+       - Sección 🚨 ALERTA TIPO A arriba de Pendientes (próximamente)
+       - Botón 📞 Llamar al lado de WhatsApp (próximamente)
+       - Distancia GPS en las cards (próximamente)
+       - Ordenamiento por score de prioridad (próximamente)
+       - Sugerencia "ahora andá a X" (postergado, esperar feedback)
+
+     SIN IMPACTO en:
+       - Flujo de pedido (tomador, manualWA, edición).
+       - Check-in y módulo de visitas.
+       - Opción D (sync visitas con Mi Ronda).
+       - Xubio automático del v14.20.0.
+
+     PUNTOS QUE PUEDEN GENERAR RUIDO INICIAL:
+       - Al primer login post-deploy, los clientes top-20% aparecen como
+         ☆ sugeridos (data fresca desde Supabase). El vendedor decide
+         cuáles confirmar.
+       - Si la facturacion_90d no se actualiza periódicamente (job
+         pendiente), las sugerencias quedarán fijas. NO crítico: el
+         vendedor puede marcar manualmente cualquiera con tap.
+     ══════════════════════════════════════════════════════════════════════ -->
+
+<!-- ═══════════════════════════════════════════════════════════════════════
      TCK VENTAS — v14.20.0 — 18/05/2026
      ──────────────────────────────────────────────────────────────────────
      XUBIO AUTOMÁTICO DESDE TOMADOR PRESENCIAL
@@ -10404,6 +10484,47 @@ body {
   overflow: hidden;
 }
 .mr-opC-card:hover { border-left-color: #D4A574; box-shadow: 0 2px 8px rgba(139,0,0,.06); }
+
+/* ═══════════════════════════════════════════════════════════════════
+   v14.21.0 — TIPO A: estrella + borde dorado en las cards
+   ═══════════════════════════════════════════════════════════════════ */
+.mr-opC-card.tipoa-conf {
+  border-left: 4px solid #FFC107;
+  background: linear-gradient(to right, #FFFEF7 0%, #fff 60%);
+}
+.mr-opC-card.tipoa-sug {
+  border-left: 4px dashed #FFC107;
+}
+.mr-opC-card.tipoa-conf:hover { border-left-color: #FFA000; }
+.mr-opC-card.tipoa-sug:hover  { border-left-color: #FFA000; }
+
+.mr-star {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  border: none;
+  background: transparent;
+  padding: 0;
+  margin-right: 6px;
+  cursor: pointer;
+  font-size: 16px;
+  line-height: 1;
+  vertical-align: -3px;
+  -webkit-tap-highlight-color: rgba(255,193,7,.2);
+  touch-action: manipulation;
+  transition: transform .15s ease, background .15s;
+}
+.mr-star:active { transform: scale(.85); }
+.mr-star-conf  { color: #FFA000; }
+.mr-star-conf:hover { background: #FFF8E1; }
+.mr-star-sug  { color: #BF8500; }
+.mr-star-sug:hover { background: #FFF8E1; }
+.mr-star-off  { color: #C8C0AC; }
+.mr-star-off:hover { color: #FFA000; background: #FFF8E1; }
+/* ═══════════════════════════════════════════════════════════════════ */
 
 /* Animación de salida cuando marca vendido / sin venta */
 .mr-opC-card.mr-opC-leaving {
@@ -32517,6 +32638,10 @@ async function dupUnirPedidos() {
 
 var _miRondaClientes = [];         // Lista completa desde Supabase (solo los del vendedor)
 var _miRondaData     = null;       // Datos calculados por ruta
+// v14.21.0: Tipo A — umbral de facturación para considerar "sugerido automático"
+// Se recalcula al cargar la lista de clientes. Si un cliente factura >= umbral
+// y no está marcado tipo_a manualmente, se muestra como ☆ sugerido.
+var _miRondaTipoAUmbral = 0;
 var _miRondaRutaSel  = null;       // Ruta seleccionada en el modal
 var _miRondaCargando = false;
 
@@ -33112,14 +33237,20 @@ async function miRondaCargarClientes(force) {
     var vend = mrNormVendedor(vendedorActual);
     // Filtro: solo clientes activos del vendedor logueado
     // En Supabase usamos PostgREST: activo_en_ronda=eq.true & vendedor=eq.MIGUEL
+    // v14.21.0: traer también tipo_a y facturacion_90d para clasificación Tipo A
     var path = 'clientes_activos?' +
       'activo_en_ronda=eq.true' +
       '&vendedor=eq.' + encodeURIComponent(vend) +
-      '&select=cliente_id,nombre,telefono,localidad,vendedor,ruta_viaje,ritmo,ultimo_pedido,dias_desde_ult_pedido,frec_dias_prom,notas' +
+      '&select=cliente_id,nombre,telefono,localidad,vendedor,ruta_viaje,ritmo,ultimo_pedido,dias_desde_ult_pedido,frec_dias_prom,notas,tipo_a,facturacion_90d' +
       '&order=nombre.asc' +
       '&limit=2000';
     var data = await sbFetch(path);
     _miRondaClientes = Array.isArray(data) ? data : [];
+
+    // v14.21.0: calcular umbral del top 20% por facturación para sugerir Tipo A.
+    // Solo se computan los que tienen facturación > 0 (sino, todos los ceros
+    // empatarían y serían todos "sugeridos").
+    _miRondaTipoAUmbral = _calcularUmbralTipoA(_miRondaClientes);
   } catch(e) {
     console.error('Mi Ronda — error cargando clientes:', e);
     _miRondaClientes = [];
@@ -33889,6 +34020,105 @@ function mrV82BorderClass(badges) {
 }
 
 // ── Render de una card individual según estado ────────────────────
+// ════════════════════════════════════════════════════════════════════════
+// v14.21.0 — SISTEMA DE CLIENTES TIPO A
+// ════════════════════════════════════════════════════════════════════════
+// Tipo A = cliente prioritario para el vendedor. Dos estados visuales:
+//   ⭐ CONFIRMADO: vendedor lo marcó manualmente (tipo_a = true en BD).
+//   ☆ SUGERIDO: el sistema lo destaca porque está en el top 20% de
+//      facturación del vendedor (90 días). El vendedor puede confirmar
+//      con un tap para que pase a ⭐.
+//   ☆ NORMAL (gris claro): cliente no relevante. Vendedor puede marcar
+//      tocando la estrella si quiere agregarlo a su lista de Tipo A.
+//
+// La diferencia ⭐ vs ☆ sugerido se calcula en cliente al render:
+//   esTipoAConfirmado = c.tipo_a === true
+//   esTipoASugerido   = !c.tipo_a && c.facturacion_90d >= _miRondaTipoAUmbral
+//
+// El umbral se calcula al cargar la lista: la facturación del cliente
+// que está en la posición top-20% del vendedor (ej: si tiene 50 clientes
+// con facturación, el del puesto 10º es el umbral).
+
+function _calcularUmbralTipoA(clientes) {
+  if (!Array.isArray(clientes) || clientes.length === 0) return Infinity;
+  // Solo considerar los que facturaron algo
+  var conFact = clientes
+    .map(function(c) { return Number(c.facturacion_90d) || 0; })
+    .filter(function(v) { return v > 0; })
+    .sort(function(a, b) { return b - a; });
+  if (conFact.length === 0) return Infinity;
+  // Top 20%: posición floor(N * 0.2). Si tiene 50, posición 10.
+  // El umbral es la facturación de ese cliente (incluyente).
+  var idx = Math.max(0, Math.floor(conFact.length * 0.2) - 1);
+  return conFact[idx] || Infinity;
+}
+
+function _esTipoAConfirmado(cliente) {
+  return cliente && cliente.tipo_a === true;
+}
+
+function _esTipoASugerido(cliente) {
+  if (!cliente || cliente.tipo_a === true) return false;
+  var fact = Number(cliente.facturacion_90d) || 0;
+  return fact > 0 && fact >= _miRondaTipoAUmbral;
+}
+
+// Toggle Tipo A: alterna entre confirmado y no. El sugerido pasa a
+// confirmado con un tap; el confirmado vuelve a "no marcado" (sin ⭐).
+// La sugerencia automática (☆) sigue mostrándose si la facturación
+// supera el umbral, así que un cliente puede ir ⭐ → ☆ sugerido.
+async function mrToggleTipoA(clienteId, event) {
+  if (event) {
+    event.stopPropagation();
+    event.preventDefault();
+  }
+  if (!clienteId) return;
+  var cliente = _miRondaClientes.find(function(c) { return c.cliente_id === clienteId; });
+  if (!cliente) {
+    toast('Cliente no encontrado', 'err');
+    return;
+  }
+  var nuevoEstado = !cliente.tipo_a;
+  // Actualización optimista
+  var estadoAnterior = cliente.tipo_a;
+  cliente.tipo_a = nuevoEstado;
+  cliente.tipo_a_por = nuevoEstado ? vendedorActual : null;
+  cliente.tipo_a_at  = nuevoEstado ? new Date().toISOString() : null;
+
+  // Re-render del modal (la card se repinta con el estado nuevo)
+  if (typeof miRondaRenderModalBody === 'function') {
+    miRondaRenderModalBody(_miRondaFiltroLocActivo || null);
+  }
+
+  // PATCH a Supabase
+  try {
+    await sbFetch('clientes_activos?cliente_id=eq.' + encodeURIComponent(clienteId), {
+      method: 'PATCH',
+      body: JSON.stringify({
+        tipo_a:     nuevoEstado,
+        tipo_a_por: nuevoEstado ? vendedorActual : null,
+        tipo_a_at:  nuevoEstado ? new Date().toISOString() : null
+      }),
+      prefer: 'return=minimal'
+    });
+    toast(nuevoEstado ? '⭐ Marcado como Tipo A' : 'Quitado de Tipo A', 'ok');
+  } catch (e) {
+    // Rollback
+    console.error('[mrToggleTipoA] error:', e);
+    cliente.tipo_a = estadoAnterior;
+    cliente.tipo_a_por = estadoAnterior ? vendedorActual : null;
+    if (typeof miRondaRenderModalBody === 'function') {
+      miRondaRenderModalBody(_miRondaFiltroLocActivo || null);
+    }
+    toast('No se pudo guardar. Reintentá.', 'err');
+  }
+}
+
+// ════════════════════════════════════════════════════════════════════════
+// FIN bloque v14.21.0 helpers Tipo A
+// ════════════════════════════════════════════════════════════════════════
+
+
 function mrRenderCliente(c, tipo) {
   var tel = (c.telefono || '').toString().replace(/\D/g, '');
   var telOk = tel.length >= 8;
@@ -33901,6 +34131,28 @@ function mrRenderCliente(c, tipo) {
   var ritmoTxt = c.ritmo && c.ritmo !== 'sin_compras_recientes' ? c.ritmo : '';
   var nota = c.notas ? '<div class="mr-cli-nota">📝 ' + escapeHtml(c.notas) + '</div>' : '';
 
+  // v14.21.0: estado Tipo A (⭐ confirmado / ☆ sugerido / ☆ normal)
+  var esTipoAConf = _esTipoAConfirmado(c);
+  var esTipoASug  = _esTipoASugerido(c);
+  var estrellaHtml = '';
+  var cidEsc = escapeHtml(c.cliente_id || '');
+  if (esTipoAConf) {
+    estrellaHtml = '<button class="mr-star mr-star-conf" '
+      + 'onclick="mrToggleTipoA(\'' + cidEsc + '\', event)" '
+      + 'title="Tipo A confirmado · tap para desmarcar" '
+      + 'aria-label="Quitar de Tipo A">⭐</button>';
+  } else if (esTipoASug) {
+    estrellaHtml = '<button class="mr-star mr-star-sug" '
+      + 'onclick="mrToggleTipoA(\'' + cidEsc + '\', event)" '
+      + 'title="Sugerido como Tipo A (top facturación) · tap para confirmar" '
+      + 'aria-label="Confirmar como Tipo A">☆</button>';
+  } else {
+    estrellaHtml = '<button class="mr-star mr-star-off" '
+      + 'onclick="mrToggleTipoA(\'' + cidEsc + '\', event)" '
+      + 'title="Tap para marcar como Tipo A" '
+      + 'aria-label="Marcar como Tipo A">☆</button>';
+  }
+
   // Logo oficial WhatsApp (SVG)
   var waIconSvg = '<svg viewBox="0 0 24 24" width="16" height="16" fill="currentColor"><path d="M17.472 14.382c-.297-.149-1.758-.867-2.03-.967-.273-.099-.471-.148-.67.15-.197.297-.767.966-.94 1.164-.173.199-.347.223-.644.075-.297-.15-1.255-.463-2.39-1.475-.883-.788-1.48-1.761-1.653-2.059-.173-.297-.018-.458.13-.606.134-.133.298-.347.446-.52.149-.174.198-.298.298-.497.099-.198.05-.371-.025-.52-.075-.149-.669-1.612-.916-2.207-.242-.579-.487-.5-.669-.51-.173-.008-.371-.01-.57-.01-.198 0-.52.074-.792.372-.272.297-1.04 1.016-1.04 2.479 0 1.462 1.065 2.875 1.213 3.074.149.198 2.096 3.2 5.077 4.487.709.306 1.262.489 1.694.625.712.227 1.36.195 1.871.118.571-.085 1.758-.719 2.006-1.413.248-.694.248-1.289.173-1.413-.074-.124-.272-.198-.57-.347m-5.421 7.403h-.004a9.87 9.87 0 01-5.031-1.378l-.361-.214-3.741.982.998-3.648-.235-.374a9.86 9.86 0 01-1.51-5.26c.001-5.45 4.436-9.884 9.888-9.884 2.64 0 5.122 1.03 6.988 2.898a9.825 9.825 0 012.893 6.994c-.003 5.45-4.437 9.884-9.885 9.884m8.413-18.297A11.815 11.815 0 0012.05 0C5.495 0 .16 5.335.157 11.892c0 2.096.547 4.142 1.588 5.945L.057 24l6.305-1.654a11.882 11.882 0 005.683 1.448h.005c6.554 0 11.89-5.335 11.893-11.893a11.821 11.821 0 00-3.48-8.413z"/></svg>';
   var btnWa = telOk
@@ -33911,6 +34163,11 @@ function mrRenderCliente(c, tipo) {
   var claseCard = 'mr-opC-card';
   if (tipo === 'vendida') claseCard += ' vendida';
   if (tipo === 'gestionada') claseCard += ' gestionada';
+  // v14.21.0: clase visual según Tipo A (solo en pendientes)
+  if (tipo === 'pendiente') {
+    if (esTipoAConf) claseCard += ' tipoa-conf';
+    else if (esTipoASug) claseCard += ' tipoa-sug';
+  }
 
   // v8.2: calcular badges, variante por vendedor, histórico.
   // Solo para cards pendientes — en vendidas/gestionadas ya hay sello propio.
@@ -33997,7 +34254,7 @@ function mrRenderCliente(c, tipo) {
   return '<div class="' + claseCard + '"' + dataCid + '>' +
     '<div class="mr-opC-row-info">' +
       '<div class="mr-opC-info">' +
-        '<div class="mr-opC-nombre">' + v82BadgesHtml + nombre + '</div>' +
+        '<div class="mr-opC-nombre">' + estrellaHtml + v82BadgesHtml + nombre + '</div>' +
         '<div class="mr-opC-meta">' +
           '<span>📍 ' + loc + '</span>' +
           '<span>⏱️ ' + escapeHtml(ultPedidoTxt) + '</span>' +
