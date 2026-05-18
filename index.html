@@ -2,6 +2,73 @@
 <html lang="es">
 <head>
 <!-- ═══════════════════════════════════════════════════════════════════════
+     TCK VENTAS — v14.17.3 — 18/05/2026
+     ──────────────────────────────────────────────────────────────────────
+     CHECK-IN: UX + DEFENSA EN PROFUNDIDAD + BUGS LATENTES
+
+     CONTEXTO (después de v14.17.2):
+       Después de deployar v14.17.2 (que arregló el bug de localidad y
+       agregó marcador "PEDIDO EXTERNO" al checkout), Lisandro empezó a
+       usar el módulo. BD muestra 12 visitas hoy: 5 con pedido (2 por
+       tomador del check-in, 2 con marcador externo, 1 sin marcar).
+       Funciona. Pero quedan refinamientos y bugs latentes.
+
+     CAMBIO 1: Checkout AUTOMÁTICO tras confirmar pedido por tomador.
+       Si el vendedor está físicamente en el local y ya tomó el pedido,
+       lo lógico es cerrar la visita. Modal de confirmación con countdown
+       de 6 segundos: si no hace nada, checkout auto. Botón "Seguir acá"
+       cancela el auto (caso raro: agregar otro pedido al mismo cliente).
+       Reduce fricción sin quitarle control al vendedor.
+
+     CAMBIO 2: Bloquear nuevo check-in si ya hay uno activo.
+       Defensa en profundidad. El UI normalmente oculta el botón cuando
+       hay check-in activo (display:none), pero si el estado visual se
+       desincroniza del _gpsCheckinActivo en memoria, esto cubre el caso.
+       Modal con 2 opciones: "Volver" (cancela) o "Cerrar el activo y
+       empezar otro" (checkout con motivo "Cambio de cliente" + nuevo
+       check-in).
+
+     CAMBIO 3 (Bug A): Cerrar checkins huérfanos de días anteriores.
+       Caso: vendedor cierra app sin checkout → al día siguiente esos
+       checkins quedan "perdidos" en BD porque gpsCargarHistorial filtra
+       por fecha >= hoy. Inflaba stats con visitas falsas.
+       Solución: al loguearse el vendedor, buscar checkins de últimos 7
+       días sin checkout posterior del mismo cliente, e insertar checkout
+       sintético ~30 min después del checkin con motivo "Sesión cerrada".
+
+     CAMBIO 4 (Bug B): Check-in manual pide localidad.
+       Antes: gpsCheckinManual usaba prompt() solo para nombre → al
+       confirmar el pedido siempre caía al modal de pedir localidad
+       (fricción innecesaria).
+       Solución: modal completo con nombre + dropdown de localidad
+       canónica, igual que el flujo normal de check-in desde Xubio.
+
+     CAMBIO 5 (Bug C): Lock anti-race en gpsConfirmarCheckin.
+       Si el vendedor tap 2 clientes seguidos del autocomplete porque el
+       GPS del primero tarda, se creaban 2 checkins paralelos en BD
+       (race condition). Bloqueamos el segundo tap hasta que termine el
+       primero. Timeout de 30s libera el lock si algo se cuelga.
+
+     CAMBIO 6 (Bug D): Eliminado gpsCheckout() — código muerto.
+       Función definida pero sin ningún caller. Toda la lógica de
+       checkout pasa por gpsCheckoutFinal(motivo). Eliminada para no
+       confundir a quien lea el código.
+
+     IMPACTO ESPERADO:
+       · Lisandro toma pedido por tomador → checkout en 6s sin tocar nada.
+       · Si abandona la app sin checkout, los checkins se autocierran al
+         día siguiente — stats de visitas más limpias.
+       · Imposible tener 2 checkins paralelos al mismo cliente.
+       · Check-in manual deja el flujo limpio, sin pedir localidad después.
+
+     SIN IMPACTO en:
+       · Flujo manualWA (no se toca).
+       · Editar pedido, choferes, planillas.
+       · Detector de duplicados.
+       · v14.17.2 anti-dup (lock al inicio, helpers): se mantiene tal cual.
+     ══════════════════════════════════════════════════════════════════════ -->
+
+<!-- ═══════════════════════════════════════════════════════════════════════
      TCK VENTAS — v14.17.2 — 18/05/2026
      ──────────────────────────────────────────────────────────────────────
      PARTE A — FIX RACE CONDITION REAL (lock seteado antes del primer await)
@@ -15517,7 +15584,16 @@ function login(nombre) {
   if (!esChofer) objetivosCargar();
   // Restaurar checkin activo si existe (solo vendedores)
   if (nombre !== 'ADMIN' && !esChofer) {
-    setTimeout(function() { gpsCargarHistorial(); }, 500);
+    // v14.17.3 Cambio 3 (Bug A): cerrar checkins colgados de días anteriores
+    // ANTES de cargar el historial. Caso: vendedor cerró la app sin hacer
+    // checkout, al día siguiente al loguearse esos checkins quedaban
+    // perdidos en BD (gpsCargarHistorial filtra por fecha >= hoy).
+    // Los cerramos automáticamente con motivo "Sesión cerrada".
+    setTimeout(function() {
+      _gpsCerrarCheckinsViejos().finally(function() {
+        gpsCargarHistorial();
+      });
+    }, 500);
   }
   // Si viene en modo campo, ir directo a Visitas
   if (_modoCampo && (nombre === 'Juan' || nombre === 'Lisandro')) {
@@ -20321,6 +20397,80 @@ function adminStatCell(val, lbl, color) {
 
 // ══ FIN ADMIN VISITAS ══════════════════════════════════════════════
 
+// v14.17.3 Cambio 3 (Bug A): cerrar checkins de días anteriores que
+// quedaron sin checkout. Estos checkins están "perdidos" en BD porque
+// gpsCargarHistorial filtra por fecha >= hoy (zona AR). Sin esto, las
+// estadísticas de visitas quedan infladas con visitas falsas que nunca
+// se cerraron. Se ejecuta UNA vez al loguearse el vendedor.
+//
+// Lógica: buscar checkins del vendedor de los últimos 7 días que NO
+// tienen un checkout posterior del mismo cliente. Insertar checkout
+// "Sesión cerrada" con timestamp ~30 min después del checkin (estimación
+// razonable; mejor que dejarlos colgados).
+async function _gpsCerrarCheckinsViejos() {
+  if (vendedorActual === 'ADMIN') return;
+  try {
+    var vendedorId = await gpsObtenerVendedorId();
+    if (!vendedorId) return;
+
+    // Rango: últimos 7 días hasta inicio del día de hoy en AR (00:00 AR = 03:00 UTC)
+    var ahora = new Date();
+    var hoyAR_00 = new Date(ahora);
+    hoyAR_00.setUTCHours(3, 0, 0, 0);
+    if (ahora.getUTCHours() < 3) {
+      // Antes de las 03:00 UTC (00:00 AR) seguimos en el día AR anterior
+      hoyAR_00.setUTCDate(hoyAR_00.getUTCDate() - 1);
+    }
+    var hace7 = new Date(hoyAR_00.getTime() - 7 * 24 * 60 * 60 * 1000);
+
+    var visitas = await sbFetch(
+      'visitas?vendedor_id=eq.' + vendedorId +
+      '&fecha=gte.' + hace7.toISOString() +
+      '&fecha=lt.' + hoyAR_00.toISOString() +
+      '&order=fecha.asc&select=id,fecha,tipo,nombre_cliente'
+    );
+    if (!Array.isArray(visitas) || visitas.length === 0) return;
+
+    // Encontrar checkins sin checkout posterior del mismo cliente
+    var checkinsHuerfanos = [];
+    visitas.forEach(function(v, idx) {
+      if (v.tipo !== 'checkin') return;
+      var tieneCheckout = visitas.some(function(o, oidx) {
+        return oidx > idx
+          && o.tipo === 'checkout'
+          && o.nombre_cliente === v.nombre_cliente
+          && new Date(o.fecha) > new Date(v.fecha);
+      });
+      if (!tieneCheckout) checkinsHuerfanos.push(v);
+    });
+
+    if (checkinsHuerfanos.length === 0) return;
+    console.warn('[GPS] Cerrando ' + checkinsHuerfanos.length + ' checkin(s) huérfano(s) de días anteriores');
+
+    // Insertar checkout sintético para cada uno, ~30 min después del checkin
+    for (var i = 0; i < checkinsHuerfanos.length; i++) {
+      var c = checkinsHuerfanos[i];
+      var checkoutFecha = new Date(new Date(c.fecha).getTime() + 30 * 60 * 1000).toISOString();
+      try {
+        await sbFetch('visitas', {
+          method: 'POST',
+          body: JSON.stringify({
+            vendedor_id:      vendedorId,
+            nombre_cliente:   c.nombre_cliente,
+            tipo:             'checkout',
+            motivo_no_compra: 'Sesión cerrada (cierre automático)',
+            fecha:            checkoutFecha
+          })
+        });
+      } catch(e) {
+        console.warn('[GPS] No se pudo cerrar checkin huérfano:', c.id, e);
+      }
+    }
+  } catch(e) {
+    console.warn('[GPS _gpsCerrarCheckinsViejos] error:', e);
+  }
+}
+
 async function gpsCargarHistorial() {
   var vendedorId = await gpsObtenerVendedorId();
   var esAdmin = vendedorActual === 'ADMIN';
@@ -20502,7 +20652,68 @@ function gpsActualizarEstado(checkinActivo) {
 }
 
 // Iniciar check-in
+// v14.17.3 Cambio 2: modal que aparece cuando el vendedor intenta hacer
+// un nuevo check-in habiendo uno activo. Le da 2 opciones:
+//   1. Volver — no hacer nada (el check-in actual sigue activo)
+//   2. Cerrar el activo y empezar otro — checkout sin pedido con motivo
+//      "Cambio de cliente" + abre el form de nuevo check-in
+function _gpsMostrarModalDobleCheckin() {
+  if (!_gpsCheckinActivo) return; // defensa
+  var prev = document.getElementById('gps-modal-doble-checkin');
+  if (prev) prev.remove();
+
+  var clienteActivo = _gpsCheckinActivo.nombre_cliente || 'Cliente';
+
+  var modal = document.createElement('div');
+  modal.id = 'gps-modal-doble-checkin';
+  modal.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,.6);z-index:99999;display:flex;align-items:flex-end;justify-content:center;animation:canalFadeIn .2s ease-out;';
+
+  modal.innerHTML = '<div style="background:#fff;border-radius:20px 20px 0 0;width:100%;max-width:480px;padding:22px 20px calc(20px + env(safe-area-inset-bottom));box-shadow:0 -8px 32px rgba(0,0,0,.25);">'
+    + '<div style="display:flex;align-items:center;gap:10px;margin-bottom:14px;">'
+    +   '<div style="width:42px;height:42px;background:linear-gradient(135deg,#E65100,#F57C00);border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:22px;flex-shrink:0;">⚠️</div>'
+    +   '<div style="flex:1;">'
+    +     '<div style="font-family:Barlow Condensed,sans-serif;font-size:18px;font-weight:900;color:#1A0800;line-height:1.1;">Ya tenés un check-in activo</div>'
+    +     '<div style="font-size:12px;color:#666;margin-top:2px;">En: ' + _escapeHtml(clienteActivo) + '</div>'
+    +   '</div>'
+    + '</div>'
+    + '<div style="background:#FFF3E0;border-left:3px solid #FF9800;border-radius:6px;padding:10px 12px;margin-bottom:14px;font-size:12px;color:#6D4C2D;line-height:1.4;">'
+    +   'Antes de hacer check-in a otro cliente, cerrá la visita actual. '
+    +   'Si querés, podés cerrarla ahora con motivo "Cambio de cliente".'
+    + '</div>'
+    + '<div style="display:flex;gap:10px;flex-direction:column;">'
+    +   '<button id="gps-doble-cerrar-empezar" style="padding:13px;background:linear-gradient(135deg,#E65100,#F57C00);color:#fff;border:none;border-radius:11px;font-family:Barlow Condensed,sans-serif;font-size:15px;font-weight:900;cursor:pointer;touch-action:manipulation;">🚪 Cerrar el activo y empezar otro</button>'
+    +   '<button id="gps-doble-volver" style="padding:13px;background:#f5f5f5;color:#666;border:none;border-radius:11px;font-family:Barlow Condensed,sans-serif;font-size:15px;font-weight:700;cursor:pointer;touch-action:manipulation;">Volver</button>'
+    + '</div>'
+    + '</div>';
+
+  document.body.appendChild(modal);
+
+  document.getElementById('gps-doble-volver').onclick = function() {
+    var m = document.getElementById('gps-modal-doble-checkin');
+    if (m) m.remove();
+  };
+
+  document.getElementById('gps-doble-cerrar-empezar').onclick = async function() {
+    var m = document.getElementById('gps-modal-doble-checkin');
+    if (m) m.remove();
+    // Cerrar el check-in activo con motivo "Cambio de cliente"
+    await gpsCheckoutFinal('Cambio de cliente');
+    // Pequeño delay para que el UI se actualice antes de abrir el modal
+    // de búsqueda del nuevo check-in
+    setTimeout(function() { gpsIniciarCheckin(); }, 300);
+  };
+}
+
 function gpsIniciarCheckin() {
+  // v14.17.3 Cambio 2: defensa en profundidad — si ya hay check-in activo,
+  // mostrar modal de advertencia con opción de cancelar el activo. El UI
+  // normalmente oculta el botón de check-in cuando hay uno activo (vía
+  // display:none en gps-acciones-sin), pero esto cubre el caso de que el
+  // estado visual se haya desincronizado del _gpsCheckinActivo en memoria.
+  if (_gpsCheckinActivo) {
+    _gpsMostrarModalDobleCheckin();
+    return;
+  }
   var modal = document.createElement('div');
   modal.className = 'gps-modal-overlay';
   modal.id = 'gps-modal-checkin';
@@ -20581,11 +20792,62 @@ function gpsBuscarClienteXubio(q) {
 
 
 // Check-in manual
+// v14.17.3 Cambio 4 (Bug B): check-in manual ahora abre modal para pedir
+// nombre + localidad. Antes usaba prompt() sin localidad → al confirmar
+// el pedido siempre caía al modal de pedir localidad como fricción.
 function gpsCheckinManual() {
-  var modal = document.getElementById('gps-modal-checkin');
-  if (modal) modal.remove();
-  var nombre = prompt('Nombre del cliente:');
-  if (nombre && nombre.trim()) gpsConfirmarCheckin(nombre.trim());
+  var modalPrev = document.getElementById('gps-modal-checkin');
+  if (modalPrev) modalPrev.remove();
+  var modalManualPrev = document.getElementById('gps-modal-checkin-manual');
+  if (modalManualPrev) modalManualPrev.remove();
+
+  var modal = document.createElement('div');
+  modal.className = 'gps-modal-overlay';
+  modal.id = 'gps-modal-checkin-manual';
+  modal.innerHTML = '<div class="gps-modal">'
+    + '<div class="gps-modal-hdr">'
+    +   '<div class="gps-modal-titulo">✏️ Check-in manual</div>'
+    +   '<button class="gps-modal-close" onclick="document.getElementById(&quot;gps-modal-checkin-manual&quot;).remove()">✕</button>'
+    + '</div>'
+    + '<div style="padding:16px 20px;">'
+    +   '<div style="font-size:12px;color:var(--text3);margin-bottom:10px;line-height:1.4;">'
+    +     'Si el cliente no está en Xubio, ingresalo a mano. Recordá pedirle al admin que lo cargue para no tener que repetir esto.'
+    +   '</div>'
+    +   '<input id="gps-manual-nombre" class="manual-wa-input" placeholder="Nombre del cliente" style="margin-bottom:10px;width:100%;" autocomplete="off">'
+    +   localidadesSelectHTML({
+          id: 'gps-manual-localidad',
+          classExtra: 'manual-wa-input',
+          valorActual: ''
+        })
+    +   '<div style="display:flex;gap:8px;margin-top:16px;">'
+    +     '<button onclick="document.getElementById(&quot;gps-modal-checkin-manual&quot;).remove()" style="flex:1;padding:12px;background:#eee;color:#333;border:none;border-radius:10px;font-weight:700;cursor:pointer;">Cancelar</button>'
+    +     '<button id="gps-manual-confirmar-btn" style="flex:2;padding:12px;background:linear-gradient(135deg,#1B5E20,#2E7D32);color:#fff;border:none;border-radius:10px;font-weight:900;cursor:pointer;">Continuar</button>'
+    +   '</div>'
+    + '</div></div>';
+  document.body.appendChild(modal);
+  setTimeout(function() {
+    var inp = document.getElementById('gps-manual-nombre');
+    if (inp) inp.focus();
+  }, 100);
+
+  document.getElementById('gps-manual-confirmar-btn').onclick = function() {
+    var nombreInp = document.getElementById('gps-manual-nombre');
+    var locInp    = document.getElementById('gps-manual-localidad');
+    var nombre = nombreInp ? nombreInp.value.trim() : '';
+    var loc    = locInp ? locInp.value.trim() : '';
+    if (!nombre) {
+      toast('Ingresá el nombre del cliente', 'err');
+      if (nombreInp) nombreInp.focus();
+      return;
+    }
+    if (!loc || !localidadCanonicaDe(loc)) {
+      toast('Elegí una localidad de la lista', 'err');
+      if (locInp) locInp.focus();
+      return;
+    }
+    modal.remove();
+    gpsConfirmarCheckin(nombre, loc);
+  };
 }
 
 // Confirmar check-in
@@ -20634,64 +20896,100 @@ async function gpsReintentar(nombreCliente) {
 }
 
 async function gpsConfirmarCheckin(nombreCliente, localidadCliente) {
-  var modal = document.getElementById('gps-modal-checkin');
-  if (modal) modal.remove();
-
-  // Verificar GPS ANTES de confirmar el check-in
-  toast('📍 Obteniendo ubicación...', 'ok');
-  var coords = await gpsGetCoords();
-  
-  if (!coords.lat || !coords.lng) {
-    // GPS falló — mostrar modal para reintentar
-    gpsCheckInSinCoordenadas(nombreCliente);
+  // v14.17.3 Cambio 5 (Bug C): lock anti-race. Si el vendedor tap 2 clientes
+  // seguidos del autocomplete (porque el GPS del primero tarda), se creaban
+  // 2 checkins paralelos en BD. Bloqueamos el segundo tap hasta que termine
+  // el primero.
+  if (window._gpsCheckinEnCurso) {
+    console.warn('[GPS] gpsConfirmarCheckin bloqueado — ya hay un check-in en curso');
+    toast('Esperá, terminando el check-in anterior...', 'warn');
     return;
   }
+  window._gpsCheckinEnCurso = true;
 
-  // v13.6.4: reordenado para que toast verde y estado activo se setean
-  // DESPUÉS del insert exitoso. Si el insert falla (RLS, red, etc.), el
-  // vendedor ve toast rojo y la UI vuelve a "sin check-in".
-  var vendedorId = await gpsObtenerVendedorId();
-  try {
-    await sbFetch('visitas', {
-      method: 'POST',
-      body: JSON.stringify({
-        vendedor_id:    vendedorId,
-        nombre_cliente: nombreCliente,
-        tipo:           'checkin',
-        lat:            coords.lat,
-        lng:            coords.lng
-      })
-    });
-    // SI LLEGAMOS ACÁ, EL INSERT FUNCIONÓ
-    _gpsHizoPedido = false;
-    // v13.7.5: canonizar localidad del cliente Xubio antes de guardar.
-    // Esto evita que pedidos del tomador lleguen con 'Campo' literal
-    // y permite que se infiera la zona correctamente.
-    var locCanon = '';
-    if (localidadCliente) {
-      var canon = localidadCanonicaDe(localidadCliente);
-      if (canon) {
-        locCanon = canon.ciudad;
-      } else {
-        console.warn('[GPS] Cliente "' + nombreCliente + '" tiene localidad no canónica: "' + localidadCliente + '"');
-      }
+  // v14.17.3: timeout de seguridad — liberar lock si algo se cuelga +30s
+  if (window._gpsCheckinTimeout) clearTimeout(window._gpsCheckinTimeout);
+  window._gpsCheckinTimeout = setTimeout(function() {
+    if (window._gpsCheckinEnCurso) {
+      console.warn('[GPS] gpsConfirmarCheckin timeout 30s — liberando lock');
+      window._gpsCheckinEnCurso = false;
     }
-    _gpsCheckinActivo = {
-      nombre_cliente: nombreCliente,
-      localidad:      locCanon,         // ← NUEVO en v13.7.5
-      fecha:          new Date().toISOString()
-    };
-    gpsActualizarEstado(_gpsCheckinActivo);
-    toast('✅ Check-in: ' + nombreCliente, 'ok');
-    // Llamadas en background no críticas (mantener silenciosas)
-    gpsGuardarUbicacionCliente(nombreCliente, coords, vendedorId);
-    // v14.13.2 N42-C: gpsBuscarMatchMaster() removida. Era no-op desde misma versión.
-    gpsCargarHistorial();
-  } catch(e) {
-    console.error('[GPS Check-in] Insert falló:', e);
-    toast('⚠️ El check-in no se pudo guardar. Reintentá.', 'err');
-    _gpsCheckinActivo = null;
-    gpsActualizarEstado(null);
+  }, 30000);
+
+  try {
+    var modal = document.getElementById('gps-modal-checkin');
+    if (modal) modal.remove();
+
+    // Verificar GPS ANTES de confirmar el check-in
+    toast('📍 Obteniendo ubicación...', 'ok');
+    var coords = await gpsGetCoords();
+
+    if (!coords.lat || !coords.lng) {
+      // GPS falló — mostrar modal para reintentar.
+      // Liberamos el lock acá porque gpsReintentar va a llamar de nuevo
+      // a gpsConfirmarCheckin (que necesita el lock libre).
+      window._gpsCheckinEnCurso = false;
+      if (window._gpsCheckinTimeout) {
+        clearTimeout(window._gpsCheckinTimeout);
+        window._gpsCheckinTimeout = null;
+      }
+      gpsCheckInSinCoordenadas(nombreCliente);
+      return;
+    }
+
+    // v13.6.4: reordenado para que toast verde y estado activo se setean
+    // DESPUÉS del insert exitoso. Si el insert falla (RLS, red, etc.), el
+    // vendedor ve toast rojo y la UI vuelve a "sin check-in".
+    var vendedorId = await gpsObtenerVendedorId();
+    try {
+      await sbFetch('visitas', {
+        method: 'POST',
+        body: JSON.stringify({
+          vendedor_id:    vendedorId,
+          nombre_cliente: nombreCliente,
+          tipo:           'checkin',
+          lat:            coords.lat,
+          lng:            coords.lng
+        })
+      });
+      // SI LLEGAMOS ACÁ, EL INSERT FUNCIONÓ
+      _gpsHizoPedido = false;
+      // v13.7.5: canonizar localidad del cliente Xubio antes de guardar.
+      // Esto evita que pedidos del tomador lleguen con 'Campo' literal
+      // y permite que se infiera la zona correctamente.
+      var locCanon = '';
+      if (localidadCliente) {
+        var canon = localidadCanonicaDe(localidadCliente);
+        if (canon) {
+          locCanon = canon.ciudad;
+        } else {
+          console.warn('[GPS] Cliente "' + nombreCliente + '" tiene localidad no canónica: "' + localidadCliente + '"');
+        }
+      }
+      _gpsCheckinActivo = {
+        nombre_cliente: nombreCliente,
+        localidad:      locCanon,         // ← NUEVO en v13.7.5
+        fecha:          new Date().toISOString()
+      };
+      gpsActualizarEstado(_gpsCheckinActivo);
+      toast('✅ Check-in: ' + nombreCliente, 'ok');
+      // Llamadas en background no críticas (mantener silenciosas)
+      gpsGuardarUbicacionCliente(nombreCliente, coords, vendedorId);
+      // v14.13.2 N42-C: gpsBuscarMatchMaster() removida. Era no-op desde misma versión.
+      gpsCargarHistorial();
+    } catch(e) {
+      console.error('[GPS Check-in] Insert falló:', e);
+      toast('⚠️ El check-in no se pudo guardar. Reintentá.', 'err');
+      _gpsCheckinActivo = null;
+      gpsActualizarEstado(null);
+    }
+  } finally {
+    // v14.17.3 Cambio 5: liberar lock + limpiar timeout pase lo que pase.
+    window._gpsCheckinEnCurso = false;
+    if (window._gpsCheckinTimeout) {
+      clearTimeout(window._gpsCheckinTimeout);
+      window._gpsCheckinTimeout = null;
+    }
   }
 }
 
@@ -20864,32 +21162,83 @@ async function gpsGuardarUbicacionCliente(nombreCliente, coords, vendedorId) {
 }
 
 // Check-out
-async function gpsCheckout() {
-  if (!_gpsCheckinActivo) return;
-  var coords = await gpsGetCoords();
-  var vendedorId = await gpsObtenerVendedorId();
-  try {
-    await sbFetch('visitas', {
-      method: 'POST',
-      body: JSON.stringify({
-        vendedor_id:    vendedorId,
-        nombre_cliente: _gpsCheckinActivo.nombre_cliente,
-        tipo:           'checkout',
-        lat:            coords.lat,
-        lng:            coords.lng
-      })
-    });
-    toast('🚪 Check-out registrado', 'ok');
-    _gpsCheckinActivo = null;
-    _gpsHizoPedido = false;
-    gpsActualizarEstado(null);
-    gpsCargarHistorial();
-  } catch(e) {
-    toast('Error al registrar check-out', 'err');
-  }
-}
+// v14.17.3 Cambio 6 (Bug D): función gpsCheckout() eliminada — código muerto.
+// No se llamaba desde ningún botón visible. Toda la lógica de checkout
+// pasa por gpsCheckoutFinal(motivo), invocada vía gpsCheckoutConMotivo()
+// (botón "🚪 Check-out") o gpsCheckoutConPedidoExterno() (botón "Sí tomé
+// el pedido" dentro del modal de checkout).
 
 // Checkout con pregunta de motivo si no hubo pedido
+// v14.17.3 Cambio 1: modal de confirmación de checkout automático tras
+// confirmar un pedido por el tomador del check-in. La idea: el vendedor
+// está físicamente en el local, ya tomó el pedido, lo lógico es cerrar
+// la visita. Pero damos opción de seguir activo por si quiere cargar
+// otro pedido al mismo cliente (caso raro pero válido).
+//
+// El modal tiene auto-confirmación a los 6 segundos: si el vendedor no
+// hace nada, se asume que quiere checkout (el caso normal). Eso reduce
+// fricción sin quitarle control. Si tap "Seguir acá", cancela el auto.
+function _gpsMostrarModalCheckoutAuto(cliente) {
+  // Evitar doble modal si ya está abierto
+  var prev = document.getElementById('gps-modal-checkout-auto');
+  if (prev) prev.remove();
+
+  var modal = document.createElement('div');
+  modal.id = 'gps-modal-checkout-auto';
+  modal.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,.6);z-index:99999;display:flex;align-items:flex-end;justify-content:center;animation:canalFadeIn .2s ease-out;';
+
+  modal.innerHTML = '<div style="background:#fff;border-radius:20px 20px 0 0;width:100%;max-width:480px;padding:22px 20px calc(20px + env(safe-area-inset-bottom));box-shadow:0 -8px 32px rgba(0,0,0,.25);">'
+    + '<div style="display:flex;align-items:center;gap:10px;margin-bottom:14px;">'
+    +   '<div style="width:42px;height:42px;background:linear-gradient(135deg,#1B5E20,#2E7D32);border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:22px;flex-shrink:0;">✅</div>'
+    +   '<div style="flex:1;">'
+    +     '<div style="font-family:Barlow Condensed,sans-serif;font-size:18px;font-weight:900;color:#1A0800;line-height:1.1;">Pedido registrado</div>'
+    +     '<div style="font-size:12px;color:#666;margin-top:2px;">' + _escapeHtml(cliente || 'Cliente') + '</div>'
+    +   '</div>'
+    + '</div>'
+    + '<div style="background:#F5EDD9;border-radius:10px;padding:12px 14px;margin-bottom:14px;font-size:13px;color:#6D4C2D;line-height:1.4;">'
+    +   '¿Cerramos la visita con check-out automático? '
+    +   '<span id="gps-auto-countdown" style="color:#2E7D32;font-weight:800;">(en 6 s)</span>'
+    + '</div>'
+    + '<div style="display:flex;gap:10px;">'
+    +   '<button id="gps-auto-cancelar" style="flex:1;padding:13px;background:#f5f5f5;color:#666;border:none;border-radius:11px;font-family:Barlow Condensed,sans-serif;font-size:15px;font-weight:700;cursor:pointer;touch-action:manipulation;">Seguir acá</button>'
+    +   '<button id="gps-auto-checkout" style="flex:2;padding:13px;background:linear-gradient(135deg,#1B5E20,#2E7D32);color:#fff;border:none;border-radius:11px;font-family:Barlow Condensed,sans-serif;font-size:15px;font-weight:900;cursor:pointer;touch-action:manipulation;">🚪 Check-out ahora</button>'
+    + '</div>'
+    + '</div>';
+
+  document.body.appendChild(modal);
+
+  // Auto-confirm a los 6 segundos
+  var segundos = 6;
+  var countdownEl = document.getElementById('gps-auto-countdown');
+  var _autoTimer = setInterval(function() {
+    segundos -= 1;
+    if (countdownEl) countdownEl.textContent = '(en ' + segundos + ' s)';
+    if (segundos <= 0) {
+      clearInterval(_autoTimer);
+      var m = document.getElementById('gps-modal-checkout-auto');
+      if (m) m.remove();
+      // Ejecutar checkout sin motivo (motivo=null = "Sí, hubo pedido")
+      // El pedido_campo ya está insertado en visitas por el tomador.
+      gpsCheckoutFinal(null);
+    }
+  }, 1000);
+
+  document.getElementById('gps-auto-cancelar').onclick = function() {
+    clearInterval(_autoTimer);
+    var m = document.getElementById('gps-modal-checkout-auto');
+    if (m) m.remove();
+    // No hace nada — deja el check-in activo. El vendedor puede agregar
+    // otro pedido o hacer checkout manual cuando quiera.
+  };
+
+  document.getElementById('gps-auto-checkout').onclick = function() {
+    clearInterval(_autoTimer);
+    var m = document.getElementById('gps-modal-checkout-auto');
+    if (m) m.remove();
+    gpsCheckoutFinal(null);
+  };
+}
+
 function gpsCheckoutConMotivo() {
   if (!_gpsCheckinActivo) return;
   // Si ya tomó pedido por el tomador del check-in, hacer checkout directo
@@ -23359,6 +23708,9 @@ function tomadorPedirLocalidadYReintentar(callback) {
 
 async function tomadorConfirmarConEntrega(entregaData) {
   // v14.5.0 ANTI-DUP: try/finally garantiza liberación del lock pase lo que pase.
+  // v14.17.3: flag local para saber si el guardado fue exitoso y disparar
+  // el modal de checkout automático al final (Cambio 1).
+  var _pedidoGuardadoOK = false;
   try {
   var items = Object.keys(_tomadorQtys);
   var cliente   = _gpsCheckinActivo ? _gpsCheckinActivo.nombre_cliente : 'Cliente';
@@ -23550,6 +23902,10 @@ async function tomadorConfirmarConEntrega(entregaData) {
     _pedidosCache = todosLosPedidos.slice();
     _registrarOptimistico(nuevoPedidoOpt);
     renderPedidos();
+
+    // v14.17.3 Cambio 1: marcar guardado exitoso para disparar modal de
+    // checkout automático fuera del try/catch.
+    _pedidoGuardadoOK = true;
   } catch(e) {
     // v14.6.0 NO-CORS FIX: error real visible (antes decía "✅ Pedido enviado
     // por WhatsApp" aunque hubiera fallado el guardado en la Sheet — bug ALMIRON).
@@ -23564,6 +23920,16 @@ async function tomadorConfirmarConEntrega(entregaData) {
   tomadorCerrar();
   // Recargar historial GPS para mostrar la visita con pedido
   setTimeout(function() { gpsCargarHistorial(); }, 1500);
+
+  // v14.17.3 Cambio 1: si el guardado fue exitoso y hay check-in activo,
+  // mostrar modal de confirmación para checkout automático. La idea es que
+  // si el vendedor está físicamente en el local y ya tomó el pedido, no
+  // tiene sentido dejar la visita abierta. Confirmación previa porque
+  // podría querer agregar otro pedido al mismo cliente (caso raro pero
+  // posible). Ver _gpsModalCheckoutAuto definido abajo.
+  if (_pedidoGuardadoOK && _gpsCheckinActivo) {
+    _gpsMostrarModalCheckoutAuto(cliente);
+  }
   } finally {
     // v14.17.2: usar el helper centralizado que también limpia el timeout
     // de seguridad de 90s (window._tomadorLockTimeout).
