@@ -2,6 +2,80 @@
 <html lang="es">
 <head>
 <!-- ═══════════════════════════════════════════════════════════════════════
+     TCK VENTAS — v14.22.0 — 18/05/2026
+     ──────────────────────────────────────────────────────────────────────
+     TAB JORNADA: del modelo "lista abierta" al modelo "asistente del día"
+
+     CAMBIO DE MODELO MENTAL:
+       Mi Ronda (existente, conserva): vista de TODOS los clientes activos
+         del vendedor agrupados por ruta. Útil para tener panorama general,
+         buscar un cliente específico, hacer gestiones puntuales.
+       Jornada (nueva): vista del DÍA. El vendedor elige la ciudad en la
+         que está trabajando y ve los stops priorizados:
+           🚨 Tipo A en riesgo (rojos primero, naranjas)
+           ⭐ Tipo A confirmados
+           ☆ Sugeridos (top facturación)
+           Pendientes regulares
+           ✓ Ya visitados hoy (colapsado al final)
+
+       Inspirado en las apps de venta en campo (RepMove, Badger, SPOTIO,
+       SimplyDepo, OIS Pro): día planificado, lista cerrada de stops,
+       prioridad clara, sense of progress.
+
+     UI:
+       Tab nueva 📍 Jornada en el nav (entre Visitas y Reportes).
+       Visible solo para vendedores de campo (Juan/Lisandro), no Miguel.
+
+     ESTRUCTURA DE LA PANTALLA:
+       1. Header rojo TCK con fecha actual
+       2. Chips de ciudad (con contador de pendientes por ciudad)
+       3. Stats del día: visitados / ventas $ / Tipo A urgentes
+       4. Lista de stops por sección (alerta → confirmados → sugeridos → resto)
+       5. Sección colapsada de "ya visitados hoy"
+       6. Botones: + Agregar stop / 🏁 Cerrar jornada (placeholders)
+
+     COMPORTAMIENTO:
+       - Default ciudad al abrir: ciudad del check-in activo si hay; sino
+         la más frecuente del vendedor; sino la primera con clientes.
+       - Tap en chip → cambia la ciudad activa.
+       - Tap en un stop → abre Mi Ronda con ese cliente.
+       - Máximo 20 stops por día (truncando primero los pendientes
+         regulares, después los sugeridos, NUNCA los Tipo A).
+       - Cuando todos los clientes están visitados, muestra "Jornada completa".
+
+     LO QUE NO HACE (próximas):
+       - v14.22.1: navegación turn-by-turn (botón Ir abre Maps/Waze) y
+         distancia GPS real entre stops.
+       - v14.22.2: resumen del día al cerrar (KPIs, total ventas, etc).
+       - v14.23+: plan semanal recurrente (Juan: lunes estos, martes esos).
+       - v14.23+: cross-vendor visits (Lisandro visita clientes de Miguel
+         estratégicamente para fortalecer relación).
+
+     SIN IMPACTO en:
+       - Mi Ronda (intacta, conviven).
+       - Check-in y módulo Visitas.
+       - Xubio automático del v14.20.0.
+       - Sistema Tipo A del v14.21.0/v14.21.1 (de hecho lo aprovecha).
+
+     IMPLEMENTACIÓN TÉCNICA:
+       - Variable global _jornadaCiudadActiva guarda la ciudad seleccionada.
+       - Constante JORNADA_MAX_STOPS = 20.
+       - Funciones nuevas: jornadaRender, jornadaPintarFecha,
+         jornadaPintarChips, jornadaSeleccionarCiudad, jornadaPintarStats,
+         jornadaPintarBody, jornadaRenderStop, jornadaRenderVisitado,
+         jornadaAbrirStop, jornadaAgregarStop (placeholder),
+         jornadaCerrarDia (placeholder).
+       - Reuso de _miRondaClientes, _miRondaGestiones, _calcularRiesgoTipoA,
+         _esTipoAConfirmado, _esTipoASugerido del bloque Mi Ronda.
+       - Si jornadaRender se llama antes de que Mi Ronda cargue datos,
+         dispara miRondaRender y se vuelve a llamar a sí mismo (re-render).
+
+     CSS NUEVO:
+       Prefijo .jor-* para todos los estilos (no chocan con .mr-*).
+       Mismo color rojo TCK (#1A0800, #8B0000) y tipografía Barlow.
+     ══════════════════════════════════════════════════════════════════════ -->
+
+<!-- ═══════════════════════════════════════════════════════════════════════
      TCK VENTAS — v14.21.1 — 18/05/2026
      ──────────────────────────────────────────────────────────────────────
      ALERTA TIPO A + BOTÓN LLAMAR
@@ -9528,6 +9602,244 @@ body {
 /* ══════════════════════════════════════════════════════════════
    MI RONDA — Sprint 1
    ══════════════════════════════════════════════════════════════ */
+/* ═══════════════════════════════════════════════════════════════════
+   v14.22.0 — TAB JORNADA
+   La lista del día por ciudad. Estética TCK (rojo header, amarillo pill
+   activo, cards blancas). Reusa los colores del check-in y de Mi Ronda
+   para mantener consistencia visual.
+   ═══════════════════════════════════════════════════════════════════ */
+.jor-wrap { padding: 14px 14px 80px; }
+
+.jor-hdr {
+  background: #1A0800;
+  color: #fff;
+  padding: 14px 18px;
+  border-radius: 14px 14px 0 0;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+.jor-hdr-icon { font-size: 22px; line-height: 1; }
+.jor-hdr-text { flex: 1; }
+.jor-hdr-titulo {
+  font-family: 'Barlow Condensed', sans-serif;
+  font-size: 19px;
+  font-weight: 900;
+  letter-spacing: .3px;
+}
+.jor-hdr-sub {
+  font-size: 11px;
+  color: #FFC107;
+  opacity: .85;
+  margin-top: 2px;
+}
+
+.jor-ciudad-wrap {
+  background: #fff;
+  padding: 10px 14px 12px;
+  border-left: 0.5px solid #E5DCC8;
+  border-right: 0.5px solid #E5DCC8;
+}
+.jor-ciudad-lbl {
+  font-size: 10px;
+  color: #8B6F50;
+  text-transform: uppercase;
+  letter-spacing: .5px;
+  font-weight: 700;
+  margin-bottom: 6px;
+}
+.jor-chips {
+  display: flex;
+  gap: 6px;
+  overflow-x: auto;
+  padding-bottom: 2px;
+  scrollbar-width: none;
+  -ms-overflow-style: none;
+}
+.jor-chips::-webkit-scrollbar { display: none; }
+.jor-chip {
+  padding: 8px 14px;
+  background: #f5edd9;
+  color: #6D4C2D;
+  border: none;
+  border-radius: 16px;
+  font-size: 12px;
+  font-weight: 700;
+  white-space: nowrap;
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+}
+.jor-chip.activo {
+  background: linear-gradient(135deg, #4A0000, #8B0000);
+  color: #fff;
+  font-weight: 900;
+}
+
+.jor-stats {
+  background: #fff;
+  padding: 0 14px 14px;
+  border-left: 0.5px solid #E5DCC8;
+  border-right: 0.5px solid #E5DCC8;
+  display: flex;
+  gap: 8px;
+}
+.jor-stat {
+  flex: 1;
+  padding: 8px;
+  border-radius: 8px;
+  text-align: center;
+}
+.jor-stat-val {
+  font-family: 'Barlow Condensed', sans-serif;
+  font-size: 18px;
+  font-weight: 900;
+  color: #1A0800;
+  line-height: 1.1;
+}
+.jor-stat-val.jor-stat-success { color: #1B5E20; }
+.jor-stat-val.jor-stat-alert   { color: #B71C1C; }
+.jor-stat-lbl {
+  font-size: 9px;
+  color: #6D4C2D;
+  text-transform: uppercase;
+  letter-spacing: .3px;
+  margin-top: 2px;
+}
+.jor-stat-lbl.jor-stat-lbl-success { color: #1B5E20; }
+.jor-stat-lbl.jor-stat-lbl-alert   { color: #B71C1C; }
+
+.jor-body {
+  background: #fff;
+  padding: 4px 14px;
+  border-left: 0.5px solid #E5DCC8;
+  border-right: 0.5px solid #E5DCC8;
+}
+.jor-empty {
+  padding: 40px 20px;
+  text-align: center;
+  color: #8B6F50;
+}
+.jor-empty-icon { font-size: 38px; margin-bottom: 8px; }
+.jor-empty-txt {
+  font-size: 13px;
+  color: #6D4C2D;
+  line-height: 1.4;
+}
+
+.jor-section-hdr {
+  padding: 14px 0 6px;
+  font-family: 'Barlow Condensed', sans-serif;
+  font-size: 12px;
+  font-weight: 900;
+  letter-spacing: .5px;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.jor-section-hdr.alerta { color: #B71C1C; }
+.jor-section-hdr.confirmado { color: #BF8500; }
+.jor-section-hdr.sugerido { color: #BF8500; }
+.jor-section-hdr.normal { color: #8B6F50; }
+.jor-section-hdr.visitado { color: #2E7D32; }
+
+.jor-stop {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  padding: 10px 0;
+  border-bottom: 0.5px solid #F0E8D6;
+  cursor: pointer;
+  -webkit-tap-highlight-color: rgba(139,0,0,.08);
+}
+.jor-stop:active { background: #FFFBF5; }
+.jor-stop-riesgo-alto  { border-left: 3px solid #B71C1C; padding-left: 10px; background: #FFFBFB; }
+.jor-stop-riesgo-medio { border-left: 3px solid #E65100; padding-left: 10px; background: #FFFBF5; }
+.jor-stop-nombre {
+  font-size: 13px;
+  color: #1A0800;
+  font-weight: 700;
+  line-height: 1.3;
+}
+.jor-stop-meta {
+  font-size: 10px;
+  color: #6D4C2D;
+  margin-top: 2px;
+  line-height: 1.3;
+}
+.jor-stop-info { flex: 1; min-width: 0; }
+.jor-stop-tag {
+  font-size: 10px;
+  font-weight: 700;
+  padding: 2px 6px;
+  border-radius: 4px;
+  flex-shrink: 0;
+  align-self: center;
+}
+.jor-stop-tag.alta  { color: #B71C1C; background: #FFEBEE; }
+.jor-stop-tag.media { color: #E65100; background: #FFF3E0; }
+
+.jor-visitado {
+  opacity: .65;
+  padding: 6px 0;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  border-bottom: 0.5px solid #F0E8D6;
+}
+.jor-visitado-icon {
+  width: 18px;
+  height: 18px;
+  background: #2E7D32;
+  color: #fff;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-weight: 900;
+  font-size: 10px;
+  flex-shrink: 0;
+}
+.jor-visitado-txt {
+  font-size: 11px;
+  color: #1A0800;
+}
+
+.jor-acciones {
+  background: #fff;
+  padding: 14px;
+  border-left: 0.5px solid #E5DCC8;
+  border-right: 0.5px solid #E5DCC8;
+  border-bottom: 0.5px solid #E5DCC8;
+  border-radius: 0 0 14px 14px;
+  display: flex;
+  gap: 6px;
+}
+.jor-btn-secundario {
+  flex: 1;
+  padding: 10px;
+  background: #fff;
+  color: #666;
+  border: 1.5px solid #ccc;
+  border-radius: 10px;
+  font-size: 12px;
+  font-weight: 700;
+  cursor: pointer;
+}
+.jor-btn-cerrar {
+  flex: 1;
+  padding: 10px;
+  background: linear-gradient(135deg, #1B5E20, #2E7D32);
+  color: #fff;
+  border: none;
+  border-radius: 10px;
+  font-family: 'Barlow Condensed', sans-serif;
+  font-size: 13px;
+  font-weight: 900;
+  letter-spacing: .3px;
+  cursor: pointer;
+}
+/* ═══════════════════════════════════════════════════════════════════ */
+
 .mr-wrap { padding: 14px 14px 20px; }
 
 .mr-hdr {
@@ -13019,6 +13331,62 @@ body {
   <!-- Feedback toast para Mi Ronda -->
   <div class="mr-feedback" id="mr-feedback">✓ Gestión guardada</div>
 
+  <!-- ═══════════════════════════════════════════════════════════════════
+       v14.22.0 — TAB JORNADA: la lista del día por ciudad
+       ═══════════════════════════════════════════════════════════════════ -->
+  <div class="view" id="view-jornada">
+    <div class="jor-wrap">
+
+      <!-- Header -->
+      <div class="jor-hdr">
+        <div class="jor-hdr-icon">📍</div>
+        <div class="jor-hdr-text">
+          <div class="jor-hdr-titulo">MI JORNADA</div>
+          <div class="jor-hdr-sub" id="jor-fecha-actual">—</div>
+        </div>
+      </div>
+
+      <!-- Chips de ciudad -->
+      <div class="jor-ciudad-wrap">
+        <div class="jor-ciudad-lbl">CIUDAD</div>
+        <div class="jor-chips" id="jor-chips">
+          <!-- chips se inyectan vía jornadaRender -->
+        </div>
+      </div>
+
+      <!-- Stats del día -->
+      <div class="jor-stats" id="jor-stats">
+        <div class="jor-stat" style="background:#F5EDD9;">
+          <div class="jor-stat-val" id="jor-stat-visitados">0 / 0</div>
+          <div class="jor-stat-lbl">Visitados</div>
+        </div>
+        <div class="jor-stat" style="background:#E8F5E9;">
+          <div class="jor-stat-val jor-stat-success" id="jor-stat-ventas">$0</div>
+          <div class="jor-stat-lbl jor-stat-lbl-success">Ventas hoy</div>
+        </div>
+        <div class="jor-stat" style="background:#FFEBEE;">
+          <div class="jor-stat-val jor-stat-alert" id="jor-stat-urgente">0</div>
+          <div class="jor-stat-lbl jor-stat-lbl-alert">Tipo A urgente</div>
+        </div>
+      </div>
+
+      <!-- Cuerpo: stops del día agrupados por prioridad -->
+      <div class="jor-body" id="jor-body">
+        <div class="jor-empty">
+          <div class="jor-empty-icon">🗺️</div>
+          <div class="jor-empty-txt">Elegí una ciudad para ver tu jornada</div>
+        </div>
+      </div>
+
+      <!-- Acciones al final -->
+      <div class="jor-acciones" id="jor-acciones" style="display:none;">
+        <button class="jor-btn-secundario" onclick="jornadaAgregarStop()">+ Agregar stop</button>
+        <button class="jor-btn-cerrar" onclick="jornadaCerrarDia()">🏁 CERRAR JORNADA</button>
+      </div>
+
+    </div>
+  </div>
+
   <!-- TAB NAV -->
 <nav class="tab-nav" id="tab-nav">
   <button class="tab-btn" id="tab-btn-pedidos" onclick="cambiarTab('pedidos')">
@@ -13042,6 +13410,11 @@ body {
   <button class="tab-btn" id="tab-btn-gps" onclick="cambiarTab('gps')">
     <span class="tab-icon"><svg viewBox="0 0 24 24" fill="currentColor" width="22" height="22"><path d="M12 2C8.13 2 5 5.13 5 9c0 5.25 7 13 7 13s7-7.75 7-13c0-3.87-3.13-7-7-7zm0 9.5c-1.38 0-2.5-1.12-2.5-2.5s1.12-2.5 2.5-2.5 2.5 1.12 2.5 2.5-1.12 2.5-2.5 2.5z"/></svg></span>
     <span class="tab-label">Visitas</span>
+  </button>
+  <!-- v14.22.0: tab Jornada — lista del día por ciudad -->
+  <button class="tab-btn" id="tab-btn-jornada" onclick="cambiarTab('jornada')">
+    <span class="tab-icon">📍</span>
+    <span class="tab-label">Jornada</span>
   </button>
   <button class="tab-btn" id="tab-btn-reportes" onclick="cambiarTab('reportes')">
     <span class="tab-icon">📈</span>
@@ -17931,7 +18304,8 @@ function cambiarTab(tab) {
   _tabActual = tab;
 
   // Views — incluye entregas para choferes y mironda para vendedores
-  ['pedidos','midia','clientes','gps','mapa','reportes','bot','entregas','mironda','rendiciones'].forEach(function(t) {
+  // v14.22.0: agregada tab "jornada" (lista del día por ciudad)
+  ['pedidos','midia','clientes','gps','mapa','reportes','bot','entregas','mironda','jornada','rendiciones'].forEach(function(t) {
     var v = document.getElementById('view-' + t);
     var b = document.getElementById('tab-btn-' + t);
     if (v) v.classList.toggle('active', t === tab);
@@ -17960,6 +18334,13 @@ function cambiarTab(tab) {
   } else {
     // Restaurar min-height para otros tabs
     var p = document.getElementById('panel'); if (p) p.style.minHeight = '';
+  }
+
+  // v14.22.0: cuando se abre Jornada, renderizar
+  if (tab === 'jornada') {
+    jornadaRender();
+    var v = document.getElementById('view-jornada'); if (v) v.scrollTop = 0;
+    var p = document.getElementById('panel'); if (p) p.style.minHeight = 'unset';
   }
 
   // Cuando se abre Mi Día, renderizar
@@ -18089,6 +18470,11 @@ function mostrarTabs() {
   // Tab Mapa — solo Admin (vendedores no ven mapa en el nav)
   var tabMapa = document.getElementById('tab-btn-mapa');
   if (tabMapa) tabMapa.style.display = esAdmin ? '' : 'none';
+
+  // v14.22.0: Tab Jornada — solo vendedores de campo (Juan/Lisandro)
+  // Miguel no la necesita (no visita clientes en campo).
+  var tabJornada = document.getElementById('tab-btn-jornada');
+  if (tabJornada) tabJornada.style.display = esCampo ? '' : 'none';
 
   // Tab Más — siempre visible
   var tabMas = document.getElementById('tab-btn-mas');
@@ -35343,6 +35729,392 @@ function mrModalCerrarFondo(e) {
   if (e && e.target !== document.getElementById('mr-modal-backdrop')) return;
   mrModalCerrar();
 }
+
+// ════════════════════════════════════════════════════════════════════════
+// v14.22.0 — TAB JORNADA: la lista del día por ciudad
+// ════════════════════════════════════════════════════════════════════════
+// Modelo mental nuevo: en lugar de "lista abierta de 200+ clientes activos"
+// (que es Mi Ronda), Jornada es "una lista cerrada de stops del día para
+// una ciudad determinada".
+//
+// Flujo:
+//   1. Vendedor abre tab Jornada
+//   2. Ve chips de ciudades de su ronda (con contador de pendientes)
+//   3. Tap en una ciudad → carga los stops para esa ciudad
+//   4. Sistema arma la jornada agrupada y ordenada por prioridad:
+//      🚨 Tipo A en riesgo (rojos primero, naranjas después)
+//      ⭐ Tipo A confirmados sin riesgo
+//      ☆ Sugeridos (top facturación)
+//      Pendientes regulares
+//      ✓ Ya visitados hoy (colapsable, opacity reducida)
+//   5. Vendedor toca un stop → abre el flujo normal del cliente
+//      (puede empezar con un check-in, llamar, mandar WA, etc.)
+//   6. Al cerrar el día, ve el resumen y arranca otro día
+//
+// Esta versión (v14.22.0) NO incluye:
+//   - Navegación turn-by-turn con distancia GPS real
+//   - Optimización por nearest-neighbor
+//   - Plan semanal recurrente
+//   - Cross-vendor visits
+//   - Resumen completo del día al cerrar
+//
+// Lo que SÍ incluye:
+//   - Lista de stops priorizada por Tipo A + sugeridos + resto
+//   - Stats del día (visitados/ventas/Tipo A urgente)
+//   - Chips de ciudades clicables
+//   - Acción "Cerrar jornada" (placeholder por ahora)
+//   - Acción "Agregar stop" (placeholder por ahora)
+
+var _jornadaCiudadActiva = null;
+var JORNADA_MAX_STOPS = 20;
+
+function jornadaRender() {
+  // Asegurar que los datos de Mi Ronda estén cargados (la Jornada usa
+  // _miRondaClientes que es la fuente única). Si no hay data, dispara
+  // miRondaRender que carga todo.
+  if (!Array.isArray(_miRondaClientes) || _miRondaClientes.length === 0) {
+    if (typeof miRondaRender === 'function') {
+      miRondaRender().then(function() {
+        // Re-llamar a jornadaRender una vez que tenga data
+        if (_tabActual === 'jornada') jornadaRender();
+      }).catch(function() {});
+    }
+    return;
+  }
+
+  // Fecha actual visible
+  jornadaPintarFecha();
+
+  // Si no hay ciudad activa, elegir default
+  if (!_jornadaCiudadActiva) {
+    _jornadaCiudadActiva = jornadaCiudadDefault();
+  }
+
+  // Pintar chips
+  jornadaPintarChips();
+
+  // Pintar stats
+  jornadaPintarStats();
+
+  // Pintar body (lista de stops)
+  jornadaPintarBody();
+
+  // Mostrar acciones si hay ciudad activa
+  var acciones = document.getElementById('jor-acciones');
+  if (acciones) acciones.style.display = _jornadaCiudadActiva ? 'flex' : 'none';
+}
+
+function jornadaPintarFecha() {
+  var el = document.getElementById('jor-fecha-actual');
+  if (!el) return;
+  var d = new Date();
+  var dias = ['Domingo','Lunes','Martes','Miércoles','Jueves','Viernes','Sábado'];
+  var meses = ['enero','febrero','marzo','abril','mayo','junio','julio','agosto','septiembre','octubre','noviembre','diciembre'];
+  el.textContent = dias[d.getDay()] + ' ' + d.getDate() + ' de ' + meses[d.getMonth()];
+}
+
+// Default ciudad al abrir Jornada:
+//   1. Si hay check-in activo, su ciudad
+//   2. Sino, la ciudad más frecuente del vendedor en sus clientes activos
+//   3. Sino, primera ciudad de la lista
+function jornadaCiudadDefault() {
+  // 1. Check-in activo
+  if (_gpsCheckinActivo && _gpsCheckinActivo.localidad) {
+    var canon = localidadCanonicaDe(_gpsCheckinActivo.localidad);
+    if (canon) return canon;
+  }
+  // 2. Más frecuente entre los clientes activos del vendedor
+  var freq = {};
+  _miRondaClientes.forEach(function(c) {
+    var loc = (c.localidad || '').trim();
+    if (!loc) return;
+    freq[loc] = (freq[loc] || 0) + 1;
+  });
+  var ordenadas = Object.keys(freq).sort(function(a, b) { return freq[b] - freq[a]; });
+  return ordenadas[0] || null;
+}
+
+function jornadaPintarChips() {
+  var cont = document.getElementById('jor-chips');
+  if (!cont) return;
+
+  // Contar pendientes por ciudad (excluyendo gestionados y vendidos de hoy)
+  var ciudades = {};
+  _miRondaClientes.forEach(function(c) {
+    var loc = (c.localidad || '').trim();
+    if (!loc) return;
+    if (!ciudades[loc]) ciudades[loc] = { total: 0, pendientes: 0 };
+    ciudades[loc].total++;
+    var esGestionado = !!(_miRondaGestiones && _miRondaGestiones[c.cliente_id]);
+    var esVendido = c._mr_estado === 'verde';
+    if (!esGestionado && !esVendido) ciudades[loc].pendientes++;
+  });
+
+  // Ordenar: primero la activa, después por cantidad descendente
+  var ordenadas = Object.keys(ciudades).sort(function(a, b) {
+    if (a === _jornadaCiudadActiva) return -1;
+    if (b === _jornadaCiudadActiva) return 1;
+    return ciudades[b].pendientes - ciudades[a].pendientes;
+  });
+
+  var html = '';
+  ordenadas.forEach(function(loc) {
+    var info = ciudades[loc];
+    var activa = (loc === _jornadaCiudadActiva);
+    html += '<button class="jor-chip' + (activa ? ' activo' : '') + '"'
+      + ' onclick="jornadaSeleccionarCiudad(\'' + encodeURIComponent(loc) + '\')">'
+      + escapeHtml(loc) + ' (' + info.pendientes + ')'
+      + '</button>';
+  });
+  cont.innerHTML = html;
+}
+
+function jornadaSeleccionarCiudad(locEnc) {
+  _jornadaCiudadActiva = decodeURIComponent(locEnc);
+  jornadaRender();
+  // Scroll al inicio del body
+  var v = document.getElementById('view-jornada');
+  if (v) v.scrollTop = 0;
+}
+
+function jornadaPintarStats() {
+  if (!_jornadaCiudadActiva) return;
+  var clientesCiudad = _miRondaClientes.filter(function(c) {
+    return (c.localidad || '').trim() === _jornadaCiudadActiva;
+  });
+  var visitados = clientesCiudad.filter(function(c) {
+    return !!(_miRondaGestiones && _miRondaGestiones[c.cliente_id]) || c._mr_estado === 'verde';
+  });
+  var ventasMonto = 0;
+  visitados.forEach(function(c) {
+    if (c._mr_estado === 'verde' && c._mr_total) {
+      ventasMonto += Number(c._mr_total) || 0;
+    }
+  });
+  var urgentes = clientesCiudad.filter(function(c) {
+    var r = _calcularRiesgoTipoA(c);
+    return r && r.nivel === 'alto';
+  });
+
+  var el1 = document.getElementById('jor-stat-visitados');
+  if (el1) el1.textContent = visitados.length + ' / ' + clientesCiudad.length;
+  var el2 = document.getElementById('jor-stat-ventas');
+  if (el2) el2.textContent = '$' + (ventasMonto > 0 ? Math.round(ventasMonto/1000) + 'k' : '0');
+  var el3 = document.getElementById('jor-stat-urgente');
+  if (el3) el3.textContent = urgentes.length;
+}
+
+function jornadaPintarBody() {
+  var body = document.getElementById('jor-body');
+  if (!body) return;
+
+  if (!_jornadaCiudadActiva) {
+    body.innerHTML = '<div class="jor-empty">' +
+      '<div class="jor-empty-icon">🗺️</div>' +
+      '<div class="jor-empty-txt">Elegí una ciudad para ver tu jornada</div>' +
+      '</div>';
+    return;
+  }
+
+  // Filtrar por ciudad activa
+  var clientes = _miRondaClientes.filter(function(c) {
+    return (c.localidad || '').trim() === _jornadaCiudadActiva;
+  });
+
+  if (clientes.length === 0) {
+    body.innerHTML = '<div class="jor-empty">' +
+      '<div class="jor-empty-icon">🤷</div>' +
+      '<div class="jor-empty-txt">No tenés clientes en ' + escapeHtml(_jornadaCiudadActiva) + '</div>' +
+      '</div>';
+    return;
+  }
+
+  // Clasificar
+  var tipoAEnRiesgoAlto = [];
+  var tipoAEnRiesgoMedio = [];
+  var tipoAConf = [];
+  var sugeridos = [];
+  var normales = [];
+  var visitados = [];
+
+  clientes.forEach(function(c) {
+    var esGestionado = !!(_miRondaGestiones && _miRondaGestiones[c.cliente_id]);
+    var esVendido = c._mr_estado === 'verde';
+    if (esGestionado || esVendido) {
+      visitados.push(c);
+      return;
+    }
+    var r = _calcularRiesgoTipoA(c);
+    if (r && r.nivel === 'alto') {
+      c._jorRiesgo = r;
+      tipoAEnRiesgoAlto.push(c);
+    } else if (r && r.nivel === 'medio') {
+      c._jorRiesgo = r;
+      tipoAEnRiesgoMedio.push(c);
+    } else if (_esTipoAConfirmado(c)) {
+      tipoAConf.push(c);
+    } else if (_esTipoASugerido(c)) {
+      sugeridos.push(c);
+    } else {
+      normales.push(c);
+    }
+  });
+
+  // Limitar el total a JORNADA_MAX_STOPS, repartiendo por prioridad
+  var totalNoVisitados = tipoAEnRiesgoAlto.length + tipoAEnRiesgoMedio.length +
+                         tipoAConf.length + sugeridos.length + normales.length;
+  if (totalNoVisitados > JORNADA_MAX_STOPS) {
+    // Truncar normales primero, luego sugeridos. NUNCA Tipo A.
+    var disponibles = JORNADA_MAX_STOPS - tipoAEnRiesgoAlto.length - tipoAEnRiesgoMedio.length - tipoAConf.length;
+    if (disponibles < sugeridos.length) {
+      normales = [];
+      sugeridos = sugeridos.slice(0, Math.max(0, disponibles));
+    } else {
+      var quedan = disponibles - sugeridos.length;
+      normales = normales.slice(0, Math.max(0, quedan));
+    }
+  }
+
+  var html = '';
+
+  // SECCIÓN: 🚨 Tipo A en riesgo
+  var enRiesgo = tipoAEnRiesgoAlto.concat(tipoAEnRiesgoMedio);
+  if (enRiesgo.length > 0) {
+    html += '<div class="jor-section-hdr alerta">🚨 TIPO A EN RIESGO (' + enRiesgo.length + ')</div>';
+    enRiesgo.forEach(function(c) { html += jornadaRenderStop(c, 'riesgo'); });
+  }
+
+  // SECCIÓN: ⭐ Tipo A confirmados
+  if (tipoAConf.length > 0) {
+    html += '<div class="jor-section-hdr confirmado">⭐ TIPO A CONFIRMADOS (' + tipoAConf.length + ')</div>';
+    tipoAConf.forEach(function(c) { html += jornadaRenderStop(c, 'confirmado'); });
+  }
+
+  // SECCIÓN: ☆ Sugeridos
+  if (sugeridos.length > 0) {
+    html += '<div class="jor-section-hdr sugerido">☆ SUGERIDOS (' + sugeridos.length + ')</div>';
+    sugeridos.forEach(function(c) { html += jornadaRenderStop(c, 'sugerido'); });
+  }
+
+  // SECCIÓN: Pendientes
+  if (normales.length > 0) {
+    html += '<div class="jor-section-hdr normal">PENDIENTES (' + normales.length + ')</div>';
+    normales.forEach(function(c) { html += jornadaRenderStop(c, 'normal'); });
+  }
+
+  // SECCIÓN: ✓ Visitados (al final, colapsable visual con opacity reducida)
+  if (visitados.length > 0) {
+    html += '<div class="jor-section-hdr visitado">✓ YA VISITADOS HOY (' + visitados.length + ')</div>';
+    visitados.forEach(function(c) { html += jornadaRenderVisitado(c); });
+  }
+
+  // Si no hay nada
+  if (html === '') {
+    html = '<div class="jor-empty">' +
+      '<div class="jor-empty-icon">🎉</div>' +
+      '<div class="jor-empty-txt">Jornada completa en ' + escapeHtml(_jornadaCiudadActiva) + '</div>' +
+      '</div>';
+  }
+
+  body.innerHTML = html;
+}
+
+function jornadaRenderStop(c, tipo) {
+  var nombre = escapeHtml(c.nombre || '—');
+  var direccion = escapeHtml(c.direccion || '');
+  var diasDesde = c.dias_desde_ult_pedido;
+  var meta = '';
+
+  // Prefijo estrella según tipo
+  var prefijoNombre = '';
+  if (tipo === 'riesgo' || tipo === 'confirmado') {
+    prefijoNombre = '⭐ ';
+  } else if (tipo === 'sugerido') {
+    prefijoNombre = '☆ ';
+  }
+
+  // Meta y tag de riesgo
+  var tagRiesgo = '';
+  var claseStop = 'jor-stop';
+  if (c._jorRiesgo) {
+    var r = c._jorRiesgo;
+    if (r.nivel === 'alto') {
+      claseStop += ' jor-stop-riesgo-alto';
+      tagRiesgo = '<span class="jor-stop-tag alta">URGENTE</span>';
+      meta = (direccion ? direccion + ' · ' : '') + '🔴 ' + r.diasAtraso + 'd sin pedido';
+    } else if (r.nivel === 'medio') {
+      claseStop += ' jor-stop-riesgo-medio';
+      tagRiesgo = '<span class="jor-stop-tag media">MEDIO</span>';
+      meta = (direccion ? direccion + ' · ' : '') + '🟠 ' + r.diasAtraso + 'd sin pedido';
+    }
+  } else if (tipo === 'sugerido') {
+    meta = (direccion ? direccion + ' · ' : '') + 'Top facturación · ' +
+      (diasDesde != null ? diasDesde + 'd' : 'sin pedido reciente');
+  } else {
+    meta = (direccion ? direccion + ' · ' : '') +
+      (diasDesde != null ? diasDesde + 'd sin pedido' : 'Sin pedidos');
+  }
+
+  return '<div class="' + claseStop + '" onclick="jornadaAbrirStop(\'' + escapeHtml(c.cliente_id || '') + '\')">'
+    + '<div class="jor-stop-info">'
+    +   '<div class="jor-stop-nombre">' + prefijoNombre + nombre + '</div>'
+    +   '<div class="jor-stop-meta">' + meta + '</div>'
+    + '</div>'
+    + tagRiesgo
+    + '</div>';
+}
+
+function jornadaRenderVisitado(c) {
+  var nombre = escapeHtml(c.nombre || '—');
+  var g = _miRondaGestiones && _miRondaGestiones[c.cliente_id];
+  var detalle = '';
+  if (c._mr_estado === 'verde') {
+    var total = c._mr_total ? '$' + Math.round(Number(c._mr_total)/1000) + 'k' : '';
+    detalle = total ? '✓ ' + total + ' vendido' : '✓ Vendido';
+  } else if (g) {
+    detalle = '✕ ' + mrMotivoLabel(g.motivo, g.motivo_texto);
+  }
+  return '<div class="jor-visitado">'
+    + '<div class="jor-visitado-icon">✓</div>'
+    + '<div class="jor-visitado-txt">' + nombre + ' · ' + escapeHtml(detalle) + '</div>'
+    + '</div>';
+}
+
+// Abrir un stop = redirigir al flujo de Mi Ronda con ese cliente.
+// Por ahora hacemos lo más simple: navegar a Mi Ronda, abrir su ruta
+// y dejar que el vendedor accione desde ahí. En la próxima versión
+// hacemos un panel propio de Jornada con botones directos (Ir/Llamar/WA).
+function jornadaAbrirStop(clienteId) {
+  if (!clienteId) return;
+  var c = _miRondaClientes.find(function(x) { return x.cliente_id === clienteId; });
+  if (!c) {
+    toast('Cliente no encontrado', 'err');
+    return;
+  }
+  // Encontrar la ruta del cliente y abrirla en Mi Ronda
+  var rutaKey = c.ruta_viaje || 'SIN_RUTA';
+  cambiarTab('mironda');
+  setTimeout(function() {
+    if (typeof miRondaAbrirModal === 'function') {
+      miRondaAbrirModal(rutaKey);
+    }
+  }, 300);
+}
+
+// Placeholder — se completará en v14.22.1
+function jornadaAgregarStop() {
+  toast('Próximamente: agregar un cliente fuera de plan', 'info');
+}
+
+// Placeholder — se completará en v14.22.2
+function jornadaCerrarDia() {
+  toast('Próximamente: resumen del día con KPIs', 'info');
+}
+
+// ════════════════════════════════════════════════════════════════════════
+// FIN bloque v14.22.0 Jornada
+// ════════════════════════════════════════════════════════════════════════
+
 
 // ── Re-render cuando cambian los pedidos (refresh manual) ────────
 // Hook: si el usuario está en Mi Ronda, al cargar pedidos también
