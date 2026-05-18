@@ -35,11 +35,13 @@
        6. Botones: + Agregar stop / 🏁 Cerrar jornada (placeholders)
 
      COMPORTAMIENTO:
-       - Default ciudad al abrir: ciudad del check-in activo si hay; sino
-         la más frecuente del vendedor; sino la primera con clientes.
+       - Al abrir Jornada por primera vez, el vendedor DEBE elegir una
+         ciudad (no hay default automático). Esto hace que sea consciente
+         de dónde está trabajando hoy. Mensaje invitante "¿En qué ciudad
+         vas a trabajar hoy?" con flechita.
        - Tap en chip → cambia la ciudad activa.
        - Tap en un stop → abre Mi Ronda con ese cliente.
-       - Máximo 20 stops por día (truncando primero los pendientes
+       - Máximo 30 stops por día (truncando primero los pendientes
          regulares, después los sugeridos, NUNCA los Tipo A).
        - Cuando todos los clientes están visitados, muestra "Jornada completa".
 
@@ -59,7 +61,7 @@
 
      IMPLEMENTACIÓN TÉCNICA:
        - Variable global _jornadaCiudadActiva guarda la ciudad seleccionada.
-       - Constante JORNADA_MAX_STOPS = 20.
+       - Constante JORNADA_MAX_STOPS = 30.
        - Funciones nuevas: jornadaRender, jornadaPintarFecha,
          jornadaPintarChips, jornadaSeleccionarCiudad, jornadaPintarStats,
          jornadaPintarBody, jornadaRenderStop, jornadaRenderVisitado,
@@ -13373,8 +13375,8 @@ body {
       <!-- Cuerpo: stops del día agrupados por prioridad -->
       <div class="jor-body" id="jor-body">
         <div class="jor-empty">
-          <div class="jor-empty-icon">🗺️</div>
-          <div class="jor-empty-txt">Elegí una ciudad para ver tu jornada</div>
+          <div class="jor-empty-icon">👆</div>
+          <div class="jor-empty-txt"><strong>¿En qué ciudad vas a trabajar hoy?</strong><br>Elegí una de los chips de arriba para ver tu jornada</div>
         </div>
       </div>
 
@@ -35766,7 +35768,11 @@ function mrModalCerrarFondo(e) {
 //   - Acción "Agregar stop" (placeholder por ahora)
 
 var _jornadaCiudadActiva = null;
-var JORNADA_MAX_STOPS = 20;
+// v14.22.0: 30 stops máximo por día. Lisandro venía haciendo 12-15 visitas
+// reales, 30 es un techo amplio que no excluye días con muchas visitas
+// rápidas (cobros, saludos cortos, etc.). Truncamos primero los pendientes
+// regulares, después los sugeridos. NUNCA truncamos Tipo A confirmados.
+var JORNADA_MAX_STOPS = 30;
 
 function jornadaRender() {
   // Asegurar que los datos de Mi Ronda estén cargados (la Jornada usa
@@ -35784,11 +35790,6 @@ function jornadaRender() {
 
   // Fecha actual visible
   jornadaPintarFecha();
-
-  // Si no hay ciudad activa, elegir default
-  if (!_jornadaCiudadActiva) {
-    _jornadaCiudadActiva = jornadaCiudadDefault();
-  }
 
   // Pintar chips
   jornadaPintarChips();
@@ -35813,26 +35814,11 @@ function jornadaPintarFecha() {
   el.textContent = dias[d.getDay()] + ' ' + d.getDate() + ' de ' + meses[d.getMonth()];
 }
 
-// Default ciudad al abrir Jornada:
-//   1. Si hay check-in activo, su ciudad
-//   2. Sino, la ciudad más frecuente del vendedor en sus clientes activos
-//   3. Sino, primera ciudad de la lista
-function jornadaCiudadDefault() {
-  // 1. Check-in activo
-  if (_gpsCheckinActivo && _gpsCheckinActivo.localidad) {
-    var canon = localidadCanonicaDe(_gpsCheckinActivo.localidad);
-    if (canon) return canon;
-  }
-  // 2. Más frecuente entre los clientes activos del vendedor
-  var freq = {};
-  _miRondaClientes.forEach(function(c) {
-    var loc = (c.localidad || '').trim();
-    if (!loc) return;
-    freq[loc] = (freq[loc] || 0) + 1;
-  });
-  var ordenadas = Object.keys(freq).sort(function(a, b) { return freq[b] - freq[a]; });
-  return ordenadas[0] || null;
-}
+// v14.22.0: el vendedor elige siempre la ciudad al abrir Jornada.
+// No hay default automático para que sea consciente de dónde está trabajando.
+// (Versión anterior tenía jornadaCiudadDefault que elegía la más frecuente,
+// pero se decidió eliminarlo: forzar elección hace que el vendedor piense
+// activamente en qué ciudad va a recorrer hoy.)
 
 function jornadaPintarChips() {
   var cont = document.getElementById('jor-chips');
@@ -35910,8 +35896,9 @@ function jornadaPintarBody() {
 
   if (!_jornadaCiudadActiva) {
     body.innerHTML = '<div class="jor-empty">' +
-      '<div class="jor-empty-icon">🗺️</div>' +
-      '<div class="jor-empty-txt">Elegí una ciudad para ver tu jornada</div>' +
+      '<div class="jor-empty-icon">👆</div>' +
+      '<div class="jor-empty-txt"><strong>¿En qué ciudad vas a trabajar hoy?</strong><br>' +
+      'Elegí una de los chips de arriba para ver tu jornada</div>' +
       '</div>';
     return;
   }
