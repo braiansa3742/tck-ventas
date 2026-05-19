@@ -2,6 +2,108 @@
 <html lang="es">
 <head>
 <!-- ═══════════════════════════════════════════════════════════════════════
+     TCK VENTAS — v14.23.1 — 19/05/2026
+     ──────────────────────────────────────────────────────────────────────
+     ANTI-DUPLICADO DE PEDIDOS POR CHECK-IN
+
+     SÍNTOMA REPORTADO (Braian, 19/05 ~10:00):
+       Pedidos tomados por check-in aparecen duplicados (y a veces
+       triplicados) en el panel. Vendedores: Lisandro, Juan.
+       Casos detectados en BD:
+         - PAULINA AYLEN LUCERO (Juan):  2 pedidos en 1.5 segundos
+         - MIRIAN LORENA DUCKARDT (Lisandro): 2 pedidos en 12 segundos
+         - NORMA ARACELI CHAVES (Lisandro):   2 pedidos en 37 segundos
+         - SUSANA LILIAN PAULON (Lisandro):   2 pedidos en 16 segundos
+         - YANINA NOEMI GARCIA (Juan):        3 pedidos en 24 segundos
+
+     CAUSA RAÍZ:
+       Los IDs de los duplicados son DISTINTOS (CKK5A vs CGNZM, etc) →
+       NO es un INSERT repetido del mismo dato; es la función
+       _tomadorConfirmarFinalContinuar ejecutándose de punta a punta dos
+       (o tres) veces, generando IDs nuevos cada vez.
+
+       El debounce existente (1800ms) y el lock _tomadorEnviando solo
+       protegen TAPS RÁPIDOS. Pero el flujo del check-in tiene 3 paradas
+       potenciales donde el vendedor puede esperar 10-40 segundos sin ver
+       respuesta del botón CERRAR VENTA:
+         1. Modal de canal del cliente (canalClienteChequearYAbrir)
+         2. Modal de sucursal (sucElegirAbrir)
+         3. Modal de viaje especial (viajeEspAbrirSelector)
+
+       Si el vendedor cancela cualquiera de estos modales, el código
+       hacía: _tomadorLiberarLock() + tomadorConfirmar() (reabrir resumen).
+       El segundo tap pasaba ambas barreras (debounce ya cumplido por
+       tiempo, lock liberado) → flujo completo otra vez → pedido nuevo.
+
+       Caso PAULINA (1.5s): doble tap muy rápido, pero entre el setup del
+       lock y la apertura del primer modal, el segundo tap llegó a
+       enganchar (race condition entre setear botón.disabled y el evento).
+
+     FIX (3 capas coordinadas):
+
+       Capa 1 — OVERLAY VISUAL ANTI-DOBLE-TAP
+         Nuevo overlay #tom-lock-overlay con z-index 9999, fondo translúcido,
+         spinner + "Procesando pedido" + paso actual. Aparece en cuanto se
+         setea _tomadorEnviando=true. Bloquea TODA interacción
+         (touch-action:none, event listeners en capture phase). Se muestra
+         vía _tomadorLockOverlayMostrar(textoPaso) y se oculta dentro de
+         _tomadorLiberarLock(). El paso visible se actualiza en cada
+         transición: "Validando canal..." → "Verificando sucursales..." →
+         "Elegí viaje del cliente..." → "Guardando pedido..."
+         Crítico: aunque el modal de canal/sucursal/viaje se monte ARRIBA
+         del overlay (con z-index aún mayor), el resto de la pantalla
+         queda inutilizable hasta que termine el flujo.
+
+       Capa 2 — RESET DE DEBOUNCE EN LIBERACIÓN
+         _tomadorLiberarLock() ahora resetea window._tomadorUltimoTap = 0.
+         Sin esto, después de un modal intermedio de 10s, el próximo tap
+         legítimo pasaba el debounce (10000 > 1800) y entraba al flujo de
+         nuevo. Ahora cada liberación recomienza el contador para que el
+         debounce siempre se aplique sobre el NUEVO ciclo, no el viejo.
+
+       Capa 3 — DEFENSA SERVER-SIDE EN tomadorConfirmarConEntrega
+         ANTES del INSERT a Apps Script, consulta a Supabase:
+           pedidos_zona?vendedor=eq.X&total=eq.Y&origen=eq.campo
+                       &estado=neq.Cancelado&creado_at=gte.NOW()-60s
+         Si encuentra un pedido del mismo cliente (case-insensitive),
+         aborta con toast claro:
+           "⚠️ Este pedido ya se cerró hace menos de 1 minuto.
+            ID: TCK-...
+            No se creó otro para evitar duplicado."
+         Y cierra el tomador. El catch detecta _antiDupHit y NO muestra
+         el toast genérico de error.
+         Esta es la barrera final: si las capas 1 y 2 fallaran por
+         cualquier razón, Supabase es la fuente de verdad y dice "ya hay
+         uno". Si el chequeo falla (red, RLS, etc), loguea pero NO bloquea
+         — mejor un duplicado eventual que un pedido perdido.
+
+     COMPLEMENTO RECOMENDADO (NO INCLUIDO EN ESTE DEPLOY):
+       Constraint en Postgres / pedidos_zona que rechace INSERTs con
+       (cliente, vendedor, total, origen='campo', creado_at within 60s).
+       Ese trigger debe ir directo a Apps Script (que es el que inserta
+       en pedidos_zona). Lo dejo para v25.x del Apps Script. Mientras
+       tanto, la defensa client-side cubre el 99% de los casos.
+
+     NO CAMBIADO:
+       - Lógica de manualWA (no se reportó duplicado allí). Si aparece,
+         replicar el mismo patrón (overlay + reset debounce + chequeo BD)
+         en _mwaLiberarLock y manualWAGuardar.
+       - El rediseño de cards v14.23.0 sigue intacto.
+       - Hotfixes anteriores (v14.22.4 fecha Xubio, v14.22.3 ALMIRON).
+
+     PEDIDOS DUPLICADOS YA EN BD (corrección manual pendiente):
+       - PAULINA AYLEN LUCERO (Juan):
+           Mantener CKK5A (Confirmado con Xubio)
+           Cancelar CGNZM (Pendiente sin Xubio)
+       - YANINA NOEMI GARCIA (Juan): MÁS GRAVE
+           Tiene 2 Confirmados (C90QY + CRHTP) + 1 Pendiente (CRCSD)
+           Anular UN presupuesto Xubio + cancelar 2 pedidos en la app.
+           Verificar cuál fue el que el cliente realmente quiso.
+       - SUSANA LILIAN PAULON (Lisandro):
+           Cancelado + Pendiente. Confirmar con Lisandro cuál es válido.
+     ══════════════════════════════════════════════════════════════════════ -->
+
+<!-- ═══════════════════════════════════════════════════════════════════════
      TCK VENTAS — v14.23.0 — 19/05/2026
      ──────────────────────────────────────────────────────────────────────
      REDISEÑO DE CARDS DE PEDIDO (PROPUESTA B)
@@ -4137,6 +4239,73 @@ body {
   display: none;
   color: var(--green2, #2E7D32);
   font-size: 12px;
+  font-weight: 700;
+}
+
+/* ═══════════════════════════════════════════════════════════════════════
+   v14.23.1 — OVERLAY ANTI-DOBLE-TAP
+   ───────────────────────────────────────────────────────────────────────
+   Aparece cuando el lock _tomadorEnviando está activo. Bloquea TODA
+   interacción (touch-action:none). Se aplica también para el flujo de
+   manualWA (lock _mwaEnviando) para consistencia. Lo invocamos vía
+   _tomadorLockOverlayMostrar() / _tomadorLockOverlayOcultar() — definidos
+   abajo en JS.
+   ═══════════════════════════════════════════════════════════════════════ */
+.tom-lock-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, .55);
+  z-index: 9999;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-direction: column;
+  gap: 18px;
+  padding: 24px;
+  /* Bloquear cualquier interacción que pase a través */
+  touch-action: none;
+  -webkit-user-select: none;
+  user-select: none;
+  cursor: wait;
+  animation: tomLockFade .15s ease-out;
+}
+@keyframes tomLockFade {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+.tom-lock-spinner {
+  width: 56px;
+  height: 56px;
+  border: 5px solid rgba(255, 255, 255, .25);
+  border-top-color: #fff;
+  border-radius: 50%;
+  animation: tomLockSpin .8s linear infinite;
+}
+@keyframes tomLockSpin {
+  to { transform: rotate(360deg); }
+}
+.tom-lock-titulo {
+  font-family: 'Barlow Condensed', sans-serif;
+  font-size: 22px;
+  font-weight: 900;
+  color: #fff;
+  text-align: center;
+  letter-spacing: .5px;
+}
+.tom-lock-sub {
+  font-size: 14px;
+  color: rgba(255, 255, 255, .85);
+  text-align: center;
+  line-height: 1.4;
+  max-width: 280px;
+}
+.tom-lock-paso {
+  background: rgba(255, 255, 255, .15);
+  border-radius: 8px;
+  padding: 6px 14px;
+  font-family: 'Barlow Condensed', sans-serif;
+  font-size: 13px;
+  color: #fff;
   font-weight: 700;
 }
 
@@ -27277,14 +27446,63 @@ async function tomadorConfirmar() {
   return; // Stop here - actual confirmation happens in tomadorConfirmarFinal
 }
 
+// v14.23.1 ANTI-DUP: helpers para overlay visual "Procesando pedido..."
+// que bloquea TODA interacción mientras el lock está activo. Soluciona el
+// patrón de duplicados donde el vendedor, al no ver respuesta inmediata
+// del botón CERRAR VENTA (porque hay modales intermedios — canal, sucursal,
+// viaje especial — que pueden tardar), vuelve a tocar a los 10-30 segundos
+// generando un segundo pedido completo con ID nuevo.
+function _tomadorLockOverlayMostrar(textoPaso) {
+  var existing = document.getElementById('tom-lock-overlay');
+  if (existing) {
+    // Ya está visible — solo actualizar el texto del paso
+    var pasoEl = existing.querySelector('.tom-lock-paso');
+    if (pasoEl && textoPaso) pasoEl.textContent = textoPaso;
+    return;
+  }
+  var ov = document.createElement('div');
+  ov.id = 'tom-lock-overlay';
+  ov.className = 'tom-lock-overlay';
+  ov.innerHTML =
+    '<div class="tom-lock-spinner"></div>' +
+    '<div class="tom-lock-titulo">Procesando pedido</div>' +
+    '<div class="tom-lock-sub">No cierres ni toques nada hasta que termine.<br>Si tarda más de 1 minuto, avisanos.</div>' +
+    '<div class="tom-lock-paso">' + (textoPaso || 'Iniciando...') + '</div>';
+  // Bloquear taps/clicks que se escapen al fondo
+  ov.addEventListener('click',     function(e){ e.preventDefault(); e.stopPropagation(); }, true);
+  ov.addEventListener('touchstart',function(e){ e.preventDefault(); e.stopPropagation(); }, true);
+  ov.addEventListener('touchmove', function(e){ e.preventDefault(); e.stopPropagation(); }, true);
+  document.body.appendChild(ov);
+}
+
+function _tomadorLockOverlayActualizar(textoPaso) {
+  var ov = document.getElementById('tom-lock-overlay');
+  if (!ov) return;
+  var pasoEl = ov.querySelector('.tom-lock-paso');
+  if (pasoEl && textoPaso) pasoEl.textContent = textoPaso;
+}
+
+function _tomadorLockOverlayOcultar() {
+  var ov = document.getElementById('tom-lock-overlay');
+  if (ov) ov.remove();
+}
+
 // v14.17.2: helper para liberar lock + restaurar botón en early-returns
 // del flujo del tomador del check-in. Espejo de _mwaLiberarLock.
+// v14.23.1: además oculta el overlay anti-doble-tap y resetea el debounce
+// timestamp (sin reset, después de 10s en un modal intermedio el próximo
+// tap pasa el debounce y entra al flujo completo).
 function _tomadorLiberarLock() {
   window._tomadorEnviando = false;
   if (window._tomadorLockTimeout) {
     clearTimeout(window._tomadorLockTimeout);
     window._tomadorLockTimeout = null;
   }
+  // v14.23.1: ocultar overlay
+  _tomadorLockOverlayOcultar();
+  // v14.23.1: resetear timestamp para que el próximo tap legítimo no se
+  // sienta "trabado" por el debounce de 1800ms acumulado.
+  window._tomadorUltimoTap = 0;
   var _btn = document.getElementById('tomador-final-btn');
   if (_btn) {
     _btn.disabled = false;
@@ -27315,6 +27533,10 @@ async function tomadorConfirmarFinal() {
   // Se libera en _tomadorLiberarLock() si cancelan algún modal intermedio,
   // y en el finally de tomadorConfirmarConEntrega al completar el flujo.
   window._tomadorEnviando = true;
+  // v14.23.1 ANTI-DUP: overlay visual que bloquea TODA interacción mientras
+  // el lock está activo. Soluciona el bug donde el vendedor, al no ver
+  // feedback inmediato del botón, tocaba de nuevo y se duplicaba el pedido.
+  _tomadorLockOverlayMostrar('Validando canal del cliente...');
   var _btnTomInit = document.getElementById('tomador-final-btn');
   if (_btnTomInit) {
     _btnTomInit._textoOriginal = _btnTomInit.textContent;
@@ -27349,6 +27571,8 @@ async function _tomadorConfirmarFinalContinuar() {
   if (_btnTom) {
     _btnTom.textContent = 'Enviando...';
   }
+  // v14.23.1: actualizar el paso visible en el overlay
+  _tomadorLockOverlayActualizar('Verificando sucursales...');
 
   var modal = document.getElementById('tomador-resumen-modal');
   if (modal) modal.remove();
@@ -27367,8 +27591,12 @@ async function _tomadorConfirmarFinalContinuar() {
   var cliente = _gpsCheckinActivo ? _gpsCheckinActivo.nombre_cliente : '';
   sucElegirAbrir(cliente, function(suc, modo){
     if (modo === 'cancelado') {
-      // v14.17.2: usuario canceló el selector de sucursal. Liberar lock
-      // + limpiar timeout vía helper, y reabrir el resumen.
+      // v14.17.2 + v14.23.1: usuario canceló el selector de sucursal.
+      // Liberar lock + limpiar timeout + ocultar overlay vía helper,
+      // y reabrir el resumen. El overlay anti-doble-tap v14.23.1 ya
+      // bloquea taps duplicados durante el flujo activo; el debounce
+      // se resetea en _tomadorLiberarLock() para que el próximo tap
+      // legítimo del resumen funcione.
       _tomadorLiberarLock();
       tomadorConfirmar();
       return;
@@ -27395,21 +27623,29 @@ async function _tomadorConfirmarFinalContinuar() {
     viajeEspBuscarOpciones(localidadCheckin).then(function(opcInfo) {
       if (opcInfo && opcInfo.viajes && opcInfo.viajes.length > 1) {
         window._viajeEspElegido = opcInfo.defaultId;
+        // v14.23.1: actualizar el paso del overlay para que el vendedor
+        // vea que estamos esperando que elija viaje especial.
+        _tomadorLockOverlayActualizar('Elegí viaje del cliente...');
         viajeEspAbrirSelector(opcInfo, function(idElegido) {
-          // v14.17.2: si canceló, liberar lock + timeout vía helper, y reabrir.
+          // v14.17.2 + v14.23.1: si canceló, liberar lock + timeout +
+          // overlay vía helper, y reabrir el resumen. Overlay anti-doble-tap
+          // ya protege contra duplicados durante el flujo activo.
           if (idElegido === null) {
             _tomadorLiberarLock();
             tomadorConfirmar();
             return;
           }
           window._viajeEspElegido = idElegido;
+          _tomadorLockOverlayActualizar('Guardando pedido...');
           tomadorConfirmarConEntrega(entrega);
         });
       } else {
+        _tomadorLockOverlayActualizar('Guardando pedido...');
         tomadorConfirmarConEntrega(entrega);
       }
     }).catch(function(err) {
       console.warn('[viajeEsp tomador] Error consultando opciones, fallback:', err);
+      _tomadorLockOverlayActualizar('Guardando pedido...');
       tomadorConfirmarConEntrega(entrega);
     });
   });
@@ -27608,6 +27844,52 @@ async function tomadorConfirmarConEntrega(entregaData) {
       params.append('viaje_id_elegido', window._viajeEspElegido);
     }
 
+    // v14.23.1 ANTI-DUP server-side: chequear en Supabase si hay un pedido
+    // del MISMO cliente + vendedor + total creado en los últimos 60 segundos.
+    // Si existe, abortar con mensaje claro. Esta es la defensa final contra
+    // duplicados — si el lock client-side falla por cualquier razón
+    // (race, error en helper, etc), Supabase es la fuente de verdad y nos
+    // dice si ya hay un pedido prácticamente idéntico recién creado.
+    //
+    // Detección: same cliente (case-insensitive), same vendedor, same total
+    // numérico, origen=campo, creado_at>=now()-60s.
+    try {
+      var clienteNormDup = (cliente || '').toLowerCase().trim();
+      var sinceISO = new Date(Date.now() - 60 * 1000).toISOString();
+      // PostgREST: filtramos por created_at + vendedor + total exacto, y luego
+      // matcheamos cliente case-insensitive en el cliente JS (más confiable
+      // que ilike con tildes/espacios).
+      var dupPath = 'pedidos_zona?'
+        + 'select=pedido_id,cliente,total,estado,creado_at'
+        + '&vendedor=eq.' + encodeURIComponent(vendedor)
+        + '&total=eq.' + encodeURIComponent(String(total))
+        + '&origen=eq.campo'
+        + '&estado=neq.Cancelado'
+        + '&creado_at=gte.' + encodeURIComponent(sinceISO)
+        + '&limit=5';
+      var dupResp = await sbFetch(dupPath);
+      if (Array.isArray(dupResp) && dupResp.length > 0) {
+        var matchDup = dupResp.find(function(r) {
+          return (r.cliente || '').toLowerCase().trim() === clienteNormDup;
+        });
+        if (matchDup) {
+          // Pedido duplicado detectado — abortar con toast claro.
+          console.warn('[ANTI-DUP server] pedido reciente detectado:', matchDup.pedido_id);
+          toast('⚠️ Este pedido ya se cerró hace menos de 1 minuto.\nID: ' + matchDup.pedido_id + '\nNo se creó otro para evitar duplicado.', 'warn');
+          // Re-lanzar como error para que el catch externo cierre el modal
+          // y libere el lock. Marcamos especial para distinguir.
+          var errDup = new Error('Pedido duplicado en BD (60s)');
+          errDup._antiDupHit = true;
+          throw errDup;
+        }
+      }
+    } catch (errDupOuter) {
+      if (errDupOuter && errDupOuter._antiDupHit) throw errDupOuter; // propagar
+      // Si el chequeo falla (red, RLS, etc), loguear pero NO bloquear.
+      // Mejor un duplicado eventual que un pedido perdido.
+      console.warn('[ANTI-DUP server] chequeo falló, continuando con guardado:', errDupOuter);
+    }
+
     // v14.6.0 NO-CORS FIX: estricto. Si Apps Script falla, el catch externo
     // de tomadorConfirmarConEntrega (try/finally del lock) maneja el error
     // y muestra toast. Antes era fire-and-forget silencioso → bug ALMIRON.
@@ -27674,6 +27956,16 @@ async function tomadorConfirmarConEntrega(entregaData) {
     // tomado por check-in hasta el próximo recálculo manual.
     _mrMarcarVendidoDesdeTomador(cliente);
   } catch(e) {
+    // v14.23.1: si fue el anti-dup el que lanzó el error, ya mostramos un
+    // toast claro arriba ("Este pedido ya se cerró..."). No mostrar otro
+    // toast genérico ni loguear como error.
+    if (e && e._antiDupHit) {
+      console.warn('[tomadorConfirmarConEntrega] anti-dup bloqueó el guardado');
+      // Cerrar el tomador igual — el pedido ya existe, no hace falta volver
+      // a mostrar el carrito. Eso evita que el vendedor reintente otra vez.
+      tomadorCerrar();
+      return; // salir antes del flujo de "Pedido registrado" y Xubio
+    }
     // v14.6.0 NO-CORS FIX: error real visible (antes decía "✅ Pedido enviado
     // por WhatsApp" aunque hubiera fallado el guardado en la Sheet — bug ALMIRON).
     console.error('[tomadorConfirmarConEntrega]', e);
