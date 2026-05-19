@@ -2,6 +2,115 @@
 <html lang="es">
 <head>
 <!-- ═══════════════════════════════════════════════════════════════════════
+     TCK VENTAS — v14.23.0 — 19/05/2026
+     ──────────────────────────────────────────────────────────────────────
+     REDISEÑO DE CARDS DE PEDIDO (PROPUESTA B)
+
+     CONTEXTO:
+       Lisandro reportó que la card actual:
+       · Es muy alta (~75px colapsada, ~650px expandida)
+       · No muestra cuándo se entrega (cuando el pedido viene del campo)
+       · Ícono de origen (📍/📱/🌐) es chico y ambiguo
+       · ID grande arriba aporta poco al vendedor
+       · El detalle expandido tiene una tabla redundante de 5 filas
+         (Vendedor / Localidad / Productos / Total / Fecha-Hora) que
+         repite los datos ya visibles arriba.
+       · "Productos: 0 unidades" se ve roto en pedidos del check-in
+         (bug del backend, ver fix bonus).
+
+     CAMBIOS DE DISEÑO:
+
+       Card colapsada:
+       · Reducida de ~75px a ~50px de alto. ~7-8 pedidos en pantalla
+         contra ~4-5 antes.
+       · Borde izquierdo de color indica estado de un vistazo:
+           naranja=Pendiente, azul=Confirmado, gris=Entregado,
+           rojo=Cancelado, violeta=En revisión.
+       · Pill explícita de canal con texto:
+           📍 CAMPO  |  📱 WA  |  🌐 CATÁLOGO  |  📝 DIRECTO
+       · Pill de fecha de entrega siempre visible. Variantes:
+           - Azul "🌅 Jue 21/05" si fecha futura normal
+           - Rojo "🌆 HOY tarde" si entrega es hoy (urgente)
+           - Naranja "📅 Sin fecha" si falta asignar
+           - Gris "✓ Entregado" si ya se entregó
+       · ID degradado a últimas 5 letras al pie + vendedor (solo admin)
+         + hora sin segundos.
+       · Pill DUP/DOBLE separada para no contaminar el badge de estado.
+
+       Expandido reorganizado en secciones jerárquicas:
+       1. 🚚 ENTREGA  — caja destacada arriba (gradiente azul/rojo/naranja
+          según urgencia). En "Sin fecha" la caja es tappable y abre el
+          modal de definir entrega. Reemplaza la tabla redundante anterior.
+       2. 🟠 ALERTAS DE DUPLICADO  — banner naranja si aplica (sin cambios
+          de lógica respecto a v14.22.4).
+       3. 📦 PRODUCTOS  — tabla con pill rojo de cantidad + nombre +
+          subtítulo (presentación / kg) + subtotal alineado a la derecha.
+          Total al pie de la tabla. Si el detalle no parsea, fallback a
+          texto plano legible (no rompe nunca).
+       4. ⚙️ ACCIONES  — grid 2x con acción principal full-width arriba
+          ("Asignar a chofer" para admin, "Definir entrega" para vendedor
+          si falta fecha). Resto en columnas.
+       5. 📄 FACTURACIÓN  — buildXubioPanel(p, id) sin cambios. Encapsulado
+          en una sección con título.
+       6. 📝 NOTAS Y CONTACTO  — teléfono + nota interna. CSS nuevo más
+          prolijo. Onblur handlers compatibles con guardarTelCliente y
+          guardarNota.
+
+     FIX BONUS — "Productos: 0 unidades" en pedidos del campo:
+       En tomadorConfirmarConEntrega faltaba mandar `itemsTotales` al
+       Apps Script. El flujo manualWA sí lo mandaba; el del tomador no.
+       Resultado: pedidos por check-in quedaban con col 7 (items) vacía o
+       en 0 en el Sheet. El nuevo card render usa _v23ContarUnidades sobre
+       el detalle parseado como primario y cae a p.items solo si no se
+       puede parsear; aún así, pedidos nuevos llevarán el dato correcto.
+
+     HELPERS NUEVOS:
+       _v23ParseProductos(detalleStr) — devuelve [{qty,nombre,meta,
+         subtotal_fmt, subtotal_num}, ...] desde el formato del Sheet.
+         Soporta 3 formatos: catálogo, tomador de campo, Xubio. Fallback
+         a línea cruda si no matchea (nunca lanza).
+       _v23ContarUnidades(detalleStr) — suma de qty parseados. Null si
+         no hay productos reconocidos.
+       _v23CanalPillHtml(p), _v23FechaPillHtml(p),
+         _v23EntregaBoxHtml(p), _v23ProductosHtml(p),
+         _v23ClaseEstado(p) — fragmentos de HTML por sección.
+
+     CSS NUEVO:
+       Prefijo .cv23-* para evitar choque con .pedido-card / .pedido-head
+       / .pedido-body antiguos. Si hay que rollback rápido, basta revertir
+       el `return` de renderCard y no hace falta tocar CSS.
+
+     COMPATIBILIDAD:
+       · Todos los onclick handlers existentes siguen funcionando:
+         toggleCard, mostrarPickerChofer, definirEntregaBtn,
+         editarPedidoBtn, cambiarEstado, confirmarCancelar,
+         sucModalAbrir, desasignarChofer, abrirModalDuplicados,
+         guardarTelCliente, guardarNota.
+       · IDs internos preservados: card-{id}, body-{id}, tel-{id},
+         nota-{id}, nota-ok-{id}, xubio-sel-{id}, xubio-search-wrap-{id}.
+       · buildXubioPanel se invoca igual que antes — su HTML se renderiza
+         dentro de una sección, pero su DOM interno no cambia.
+       · La tabla redundante (vendedorRow + 5 pedido-detalle-row) se
+         eliminó. Si algún flujo dependía de esos selectores, romperá —
+         pero ningún handler que encontré los usa.
+
+     NO CAMBIADO:
+       · Lógica de duplicados / pedidos dobles.
+       · Lógica de Xubio.
+       · Lógica de asignación de chofer.
+       · Apps Script.
+       · Hotfixes anteriores (v14.22.4 fecha Xubio, v14.22.3 ALMIRON-TOMADOR).
+
+     QUEDA PARA v14.23.1+:
+       · Mini-strip de timeline horizontal opcional en el expandido
+         (Pendiente → Confirmado → En camión → Entregado) — si el rediseño
+         base anda bien, agregarlo como capa opcional.
+       · Verificar y eliminar funciones helper viejas (origenIconHtml,
+         buildProdsPreview) si no se usan en otros lugares del archivo
+         tras el rollout.
+     ══════════════════════════════════════════════════════════════════════ -->
+
+<!-- ═══════════════════════════════════════════════════════════════════════
      TCK VENTAS — v14.22.4 — 19/05/2026
      ──────────────────────────────────────────────────────────────────────
      FECHA DEL PRESUPUESTO XUBIO + LOCALIDAD CANÓNICA EN CHECK-IN
@@ -3559,6 +3668,477 @@ body {
   color: var(--red);
 }
 .pedido-hora { font-size: 11px; color: var(--text3); }
+
+/* ═══════════════════════════════════════════════════════════════════════
+   v14.23.0 — REDISEÑO DE CARDS (PROPUESTA B)
+   ───────────────────────────────────────────────────────────────────────
+   La card colapsada es ~30% más baja que la anterior. Borde izquierdo de
+   color indica estado de un vistazo. Pill de canal explícita (CAMPO / WA
+   / CATÁLOGO). Fecha de entrega siempre visible como pill.
+
+   El expandido se reorganiza en secciones jerárquicas: ENTREGA arriba
+   destacada, PRODUCTOS como tabla con qty + subtotal, XUBIO compacto en
+   1 fila, ACCIONES en grid, NOTA al final. Sin metadata redundante.
+
+   Mantiene compatibilidad con .pedido-card / .pedido-head / .pedido-body
+   por si hay que rollback rápido.
+   ═══════════════════════════════════════════════════════════════════════ */
+
+/* ── COLAPSADA ────────────────────────────────────────────────────── */
+.cv23 {
+  background: #fff;
+  border-radius: 12px;
+  border: 1.5px solid var(--cream3);
+  border-left: 4px solid var(--blue);
+  margin-bottom: 8px;
+  box-shadow: 0 1px 4px rgba(74,0,0,.06);
+  overflow: hidden;
+  transition: box-shadow .15s;
+}
+.cv23:hover { box-shadow: 0 4px 16px rgba(74,0,0,.10); }
+.cv23.estado-Pendiente { border-left-color: var(--orange); }
+.cv23.estado-Confirmado { border-left-color: var(--blue); }
+.cv23.estado-Entregado { border-left-color: #607D8B; }
+.cv23.estado-Cancelado { border-left-color: #C62828; opacity: .75; }
+.cv23.estado-En.revisión { border-left-color: #9C27B0; }
+
+.cv23.dup-exacto {
+  border-color: #C62828;
+  border-width: 2px;
+  border-left-width: 4px;
+  background: #FFF5F5;
+}
+.cv23.dup-parcial {
+  border-color: var(--orange);
+  border-width: 2px;
+  border-left-width: 4px;
+  background: #FFFBF0;
+}
+
+.cv23-head {
+  padding: 10px 14px;
+  cursor: pointer;
+  user-select: none;
+}
+.cv23-top {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 8px;
+}
+.cv23-cli-line {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex: 1;
+  min-width: 0;
+}
+.cv23-canal {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  border-radius: 6px;
+  padding: 1px 6px;
+  font-family: 'Barlow Condensed', sans-serif;
+  font-size: 10px;
+  font-weight: 800;
+  text-transform: uppercase;
+  letter-spacing: .3px;
+  flex-shrink: 0;
+  line-height: 1.4;
+}
+.cv23-canal.campo { background: #FFF3E0; color: var(--orange); }
+.cv23-canal.wa { background: #E8F5E9; color: var(--green2, #2E7D32); }
+.cv23-canal.catalogo { background: #E3F2FD; color: var(--blue); }
+.cv23-canal.directo { background: #ECEFF1; color: #455A64; }
+.cv23-cli {
+  font-family: 'Barlow Condensed', sans-serif;
+  font-size: 17px;
+  font-weight: 900;
+  color: var(--text);
+  line-height: 1.15;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.cv23.dup-exacto .cv23-cli { color: #C62828; }
+.cv23.dup-parcial .cv23-cli { color: var(--orange); }
+.cv23-total {
+  font-family: 'Barlow Condensed', sans-serif;
+  font-size: 19px;
+  font-weight: 900;
+  color: var(--red);
+  line-height: 1;
+  flex-shrink: 0;
+  white-space: nowrap;
+}
+
+.cv23-mid {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-top: 4px;
+  gap: 8px;
+}
+.cv23-loc {
+  font-size: 12px;
+  color: var(--text2);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  flex: 1;
+  min-width: 0;
+}
+.cv23-fecha {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  background: #E3F2FD;
+  color: var(--blue);
+  border-radius: 6px;
+  padding: 2px 7px;
+  font-family: 'Barlow Condensed', sans-serif;
+  font-size: 11px;
+  font-weight: 800;
+  flex-shrink: 0;
+  line-height: 1.3;
+}
+.cv23-fecha.urgente { background: #FFEBEE; color: #C62828; }
+.cv23-fecha.entregada { background: #ECEFF1; color: #455A64; }
+.cv23-fecha.sin-fecha { background: #FFF3E0; color: var(--orange); }
+
+.cv23-bot {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-top: 6px;
+  padding-top: 6px;
+  border-top: 1px dashed var(--cream3);
+}
+.cv23-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  border-radius: 6px;
+  padding: 2px 7px;
+  font-family: 'Barlow Condensed', sans-serif;
+  font-size: 10px;
+  font-weight: 800;
+  text-transform: uppercase;
+  letter-spacing: .3px;
+  line-height: 1.3;
+}
+.cv23-badge.pendiente { background: var(--orange2); color: var(--orange); }
+.cv23-badge.confirmado { background: var(--green3); color: var(--green2); }
+.cv23-badge.entregado { background: #ECEFF1; color: #455A64; }
+.cv23-badge.cancelado { background: #FFEBEE; color: #C62828; }
+.cv23-badge.revision { background: #F3E5F5; color: #6A1B9A; }
+.cv23-meta {
+  font-family: 'Barlow Condensed', sans-serif;
+  font-size: 10px;
+  color: var(--text3);
+  letter-spacing: .3px;
+  text-align: right;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  min-width: 0;
+}
+.cv23-dup-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  background: #FFEBEE;
+  color: #C62828;
+  border-radius: 6px;
+  padding: 2px 7px;
+  font-family: 'Barlow Condensed', sans-serif;
+  font-size: 10px;
+  font-weight: 800;
+  cursor: pointer;
+  margin-left: 4px;
+  line-height: 1.3;
+}
+.cv23-dup-pill.parcial { background: #FFF3E0; color: var(--orange); }
+
+/* ── EXPANDIDO ────────────────────────────────────────────────────── */
+.cv23-body {
+  display: none;
+  border-top: 1px solid var(--cream3);
+}
+.cv23-body.on { display: block; }
+.cv23-sec {
+  padding: 11px 14px;
+  border-bottom: 1px solid #faf5ec;
+}
+.cv23-sec:last-child { border-bottom: none; }
+.cv23-sec-titulo {
+  font-family: 'Barlow Condensed', sans-serif;
+  font-size: 10px;
+  font-weight: 800;
+  color: var(--red);
+  letter-spacing: .6px;
+  text-transform: uppercase;
+  margin-bottom: 8px;
+}
+
+/* Entrega — caja destacada arriba */
+.cv23-entrega-box {
+  background: linear-gradient(135deg, #E3F2FD, #BBDEFB);
+  border-radius: 10px;
+  padding: 10px 12px;
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: 10px;
+  align-items: center;
+}
+.cv23-entrega-box.urgente {
+  background: linear-gradient(135deg, #FFEBEE, #FFCDD2);
+}
+.cv23-entrega-box.sin-fecha {
+  background: linear-gradient(135deg, #FFF3E0, #FFE0B2);
+  cursor: pointer;
+}
+.cv23-entrega-box.entregada {
+  background: #ECEFF1;
+}
+.cv23-entrega-icon {
+  font-size: 26px;
+  line-height: 1;
+}
+.cv23-entrega-fecha {
+  font-family: 'Barlow Condensed', sans-serif;
+  font-size: 15px;
+  font-weight: 900;
+  color: #0D47A1;
+  line-height: 1.15;
+}
+.cv23-entrega-box.urgente .cv23-entrega-fecha { color: #B71C1C; }
+.cv23-entrega-box.sin-fecha .cv23-entrega-fecha { color: #E65100; }
+.cv23-entrega-box.entregada .cv23-entrega-fecha { color: #37474F; }
+.cv23-entrega-zona {
+  font-size: 11px;
+  color: #1565C0;
+  margin-top: 2px;
+}
+.cv23-entrega-box.urgente .cv23-entrega-zona { color: #C62828; }
+.cv23-entrega-box.sin-fecha .cv23-entrega-zona { color: #E65100; }
+.cv23-entrega-box.entregada .cv23-entrega-zona { color: #607D8B; }
+
+/* Productos — tabla con pill qty + subtotal */
+.cv23-prods {
+  background: var(--cream);
+  border-radius: 8px;
+  border: 1px solid var(--cream3);
+  overflow: hidden;
+}
+.cv23-prod-row {
+  display: grid;
+  grid-template-columns: 36px 1fr auto;
+  gap: 8px;
+  padding: 8px 10px;
+  align-items: center;
+  font-size: 13px;
+}
+.cv23-prod-row + .cv23-prod-row {
+  border-top: 1px solid var(--cream3);
+}
+.cv23-prod-qty {
+  background: var(--red);
+  color: #fff;
+  font-family: 'Barlow Condensed', sans-serif;
+  font-size: 12px;
+  font-weight: 900;
+  border-radius: 6px;
+  padding: 3px 0;
+  text-align: center;
+  line-height: 1.1;
+  min-width: 0;
+}
+.cv23-prod-nombre {
+  color: var(--text);
+  line-height: 1.25;
+  min-width: 0;
+  overflow: hidden;
+}
+.cv23-prod-nombre-meta {
+  font-size: 11px;
+  color: var(--text3);
+  margin-top: 1px;
+}
+.cv23-prod-sub {
+  font-family: 'Barlow Condensed', sans-serif;
+  font-weight: 900;
+  color: var(--red);
+  font-size: 13px;
+  white-space: nowrap;
+}
+.cv23-prods-total {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 8px 12px;
+  background: var(--cream2);
+  border-top: 2px solid var(--cream3);
+}
+.cv23-prods-total-l {
+  font-family: 'Barlow Condensed', sans-serif;
+  color: var(--text2);
+  font-size: 12px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: .3px;
+}
+.cv23-prods-total-v {
+  font-family: 'Barlow Condensed', sans-serif;
+  color: var(--red);
+  font-size: 17px;
+  font-weight: 900;
+}
+
+/* Xubio compacto */
+.cv23-xubio {
+  background: #F1F8E9;
+  border: 1.5px solid #C8E6C9;
+  border-radius: 10px;
+  padding: 10px 12px;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 8px;
+}
+.cv23-xubio-l { flex: 1; min-width: 0; }
+.cv23-xubio-tit {
+  font-size: 11px;
+  color: #1B5E20;
+  font-weight: 700;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+.cv23-xubio-num {
+  font-family: 'Barlow Condensed', sans-serif;
+  font-weight: 900;
+  color: #1B5E20;
+  font-size: 14px;
+  margin-top: 2px;
+}
+.cv23-xubio-link {
+  background: var(--green2, #2E7D32);
+  color: #fff;
+  padding: 7px 12px;
+  border-radius: 7px;
+  font-family: 'Barlow Condensed', sans-serif;
+  font-size: 12px;
+  font-weight: 700;
+  text-decoration: none;
+  white-space: nowrap;
+  border: none;
+  cursor: pointer;
+}
+.cv23-xubio-link:hover { background: #1B5E20; }
+.cv23-xubio-warn {
+  font-size: 11px;
+  color: var(--text2);
+  margin-top: 8px;
+  line-height: 1.4;
+}
+.cv23-xubio-desbloq {
+  width: 100%;
+  background: #FFF3E0;
+  color: var(--orange);
+  border: 1.5px solid var(--orange);
+  padding: 8px 10px;
+  border-radius: 7px;
+  font-family: 'Barlow Condensed', sans-serif;
+  font-size: 12px;
+  font-weight: 700;
+  cursor: pointer;
+  margin-top: 8px;
+  text-transform: uppercase;
+  letter-spacing: .3px;
+}
+.cv23-xubio-desbloq:hover { background: var(--orange); color: #fff; }
+
+/* Acciones en grid */
+.cv23-acciones {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 6px;
+}
+.cv23-btn {
+  border: 1.5px solid;
+  padding: 9px 8px;
+  border-radius: 7px;
+  font-family: 'Barlow Condensed', sans-serif;
+  font-size: 12px;
+  font-weight: 800;
+  background: #fff;
+  cursor: pointer;
+  text-transform: uppercase;
+  letter-spacing: .3px;
+  line-height: 1.2;
+}
+.cv23-btn.principal { grid-column: 1 / -1; padding: 11px 8px; font-size: 13px; }
+.cv23-btn.entregar { background: #E8F5E9; color: var(--green2, #2E7D32); border-color: #A5D6A7; }
+.cv23-btn.entregar:hover { background: var(--green2, #2E7D32); color: #fff; }
+.cv23-btn.pendiente { background: #FFF3E0; color: var(--orange); border-color: #FFB74D; }
+.cv23-btn.pendiente:hover { background: var(--orange); color: #fff; }
+.cv23-btn.cancelar { background: #FFEBEE; color: #C62828; border-color: #FFAB91; }
+.cv23-btn.cancelar:hover { background: #C62828; color: #fff; }
+.cv23-btn.chofer { background: var(--blue); color: #fff; border-color: var(--blue); }
+.cv23-btn.chofer:hover { background: #0D47A1; }
+.cv23-btn.editar { background: #FFF8E1; color: var(--orange); border-color: var(--orange); }
+.cv23-btn.editar:hover { background: var(--orange); color: #fff; }
+.cv23-btn.entrega { background: #E3F2FD; color: var(--blue); border-color: var(--blue); }
+.cv23-btn.entrega:hover { background: var(--blue); color: #fff; }
+.cv23-btn.sucursales { background: #FFF8DC; color: #8B6F50; border-color: #D4A574; }
+
+.cv23-chofer-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  background: var(--blue);
+  color: #fff;
+  padding: 8px 12px;
+  border-radius: 8px;
+  font-family: 'Barlow Condensed', sans-serif;
+  font-size: 13px;
+  font-weight: 800;
+}
+.cv23-chofer-badge button {
+  background: rgba(255,255,255,.2);
+  color: #fff;
+  border: none;
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  cursor: pointer;
+  font-weight: 900;
+}
+
+/* Nota + tel */
+.cv23-nota .cv23-input,
+.cv23-nota .cv23-textarea {
+  width: 100%;
+  padding: 8px 10px;
+  border: 1px solid var(--cream3);
+  border-radius: 7px;
+  font-size: 13px;
+  box-sizing: border-box;
+  margin-bottom: 6px;
+  font-family: inherit;
+}
+.cv23-nota .cv23-textarea {
+  resize: vertical;
+  min-height: 60px;
+}
+.cv23-nota .cv23-ok {
+  display: none;
+  color: var(--green2, #2E7D32);
+  font-size: 12px;
+  font-weight: 700;
+}
 
 /* ── BADGES ── */
 .badge {
@@ -17776,6 +18356,256 @@ function badgeHtml(p) {
   return b;
 }
 
+// ════════════════════════════════════════════════════════════════════════
+// v14.23.0 — HELPERS PARA REDISEÑO DE CARDS
+// ════════════════════════════════════════════════════════════════════════
+
+// Parsea el campo `detalle` del pedido (formato del Sheet) y devuelve un
+// array de {qty, nombre, meta, subtotal_fmt, subtotal_num}.
+//
+// Formatos soportados (orden de detección):
+//   1. Catálogo:      "🐔 *Nombre del producto* — _X Kg_ — Y unidades — $totalformateado"
+//   2. Tomador campo: "4x Milanesa de Soja y Espinaca (Solimeno — x 6 Kg) → $154.400"
+//   3. Xubio:         "*Nombre* x Y unidades → $total"
+//
+// Si una línea no matchea ninguno, se la devuelve como nombre crudo con
+// qty=1, subtotal=''. La función nunca falla — siempre devuelve un array.
+function _v23ParseProductos(detalleStr) {
+  if (!detalleStr || typeof detalleStr !== 'string') return [];
+  var lineas = detalleStr.split(/\n|\|/).map(function(s){ return s.trim(); }).filter(Boolean);
+  return lineas.map(function(linea) {
+    // Saltar líneas administrativas conocidas
+    if (/^💰|^COMP:|^📝|^🎁/.test(linea)) {
+      return { qty: '', nombre: linea, meta: '', subtotal_fmt: '', subtotal_num: 0, _admin: true };
+    }
+    // Formato tomador campo: "4x Nombre (sub) → $123.456" o "4x Nombre → $..."
+    var mCampo = linea.match(/^(\d+)x\s+(.+?)\s*→\s*\$?([\d.,]+)\s*$/);
+    if (mCampo) {
+      var qty   = mCampo[1];
+      var resto = mCampo[2];
+      var sub   = mCampo[3];
+      // Primero extraer descuento [-X%] si está al final
+      var dtoTxt = '';
+      var mDto = resto.match(/^(.+?)\s*\[-(\d+)%\]\s*$/);
+      if (mDto) {
+        resto = mDto[1].trim();
+        dtoTxt = '-' + mDto[2] + '%';
+      }
+      // Después extraer subtítulo entre paréntesis si existe
+      var mMeta = resto.match(/^(.+?)\s*\((.+)\)\s*$/);
+      var nombre = mMeta ? mMeta[1].trim() : resto.trim();
+      var meta   = mMeta ? mMeta[2].trim() : '';
+      if (dtoTxt) meta = (meta ? meta + ' · ' : '') + dtoTxt;
+      var subNum = parseInt(sub.replace(/[.,]/g,''), 10) || 0;
+      return {
+        qty: qty + 'x',
+        nombre: nombre,
+        meta: meta,
+        subtotal_fmt: '$' + subNum.toLocaleString('es-AR'),
+        subtotal_num: subNum
+      };
+    }
+    // Formato catálogo: "🐔 *Nombre del producto* — _X Kg_ — Y unidades — $total"
+    var mCat = linea.match(/^🐔\s*\*(.+?)\*(?:\s*—\s*_(.+?)_)?(?:\s*—\s*(\d+)\s*unidades?)?\s*—\s*\$?([\d.,]+)/);
+    if (mCat) {
+      var nameCat = mCat[1].trim();
+      var presCat = (mCat[2] || '').trim();
+      var qtyCat  = mCat[3] || '1';
+      var subCat  = mCat[4];
+      var subNumCat = parseInt(subCat.replace(/[.,]/g,''), 10) || 0;
+      return {
+        qty: qtyCat + 'x',
+        nombre: nameCat,
+        meta: presCat,
+        subtotal_fmt: '$' + subNumCat.toLocaleString('es-AR'),
+        subtotal_num: subNumCat
+      };
+    }
+    // Formato Xubio: "*Nombre* x Y unidades → $..."
+    var mXub = linea.match(/^\*(.+?)\*\s*x\s*(\d+)\s*unidades?\s*→\s*\$?([\d.,]+)/);
+    if (mXub) {
+      var subNumXub = parseInt(mXub[3].replace(/[.,]/g,''), 10) || 0;
+      return {
+        qty: mXub[2] + 'x',
+        nombre: mXub[1].trim(),
+        meta: '',
+        subtotal_fmt: '$' + subNumXub.toLocaleString('es-AR'),
+        subtotal_num: subNumXub
+      };
+    }
+    // Fallback: línea no reconocida
+    return { qty: '', nombre: linea, meta: '', subtotal_fmt: '', subtotal_num: 0 };
+  }).filter(function(item){ return !item._admin; }); // admin lines fuera del listado
+}
+
+// Cuenta unidades totales sumando los qty parseados. Si hay 0 productos
+// reconocidos, devuelve null para que el caller use otro fallback (ej.
+// p.items del Sheet).
+function _v23ContarUnidades(detalleStr) {
+  var prods = _v23ParseProductos(detalleStr);
+  if (!prods.length) return null;
+  var total = 0;
+  for (var i = 0; i < prods.length; i++) {
+    var q = parseInt(String(prods[i].qty).replace(/[^\d]/g,''), 10) || 0;
+    total += q;
+  }
+  return total > 0 ? total : null;
+}
+
+// Devuelve el HTML de la pill de canal para una card. Si el origen no
+// es reconocido, devuelve ''. La pill tiene texto explícito ("CAMPO" /
+// "WA" / "CATÁLOGO" / "DIRECTO") para no depender solo del emoji.
+function _v23CanalPillHtml(p) {
+  var o = pedidoOrigen(p);
+  if (!o) {
+    // Origen no reconocido — chequear si en el Sheet dice "directo"
+    var raw = (p && p.origen || '').toString().toLowerCase().trim();
+    if (raw === 'directo' || raw === 'manual') {
+      return '<span class="cv23-canal directo" title="Cargado directo">📝 DIRECTO</span>';
+    }
+    return '';
+  }
+  if (o === 'campo')    return '<span class="cv23-canal campo" title="Pedido tomado en visita (check-in)">📍 CAMPO</span>';
+  if (o === 'whatsapp') return '<span class="cv23-canal wa" title="Pedido cargado por WhatsApp">📱 WA</span>';
+  if (o === 'catalogo') return '<span class="cv23-canal catalogo" title="Pedido por catálogo web">🌐 CATÁLOGO</span>';
+  return '';
+}
+
+// Devuelve la clase y el contenido de la pill de fecha de entrega para la
+// card colapsada. Considera urgencia (HOY) y casos especiales (entregado,
+// sin fecha asignada).
+function _v23FechaPillHtml(p) {
+  var estado = p.estado || 'Pendiente';
+  if (estado === 'Entregado') {
+    return '<span class="cv23-fecha entregada">✓ Entregado</span>';
+  }
+  if (estado === 'Cancelado') {
+    return '';
+  }
+  if (!p.fechaEntrega) {
+    return '<span class="cv23-fecha sin-fecha">📅 Sin fecha</span>';
+  }
+  // Detectar si la fechaEntrega es realmente una fecha (empieza con día)
+  var esFechaReal = /^(Lunes|Martes|Mi|Jueves|Viernes|S|Domingo)/i.test(p.fechaEntrega);
+  if (!esFechaReal) {
+    return '<span class="cv23-fecha sin-fecha">📅 Sin fecha</span>';
+  }
+  // Detectar urgencia: hoy
+  var esHoy = false;
+  try {
+    var hoy = new Date();
+    var diaSem = ['Domingo','Lunes','Martes','Miércoles','Jueves','Viernes','Sábado'][hoy.getDay()];
+    if (p.fechaEntrega.toLowerCase().indexOf(diaSem.toLowerCase()) === 0) {
+      esHoy = true;
+    }
+  } catch(e) {}
+  // Acortar: "Jueves 21 de mayo" → "Jue 21/05" si es muy largo
+  var fechaCorta = p.fechaEntrega;
+  var m = p.fechaEntrega.match(/^(\w{3,})\w*\s+(\d{1,2})\s+de\s+(\w+)/i);
+  if (m) {
+    var meses = {enero:'01',febrero:'02',marzo:'03',abril:'04',mayo:'05',junio:'06',julio:'07',agosto:'08',septiembre:'09',octubre:'10',noviembre:'11',diciembre:'12'};
+    var mes = meses[m[3].toLowerCase()] || '';
+    if (mes) {
+      var dia3 = m[1].substring(0,3);
+      fechaCorta = dia3 + ' ' + m[2].padStart(2,'0') + '/' + mes;
+    }
+  }
+  var turnoIcon = p.turnoEntrega === 'Mañana' ? '🌅' : (p.turnoEntrega === 'Tarde' ? '🌆' : '🚚');
+  var clase = esHoy ? 'cv23-fecha urgente' : 'cv23-fecha';
+  var texto = esHoy
+    ? turnoIcon + ' HOY ' + (p.turnoEntrega || '').toLowerCase()
+    : turnoIcon + ' ' + fechaCorta;
+  return '<span class="' + clase + '" title="' + p.fechaEntrega + ' · ' + (p.turnoEntrega||'') + '">' + texto + '</span>';
+}
+
+// Devuelve el HTML de la caja destacada de entrega en el expandido.
+// Variantes: entrega normal (azul), urgente HOY (rojo), sin fecha
+// (naranja clickeable), entregado (gris).
+function _v23EntregaBoxHtml(p) {
+  var estado = p.estado || 'Pendiente';
+  if (estado === 'Cancelado') {
+    return '<div class="cv23-entrega-box entregada">'
+      + '<div class="cv23-entrega-icon">❌</div>'
+      + '<div>'
+      +   '<div class="cv23-entrega-fecha">Pedido cancelado</div>'
+      +   '<div class="cv23-entrega-zona">' + (p.motivoCancelacion || 'Sin motivo registrado') + '</div>'
+      + '</div></div>';
+  }
+  if (estado === 'Entregado') {
+    return '<div class="cv23-entrega-box entregada">'
+      + '<div class="cv23-entrega-icon">✓</div>'
+      + '<div>'
+      +   '<div class="cv23-entrega-fecha">Pedido entregado</div>'
+      +   '<div class="cv23-entrega-zona">📍 ' + (p.localidad || '—') + '</div>'
+      + '</div></div>';
+  }
+  var esFechaReal = p.fechaEntrega && /^(Lunes|Martes|Mi|Jueves|Viernes|S|Domingo)/i.test(p.fechaEntrega);
+  if (!esFechaReal) {
+    return '<div class="cv23-entrega-box sin-fecha" data-pid="' + p.pedidoId + '" data-fila="' + p.fila + '" onclick="definirEntregaBtn(this,event)">'
+      + '<div class="cv23-entrega-icon">📅</div>'
+      + '<div>'
+      +   '<div class="cv23-entrega-fecha">Sin fecha asignada</div>'
+      +   '<div class="cv23-entrega-zona">Tocá para definir la entrega · ' + (p.localidad || '—') + '</div>'
+      + '</div></div>';
+  }
+  // Detectar urgencia
+  var esHoy = false;
+  try {
+    var hoy = new Date();
+    var diaSem = ['Domingo','Lunes','Martes','Miércoles','Jueves','Viernes','Sábado'][hoy.getDay()];
+    if (p.fechaEntrega.toLowerCase().indexOf(diaSem.toLowerCase()) === 0) esHoy = true;
+  } catch(e) {}
+  var icon = p.turnoEntrega === 'Mañana' ? '🌅' : (p.turnoEntrega === 'Tarde' ? '🌆' : '🚚');
+  var clase = esHoy ? 'cv23-entrega-box urgente' : 'cv23-entrega-box';
+  var fechaTxt = esHoy
+    ? 'HOY ' + (p.turnoEntrega || '').toLowerCase() + ' — ' + p.fechaEntrega
+    : p.fechaEntrega + (p.turnoEntrega ? ' · ' + p.turnoEntrega : '');
+  return '<div class="' + clase + '">'
+    + '<div class="cv23-entrega-icon">' + icon + '</div>'
+    + '<div>'
+    +   '<div class="cv23-entrega-fecha">' + fechaTxt + '</div>'
+    +   '<div class="cv23-entrega-zona">📍 ' + (p.localidad || '—') + '</div>'
+    + '</div></div>';
+}
+
+// Construye el HTML del listado de productos con qty pill + nombre + sub.
+// Si el detalle no parsea, cae a un texto plano legible. Incluye el total
+// al final de la caja.
+function _v23ProductosHtml(p) {
+  var detalleStr = p.detalle || p.resumen || '';
+  if (!detalleStr) {
+    return '<div style="color:var(--text3);font-size:12px;font-style:italic;padding:8px;">Sin detalle de productos</div>';
+  }
+  var prods = _v23ParseProductos(detalleStr);
+  if (!prods.length) {
+    // Fallback: texto plano
+    return '<div class="cv23-prods" style="padding:10px 12px;font-size:13px;line-height:1.6;white-space:pre-wrap;">'
+      + escapeHtml(detalleStr.replace(/\|/g,'\n'))
+      + '</div>';
+  }
+  var rows = prods.map(function(item) {
+    var meta = item.meta ? '<div class="cv23-prod-nombre-meta">' + escapeHtml(item.meta) + '</div>' : '';
+    return '<div class="cv23-prod-row">'
+      + '<div class="cv23-prod-qty">' + escapeHtml(item.qty) + '</div>'
+      + '<div class="cv23-prod-nombre">' + escapeHtml(item.nombre) + meta + '</div>'
+      + '<div class="cv23-prod-sub">' + escapeHtml(item.subtotal_fmt) + '</div>'
+      + '</div>';
+  }).join('');
+  return '<div class="cv23-prods">' + rows
+    + '<div class="cv23-prods-total">'
+    +   '<span class="cv23-prods-total-l">Total</span>'
+    +   '<span class="cv23-prods-total-v">' + fmtTotal(p.total) + '</span>'
+    + '</div>'
+    + '</div>';
+}
+
+// Devuelve clase de estado para la card. Maneja 'En revisión' (con espacio)
+// usando dot-notation segura para CSS.
+function _v23ClaseEstado(p) {
+  var e = (p.estado || 'Pendiente');
+  return 'estado-' + e.replace(/\s+/g, '.');
+}
+
 function renderCard(p) {
   var id = p.pedidoId.replace(/[^a-zA-Z0-9]/g,'-');
   var esAdmin = vendedorActual === 'ADMIN';
@@ -17914,54 +18744,177 @@ function renderCard(p) {
   var detalle = p.detalle ? p.detalle.replace(/\|/g,'\n').replace(/ · /g,' — ') : (p.resumen || '');
   var hora = (p.fechaHora||'').split(' ')[1] || (p.fechaHora||'').split('T')[1] || '';
 
-  return '<div class="pedido-card' + claseCard + '" id="card-' + id + '" data-pedido-id="' + p.pedidoId + '">' +
-    '<div class="pedido-head" onclick="toggleCard(\'' + id + '\')">' +
-      '<div class="pedido-head-left">' +
-        '<div class="pedido-id">' + p.pedidoId + '</div>' +
-        '<div class="pedido-cliente">' + origenIconHtml(p) + (p.cliente||'(sin nombre)') + '</div>' +
-        (p.fechaEntrega ? '<div style="display:inline-flex;align-items:center;gap:4px;background:' + (p.turnoEntrega==='Mañana'?'#E3F2FD':'#FFF3E0') + ';color:' + (p.turnoEntrega==='Mañana'?'#1565C0':'#E65100') + ';border-radius:20px;padding:2px 8px;font-family:Barlow Condensed,sans-serif;font-size:11px;font-weight:800;margin-top:3px;">' + (p.turnoEntrega==='Mañana'?'🌅':'🌆') + ' ' + p.fechaEntrega + ' · ' + (p.turnoEntrega||'') + '</div>' : '') +
-        '<div class="pedido-comercio">' + (p.comercio ? '🏪 '+p.comercio+' · ' : '') + (function(){
-          // v8.7: si el pedido tiene sucursal vinculada, mostrarla antes de la localidad
-          var suc = pedidoSucursalDeMapa(p.pedidoId);
-          return suc && suc.nombre_suc ? '🏢 '+ escapeHtml(suc.nombre_suc) +' · ' : '';
-        })() + '📍 ' + p.localidad + '</div>' +
-        buildProdsPreview(p) +
+  // ════════════════════════════════════════════════════════════════════
+  // v14.23.0 — Render nuevo (PROPUESTA B): card compacta + expandido
+  // por secciones jerárquicas. Mantiene compat con todos los handlers
+  // existentes (onclick, data-attrs, IDs).
+  // ════════════════════════════════════════════════════════════════════
+
+  // Datos derivados para la card colapsada
+  var canalPill = _v23CanalPillHtml(p);
+  var fechaPill = _v23FechaPillHtml(p);
+  var horaCorta = hora.replace(/:\d{2}$/, ''); // quitar segundos
+  var idCorto = (p.pedidoId || '').slice(-5);  // últimas 5 letras
+
+  // Comercio + sucursal en una línea (si existe)
+  var locExtras = '';
+  if (p.comercio) locExtras += '🏪 ' + escapeHtml(p.comercio);
+  var sucForCard = (typeof pedidoSucursalDeMapa === 'function') ? pedidoSucursalDeMapa(p.pedidoId) : null;
+  if (sucForCard && sucForCard.nombre_suc) {
+    locExtras += (locExtras ? ' · ' : '') + '🏢 ' + escapeHtml(sucForCard.nombre_suc);
+  }
+  var locLinea = locExtras
+    ? locExtras + ' · 📍 ' + escapeHtml(p.localidad || '')
+    : '📍 ' + escapeHtml(p.localidad || '');
+
+  // Badge de estado (versión compacta) + duplicado pill aparte
+  var badgeClase = (p.estado === 'Pendiente') ? 'pendiente'
+                : (p.estado === 'Confirmado') ? 'confirmado'
+                : (p.estado === 'Entregado') ? 'entregado'
+                : (p.estado === 'Cancelado') ? 'cancelado'
+                : (p.estado === 'En revisión') ? 'revision'
+                : 'pendiente';
+  var badgeIcon = (p.estado === 'Pendiente') ? '⏳'
+               : (p.estado === 'Confirmado') ? '✅'
+               : (p.estado === 'Entregado') ? '📦'
+               : (p.estado === 'Cancelado') ? '❌'
+               : (p.estado === 'En revisión') ? '🔎'
+               : '⏳';
+  var badgeNuevo = '<span class="cv23-badge ' + badgeClase + '">' + badgeIcon + ' ' + (p.estado || 'Pendiente') + '</span>';
+  var dupPill = '';
+  if (p.esDuplicado && p.tipoDuplicado === 'exacto') {
+    dupPill = ' <span class="cv23-dup-pill" onclick="event.stopPropagation();abrirModalDuplicados(\'' + p.pedidoId + '\')" title="Duplicado exacto — tocar para resolver">🔴 DUP</span>';
+  } else if (p.esDuplicado) {
+    dupPill = ' <span class="cv23-dup-pill parcial" onclick="event.stopPropagation();abrirModalDuplicados(\'' + p.pedidoId + '\')" title="Pedido doble — tocar para resolver">🟠 DOBLE</span>';
+  }
+
+  // Footer mini de la card: vendedor (solo admin) + hora + id corto
+  var metaFoot = [];
+  if (esAdmin) metaFoot.push(p.vendedor || '');
+  if (horaCorta) metaFoot.push(horaCorta);
+  metaFoot.push(idCorto);
+  var metaTxt = metaFoot.filter(Boolean).join(' · ');
+
+  // Reagrupar acciones en grid 2x con principal full-width arriba si aplica.
+  // Estrategia: extraer los botones individualmente del `btns` viejo no es
+  // viable (es string concatenado). Replanteamos: armar acciones desde cero
+  // usando las MISMAS condiciones que el código viejo.
+  var accBtns = '';
+  // Botón principal: "Asignar a chofer" (admin + Confirmado sin chofer)
+  if (esAdmin && p.estado === 'Confirmado' && !p.choferAsignado) {
+    accBtns += '<button class="cv23-btn chofer principal" data-pedido="' + p.pedidoId + '" onclick="mostrarPickerChofer(this,event)">🚚 Asignar a chofer</button>';
+  }
+  // Acción principal: "Definir entrega" si falta fecha (vendedor + no chofer + no presupuesto)
+  if (!esChofer && !tienePresupuesto && (p.estado === 'Pendiente' || p.estado === 'Confirmado')) {
+    var esFechaReal2 = p.fechaEntrega && /^(Lunes|Martes|Mi|Jueves|Viernes|S|Domingo)/i.test(p.fechaEntrega);
+    if (!esFechaReal2) {
+      accBtns += '<button class="cv23-btn entrega principal" data-pid="' + p.pedidoId + '" data-fila="' + p.fila + '" onclick="definirEntregaBtn(this,event)">📅 Definir entrega</button>';
+    } else {
+      // Botón secundario para cambiar fecha
+      accBtns += '<button class="cv23-btn entrega" data-pid="' + p.pedidoId + '" data-fila="' + p.fila + '" onclick="definirEntregaBtn(this,event)">📅 Cambiar fecha</button>';
+    }
+  }
+  // Editar pedido
+  if (!esAdmin && !esChofer && !tienePresupuesto && (p.estado === 'Pendiente' || p.estado === 'Confirmado')) {
+    accBtns += '<button class="cv23-btn editar" data-pid="' + p.pedidoId + '" data-cliente="' + (p.cliente||'').replace(/"/g,'') + '" data-detalle="' + encodeURIComponent(p.detalle||'') + '" onclick="editarPedidoBtn(this,event)">✏️ Editar</button>';
+  }
+  // Sucursales
+  if (!esAdmin && !esChofer && p.esDuplicado && !tienePresupuesto) {
+    accBtns += '<button class="cv23-btn sucursales" onclick="event.stopPropagation();sucModalAbrir(\'' + (p.cliente||'').replace(/'/g,"\\'").replace(/"/g,'&quot;') + '\')">⛔ Sucursales</button>';
+  }
+  // Admin: Entregado / Pendiente
+  if (esAdmin && p.estado !== 'Entregado') {
+    accBtns += '<button class="cv23-btn entregar" onclick="cambiarEstado(\'' + p.pedidoId + '\',' + p.fila + ',\'Entregado\',event)">📦 Entregado</button>';
+  }
+  if (esAdmin && p.estado !== 'Pendiente') {
+    accBtns += '<button class="cv23-btn pendiente" onclick="cambiarEstado(\'' + p.pedidoId + '\',' + p.fila + ',\'Pendiente\',event)">⏳ Pendiente</button>';
+  }
+  // Cancelar (admin todos != Cancelado, vendedor solo SUS Pendiente/Confirmado)
+  var esPedidoPropioV23 = !esAdmin && !esChofer && p.vendedor === vendedorActual;
+  var puedeCancelar = (esAdmin && p.estado !== 'Cancelado')
+                   || (esPedidoPropioV23 && (p.estado === 'Pendiente' || p.estado === 'Confirmado'));
+  if (puedeCancelar) {
+    accBtns += '<button class="cv23-btn cancelar" onclick="confirmarCancelar(\'' + p.pedidoId + '\',' + p.fila + ',event)">❌ Cancelar</button>';
+  }
+
+  // Chofer asignado: reemplaza el botón "Asignar" con un badge
+  var choferBadge = '';
+  if (esAdmin && p.estado === 'Confirmado' && p.choferAsignado) {
+    choferBadge = '<div style="margin-bottom:8px;">'
+      + '<span class="cv23-chofer-badge">🚚 ' + escapeHtml(p.choferAsignado)
+      +   ' <button onclick="desasignarChofer(\'' + p.pedidoId + '\',event)" title="Cambiar">✕</button>'
+      + '</span></div>';
+  }
+
+  return '<div class="cv23 ' + _v23ClaseEstado(p) + claseCard.replace('dup-exacto',' dup-exacto').replace('dup-parcial',' dup-parcial') + '" id="card-' + id + '" data-pedido-id="' + p.pedidoId + '">' +
+
+    '<div class="cv23-head" onclick="toggleCard(\'' + id + '\')">' +
+      '<div class="cv23-top">' +
+        '<div class="cv23-cli-line">' +
+          canalPill +
+          '<div class="cv23-cli">' + escapeHtml(p.cliente || '(sin nombre)') + '</div>' +
+        '</div>' +
+        '<div class="cv23-total">' + fmtTotal(p.total) + '</div>' +
       '</div>' +
-      '<div class="pedido-head-right">' +
-        '<div class="pedido-total">' + fmtTotal(p.total) + '</div>' +
-        badgeHtml(p) +
-        '<div class="pedido-hora">' + hora + '</div>' +
+      '<div class="cv23-mid">' +
+        '<span class="cv23-loc">' + locLinea + '</span>' +
+        fechaPill +
+      '</div>' +
+      '<div class="cv23-bot">' +
+        '<div>' + badgeNuevo + dupPill + '</div>' +
+        '<div class="cv23-meta">' + escapeHtml(metaTxt) + '</div>' +
       '</div>' +
     '</div>' +
-    '<div class="pedido-body" id="body-' + id + '">' +
-      vendedorRow +
-      (function(){
-        // v8.7: fila "Sucursal" en el detalle expandido si está vinculada
-        var suc = pedidoSucursalDeMapa(p.pedidoId);
-        if (!suc || !suc.nombre_suc) return '';
-        var dirLoc = [suc.direccion, suc.localidad].filter(Boolean).map(escapeHtml).join(' · ');
-        return '<div class="pedido-detalle-row"><span class="pdr-label">🏢 Sucursal</span><span class="pdr-val">' +
-          escapeHtml(suc.nombre_suc) + (dirLoc ? ' <span style="color:#8B6F50;font-size:12px;">· ' + dirLoc + '</span>' : '') +
-          '</span></div>';
-      })() +
-      '<div class="pedido-detalle-row"><span class="pdr-label">Localidad</span><span class="pdr-val">' + p.localidad + '</span></div>' +
-      '<div class="pedido-detalle-row"><span class="pdr-label">Productos</span><span class="pdr-val">' + p.items + ' unidades</span></div>' +
-      '<div class="pedido-detalle-row"><span class="pdr-label">Total</span><span class="pdr-val" style="color:var(--red);font-family:\'Barlow Condensed\',sans-serif;font-size:18px;font-weight:900;">' + fmtTotal(p.total) + '</span></div>' +
-      '<div class="pedido-detalle-row"><span class="pdr-label">Fecha/Hora</span><span class="pdr-val">' + p.fechaHora + '</span></div>' +
-      (detalle ? '<div class="pedido-productos">' + detalle + '</div>' : '') +
-      dupAlert +
-      '<div class="pedido-acciones">' + btns + '</div>' +
-      asignarHtml +
-      verOtrosHtml +
-      buildXubioPanel(p, id) +
-      '<div class="nota-wrap">' +
-        '<div style="display:flex;gap:8px;margin-bottom:8px;align-items:center;">' +
-          '<span style="font-size:14px;flex-shrink:0;">📞</span>' +
-          '<input class="nota-input" style="flex:1;height:38px;font-size:13px;" id="tel-' + id + '" type="tel" inputmode="numeric" placeholder="Teléfono del cliente (opcional)" value="' + (p.telCliente||'') + '" onblur="guardarTelCliente(\'' + p.pedidoId + '\')">' +
-        '</div>' +
-        '<textarea class="nota-input" id="nota-' + id + '" placeholder="📝 Nota interna..." onblur="guardarNota(\'' + p.pedidoId + '\')">' + (p.nota||'') + '</textarea>' +
-        '<div class="nota-guardada" id="nota-ok-' + id + '">✅ Guardado</div>' +
+
+    '<div class="cv23-body" id="body-' + id + '">' +
+
+      // SECCIÓN: ENTREGA (destacada arriba)
+      '<div class="cv23-sec">' +
+        '<div class="cv23-sec-titulo">🚚 Entrega</div>' +
+        _v23EntregaBoxHtml(p) +
       '</div>' +
+
+      // ALERTAS DE DUPLICADO (si aplican)
+      (dupAlert ? '<div class="cv23-sec">' + dupAlert + '</div>' : '') +
+      (verOtrosHtml ? '<div class="cv23-sec">' + verOtrosHtml + '</div>' : '') +
+
+      // SECCIÓN: PRODUCTOS
+      '<div class="cv23-sec">' +
+        (function(){
+          var unidades = _v23ContarUnidades(p.detalle || '');
+          if (unidades === null) {
+            var n = parseInt(p.items, 10);
+            unidades = isNaN(n) ? null : n;
+          }
+          var unidadesTxt = (unidades !== null && unidades > 0) ? ' · ' + unidades + ' unidad' + (unidades === 1 ? '' : 'es') : '';
+          return '<div class="cv23-sec-titulo">📦 Productos' + unidadesTxt + '</div>';
+        })() +
+        _v23ProductosHtml(p) +
+      '</div>' +
+
+      // SECCIÓN: ACCIONES (con chofer badge si aplica)
+      (accBtns || choferBadge ? '<div class="cv23-sec">' +
+        '<div class="cv23-sec-titulo">⚙️ Acciones</div>' +
+        choferBadge +
+        (accBtns ? '<div class="cv23-acciones">' + accBtns + '</div>' : '') +
+      '</div>' : '') +
+
+      // SECCIÓN: XUBIO (presupuesto o crear)
+      '<div class="cv23-sec">' +
+        '<div class="cv23-sec-titulo">📄 Facturación</div>' +
+        buildXubioPanel(p, id) +
+      '</div>' +
+
+      // SECCIÓN: NOTA + TELÉFONO
+      '<div class="cv23-sec">' +
+        '<div class="cv23-sec-titulo">📝 Notas y contacto</div>' +
+        '<div class="cv23-nota">' +
+          '<input class="cv23-input" id="tel-' + id + '" type="tel" inputmode="numeric" placeholder="📞 Teléfono del cliente (opcional)" value="' + escapeHtml(p.telCliente || '') + '" onblur="guardarTelCliente(\'' + p.pedidoId + '\')">' +
+          '<textarea class="cv23-textarea" id="nota-' + id + '" placeholder="Nota interna..." onblur="guardarNota(\'' + p.pedidoId + '\')">' + escapeHtml(p.nota || '') + '</textarea>' +
+          '<div class="cv23-ok" id="nota-ok-' + id + '">✅ Guardado</div>' +
+        '</div>' +
+      '</div>' +
+
     '</div>' +
   '</div>';
 }
@@ -26641,6 +27594,7 @@ async function tomadorConfirmarConEntrega(entregaData) {
       localidad:     localidadCheckin,
       detalle:       detalleSheet,
       total:         total,
+      itemsTotales:  String(items.length),  // v14.23.0: faltaba — causaba "0 unidades" en la card
       nota:          notaFinal,
       estado:        tieneDescuento ? 'En revisión' : 'Pendiente',
       origen:        'campo',
