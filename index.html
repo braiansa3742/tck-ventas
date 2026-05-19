@@ -2,6 +2,104 @@
 <html lang="es">
 <head>
 <!-- ═══════════════════════════════════════════════════════════════════════
+     TCK VENTAS — v14.22.4 — 19/05/2026
+     ──────────────────────────────────────────────────────────────────────
+     FECHA DEL PRESUPUESTO XUBIO + LOCALIDAD CANÓNICA EN CHECK-IN
+
+     SÍNTOMA REPORTADO (Lisandro, 19/05 ~09:25):
+       Pedido por tomador del check-in a MIRIAN LORENA DUCKARDT (Pellegrini,
+       zona 2) generó presupuesto Xubio N° 4195 con fecha 19/05/2026 (hoy)
+       cuando la entrega es el jueves 21/05/2026 (fecha real del camión
+       zona 2). El pedido en pedidos_zona quedó con salida_planificada
+       correcta = 2026-05-21, pero Xubio recibió la fecha equivocada.
+
+     CAUSA RAÍZ:
+       Cadena de 3 bugs encadenados desde v14.20.0:
+
+       (1) gpsConfirmarCheckin canoniza localidadCliente contra la tabla
+           rutas. Si no canoniza (texto raro en clientes_xubio.localidad,
+           espacios, mayúsculas, race con la carga de _localidadesCanonicas),
+           setea _gpsCheckinActivo.localidad = '' silenciosamente. Solo
+           queda un console.warn que nadie ve en el celu.
+
+       (2) Al cerrar venta, tomadorConfirmarConEntrega detecta que la
+           localidad está vacía y abre el modal "📍 Elegí la localidad"
+           como fallback. Cuando el vendedor elige, el código REINTENTA
+           tomadorConfirmarConEntrega(entregaData) con el entregaData
+           ORIGINAL que tiene fechaISO undefined. La nueva localidad solo
+           se usa para el guardarPedido en Sheet (donde Apps Script
+           recalcula salida desde la localidad), pero NO se propaga al
+           cálculo de fechaXubio.
+
+       (3) El fallback de entrega cuando inferirEntregaDesdeLocalidad
+           devuelve null era { dia: '', turno: '', mensaje: '' } — sin la
+           clave fechaISO. _tomadorEjecutarXubio hace entregaData.fechaISO
+           que retorna undefined, no manda fechaPresupuesto al backend, y
+           Apps Script cae a "usa hoy".
+
+     FIX (3 cambios coordinados):
+
+       Fix #1 — gpsConfirmarCheckin: modal bloqueante de localidad
+         Nueva función _gpsPedirLocalidadSiHaceFalta(nombre, localidadCruda).
+         Si la localidad canoniza → devuelve la canónica directo.
+         Si no canoniza → modal con dropdown de 28 ciudades canónicas.
+         Si el vendedor cancela → check-in NO se registra (Opción A:
+         disciplina sobre data laxa).
+         Se invoca DESPUÉS de validar coords y ANTES del INSERT a visitas.
+         Resultado: _gpsCheckinActivo.localidad NUNCA queda vacío para
+         clientes que sí entraron a check-in. El modal del fallback en
+         cerrar venta se vuelve un caso "no debería ocurrir".
+
+       Fix #2 — tomadorConfirmarConEntrega: recalcular entrega tras modal
+         Si por alguna razón se cae al modal "📍 Elegí la localidad", al
+         reintentar se llama inferirEntregaDesdeLocalidad(localidadElegida)
+         para obtener un nuevo objeto entrega con fechaISO/zona correctos.
+         Antes se reusaba el entregaData viejo → fechaISO undefined.
+
+       Fix #3 — fallback de entrega con fechaISO explícito
+         Los 2 lugares que armaban { dia: '', turno: '', mensaje: '' }
+         ahora incluyen fechaISO: ''. Es defensa en profundidad: si por
+         algún path no previsto entrega llega sin fechaISO, no rompe el
+         contrato implícito (toda entrega debería tener fechaISO).
+
+     DECISIÓN ESTRATÉGICA (vos, 19/05):
+       NO se actualiza clientes_xubio desde la app de ventas. Si el
+       vendedor canoniza una localidad rara en el modal, queda solo en
+       _gpsCheckinActivo de la sesión. Razón: Xubio es un consumidor más
+       de los datos, no la fuente de verdad. La base sólida se construye
+       en TCK (diseño N42, clientes_master) y eventualmente Xubio se
+       sincroniza hacia allá, no al revés.
+
+     IMPACTO ESPERADO:
+       - Pedidos por tomador del check-in se cierran con fechaPresupuesto
+         correcta en Xubio (fecha de salida del camión, no la de creación).
+       - Si la localidad del cliente en clientes_xubio está rara o vacía,
+         el vendedor se entera al hacer check-in (no después de armar el
+         pedido). El cliente queda canonizado para esa sesión.
+       - Modal bloqueante = vendedores con menos check-ins "fantasma" sin
+         localidad. Disciplina sobre data laxa.
+
+     NO CAMBIA:
+       - Lógica de canonización (_localidadNormalizar, tabla rutas).
+       - Apps Script de guardarPedido / crearPresupuestoXubio.
+       - El check-in manual (gpsCheckinManual) que ya canoniza al inicio.
+       - Hotfix v14.22.3 del bug abrirSelectorSucursalSiAplica (sigue ahí).
+
+     QUEDA PARA v14.23+:
+       - Xubio automático también para flujo manualWA (espejo del tomador).
+       - Mostrar fecha de entrega como badge persistente en cada card de
+         pedido (no solo en el toast del momento).
+       - Diseño N42: clientes_master como fuente de verdad TCK.
+       - Try/catch en todos los callbacks del flujo de cierre para que
+         ningún ReferenceError vuelva a pasar silencioso.
+
+     PEDIDOS PENDIENTES DE CORRECCIÓN MANUAL EN XUBIO:
+       - Presupuesto 4195 (MIRIAN LORENA DUCKARDT, Lisandro, $99.000):
+         editar fecha de 19/05/2026 → 21/05/2026 (jueves).
+         Lo hace Braian directo en Xubio web.
+     ══════════════════════════════════════════════════════════════════════ -->
+
+<!-- ═══════════════════════════════════════════════════════════════════════
      TCK VENTAS — v14.22.3 — 19/05/2026
      ──────────────────────────────────────────────────────────────────────
      HOTFIX: CERRAR VENTA del tomador del check-in (bug ALMIRON-TOMADOR)
@@ -23345,6 +23443,91 @@ async function gpsReintentar(nombreCliente) {
   gpsConfirmarCheckin(nombreCliente);
 }
 
+// v14.22.4 FIX #1: Si la localidad del cliente (viene de clientes_xubio o
+// clientes_activos) no canoniza contra la tabla rutas, pedirle al vendedor
+// que la confirme ANTES de registrar el check-in. Esto evita que llegue al
+// cierre de venta con localidad vacía y se cree el presupuesto Xubio con
+// fecha de hoy en vez de la fecha de salida del camión.
+//
+// Devuelve una Promise que resuelve con:
+//   - string con el nombre canónico de la ciudad, si el vendedor eligió o
+//     si la original ya canonizaba.
+//   - null si el vendedor canceló (entonces NO se hace check-in).
+//
+// Importante: NO toca clientes_xubio ni clientes_activos. La elección queda
+// solo en _gpsCheckinActivo.localidad de la sesión actual. La base de datos
+// canónica se construye en próximas sesiones (diseño N42, clientes_master).
+function _gpsPedirLocalidadSiHaceFalta(nombreCliente, localidadCruda) {
+  return new Promise(function(resolve) {
+    // Caso 1: ya canoniza → no preguntar
+    if (localidadCruda) {
+      var canonAuto = localidadCanonicaDe(localidadCruda);
+      if (canonAuto) {
+        resolve(canonAuto.ciudad);
+        return;
+      }
+    }
+
+    // Caso 2: no canoniza (vacía o texto raro) → modal bloqueante
+    var avisoTexto = localidadCruda
+      ? 'La localidad cargada ("<b>' + _escapeHtml(localidadCruda) + '</b>") no está en nuestra lista. ' +
+        'Elegí cuál corresponde para que el pedido salga con el camión correcto.'
+      : 'Este cliente no tiene localidad cargada en el sistema. Elegila para que el pedido salga con el camión correcto.';
+
+    var existing = document.getElementById('gps-localidad-confirmar-modal');
+    if (existing) existing.remove();
+
+    var modal = document.createElement('div');
+    modal.id = 'gps-localidad-confirmar-modal';
+    modal.style.cssText =
+      'position:fixed;inset:0;background:rgba(0,0,0,.7);z-index:99999;' +
+      'display:flex;align-items:center;justify-content:center;padding:20px;';
+    modal.innerHTML =
+      '<div style="background:#fff;border-radius:14px;max-width:420px;width:100%;padding:20px;box-shadow:0 8px 32px rgba(0,0,0,.3);">' +
+        '<div style="font-family:Barlow Condensed,sans-serif;font-size:20px;font-weight:900;color:#8B0000;margin-bottom:6px;">' +
+          '📍 Confirmá la localidad' +
+        '</div>' +
+        '<div style="font-size:13px;color:#1A0800;margin-bottom:6px;font-weight:700;">' +
+          _escapeHtml(nombreCliente || '') +
+        '</div>' +
+        '<div style="font-size:13px;color:#555;margin-bottom:14px;line-height:1.4;">' +
+          avisoTexto +
+        '</div>' +
+        localidadesSelectHTML({
+          id: 'gps-localidad-confirmar-select',
+          classExtra: 'manual-wa-input',
+          valorActual: ''
+        }) +
+        '<div style="display:flex;gap:8px;margin-top:16px;">' +
+          '<button id="gps-localidad-confirmar-cancelar" style="flex:1;padding:12px;background:#eee;color:#333;border:none;border-radius:10px;font-weight:700;cursor:pointer;">Cancelar</button>' +
+          '<button id="gps-localidad-confirmar-ok" style="flex:2;padding:12px;background:linear-gradient(135deg,#1B5E20,#2E7D32);color:#fff;border:none;border-radius:10px;font-weight:900;cursor:pointer;">Continuar</button>' +
+        '</div>' +
+      '</div>';
+    document.body.appendChild(modal);
+
+    document.getElementById('gps-localidad-confirmar-cancelar').onclick = function() {
+      modal.remove();
+      resolve(null); // canceló → caller aborta el check-in
+    };
+    document.getElementById('gps-localidad-confirmar-ok').onclick = function() {
+      var sel = document.getElementById('gps-localidad-confirmar-select');
+      var val = sel ? sel.value : '';
+      if (!val) {
+        toast('Elegí una localidad de la lista', 'err');
+        if (sel) sel.focus();
+        return;
+      }
+      var canon = localidadCanonicaDe(val);
+      if (!canon) {
+        toast('Elegí una localidad de la lista', 'err');
+        return;
+      }
+      modal.remove();
+      resolve(canon.ciudad);
+    };
+  });
+}
+
 async function gpsConfirmarCheckin(nombreCliente, localidadCliente, xubioId, xubioCuit) {
   // v14.17.3 Cambio 5 (Bug C): lock anti-race. Si el vendedor tap 2 clientes
   // seguidos del autocomplete (porque el GPS del primero tarda), se creaban
@@ -23387,6 +23570,27 @@ async function gpsConfirmarCheckin(nombreCliente, localidadCliente, xubioId, xub
       return;
     }
 
+    // v14.22.4 FIX #1: ANTES de registrar el check-in, asegurar que la
+    // localidad del cliente canonice contra la tabla rutas. Si no canoniza
+    // (clientes_xubio con texto raro o vacío), modal bloqueante que pide
+    // confirmar. Si el vendedor cancela, abortar el check-in completo.
+    //
+    // Por qué acá y no después: si la localidad no canoniza, todo el flujo
+    // de cierre de venta queda con fechaISO undefined y el presupuesto
+    // Xubio se crea con fecha de hoy en vez de la fecha del camión.
+    var locCanonElegida = await _gpsPedirLocalidadSiHaceFalta(nombreCliente, localidadCliente);
+    if (locCanonElegida === null) {
+      // Vendedor canceló el modal → abortar check-in sin guardar nada.
+      // Liberamos el lock manualmente porque salimos antes del try/finally externo.
+      window._gpsCheckinEnCurso = false;
+      if (window._gpsCheckinTimeout) {
+        clearTimeout(window._gpsCheckinTimeout);
+        window._gpsCheckinTimeout = null;
+      }
+      toast('Check-in cancelado', 'warn');
+      return;
+    }
+
     // v13.6.4: reordenado para que toast verde y estado activo se setean
     // DESPUÉS del insert exitoso. Si el insert falla (RLS, red, etc.), el
     // vendedor ve toast rojo y la UI vuelve a "sin check-in".
@@ -23404,16 +23608,16 @@ async function gpsConfirmarCheckin(nombreCliente, localidadCliente, xubioId, xub
       });
       // SI LLEGAMOS ACÁ, EL INSERT FUNCIONÓ
       _gpsHizoPedido = false;
-      // v13.7.5: canonizar localidad del cliente Xubio antes de guardar.
-      // Esto evita que pedidos del tomador lleguen con 'Campo' literal
-      // y permite que se infiera la zona correctamente.
-      var locCanon = '';
-      if (localidadCliente) {
+      // v14.22.4 FIX #1: locCanon ya viene canonizado del modal. La lógica
+      // vieja de re-canonizar desde localidadCliente queda como defensa
+      // (si Fix #1 falló por alguna razón, intentamos un último canon).
+      var locCanon = locCanonElegida || '';
+      if (!locCanon && localidadCliente) {
         var canon = localidadCanonicaDe(localidadCliente);
         if (canon) {
           locCanon = canon.ciudad;
         } else {
-          console.warn('[GPS] Cliente "' + nombreCliente + '" tiene localidad no canónica: "' + localidadCliente + '"');
+          console.warn('[GPS] Cliente "' + nombreCliente + '" sin localidad canónica tras Fix #1: "' + localidadCliente + '"');
         }
       }
       _gpsCheckinActivo = {
@@ -26227,7 +26431,9 @@ async function _tomadorConfirmarFinalContinuar() {
     var entrega = inferirEntregaDesdeLocalidad(localidadCheckin);
     if (!entrega) {
       console.log('[F-Modal tomador] Localidad sin zona — guardando sin entrega:', localidadCheckin);
-      entrega = { dia: '', turno: '', mensaje: '' };
+      // v14.22.4 FIX #3: incluir fechaISO explícito en el fallback para que
+      // _tomadorEjecutarXubio no caiga al "Apps Script usa hoy" silencioso.
+      entrega = { dia: '', turno: '', fechaISO: '', mensaje: '' };
     }
 
     // v14.17.0 (N43): chequear si hay viajes especiales para esa zona.
@@ -26398,17 +26604,31 @@ async function tomadorConfirmarConEntrega(entregaData) {
       tieneDescuento ? 'DESCUENTOS: ' + dtoNota : ''
     ].filter(Boolean).join(' || ');
 
-    // v13.7.5: la localidad debe ser una de las 27 canónicas.
+    // v13.7.5: la localidad debe ser una de las 28 canónicas.
     // Si el check-in vino de Xubio con localidad canonizada, ya la tenemos.
     // Si fue manual o el cliente no tenía localidad, abrimos modal para elegir.
+    //
+    // v14.22.4 FIX #2: si la localidad cae en este fallback (no debería
+    // pasar si Fix #1 anduvo), al reintentar hay que RECALCULAR entrega
+    // con la nueva localidad. Antes se reintentaba con el entregaData viejo
+    // que tenía fechaISO undefined → presupuesto Xubio con fecha de hoy en
+    // vez de la fecha del camión. Bug detectado con MIRIAN LORENA DUCKARDT
+    // el 19/05/2026 (presupuesto 4195 quedó 19/05, debía ser 21/05).
     var localidadCheckin = _gpsCheckinActivo ? (_gpsCheckinActivo.localidad || '') : '';
     if (!localidadCheckin || !localidadCanonicaDe(localidadCheckin)) {
       // Pedir localidad antes de confirmar — bloquea hasta que elija
       tomadorPedirLocalidadYReintentar(function(localidadElegida) {
         // Guardar localidad canonizada en el check-in para no preguntar más en este turno
         if (_gpsCheckinActivo) _gpsCheckinActivo.localidad = localidadElegida;
-        // Reintentar el envío con la localidad ya cargada
-        tomadorConfirmarConEntrega(entregaData);
+        // v14.22.4 FIX #2: recalcular entrega con la nueva localidad para
+        // que fechaISO/zona viajen correctos hasta el flujo de Xubio.
+        var entregaRecalculada = inferirEntregaDesdeLocalidad(localidadElegida);
+        if (!entregaRecalculada) {
+          console.warn('[v14.22.4 Fix#2] inferirEntregaDesdeLocalidad devolvió null para localidad recién elegida:', localidadElegida);
+          entregaRecalculada = { dia: '', turno: '', fechaISO: '', mensaje: '' };
+        }
+        // Reintentar el envío con la entrega ya recalculada
+        tomadorConfirmarConEntrega(entregaRecalculada);
       });
       return;
     }
@@ -31293,7 +31513,8 @@ function _manualWAConfirmarContinuar(cliente, localidad) {
       // Localidad no matchea zona conocida: igual guardar pedido (queda sin viaje,
       // Francisco lo asigna manual desde admin)
       console.log('[F-Modal] Localidad sin zona — guardando sin entrega:', localidad);
-      entrega = { dia: '', turno: '', mensaje: '' };
+      // v14.22.4 FIX #3: incluir fechaISO explícito en el fallback (defensa).
+      entrega = { dia: '', turno: '', fechaISO: '', mensaje: '' };
     }
 
     // v14.17.0 (N43): chequear si hay viajes especiales disponibles.
