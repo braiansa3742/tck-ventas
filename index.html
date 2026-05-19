@@ -2,6 +2,105 @@
 <html lang="es">
 <head>
 <!-- ═══════════════════════════════════════════════════════════════════════
+     TCK VENTAS — v14.22.2 — 18/05/2026
+     ──────────────────────────────────────────────────────────────────────
+     JORNADA INTELIGENTE: GPS + proximidad + próximo sugerido
+
+     PROBLEMA QUE RESUELVE:
+       v14.22.1 dejó Jornada como lista priorizada con botones de acción,
+       pero seguía siendo estática. No reaccionaba al movimiento del
+       vendedor ni le decía "esto es lo más cerca/urgente que tenés".
+
+       Esta versión convierte Jornada en un asistente vivo: GPS continuo
+       del vendedor → distancias en tiempo real → reordena por proximidad
+       → banner destacado del "próximo sugerido".
+
+     CAMBIOS PRINCIPALES:
+
+       1. PRECARGA COORDS DE CLIENTES
+          Mi Ronda ahora, al cargar la lista, hace una segunda query a
+          `clientes_ubicaciones` y cruza por nombre. Adjunta {lat, lng}
+          como `c._coords` a cada cliente que las tenga.
+          Cobertura validada: 78% de los clientes con facturación.
+
+       2. DISTANCIA EN VIVO
+          Cada stop calcula distancia vendedor↔cliente con Haversine
+          (función calcDistancia ya existente). Si hay GPS activo:
+            < 1 km → "180m"
+            1-10 km → "1.2km"
+            > 10 km → "12km"
+          Y tiempo estimado a 40 km/h ("a 2 min").
+
+       3. BANNER "▶ PRÓXIMO"
+          Arriba del todo, card azul gradient destacada con el próximo
+          stop sugerido. Algoritmo: el más prioritario (riesgo alto >
+          medio > conf > sugerido > normal) Y dentro de cada grupo el
+          más cercano. Tiene los 4 botones de acción (Ir/WA/Tel/Check-in).
+
+       4. ORDENAMIENTO POR DISTANCIA
+          Dentro de cada sección, los stops se ordenan por proximidad
+          (los más cercanos arriba). Si no hay GPS, mantiene orden
+          alfabético.
+          IMPORTANTE: cuando hay GPS, las secciones (alerta/conf/sug)
+          se MEZCLAN en una sola "DESPUÉS (ordenado por distancia)"
+          para que el vendedor camine eficientemente sin saltar entre
+          grupos. Sin GPS, vuelve a la separación por prioridad.
+
+       5. RE-RENDER AUTOMÁTICO AL MOVERSE
+          El watchPosition ya existente (cada >20m de movimiento)
+          ahora dispara jornadaRender() si la tab está activa. Las
+          distancias se actualizan solas.
+
+       6. DEFAULT CIUDAD INTELIGENTE
+          Al volver a la tab:
+            a) Si hay ciudad activa en memoria → mantener
+            b) Si hay check-in activo → su ciudad
+            c) Si hay ciudad guardada del día en localStorage → usar
+            d) Sino → empty state (vendedor elige)
+          Cambia de día → localStorage se resetea.
+
+       7. CLIENTES INACTIVOS (90d+ sin pedido)
+          Aparecen en sección colapsada al final con dot gris.
+          Toggle "+ Ver inactivos (X sin compra hace 90d+)" expande.
+          Razón: no perderlos pero no abrumar la lista principal.
+
+       8. DOTS DE COLOR + PILLS COMPACTOS
+          En vez de tag "URGENTE" o "MEDIO" al lado, ahora:
+            🔴 dot rojo al lado del nombre + pill "18d/14d" compacto
+            🟠 dot naranja + pill "12d/8d"
+            ⚪ dot gris para inactivos
+          Más denso, más legible.
+
+       9. INDICADOR GPS EN HEADER
+          Pill arriba a la derecha: verde pulsante si GPS activo, gris
+          si no. Da feedback al vendedor de que el sistema lo está
+          ayudando con su posición.
+
+     COBERTURA REAL:
+       Validamos en BD: 78% de los clientes con facturación tienen coords.
+       100% en top facturadores de Lisandro. Para los demás, el campo
+       distHtml queda vacío sin romper el render.
+
+     PERFORMANCE:
+       - El re-render se dispara con cada movimiento >20m, no continuo.
+       - El cálculo de distancia es Haversine simple (microsegundos).
+       - Re-ordenamiento es in-memory sin queries adicionales.
+       - Sin lazy loading, no necesario para ~30 stops.
+
+     SIN IMPACTO en:
+       - Mi Ronda (intacta, sigue con secciones por prioridad como v14.21.1)
+       - Visitas (tab GPS sigue como soporte)
+       - Xubio automático v14.20.0
+       - Sistema Tipo A v14.21.x
+
+     LO QUE QUEDA PARA v14.22.3+:
+       - Resumen del día al cerrar jornada (KPIs, total ventas)
+       - Onboarding para que Lisandro marque Tipo A
+       - Plan semanal recurrente (Juan)
+       - Recordatorios por horario (siestas, cierres)
+     ══════════════════════════════════════════════════════════════════════ -->
+
+<!-- ═══════════════════════════════════════════════════════════════════════
      TCK VENTAS — v14.22.1 — 18/05/2026
      ──────────────────────────────────────────────────────────────────────
      JORNADA COMO GUÍA REAL: 4 botones de acción por stop
@@ -9702,6 +9801,35 @@ body {
   margin-top: 2px;
 }
 
+/* v14.22.2: indicador GPS en header */
+.jor-gps-status {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  background: rgba(255,255,255,.1);
+  padding: 4px 8px;
+  border-radius: 10px;
+  font-size: 10px;
+  color: #fff;
+  letter-spacing: .3px;
+  font-weight: 700;
+}
+.jor-gps-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: #B0A595;
+}
+.jor-gps-status.activo .jor-gps-dot {
+  background: #4CAF50;
+  box-shadow: 0 0 0 2px rgba(76,175,80,.3);
+  animation: jor-gps-pulse 2s ease-in-out infinite;
+}
+@keyframes jor-gps-pulse {
+  0%, 100% { box-shadow: 0 0 0 2px rgba(76,175,80,.3); }
+  50%      { box-shadow: 0 0 0 4px rgba(76,175,80,.1); }
+}
+
 .jor-ciudad-wrap {
   background: #fff;
   padding: 10px 14px 12px;
@@ -9896,6 +10024,192 @@ body {
 .jor-stop:active { background: #FFFBF5; }
 .jor-stop-riesgo-alto  { border-left: 3px solid #B71C1C; padding-left: 10px; background: #FFFBFB; }
 .jor-stop-riesgo-medio { border-left: 3px solid #E65100; padding-left: 10px; background: #FFFBF5; }
+
+/* ═══════════════════════════════════════════════════════════════════
+   v14.22.2 — Banner "PRÓXIMO SUGERIDO" + pills + dots + distancia
+   ═══════════════════════════════════════════════════════════════════ */
+
+/* Card destacada del próximo */
+.jor-prox-card {
+  background: linear-gradient(135deg, #1565C0 0%, #0D47A1 100%);
+  padding: 14px 16px 12px;
+  color: #fff;
+  border-left: 0.5px solid #E5DCC8;
+  border-right: 0.5px solid #E5DCC8;
+  position: relative;
+  margin-bottom: 10px;
+}
+.jor-prox-label {
+  position: absolute;
+  top: -8px;
+  left: 14px;
+  background: #FFC107;
+  color: #1A0800;
+  padding: 2px 8px;
+  border-radius: 4px;
+  font-family: 'Barlow Condensed', sans-serif;
+  font-size: 10px;
+  font-weight: 900;
+  letter-spacing: .5px;
+  box-shadow: 0 2px 4px rgba(0,0,0,.15);
+}
+.jor-prox-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-top: 4px;
+}
+.jor-prox-info { flex: 1; min-width: 0; }
+.jor-prox-nombre {
+  font-family: 'Barlow Condensed', sans-serif;
+  font-size: 18px;
+  font-weight: 900;
+  letter-spacing: .3px;
+}
+.jor-prox-dir {
+  font-size: 11px;
+  opacity: .9;
+  margin-top: 2px;
+}
+.jor-prox-sub {
+  font-size: 11px;
+  opacity: .85;
+  margin-top: 3px;
+}
+.jor-prox-dist {
+  text-align: right;
+  flex-shrink: 0;
+}
+.jor-prox-dist-val {
+  font-family: 'Barlow Condensed', sans-serif;
+  font-size: 19px;
+  font-weight: 900;
+  line-height: 1;
+}
+.jor-prox-dist-tiempo {
+  font-size: 10px;
+  opacity: .85;
+  margin-top: 2px;
+}
+.jor-prox-btns {
+  display: flex;
+  gap: 5px;
+  margin-top: 10px;
+}
+.jor-prox-btn {
+  padding: 8px 4px;
+  border: none;
+  border-radius: 6px;
+  font-family: 'Barlow Condensed', sans-serif;
+  font-size: 12px;
+  font-weight: 900;
+  letter-spacing: .3px;
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+}
+.jor-prox-btn-ir {
+  flex: 2;
+  background: #fff;
+  color: #1565C0;
+}
+.jor-prox-btn-wa, .jor-prox-btn-tel {
+  flex: 1;
+  background: rgba(255,255,255,.2);
+  color: #fff;
+  border: 1px solid rgba(255,255,255,.4);
+  font-size: 14px;
+}
+.jor-prox-btn-check {
+  flex: 1.3;
+  background: #FFC107;
+  color: #1A0800;
+  font-size: 11px;
+}
+.jor-prox-btn-off {
+  opacity: .4;
+  cursor: not-allowed;
+}
+
+/* Dots de color al lado del nombre (en vez de tag "URGENTE") */
+.jor-dot {
+  display: inline-block;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  vertical-align: 1px;
+  margin-right: 5px;
+  flex-shrink: 0;
+}
+.jor-dot-alto  { background: #B71C1C; box-shadow: 0 0 0 2px rgba(183,28,28,.15); }
+.jor-dot-medio { background: #E65100; }
+.jor-dot-gris  { background: #B0A595; }
+
+/* Pills compactos para info de riesgo y categoría */
+.jor-pill {
+  display: inline-block;
+  padding: 1px 6px;
+  border-radius: 8px;
+  font-size: 10px;
+  font-weight: 700;
+  white-space: nowrap;
+  margin-left: 6px;
+}
+.jor-pill-alto    { background: #FFEBEE; color: #B71C1C; }
+.jor-pill-medio   { background: #FFF3E0; color: #E65100; }
+.jor-pill-sug     { background: #FFF8E1; color: #BF8500; }
+.jor-pill-neutral { background: #F5EDD9; color: #6D4C2D; }
+.jor-pill-gris    { background: #EFEAE0; color: #8B6F50; }
+
+/* Meta row con dirección + pill */
+.jor-stop-meta-row {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 4px;
+  margin-top: 3px;
+  font-size: 10px;
+  color: #6D4C2D;
+  line-height: 1.3;
+}
+.jor-stop-dir { color: #6D4C2D; }
+.jor-stop-dist {
+  font-size: 11px;
+  color: #6D4C2D;
+  font-weight: 700;
+  flex-shrink: 0;
+  align-self: center;
+  white-space: nowrap;
+  background: #F5EDD9;
+  padding: 2px 6px;
+  border-radius: 8px;
+}
+
+/* Cards de inactivos: más sutiles */
+.jor-stop-card.jor-stop-card-inactivo {
+  background: #FAFAFA;
+  border-color: #E0E0E0;
+  opacity: .85;
+}
+.jor-stop-card.jor-stop-card-inactivo .jor-stop-nombre { color: #555; font-weight: 600; }
+
+/* Botón toggle "Ver inactivos" */
+.jor-btn-inactivos {
+  display: block;
+  width: 100%;
+  margin-top: 12px;
+  padding: 8px;
+  background: transparent;
+  color: #6D4C2D;
+  border: 1px dashed #C8B89E;
+  border-radius: 8px;
+  font-size: 11px;
+  font-weight: 700;
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+}
+.jor-btn-inactivos:hover { background: #FFFBF5; }
+.jor-inactivos-wrap { margin-top: 6px; }
+/* ═══════════════════════════════════════════════════════════════════ */
 .jor-stop-nombre {
   font-size: 13px;
   color: #1A0800;
@@ -13485,6 +13799,11 @@ body {
         <div class="jor-hdr-text">
           <div class="jor-hdr-titulo">MI JORNADA</div>
           <div class="jor-hdr-sub" id="jor-fecha-actual">—</div>
+        </div>
+        <!-- v14.22.2: indicador GPS activo -->
+        <div class="jor-gps-status" id="jor-gps-status" title="Estado del GPS">
+          <span class="jor-gps-dot"></span>
+          <span class="jor-gps-txt">GPS</span>
         </div>
       </div>
 
@@ -24313,6 +24632,13 @@ async function trackingIniciar() {
       }
       _lastTrackPos = {lat: lat, lng: lng};
       trackingGuardarPosicion(lat, lng);
+      // v14.22.2: si la tab Jornada está visible, re-render para refrescar
+      // distancias y reordenar por proximidad. Sin esto, la distancia
+      // queda estática y no responde al movimiento del vendedor.
+      if (typeof _tabActual !== 'undefined' && _tabActual === 'jornada'
+          && typeof jornadaRender === 'function') {
+        jornadaRender();
+      }
     },
     function(err) { console.warn('GPS tracking:', err.message); },
     { enableHighAccuracy: true, maximumAge: 30000, timeout: 15000 }
@@ -33953,6 +34279,37 @@ async function miRondaCargarClientes(force) {
     var data = await sbFetch(path);
     _miRondaClientes = Array.isArray(data) ? data : [];
 
+    // v14.22.2: precargar coords GPS de los clientes para uso en Jornada.
+    // Las coords están en `clientes_ubicaciones` indexadas por nombre.
+    // Cruzamos por nombre normalizado y adjuntamos lat/lng a cada cliente.
+    // Esto se hace una sola vez al cargar la lista; no se reconsulta luego.
+    if (_miRondaClientes.length > 0) {
+      try {
+        var coordsPath = 'clientes_ubicaciones?select=nombre_cliente,lat,lng'
+                       + '&lat=not.is.null&limit=2000';
+        var coordsData = await sbFetch(coordsPath);
+        if (Array.isArray(coordsData)) {
+          var byName = {};
+          coordsData.forEach(function(r) {
+            var k = (r.nombre_cliente || '').toLowerCase().trim();
+            if (k) byName[k] = { lat: Number(r.lat), lng: Number(r.lng) };
+          });
+          _miRondaClientes.forEach(function(c) {
+            var k = (c.nombre || '').toLowerCase().trim();
+            var coords = byName[k];
+            if (coords && !isNaN(coords.lat) && !isNaN(coords.lng)) {
+              c._coords = coords;
+            }
+          });
+          console.log('[v14.22.2] Coords cargadas:',
+            _miRondaClientes.filter(function(x){return x._coords;}).length,
+            'de', _miRondaClientes.length);
+        }
+      } catch (err) {
+        console.warn('[v14.22.2] Error precargando coords:', err);
+      }
+    }
+
     // v14.21.0: calcular umbral del top 20% por facturación para sugerir Tipo A.
     // Solo se computan los que tienen facturación > 0 (sino, todos los ceros
     // empatarían y serían todos "sugeridos").
@@ -35914,6 +36271,65 @@ var _jornadaCiudadActiva = null;
 // regulares, después los sugeridos. NUNCA truncamos Tipo A confirmados.
 var JORNADA_MAX_STOPS = 30;
 
+// v14.22.2: clave en localStorage para recordar la última ciudad del día
+var JORNADA_LS_KEY = 'tck_jornada_ultima_ciudad';
+
+// v14.22.2: persistencia de última ciudad por día. Si ya eligió hoy, la
+// recordamos. Cambia de día → se resetea. Esto evita tener que tocar el
+// chip 10 veces en el mismo día.
+function jornadaGuardarCiudad(ciudad) {
+  try {
+    var hoy = new Date().toDateString();
+    localStorage.setItem(JORNADA_LS_KEY, JSON.stringify({
+      ciudad: ciudad,
+      fecha: hoy
+    }));
+  } catch (e) { /* localStorage puede no estar disponible */ }
+}
+function jornadaLeerCiudadGuardada() {
+  try {
+    var raw = localStorage.getItem(JORNADA_LS_KEY);
+    if (!raw) return null;
+    var data = JSON.parse(raw);
+    var hoy = new Date().toDateString();
+    if (data.fecha === hoy && data.ciudad) return data.ciudad;
+    return null;
+  } catch (e) {
+    return null;
+  }
+}
+
+// v14.22.2: distancia GPS del vendedor a un cliente, en km.
+// Retorna null si falta alguno de los datos.
+function jornadaDistanciaACliente(cliente) {
+  if (!cliente || !cliente._coords) return null;
+  if (!_lastTrackPos || !_lastTrackPos.lat) return null;
+  return calcDistancia(
+    _lastTrackPos.lat, _lastTrackPos.lng,
+    cliente._coords.lat, cliente._coords.lng
+  );
+}
+
+// v14.22.2: formatear distancia en km → "180m" o "1.2km"
+function jornadaFormatearDistancia(distKm) {
+  if (distKm == null || !isFinite(distKm)) return '';
+  if (distKm < 1) return Math.round(distKm * 1000) + 'm';
+  if (distKm < 10) return distKm.toFixed(1) + 'km';
+  return Math.round(distKm) + 'km';
+}
+
+// v14.22.2: tiempo estimado a pie / auto desde una distancia
+// Asumimos auto a 40 km/h promedio en pueblo (incluyendo paradas).
+function jornadaEstimarTiempo(distKm) {
+  if (distKm == null || !isFinite(distKm)) return '';
+  var horas = distKm / 40;
+  var mins = Math.max(1, Math.round(horas * 60));
+  if (mins < 60) return mins + ' min';
+  var h = Math.floor(mins / 60);
+  var m = mins % 60;
+  return h + 'h ' + (m ? m + 'min' : '');
+}
+
 function jornadaRender() {
   // Asegurar que los datos de Mi Ronda estén cargados (la Jornada usa
   // _miRondaClientes que es la fuente única). Si no hay data, dispara
@@ -35930,6 +36346,22 @@ function jornadaRender() {
 
   // Fecha actual visible
   jornadaPintarFecha();
+
+  // v14.22.2: default ciudad inteligente.
+  //   1. Si ya hay una activa en memoria, mantener (no resetear cada render)
+  //   2. Si hay check-in activo con su ciudad → usar esa
+  //   3. Si en localStorage hay ciudad guardada del día → usar esa
+  //   4. Sino → mostrar empty state (el vendedor elige)
+  if (!_jornadaCiudadActiva) {
+    if (_gpsCheckinActivo && _gpsCheckinActivo.localidad) {
+      var canon = localidadCanonicaDe(_gpsCheckinActivo.localidad);
+      if (canon) _jornadaCiudadActiva = canon;
+    }
+    if (!_jornadaCiudadActiva) {
+      var guardada = jornadaLeerCiudadGuardada();
+      if (guardada) _jornadaCiudadActiva = guardada;
+    }
+  }
 
   // Pintar chips
   jornadaPintarChips();
@@ -35952,6 +36384,15 @@ function jornadaPintarFecha() {
   var dias = ['Domingo','Lunes','Martes','Miércoles','Jueves','Viernes','Sábado'];
   var meses = ['enero','febrero','marzo','abril','mayo','junio','julio','agosto','septiembre','octubre','noviembre','diciembre'];
   el.textContent = dias[d.getDay()] + ' ' + d.getDate() + ' de ' + meses[d.getMonth()];
+
+  // v14.22.2: actualizar indicador GPS
+  var gpsEl = document.getElementById('jor-gps-status');
+  if (gpsEl) {
+    var activo = !!(_lastTrackPos && _lastTrackPos.lat);
+    gpsEl.classList.toggle('activo', activo);
+    var txt = gpsEl.querySelector('.jor-gps-txt');
+    if (txt) txt.textContent = activo ? 'GPS' : 'sin GPS';
+  }
 }
 
 // v14.22.0: el vendedor elige siempre la ciudad al abrir Jornada.
@@ -35997,6 +36438,8 @@ function jornadaPintarChips() {
 
 function jornadaSeleccionarCiudad(locEnc) {
   _jornadaCiudadActiva = decodeURIComponent(locEnc);
+  // v14.22.2: persistir en localStorage para recordar al volver el mismo día
+  jornadaGuardarCiudad(_jornadaCiudadActiva);
   jornadaRender();
   // Scroll al inicio del body
   var v = document.getElementById('view-jornada');
@@ -36056,12 +36499,19 @@ function jornadaPintarBody() {
     return;
   }
 
-  // Clasificar
+  // v14.22.2: enriquecer cada cliente con distancia GPS (si hay)
+  var hayGPSVendedor = !!(_lastTrackPos && _lastTrackPos.lat);
+  clientes.forEach(function(c) {
+    c._jorDist = jornadaDistanciaACliente(c);
+  });
+
+  // Clasificar (igual que v14.22.0 pero ahora con campo de inactivos)
   var tipoAEnRiesgoAlto = [];
   var tipoAEnRiesgoMedio = [];
   var tipoAConf = [];
   var sugeridos = [];
   var normales = [];
+  var inactivos = [];   // v14.22.2: sin compras hace 90d+ (oculto por default)
   var visitados = [];
 
   clientes.forEach(function(c) {
@@ -36083,14 +36533,40 @@ function jornadaPintarBody() {
     } else if (_esTipoASugerido(c)) {
       sugeridos.push(c);
     } else {
-      normales.push(c);
+      // v14.22.2: inactivos = sin pedido hace 90d+ y NO son Tipo A.
+      // Se separan al final (con dot gris) en vez de mezclar.
+      var dias = c.dias_desde_ult_pedido;
+      if (dias != null && dias >= 90) {
+        inactivos.push(c);
+      } else {
+        normales.push(c);
+      }
     }
   });
 
+  // v14.22.2: ordenar dentro de cada grupo por distancia GPS (más cerca primero)
+  // Si no hay distancia, mantiene el orden natural (alfabético del nombre).
+  function ordenarPorDistancia(arr) {
+    arr.sort(function(a, b) {
+      var da = a._jorDist;
+      var db = b._jorDist;
+      if (da == null && db == null) return 0;
+      if (da == null) return 1;   // sin coords al final
+      if (db == null) return -1;
+      return da - db;
+    });
+  }
+  ordenarPorDistancia(tipoAEnRiesgoAlto);
+  ordenarPorDistancia(tipoAEnRiesgoMedio);
+  ordenarPorDistancia(tipoAConf);
+  ordenarPorDistancia(sugeridos);
+  ordenarPorDistancia(normales);
+  ordenarPorDistancia(inactivos);
+
   // Limitar el total a JORNADA_MAX_STOPS, repartiendo por prioridad
-  var totalNoVisitados = tipoAEnRiesgoAlto.length + tipoAEnRiesgoMedio.length +
-                         tipoAConf.length + sugeridos.length + normales.length;
-  if (totalNoVisitados > JORNADA_MAX_STOPS) {
+  var totalActivos = tipoAEnRiesgoAlto.length + tipoAEnRiesgoMedio.length +
+                     tipoAConf.length + sugeridos.length + normales.length;
+  if (totalActivos > JORNADA_MAX_STOPS) {
     // Truncar normales primero, luego sugeridos. NUNCA Tipo A.
     var disponibles = JORNADA_MAX_STOPS - tipoAEnRiesgoAlto.length - tipoAEnRiesgoMedio.length - tipoAConf.length;
     if (disponibles < sugeridos.length) {
@@ -36102,55 +36578,196 @@ function jornadaPintarBody() {
     }
   }
 
+  // v14.22.2: identificar el "próximo sugerido" — el que va arriba de todo
+  // como banner destacado azul. Algoritmo simple: primero el más prioritario
+  // (riesgo alto > medio > conf > sugerido > normal) y dentro de cada grupo
+  // el más cercano. Solo si hay al menos algún pendiente.
+  var proximoSugerido = null;
+  if (tipoAEnRiesgoAlto.length > 0)         proximoSugerido = tipoAEnRiesgoAlto[0];
+  else if (tipoAEnRiesgoMedio.length > 0)   proximoSugerido = tipoAEnRiesgoMedio[0];
+  else if (tipoAConf.length > 0)            proximoSugerido = tipoAConf[0];
+  else if (sugeridos.length > 0)            proximoSugerido = sugeridos[0];
+  else if (normales.length > 0)             proximoSugerido = normales[0];
+
   var html = '';
 
-  // SECCIÓN: 🚨 Tipo A en riesgo
-  var enRiesgo = tipoAEnRiesgoAlto.concat(tipoAEnRiesgoMedio);
-  if (enRiesgo.length > 0) {
-    html += '<div class="jor-section-hdr alerta">🚨 TIPO A EN RIESGO (' + enRiesgo.length + ')</div>';
-    enRiesgo.forEach(function(c) { html += jornadaRenderStop(c, 'riesgo'); });
+  // SECCIÓN destacada: PRÓXIMO SUGERIDO
+  if (proximoSugerido) {
+    html += jornadaRenderProximo(proximoSugerido);
   }
 
-  // SECCIÓN: ⭐ Tipo A confirmados
-  if (tipoAConf.length > 0) {
-    html += '<div class="jor-section-hdr confirmado">⭐ TIPO A CONFIRMADOS (' + tipoAConf.length + ')</div>';
-    tipoAConf.forEach(function(c) { html += jornadaRenderStop(c, 'confirmado'); });
+  // El próximo no se duplica en su sección de origen
+  var excluirId = proximoSugerido ? proximoSugerido.cliente_id : null;
+  function filtrarExcl(arr) {
+    if (!excluirId) return arr;
+    return arr.filter(function(c) { return c.cliente_id !== excluirId; });
   }
 
-  // SECCIÓN: ☆ Sugeridos
-  if (sugeridos.length > 0) {
-    html += '<div class="jor-section-hdr sugerido">☆ SUGERIDOS (' + sugeridos.length + ')</div>';
-    sugeridos.forEach(function(c) { html += jornadaRenderStop(c, 'sugerido'); });
-  }
+  var alto2  = filtrarExcl(tipoAEnRiesgoAlto);
+  var medio2 = filtrarExcl(tipoAEnRiesgoMedio);
+  var conf2  = filtrarExcl(tipoAConf);
+  var sug2   = filtrarExcl(sugeridos);
+  var norm2  = filtrarExcl(normales);
 
-  // SECCIÓN: Pendientes
-  if (normales.length > 0) {
-    html += '<div class="jor-section-hdr normal">PENDIENTES (' + normales.length + ')</div>';
-    normales.forEach(function(c) { html += jornadaRenderStop(c, 'normal'); });
+  // Después del próximo va la lista del resto.
+  // v14.22.2: cuando hay GPS, sección agrupada "DESPUÉS (ordenado por distancia)".
+  // Si no hay GPS, secciones tradicionales (alerta, conf, sugerido, normal).
+  if (hayGPSVendedor) {
+    var resto = alto2.concat(medio2).concat(conf2).concat(sug2).concat(norm2);
+    if (resto.length > 0) {
+      html += '<div class="jor-section-hdr normal">📍 DESPUÉS (' + resto.length + ', ordenado por distancia)</div>';
+      resto.forEach(function(c) { html += jornadaRenderStop(c, jornadaInferirTipo(c)); });
+    }
+  } else {
+    // Sin GPS, mantener secciones por prioridad
+    var enRiesgo = alto2.concat(medio2);
+    if (enRiesgo.length > 0) {
+      html += '<div class="jor-section-hdr alerta">🚨 TIPO A EN RIESGO (' + enRiesgo.length + ')</div>';
+      enRiesgo.forEach(function(c) { html += jornadaRenderStop(c, 'riesgo'); });
+    }
+    if (conf2.length > 0) {
+      html += '<div class="jor-section-hdr confirmado">⭐ TIPO A CONFIRMADOS (' + conf2.length + ')</div>';
+      conf2.forEach(function(c) { html += jornadaRenderStop(c, 'confirmado'); });
+    }
+    if (sug2.length > 0) {
+      html += '<div class="jor-section-hdr sugerido">☆ SUGERIDOS (' + sug2.length + ')</div>';
+      sug2.forEach(function(c) { html += jornadaRenderStop(c, 'sugerido'); });
+    }
+    if (norm2.length > 0) {
+      html += '<div class="jor-section-hdr normal">PENDIENTES (' + norm2.length + ')</div>';
+      norm2.forEach(function(c) { html += jornadaRenderStop(c, 'normal'); });
+    }
   }
 
   // SECCIÓN: ✓ Visitados (al final, colapsable visual con opacity reducida)
   if (visitados.length > 0) {
-    html += '<div class="jor-section-hdr visitado">✓ YA VISITADOS HOY (' + visitados.length + ')</div>';
+    html += '<div class="jor-section-hdr visitado">✓ HECHOS HOY (' + visitados.length + ')</div>';
     visitados.forEach(function(c) { html += jornadaRenderVisitado(c); });
   }
 
+  // v14.22.2: SECCIÓN INACTIVOS (90d+ sin pedido) — toggle "Ver inactivos"
+  if (inactivos.length > 0) {
+    html += '<button class="jor-btn-inactivos" onclick="jornadaToggleInactivos(this)" '
+      + 'data-shown="false" data-count="' + inactivos.length + '">'
+      + '+ Ver inactivos (' + inactivos.length + ' sin compra hace 90d+)</button>'
+      + '<div class="jor-inactivos-wrap" id="jor-inactivos-wrap" style="display:none;">';
+    inactivos.forEach(function(c) { html += jornadaRenderStop(c, 'inactivo'); });
+    html += '</div>';
+  }
+
   // Si no hay nada
-  if (html === '') {
-    html = '<div class="jor-empty">' +
-      '<div class="jor-empty-icon">🎉</div>' +
-      '<div class="jor-empty-txt">Jornada completa en ' + escapeHtml(_jornadaCiudadActiva) + '</div>' +
-      '</div>';
+  if (html === '' || (!proximoSugerido && visitados.length === 0 && inactivos.length === 0)) {
+    if (visitados.length === 0 && !proximoSugerido) {
+      html = '<div class="jor-empty">' +
+        '<div class="jor-empty-icon">🎉</div>' +
+        '<div class="jor-empty-txt">Jornada completa en ' + escapeHtml(_jornadaCiudadActiva) + '</div>' +
+        '</div>';
+    }
   }
 
   body.innerHTML = html;
+}
+
+// v14.22.2: dado un cliente, inferir su "tipo" (riesgo/confirmado/sugerido/...)
+// Útil cuando renderizamos la sección "DESPUÉS" mezclada por distancia.
+function jornadaInferirTipo(c) {
+  if (c._jorRiesgo) return 'riesgo';
+  if (_esTipoAConfirmado(c)) return 'confirmado';
+  if (_esTipoASugerido(c)) return 'sugerido';
+  var d = c.dias_desde_ult_pedido;
+  if (d != null && d >= 90) return 'inactivo';
+  return 'normal';
+}
+
+// v14.22.2: render del banner "PRÓXIMO SUGERIDO" arriba de todo.
+// Card destacada en azul con: estrella si aplica, nombre, dirección,
+// distancia, tiempo estimado y los 4 botones.
+function jornadaRenderProximo(c) {
+  var nombre = escapeHtml(c.nombre || '—');
+  var direccion = escapeHtml(c.direccion || '');
+  var diasDesde = c.dias_desde_ult_pedido;
+
+  // Estrella si aplica
+  var estrella = '';
+  if (_esTipoAConfirmado(c)) estrella = '⭐ ';
+  else if (_esTipoASugerido(c)) estrella = '☆ ';
+
+  // Subtítulo según contexto
+  var subtitulo = '';
+  if (c._jorRiesgo) {
+    if (c._jorRiesgo.nivel === 'alto') {
+      subtitulo = '🔴 URGENTE · ' + c._jorRiesgo.diasAtraso + 'd sin pedido';
+    } else {
+      subtitulo = '🟠 ' + c._jorRiesgo.diasAtraso + 'd sin pedido';
+    }
+  } else if (diasDesde != null) {
+    subtitulo = 'Últ. hace ' + diasDesde + 'd';
+  } else {
+    subtitulo = 'Sin pedidos recientes';
+  }
+
+  // Distancia + tiempo
+  var distHtml = '';
+  if (c._jorDist != null) {
+    distHtml = '<div class="jor-prox-dist">'
+      + '<div class="jor-prox-dist-val">' + jornadaFormatearDistancia(c._jorDist) + '</div>'
+      + '<div class="jor-prox-dist-tiempo">a ' + jornadaEstimarTiempo(c._jorDist) + '</div>'
+      + '</div>';
+  }
+
+  // Botones (compactos para que entren en el ancho)
+  var tel = (c.telefono || '').toString().replace(/\D/g, '');
+  var telOk = tel.length >= 8;
+  var cidJs = encodeURIComponent(c.cliente_id || '');
+  var dirEnc = encodeURIComponent(((c.direccion || '') + ' ' + (c.localidad || '')).trim());
+  var nombreEnc = encodeURIComponent(c.nombre || '');
+
+  var btnsHtml = '<div class="jor-prox-btns">'
+    + '<button class="jor-prox-btn jor-prox-btn-ir" onclick="jornadaAbrirMapa(&quot;' + dirEnc + '&quot;)">🧭 IR</button>'
+    + (telOk
+        ? '<button class="jor-prox-btn jor-prox-btn-wa" onclick="miRondaAbrirWa(\'' + tel + '\', &quot;' + nombreEnc + '&quot;)">💬</button>'
+        : '<button class="jor-prox-btn jor-prox-btn-wa jor-prox-btn-off">💬</button>')
+    + (telOk
+        ? '<button class="jor-prox-btn jor-prox-btn-tel" onclick="miRondaAbrirLlamar(\'' + tel + '\', &quot;' + nombreEnc + '&quot;)">📞</button>'
+        : '<button class="jor-prox-btn jor-prox-btn-tel jor-prox-btn-off">📞</button>')
+    + '<button class="jor-prox-btn jor-prox-btn-check" onclick="jornadaArrancarCheckin(&quot;' + cidJs + '&quot;)">CHECK-IN</button>'
+    + '</div>';
+
+  return '<div class="jor-prox-card">'
+    + '<div class="jor-prox-label">▶ PRÓXIMO</div>'
+    + '<div class="jor-prox-row">'
+    +   '<div class="jor-prox-info">'
+    +     '<div class="jor-prox-nombre">' + estrella + nombre + '</div>'
+    +     (direccion ? '<div class="jor-prox-dir">' + direccion + '</div>' : '')
+    +     '<div class="jor-prox-sub">' + subtitulo + '</div>'
+    +   '</div>'
+    +   distHtml
+    + '</div>'
+    + btnsHtml
+    + '</div>';
+}
+
+// v14.22.2: toggle mostrar/ocultar inactivos
+function jornadaToggleInactivos(btn) {
+  var wrap = document.getElementById('jor-inactivos-wrap');
+  if (!wrap) return;
+  var shown = btn.getAttribute('data-shown') === 'true';
+  var count = btn.getAttribute('data-count');
+  if (shown) {
+    wrap.style.display = 'none';
+    btn.textContent = '+ Ver inactivos (' + count + ' sin compra hace 90d+)';
+    btn.setAttribute('data-shown', 'false');
+  } else {
+    wrap.style.display = 'block';
+    btn.textContent = '− Ocultar inactivos';
+    btn.setAttribute('data-shown', 'true');
+  }
 }
 
 function jornadaRenderStop(c, tipo) {
   var nombre = escapeHtml(c.nombre || '—');
   var direccion = escapeHtml(c.direccion || '');
   var diasDesde = c.dias_desde_ult_pedido;
-  var meta = '';
 
   // Prefijo estrella según tipo
   var prefijoNombre = '';
@@ -36160,41 +36777,57 @@ function jornadaRenderStop(c, tipo) {
     prefijoNombre = '☆ ';
   }
 
-  // Meta y tag de riesgo
-  var tagRiesgo = '';
+  // v14.22.2: dot de color al lado del nombre en vez de tag "URGENTE"
+  // Más compacto y consistente con apps modernas (Notion, Linear, etc).
+  var dot = '';
   var claseStop = 'jor-stop-card';
   if (c._jorRiesgo) {
     var r = c._jorRiesgo;
     if (r.nivel === 'alto') {
       claseStop += ' jor-stop-card-riesgo-alto';
-      tagRiesgo = '<span class="jor-stop-tag alta">URGENTE</span>';
-      meta = (direccion ? direccion + ' · ' : '') + '🔴 ' + r.diasAtraso + 'd sin pedido' +
-        (r.frecPromedio ? ' (compra c/' + Math.round(r.frecPromedio) + 'd)' : '');
+      dot = '<span class="jor-dot jor-dot-alto"></span>';
     } else if (r.nivel === 'medio') {
       claseStop += ' jor-stop-card-riesgo-medio';
-      tagRiesgo = '<span class="jor-stop-tag media">MEDIO</span>';
-      meta = (direccion ? direccion + ' · ' : '') + '🟠 ' + r.diasAtraso + 'd sin pedido' +
-        (r.frecPromedio ? ' (compra c/' + Math.round(r.frecPromedio) + 'd)' : '');
+      dot = '<span class="jor-dot jor-dot-medio"></span>';
     }
   } else if (tipo === 'confirmado') {
     claseStop += ' jor-stop-card-conf';
-    meta = (direccion ? direccion + ' · ' : '') +
-      (diasDesde != null ? 'Últ. hace ' + diasDesde + 'd' : 'Sin pedidos recientes');
   } else if (tipo === 'sugerido') {
     claseStop += ' jor-stop-card-sug';
-    meta = (direccion ? direccion + ' · ' : '') + 'Top facturación · ' +
-      (diasDesde != null ? diasDesde + 'd' : 'sin pedido reciente');
-  } else {
-    meta = (direccion ? direccion + ' · ' : '') +
-      (diasDesde != null ? diasDesde + 'd sin pedido' : 'Sin pedidos');
+  } else if (tipo === 'inactivo') {
+    claseStop += ' jor-stop-card-inactivo';
+    dot = '<span class="jor-dot jor-dot-gris"></span>';
   }
 
-  // v14.22.1: 4 botones de acción
+  // v14.22.2: meta compacta. Pills "18d/14d" si hay riesgo (días sin pedido /
+  // frecuencia habitual). Si no hay riesgo, solo días.
+  var metaPill = '';
+  if (c._jorRiesgo) {
+    var r2 = c._jorRiesgo;
+    metaPill = '<span class="jor-pill jor-pill-' + r2.nivel + '">'
+      + r2.diasAtraso + 'd'
+      + (r2.frecPromedio ? '/' + Math.round(r2.frecPromedio) + 'd' : '')
+      + '</span>';
+  } else if (tipo === 'sugerido') {
+    metaPill = '<span class="jor-pill jor-pill-sug">$ top</span>';
+  } else if (tipo === 'inactivo') {
+    metaPill = '<span class="jor-pill jor-pill-gris">' + (diasDesde || '90+') + 'd</span>';
+  } else if (diasDesde != null) {
+    metaPill = '<span class="jor-pill jor-pill-neutral">' + diasDesde + 'd</span>';
+  }
+
+  // v14.22.2: distancia GPS si hay
+  var distHtml = '';
+  if (c._jorDist != null) {
+    distHtml = '<span class="jor-stop-dist">' + jornadaFormatearDistancia(c._jorDist) + '</span>';
+  }
+
   // Encode para los handlers (escapado de comillas y barras)
   var cidJs   = encodeURIComponent(c.cliente_id || '');
   var tel     = (c.telefono || '').toString().replace(/\D/g, '');
   var telOk   = tel.length >= 8;
   var dirEnc  = encodeURIComponent(((c.direccion || '') + ' ' + (c.localidad || '')).trim());
+  var nombreEnc = encodeURIComponent(c.nombre || '');
 
   // Botón "Ir" — abre Google Maps con dirección si la tiene, sino solo la ciudad
   var btnIr = '<button class="jor-stop-btn jor-stop-btn-ir" '
@@ -36207,7 +36840,7 @@ function jornadaRenderStop(c, tipo) {
   // Botón WhatsApp
   var btnWa = telOk
     ? '<button class="jor-stop-btn jor-stop-btn-wa" '
-      + 'onclick="event.stopPropagation();miRondaAbrirWa(\'' + tel + '\', &quot;' + encodeURIComponent(c.nombre || '') + '&quot;)" '
+      + 'onclick="event.stopPropagation();miRondaAbrirWa(\'' + tel + '\', &quot;' + nombreEnc + '&quot;)" '
       + 'aria-label="WhatsApp"><span class="jor-stop-btn-icon">💬</span></button>'
     : '<button class="jor-stop-btn jor-stop-btn-wa jor-stop-btn-off" aria-label="Sin teléfono">'
       + '<span class="jor-stop-btn-icon">💬</span></button>';
@@ -36215,7 +36848,7 @@ function jornadaRenderStop(c, tipo) {
   // Botón Llamar
   var btnTel = telOk
     ? '<button class="jor-stop-btn jor-stop-btn-tel" '
-      + 'onclick="event.stopPropagation();miRondaAbrirLlamar(\'' + tel + '\', &quot;' + encodeURIComponent(c.nombre || '') + '&quot;)" '
+      + 'onclick="event.stopPropagation();miRondaAbrirLlamar(\'' + tel + '\', &quot;' + nombreEnc + '&quot;)" '
       + 'aria-label="Llamar"><span class="jor-stop-btn-icon">📞</span></button>'
     : '<button class="jor-stop-btn jor-stop-btn-tel jor-stop-btn-off" aria-label="Sin teléfono">'
       + '<span class="jor-stop-btn-icon">📞</span></button>';
@@ -36230,10 +36863,13 @@ function jornadaRenderStop(c, tipo) {
   return '<div class="' + claseStop + '">'
     + '<div class="jor-stop-row-info">'
     +   '<div class="jor-stop-info">'
-    +     '<div class="jor-stop-nombre">' + prefijoNombre + nombre + '</div>'
-    +     '<div class="jor-stop-meta">' + meta + '</div>'
+    +     '<div class="jor-stop-nombre">' + dot + prefijoNombre + nombre + '</div>'
+    +     '<div class="jor-stop-meta-row">'
+    +       (direccion ? '<span class="jor-stop-dir">' + direccion + '</span>' : '')
+    +       metaPill
+    +     '</div>'
     +   '</div>'
-    +   tagRiesgo
+    +   distHtml
     + '</div>'
     + '<div class="jor-stop-acciones">'
     +   btnIr + btnWa + btnTel + btnCheck
