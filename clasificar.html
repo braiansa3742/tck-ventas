@@ -1,0 +1,1232 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1">
+<title>TCK — Clasificar clientes</title>
+<style>
+  *{margin:0;padding:0;box-sizing:border-box;-webkit-tap-highlight-color:transparent}
+  html,body{height:100%;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;
+    background:#f3f4f6;color:#111827;font-size:15px;line-height:1.4;overscroll-behavior:none}
+  button,a.btn-like{font-family:inherit;cursor:pointer;border:none;background:none;color:inherit;text-decoration:none;display:inline-block}
+
+  /* HEADER */
+  .header{position:sticky;top:0;z-index:50;background:#fff;border-bottom:1px solid #e5e7eb;
+    padding:12px 16px;display:flex;align-items:center;gap:12px}
+  .header-back{font-size:22px;color:#3b82f6;padding:4px 8px;margin-left:-8px}
+  .header-title{font-size:17px;font-weight:600;flex:1}
+  .header-vendedor{font-size:12px;color:#6b7280;background:#f3f4f6;padding:4px 10px;border-radius:999px;font-weight:500}
+  .header-logout{font-size:11px;color:#dc2626;font-weight:600;background:none;padding:4px 8px}
+
+  /* HOME */
+  .home-banner{margin:16px;padding:18px;background:linear-gradient(135deg,#fef3c7 0%,#fde68a 100%);
+    border-radius:14px;border:1px solid #fcd34d}
+  .home-banner-icon{font-size:28px;margin-bottom:6px}
+  .home-banner-title{font-size:16px;font-weight:700;color:#92400e;margin-bottom:4px}
+  .home-banner-desc{font-size:13px;color:#78350f;line-height:1.5}
+
+  .home-cards{padding:0 16px 16px;display:flex;flex-direction:column;gap:12px}
+  .home-card{background:#fff;border-radius:14px;padding:18px;border:1px solid #e5e7eb;
+    display:flex;align-items:center;gap:14px;transition:all .15s;text-align:left;width:100%}
+  .home-card:active{transform:scale(0.98);border-color:#3b82f6}
+  .home-card-icon{font-size:36px;flex-shrink:0;width:56px;height:56px;background:#f3f4f6;
+    border-radius:12px;display:flex;align-items:center;justify-content:center}
+  .home-card-body{flex:1;min-width:0}
+  .home-card-title{font-size:15px;font-weight:600;margin-bottom:4px}
+  .home-card-desc{font-size:13px;color:#6b7280;line-height:1.4}
+  .home-card-badge{flex-shrink:0;background:#ef4444;color:#fff;font-size:13px;font-weight:700;
+    padding:6px 12px;border-radius:999px;min-width:44px;text-align:center}
+  .home-card-badge.green{background:#10b981}
+  .home-card-badge.gray{background:#9ca3af}
+  .home-card-arrow{color:#9ca3af;font-size:18px;margin-left:4px}
+
+  .home-progress{margin:16px;padding:14px 16px;background:#fff;border-radius:12px;
+    border:1px solid #e5e7eb}
+  .home-progress-label{font-size:12px;color:#6b7280;margin-bottom:6px;font-weight:500;
+    text-transform:uppercase;letter-spacing:.5px}
+  .home-progress-bar{height:8px;background:#e5e7eb;border-radius:4px;overflow:hidden}
+  .home-progress-fill{height:100%;background:linear-gradient(90deg,#3b82f6,#10b981);transition:width .3s}
+  .home-progress-text{font-size:13px;color:#374151;margin-top:8px;font-weight:600}
+
+  /* TOOLBAR / FILTROS */
+  .toolbar{padding:12px 16px;background:#fff;border-bottom:1px solid #e5e7eb}
+  .toolbar-row{display:flex;gap:8px;overflow-x:auto;scrollbar-width:none;padding-bottom:8px;margin-bottom:-8px}
+  .toolbar-row::-webkit-scrollbar{display:none}
+  .toolbar-row + .toolbar-row{margin-top:8px;padding-top:8px;border-top:1px dashed #e5e7eb}
+  .chip{padding:7px 14px;border-radius:999px;font-size:12px;font-weight:500;
+    background:#f3f4f6;color:#374151;white-space:nowrap;border:1px solid transparent;flex-shrink:0}
+  .chip.active{background:#dbeafe;color:#1d4ed8;border-color:#93c5fd}
+  .chip-label{font-size:11px;color:#9ca3af;font-weight:600;text-transform:uppercase;letter-spacing:.4px;
+    align-self:center;margin-right:4px;flex-shrink:0}
+
+  .pool-stats{padding:10px 16px;background:#f9fafb;font-size:12px;color:#6b7280;
+    border-bottom:1px solid #e5e7eb;display:flex;justify-content:space-between;align-items:center}
+  .pool-stats-fact{font-weight:600;color:#059669}
+
+  /* CARD */
+  .cliente-list{padding:12px 16px 80px}
+  .card{background:#fff;border-radius:14px;padding:14px;margin-bottom:12px;
+    border:1px solid #e5e7eb}
+  .card.tomado{background:#f0fdf4;border-color:#bbf7d0}
+  .card.descartado{opacity:.5;background:#f9fafb}
+
+  .card-head{display:flex;align-items:flex-start;gap:10px;margin-bottom:10px}
+  .card-nombre{font-size:15px;font-weight:600;line-height:1.3;flex:1;min-width:0;word-break:break-word}
+  .card-badge-origen{font-size:10px;font-weight:700;padding:3px 8px;border-radius:6px;
+    text-transform:uppercase;letter-spacing:.3px;flex-shrink:0;align-self:flex-start}
+  .origen-pool{background:#fee2e2;color:#991b1b}
+  .estado-activo_30d{background:#d1fae5;color:#065f46}
+  .estado-activo_60d{background:#dbeafe;color:#1e40af}
+  .estado-activo_90d{background:#fef3c7;color:#92400e}
+  .estado-dormido{background:#fee2e2;color:#991b1b}
+  .estado-sin_compra_6m{background:#f3f4f6;color:#374151}
+
+  .card-info{display:grid;grid-template-columns:1fr 1fr;gap:6px 12px;margin-bottom:12px;font-size:12px}
+  .card-info-item{display:flex;align-items:center;gap:6px;color:#6b7280;min-width:0}
+  .card-info-item .ico{font-size:13px;flex-shrink:0}
+  .card-info-item .val{color:#111827;font-weight:500;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .card-info-item.fact .val{color:#059669;font-weight:700}
+  .card-info-item.fact-high .val{color:#dc2626;font-weight:700}
+
+  .card-cuit{font-size:11px;color:#6b7280;background:#f9fafb;padding:6px 10px;border-radius:8px;
+    margin-bottom:10px;display:flex;align-items:center;justify-content:space-between;gap:8px;
+    font-family:'SF Mono','Monaco','Menlo',monospace}
+  .card-cuit-copy{background:#fff;border:1px solid #e5e7eb;padding:3px 8px;border-radius:6px;font-size:10px;color:#3b82f6;font-weight:600;flex-shrink:0}
+  .card-cuit-copy:active{background:#dbeafe}
+
+  .card-actions{display:grid;grid-template-columns:1fr 1fr;gap:6px}
+  .card-actions .btn-tomar,
+  .card-actions .btn-clasificar,
+  .card-actions .btn-listo{grid-column:1/-1}
+  .card-btn{padding:9px 10px;border-radius:9px;font-size:12px;font-weight:600;
+    display:inline-flex;align-items:center;justify-content:center;gap:5px;white-space:nowrap}
+  .btn-wa{background:#25d366;color:#fff}
+  .btn-wa:active{background:#1da851}
+  .btn-historico{background:#f3f4f6;color:#374151;border:1px solid #e5e7eb}
+  .btn-historico:active{background:#e5e7eb}
+  .btn-tomar{background:#3b82f6;color:#fff}
+  .btn-tomar:active{background:#2563eb}
+  .btn-clasificar{background:#10b981;color:#fff}
+  .btn-clasificar:active{background:#059669}
+  .btn-no-mio{background:#fff;color:#dc2626;border:1px solid #fecaca}
+  .btn-no-mio:active{background:#fee2e2}
+  .btn-cerrado{background:#1f2937;color:#fff}
+  .btn-cerrado:active{background:#111827}
+  .btn-listo{background:#9ca3af;color:#fff;cursor:default}
+
+  .empty-state{text-align:center;padding:60px 30px;color:#6b7280}
+  .empty-state-icon{font-size:56px;margin-bottom:14px;opacity:.6}
+  .empty-state-title{font-size:17px;font-weight:600;color:#374151;margin-bottom:6px}
+  .empty-state-desc{font-size:13px;line-height:1.5}
+
+  /* MODAL BASE */
+  .modal-overlay{position:fixed;inset:0;background:rgba(0,0,0,.6);z-index:9998;
+    display:flex;align-items:center;justify-content:center;padding:20px;animation:fadeIn .15s}
+  @keyframes fadeIn{from{background:rgba(0,0,0,0)}to{background:rgba(0,0,0,.6)}}
+  @keyframes slideUp{from{transform:translateY(100%)}to{transform:translateY(0)}}
+  .modal-confirm{background:#fff;border-radius:16px;padding:24px;max-width:380px;width:100%;text-align:center}
+  .modal-icon{font-size:42px;margin-bottom:12px}
+  .modal-title{font-size:17px;font-weight:700;margin-bottom:8px}
+  .modal-nombre{font-size:15px;color:#3b82f6;font-weight:600;margin:10px 0 14px;
+    background:#dbeafe;padding:8px;border-radius:8px}
+  .modal-desc{font-size:13px;color:#6b7280;line-height:1.5;margin-bottom:20px}
+  .modal-actions{display:flex;gap:10px}
+  .modal-btn{flex:1;padding:12px;border-radius:10px;font-size:14px;font-weight:600}
+  .modal-cancel{background:#f3f4f6;color:#6b7280}
+  .modal-ok{background:#10b981;color:#fff}
+  .modal-ok.danger{background:#dc2626}
+
+  /* MODAL CIERRE */
+  .cierre-modal{background:#fff;border-radius:16px;padding:0;max-width:420px;width:100%;
+    max-height:90vh;display:flex;flex-direction:column;overflow:hidden}
+  .cierre-head{padding:18px 18px 14px;border-bottom:1px solid #e5e7eb;text-align:center}
+  .cierre-icon{font-size:42px;margin-bottom:8px}
+  .cierre-title{font-size:17px;font-weight:700;margin-bottom:6px}
+  .cierre-nombre{font-size:14px;color:#dc2626;font-weight:600;background:#fee2e2;
+    padding:8px 12px;border-radius:8px;display:inline-block;margin-top:4px}
+  .cierre-body{padding:18px;overflow-y:auto;flex:1}
+  .cierre-label{font-size:13px;font-weight:600;color:#374151;margin-bottom:10px;display:block}
+  .cierre-motivos{display:flex;flex-direction:column;gap:8px;margin-bottom:14px}
+  .cierre-motivo{background:#f9fafb;border:2px solid transparent;border-radius:10px;
+    padding:13px 14px;text-align:left;display:flex;align-items:center;gap:10px;font-size:14px}
+  .cierre-motivo.selected{background:#fee2e2;border-color:#dc2626;color:#991b1b}
+  .cierre-motivo-ico{font-size:18px;flex-shrink:0}
+  .cierre-otro-input{width:100%;padding:11px 13px;border-radius:8px;border:1px solid #d1d5db;
+    font-family:inherit;font-size:14px;background:#f9fafb;display:none}
+  .cierre-otro-input.show{display:block}
+  .cierre-warn{background:#fef9c3;border:1px solid #fde047;padding:10px 12px;border-radius:8px;
+    font-size:12px;color:#854d0e;margin-top:12px;line-height:1.5}
+  .cierre-actions{padding:14px 18px;border-top:1px solid #e5e7eb;display:flex;gap:10px}
+  .cierre-btn{flex:1;padding:13px;border-radius:10px;font-size:14px;font-weight:600}
+  .cierre-btn-cancel{background:#f3f4f6;color:#6b7280}
+  .cierre-btn-ok{background:#1f2937;color:#fff}
+  .cierre-btn-ok:disabled{background:#cbd5e1;cursor:not-allowed}
+
+  /* MODAL HISTORIAL */
+  .modal-historial{background:#fff;border-radius:16px;padding:0;max-width:420px;width:100%;
+    max-height:80vh;display:flex;flex-direction:column}
+  .modal-historial-head{padding:18px 18px 14px;border-bottom:1px solid #e5e7eb}
+  .modal-historial-title{font-size:16px;font-weight:700;margin-bottom:4px}
+  .modal-historial-sub{font-size:12px;color:#6b7280}
+  .modal-historial-body{padding:14px 18px;overflow-y:auto;flex:1}
+  .historial-item{display:flex;justify-content:space-between;padding:10px 0;
+    border-bottom:1px dashed #e5e7eb;font-size:13px}
+  .historial-item:last-child{border-bottom:none}
+  .historial-fecha{color:#6b7280}
+  .historial-monto{font-weight:600;color:#059669}
+  .historial-estado{font-size:10px;font-weight:700;padding:2px 6px;border-radius:4px;background:#f3f4f6;color:#6b7280;text-transform:uppercase}
+  .modal-historial-foot{padding:14px 18px;border-top:1px solid #e5e7eb;text-align:center}
+
+  /* MODAL CANAL+DIAS */
+  .canal-overlay{position:fixed;inset:0;background:rgba(0,0,0,.6);z-index:9999;
+    display:flex;align-items:flex-end;justify-content:center;animation:fadeIn .2s}
+  .canal-modal{background:#fff;width:100%;max-width:480px;max-height:92vh;overflow-y:auto;
+    border-radius:18px 18px 0 0;animation:slideUp .25s ease-out}
+  .canal-header{padding:18px 16px;border-bottom:1px solid #e5e7eb;display:flex;gap:12px;align-items:flex-start}
+  .canal-header-icon{font-size:32px;flex-shrink:0}
+  .canal-header-title{font-size:16px;font-weight:600;line-height:1.3;margin-bottom:4px}
+  .canal-header-cliente{color:#3b82f6}
+  .canal-header-sub{font-size:13px;color:#6b7280}
+  .canal-progress{display:flex;gap:6px;padding:12px 16px}
+  .canal-progress-step{flex:1;height:4px;background:#e5e7eb;border-radius:2px;transition:all .2s}
+  .canal-progress-step.done{background:#10b981}
+  .canal-section{padding:8px 16px 16px}
+  .canal-section-title{font-size:13px;font-weight:600;color:#374151;margin-bottom:10px;
+    display:flex;align-items:center;gap:8px}
+  .canal-step-num{width:22px;height:22px;border-radius:50%;background:#3b82f6;color:#fff;
+    font-size:12px;font-weight:700;display:flex;align-items:center;justify-content:center}
+  .canal-grid{display:grid;grid-template-columns:1fr 1fr;gap:8px}
+  .canal-card{background:#f9fafb;border:2px solid transparent;border-radius:10px;padding:12px;
+    display:flex;align-items:center;gap:10px;text-align:left;transition:all .15s}
+  .canal-card.selected{background:#dbeafe;border-color:#3b82f6}
+  .canal-card-emoji{font-size:22px;flex-shrink:0}
+  .canal-card-nombre{font-size:13px;font-weight:600;line-height:1.2}
+  .canal-card-desc{font-size:11px;color:#6b7280;line-height:1.2;margin-top:2px}
+  .canal-dias{display:grid;grid-template-columns:repeat(6,1fr);gap:6px}
+  .canal-dia{background:#f9fafb;border:2px solid transparent;border-radius:10px;padding:10px 4px;
+    text-align:center;transition:all .15s}
+  .canal-dia.selected{background:#dbeafe;border-color:#3b82f6}
+  .canal-dia-letra{font-size:18px;font-weight:700;color:#374151}
+  .canal-dia.selected .canal-dia-letra{color:#1d4ed8}
+  .canal-dia-corto{font-size:11px;color:#6b7280;margin-top:2px}
+  .canal-resumen{font-size:12px;color:#059669;font-weight:600;margin-top:10px;text-align:center;min-height:18px}
+  .canal-actions{padding:14px 16px;border-top:1px solid #e5e7eb;display:flex;gap:10px;position:sticky;bottom:0;background:#fff}
+  .canal-btn{flex:1;padding:13px;border-radius:10px;font-size:14px;font-weight:600}
+  .canal-btn-secondary{background:#f3f4f6;color:#6b7280}
+  .canal-btn-primary{background:#3b82f6;color:#fff}
+  .canal-btn-primary:disabled{background:#cbd5e1;cursor:not-allowed}
+
+  /* TOAST */
+  .toast{position:fixed;bottom:80px;left:50%;transform:translateX(-50%);background:#111827;
+    color:#fff;padding:12px 20px;border-radius:10px;font-size:13px;font-weight:500;z-index:99999;
+    box-shadow:0 10px 25px rgba(0,0,0,.25);animation:toastIn .2s ease-out;max-width:90%}
+  .toast.success{background:#059669}
+  .toast.error{background:#dc2626}
+  .toast.info{background:#3b82f6}
+  @keyframes toastIn{from{opacity:0;transform:translate(-50%,20px)}to{opacity:1;transform:translate(-50%,0)}}
+
+  /* LOGIN — paso 1 (seleccionar vendedor) y paso 2 (PIN) */
+  .login{padding:40px 24px;text-align:center;max-width:400px;margin:0 auto}
+  .login-logo{font-size:48px;margin-bottom:8px}
+  .login-title{font-size:22px;font-weight:700;margin-bottom:6px}
+  .login-sub{font-size:14px;color:#6b7280;margin-bottom:28px}
+  .login-vend-grid{display:flex;flex-direction:column;gap:10px;margin-top:14px}
+  .login-vend{background:#fff;border:1px solid #e5e7eb;padding:16px;border-radius:12px;
+    font-size:15px;font-weight:600;text-align:left;display:flex;align-items:center;gap:12px;width:100%}
+  .login-vend:active{background:#dbeafe;border-color:#3b82f6}
+  .login-vend-icon{width:42px;height:42px;border-radius:50%;display:flex;align-items:center;
+    justify-content:center;color:#fff;font-weight:700;font-size:18px}
+  .login-vend.miguel .login-vend-icon{background:#3b82f6}
+  .login-vend.juan .login-vend-icon{background:#10b981}
+  .login-vend.lisandro .login-vend-icon{background:#f59e0b}
+  .login-vend-info{flex:1}
+  .login-vend-nombre{font-size:15px;margin-bottom:2px}
+  .login-vend-pendientes{font-size:12px;color:#6b7280;font-weight:400}
+
+  /* PIN */
+  .pin-wrap{max-width:300px;margin:0 auto}
+  .pin-vendedor{font-size:13px;color:#6b7280;margin-bottom:8px}
+  .pin-vendedor-name{font-weight:700;color:#111827}
+  .pin-dots{display:flex;justify-content:center;gap:12px;margin:20px 0 30px}
+  .pin-dot{width:16px;height:16px;border-radius:50%;border:2px solid #d1d5db;background:transparent;transition:all .15s}
+  .pin-dot.on{background:#dc2626;border-color:#dc2626;transform:scale(1.1)}
+  .pin-error{font-size:13px;color:#dc2626;font-weight:600;min-height:18px;margin-bottom:6px}
+  .pin-keyboard{display:grid;grid-template-columns:repeat(3,1fr);gap:10px}
+  .pin-key{background:#fff;border:1px solid #e5e7eb;border-radius:12px;padding:18px 0;
+    font-size:22px;font-weight:600;transition:all .1s}
+  .pin-key:active{background:#dbeafe;transform:scale(.95)}
+  .pin-back{font-size:13px;color:#6b7280;font-weight:500}
+  .pin-del{font-size:20px;color:#dc2626}
+
+  /* LOADER */
+  .loader-overlay{position:fixed;inset:0;background:rgba(255,255,255,.85);display:flex;align-items:center;justify-content:center;z-index:99999}
+  .loader{width:42px;height:42px;border:4px solid #e5e7eb;border-top-color:#3b82f6;border-radius:50%;animation:spin 0.8s linear infinite}
+  @keyframes spin{to{transform:rotate(360deg)}}
+</style>
+</head>
+<body>
+
+<div id="app"></div>
+
+<script>
+// ──────────────────────────────────────────────────────────────────────
+// CONFIG
+// ──────────────────────────────────────────────────────────────────────
+const SUPABASE_URL = 'https://frhevcgxcuqkkakwnmrw.supabase.co';
+const SUPABASE_KEY = 'sb_publishable_rRuseS1OttY_jisrsBc3qg_JBCE8vkH';
+
+// PINs hardcoded — mismos valores que tck-ventas
+const PINS = { 'MIGUEL':'3356', 'JUAN':'4256', 'LISANDRO':'8020' };
+
+const VENDEDORES = [
+  { id:'MIGUEL',   nombre:'Miguel',   color:'miguel'   },
+  { id:'JUAN',     nombre:'Juan',     color:'juan'     },
+  { id:'LISANDRO', nombre:'Lisandro', color:'lisandro' },
+];
+
+const CANAL_CATEGORIAS = [
+  { id:'granja', emoji:'🐔', nombre:'Granja', desc:'Desposta y revende' },
+  { id:'carniceria', emoji:'🥩', nombre:'Carnicería', desc:'Carnes al público' },
+  { id:'almacen_autoservicio', emoji:'🛒', nombre:'Almacén/Autoserv.', desc:'Variedad gral.' },
+  { id:'pescaderia', emoji:'🐟', nombre:'Pescadería', desc:'Pescados y mariscos' },
+  { id:'fiambreria', emoji:'🧀', nombre:'Fiambrería', desc:'Fiambres y quesos' },
+  { id:'roticeria_casa_comida', emoji:'🍱', nombre:'Rotisería', desc:'Comida para llevar' },
+  { id:'restaurante_parrilla', emoji:'🍴', nombre:'Resto/Parrilla', desc:'Comer en el lugar' },
+  { id:'pizzeria_hamburgueseria', emoji:'🍕', nombre:'Pizz/Hambur.', desc:'Pizzas y burgers' },
+  { id:'parripollo', emoji:'🔥', nombre:'Parripollo', desc:'Pollo a la parrilla' },
+  { id:'catering_eventos', emoji:'🎉', nombre:'Catering/Eventos', desc:'Eventos y fiestas' },
+  { id:'comedor_institucional', emoji:'🏫', nombre:'Comedor/Inst.', desc:'Escuelas, hosp.' },
+  { id:'cliente_particular', emoji:'🏠', nombre:'Particular', desc:'Consumo personal' },
+  { id:'otros', emoji:'📦', nombre:'Otros', desc:'No encaja' }
+];
+
+const CANAL_DIAS = [
+  { id:'lunes', letra:'L', corto:'Lun' },
+  { id:'martes', letra:'M', corto:'Mar' },
+  { id:'miercoles', letra:'M', corto:'Mié' },
+  { id:'jueves', letra:'J', corto:'Jue' },
+  { id:'viernes', letra:'V', corto:'Vie' },
+  { id:'sabado', letra:'S', corto:'Sáb' }
+];
+
+const MOTIVOS_CIERRE = [
+  { id:'no_pidio_mas',     emoji:'🥶', label:'No pidió más, no contesta' },
+  { id:'cerro_negocio',    emoji:'🏚️', label:'Cerró el negocio' },
+  { id:'mudo',             emoji:'📦', label:'Se mudó / cambió de zona' },
+  { id:'fallecio',         emoji:'🕊️', label:'Falleció' },
+  { id:'cambio_proveedor', emoji:'🚛', label:'Cambió de proveedor' },
+  { id:'otro',             emoji:'📝', label:'Otro motivo' }
+];
+
+// ──────────────────────────────────────────────────────────────────────
+// STATE
+// ──────────────────────────────────────────────────────────────────────
+const state = {
+  screen:'login',
+  loginPaso: 1,
+  loginVendTemp: null,
+  pinActual: '',
+  vendedor: null,
+  huerfanos: [],
+  misClientes: [],
+  filtroOrigen:'todos',
+  filtroLocalidad:'todas',
+  filtroFact:'todos',
+  filtroMis:'todos',
+  modalCliente:null,
+  modalCanal:null,
+  modalDias:new Set(),
+  modalCierre:null,
+  modalMotivo:null,
+  modalMotivoOtro:'',
+  tomadosHoy:0,
+  clasificadosHoy:0,
+  descartadosHoy:0,
+  cerradosHoy:0,
+  devueltosHoy:0,
+  cargando: false,
+};
+
+// ──────────────────────────────────────────────────────────────────────
+// HELPERS
+// ──────────────────────────────────────────────────────────────────────
+const $ = id => document.getElementById(id);
+const app = () => document.getElementById('app');
+const fmt = n => '$' + Math.round(n||0).toLocaleString('es-AR');
+const esc = s => String(s||'').replace(/[&<>"\']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+
+function setLoading(b) {
+  state.cargando = b;
+  let el = $('loader-overlay');
+  if (b) {
+    if (!el) {
+      el = document.createElement('div');
+      el.id = 'loader-overlay';
+      el.className = 'loader-overlay';
+      el.innerHTML = '<div class="loader"></div>';
+      document.body.appendChild(el);
+    }
+  } else {
+    if (el) el.remove();
+  }
+}
+
+function toast(msg, tipo) {
+  const t = document.createElement('div');
+  t.className = 'toast ' + (tipo||'');
+  t.textContent = msg;
+  document.body.appendChild(t);
+  setTimeout(() => t.remove(), 2200);
+}
+
+// ──────────────────────────────────────────────────────────────────────
+// SUPABASE FETCH HELPERS
+// ──────────────────────────────────────────────────────────────────────
+async function sb(path, opts) {
+  opts = opts || {};
+  const url = SUPABASE_URL + '/rest/v1/' + path;
+  const headers = {
+    'apikey': SUPABASE_KEY,
+    'Authorization': 'Bearer ' + SUPABASE_KEY,
+    'Content-Type': 'application/json',
+    ...(opts.headers || {})
+  };
+  const r = await fetch(url, { ...opts, headers });
+  if (!r.ok) {
+    const txt = await r.text();
+    throw new Error('Supabase ' + r.status + ': ' + txt);
+  }
+  if (r.status === 204) return null;
+  return r.json();
+}
+
+async function rpc(name, params) {
+  return sb('rpc/' + name, {
+    method: 'POST',
+    body: JSON.stringify(params)
+  });
+}
+
+// ──────────────────────────────────────────────────────────────────────
+// CARGA DE DATOS
+// ──────────────────────────────────────────────────────────────────────
+async function cargarPool() {
+  // Lee de vw_huerfanos_pool y filtra los que tienen al vendedor actual en descartado_por
+  const v = state.vendedor;
+  const data = await sb('vw_huerfanos_pool?select=*&order=facturacion_90d.desc.nullslast&limit=500');
+  state.huerfanos = (data || []).filter(h => 
+    !Array.isArray(h.descartado_por) || !h.descartado_por.includes(v)
+  );
+}
+
+async function cargarMisClientes() {
+  const v = state.vendedor;
+  state.misClientes = await sb('vw_mis_clientes_pendientes?select=*&vendedor=eq.' + v + '&order=facturacion_90d.desc.nullslast&limit=1000');
+}
+
+async function cargarHistorial(nombreCliente) {
+  // pedidos_zona usa "cliente" (text) como link
+  return sb('pedidos_zona?select=fecha_hora,total,estado,detalle_pedido&cliente=eq.' + encodeURIComponent(nombreCliente) + '&order=fecha_hora.desc&limit=10');
+}
+
+async function actualizarCanalDias(clienteId, canal, dias) {
+  // PATCH directo a clientes_activos
+  const v = state.vendedor;
+  const body = {
+    canal: canal,
+    canal_asignado_por: v,
+    canal_asignado_at: new Date().toISOString(),
+    dias_visita: dias,
+    dias_visita_por: v,
+    dias_visita_at: new Date().toISOString(),
+    activo_en_ronda: true,
+    updated_at: new Date().toISOString(),
+  };
+  return sb('clientes_activos?cliente_id=eq.' + encodeURIComponent(clienteId), {
+    method: 'PATCH',
+    body: JSON.stringify(body),
+    headers: { 'Prefer': 'return=minimal' }
+  });
+}
+
+// ──────────────────────────────────────────────────────────────────────
+// RENDER
+// ──────────────────────────────────────────────────────────────────────
+function render() {
+  if (state.screen === 'login') return renderLogin();
+  if (state.screen === 'home')  return renderHome();
+  if (state.screen === 'pool')  return renderPool();
+  if (state.screen === 'clasificar') return renderClasificar();
+}
+
+// LOGIN — paso 1: elegir vendedor
+function renderLogin() {
+  if (state.loginPaso === 2) return renderLoginPin();
+  app().innerHTML = `
+    <div class="login">
+      <div class="login-logo">🏷️</div>
+      <div class="login-title">Clasificar clientes</div>
+      <div class="login-sub">Tomar huérfanos · clasificar canal y días</div>
+      <div class="login-vend-grid">
+        ${VENDEDORES.map(v => `
+          <button class="login-vend ${v.color}" onclick="seleccionarVendedor('${v.id}')">
+            <div class="login-vend-icon">${v.nombre[0]}</div>
+            <div class="login-vend-info">
+              <div class="login-vend-nombre">${v.nombre}</div>
+              <div class="login-vend-pendientes">Tocá para ingresar PIN</div>
+            </div>
+          </button>
+        `).join('')}
+      </div>
+    </div>
+  `;
+}
+
+function seleccionarVendedor(id) {
+  state.loginVendTemp = id;
+  state.pinActual = '';
+  state.loginPaso = 2;
+  render();
+}
+
+function renderLoginPin() {
+  const v = VENDEDORES.find(x => x.id === state.loginVendTemp);
+  const teclas = ['1','2','3','4','5','6','7','8','9','back','0','del'];
+  app().innerHTML = `
+    <div class="login">
+      <div class="login-logo">🔐</div>
+      <div class="login-title">Ingresá tu PIN</div>
+      <div class="login-sub pin-vendedor">Hola <span class="pin-vendedor-name">${v.nombre}</span></div>
+      <div class="pin-wrap">
+        <div class="pin-dots">
+          ${[0,1,2,3].map(i => `<div class="pin-dot ${i < state.pinActual.length ? 'on' : ''}"></div>`).join('')}
+        </div>
+        <div class="pin-error" id="pin-error"></div>
+        <div class="pin-keyboard">
+          ${teclas.map(t => {
+            if (t === 'back') return '<button class="pin-key pin-back" onclick="volverLogin()">Atrás</button>';
+            if (t === 'del')  return '<button class="pin-key pin-del" onclick="pinDel()">⌫</button>';
+            return `<button class="pin-key" onclick="pinAdd('${t}')">${t}</button>`;
+          }).join('')}
+        </div>
+      </div>
+    </div>
+  `;
+}
+
+function pinAdd(d) {
+  if (state.pinActual.length >= 4) return;
+  state.pinActual += d;
+  if (state.pinActual.length === 4) verificarPin();
+  else renderLoginPin();
+}
+
+function pinDel() {
+  state.pinActual = state.pinActual.slice(0, -1);
+  renderLoginPin();
+}
+
+function volverLogin() {
+  state.pinActual = '';
+  state.loginVendTemp = null;
+  state.loginPaso = 1;
+  render();
+}
+
+async function verificarPin() {
+  if (state.pinActual !== PINS[state.loginVendTemp]) {
+    state.pinActual = '';
+    renderLoginPin();
+    const errEl = $('pin-error');
+    if (errEl) errEl.textContent = 'PIN incorrecto, intentá de nuevo';
+    return;
+  }
+  state.vendedor = state.loginVendTemp;
+  state.loginVendTemp = null;
+  state.loginPaso = 1;
+  state.pinActual = '';
+  state.screen = 'home';
+  // guardar sesión
+  try { localStorage.setItem('tck_clasif_v', state.vendedor); } catch(e) {}
+  setLoading(true);
+  try {
+    await Promise.all([cargarPool(), cargarMisClientes()]);
+  } catch (e) {
+    console.error('[init load]', e);
+    toast('Error cargando datos: ' + e.message, 'error');
+  }
+  setLoading(false);
+  render();
+}
+
+function logout() {
+  state.vendedor = null;
+  state.screen = 'login';
+  state.huerfanos = [];
+  state.misClientes = [];
+  try { localStorage.removeItem('tck_clasif_v'); } catch(e) {}
+  render();
+}
+
+// HOME
+function renderHome() {
+  const hDisp = state.huerfanos.length;
+  const totalMis = state.misClientes.length;
+  // No tenemos el "total" del vendedor sin un fetch extra. Mostramos pendientes.
+  app().innerHTML = `
+    <div class="header">
+      <div class="header-title">Clasificar clientes</div>
+      <div class="header-vendedor">${state.vendedor}</div>
+      <button class="header-logout" onclick="logout()">Salir</button>
+    </div>
+
+    ${hDisp > 0 ? `
+    <div class="home-banner">
+      <div class="home-banner-icon">💰</div>
+      <div class="home-banner-title">${hDisp} clientes huérfanos disponibles</div>
+      <div class="home-banner-desc">Revisá CUIT, teléfono, WhatsApp y tomá los tuyos.</div>
+    </div>` : ''}
+
+    <div class="home-cards">
+      <button class="home-card" onclick="goPool()">
+        <div class="home-card-icon">🆕</div>
+        <div class="home-card-body">
+          <div class="home-card-title">Pool de huérfanos</div>
+          <div class="home-card-desc">Sin vendedor asignado — tomá los tuyos</div>
+        </div>
+        <div class="home-card-badge ${hDisp === 0 ? 'gray' : ''}">${hDisp}</div>
+        <div class="home-card-arrow">›</div>
+      </button>
+
+      <button class="home-card" onclick="goClasificar()">
+        <div class="home-card-icon">📋</div>
+        <div class="home-card-body">
+          <div class="home-card-title">Mis clientes a clasificar</div>
+          <div class="home-card-desc">Falta canal o días de visita</div>
+        </div>
+        <div class="home-card-badge ${totalMis === 0 ? 'green' : ''}">${totalMis}</div>
+        <div class="home-card-arrow">›</div>
+      </button>
+    </div>
+
+    ${(state.tomadosHoy + state.clasificadosHoy + state.descartadosHoy + state.cerradosHoy + state.devueltosHoy) > 0 ? `
+    <div class="home-progress">
+      <div class="home-progress-label">Tu actividad de hoy</div>
+      <div class="home-progress-text" style="line-height:1.7;font-weight:500">
+        ${state.tomadosHoy} tomados · ${state.clasificadosHoy} clasificados<br>
+        ${state.descartadosHoy} descartados · ${state.cerradosHoy} cerrados · ${state.devueltosHoy} devueltos
+      </div>
+    </div>
+    ` : ''}
+
+    <div style="padding:0 16px 24px;font-size:12px;color:#9ca3af;text-align:center">
+      Cuando termine la clasificación, esta sección desaparece sola
+    </div>
+  `;
+}
+
+function goPool() { state.screen='pool'; render(); }
+function goClasificar() { state.screen='clasificar'; render(); }
+function goHome() { state.screen='home'; render(); }
+
+// POOL
+function renderPool() {
+  let lista = state.huerfanos.slice();
+  if (state.filtroLocalidad !== 'todas') lista = lista.filter(h => (h.localidad||'') === state.filtroLocalidad);
+  if (state.filtroFact === 'jugosos')   lista = lista.filter(h => (h.facturacion_90d||0) > 200000);
+  else if (state.filtroFact === 'medios') lista = lista.filter(h => (h.facturacion_90d||0) >= 50000 && (h.facturacion_90d||0) <= 200000);
+  else if (state.filtroFact === 'bajos')  lista = lista.filter(h => (h.facturacion_90d||0) < 50000);
+
+  lista.sort((a,b) => (b.facturacion_90d||0) - (a.facturacion_90d||0));
+
+  const localidadesDisp = [...new Set(state.huerfanos.map(h => h.localidad).filter(Boolean))].sort();
+  const factTotal = lista.reduce((s,h) => s + (h.facturacion_90d||0), 0);
+
+  app().innerHTML = `
+    <div class="header">
+      <button class="header-back" onclick="goHome()">‹</button>
+      <div class="header-title">Pool huérfanos</div>
+      <div class="header-vendedor">${state.vendedor}</div>
+    </div>
+
+    <div class="toolbar">
+      <div class="toolbar-row">
+        <span class="chip-label">Localidad:</span>
+        <button class="chip ${state.filtroLocalidad==='todas'?'active':''}" onclick="setF('filtroLocalidad','todas')">Todas</button>
+        ${localidadesDisp.map(l => `
+          <button class="chip ${state.filtroLocalidad===l?'active':''}" onclick="setF('filtroLocalidad','${esc(l)}')">${esc(l)}</button>
+        `).join('')}
+      </div>
+      <div class="toolbar-row">
+        <span class="chip-label">Facturación:</span>
+        <button class="chip ${state.filtroFact==='todos'?'active':''}" onclick="setF('filtroFact','todos')">Toda</button>
+        <button class="chip ${state.filtroFact==='jugosos'?'active':''}" onclick="setF('filtroFact','jugosos')">💰 +$200k</button>
+        <button class="chip ${state.filtroFact==='medios'?'active':''}" onclick="setF('filtroFact','medios')">📦 $50-200k</button>
+        <button class="chip ${state.filtroFact==='bajos'?'active':''}" onclick="setF('filtroFact','bajos')">🌱 -$50k</button>
+      </div>
+    </div>
+
+    <div class="pool-stats">
+      <span>${lista.length} clientes</span>
+      <span class="pool-stats-fact">${fmt(factTotal)} en 90d</span>
+    </div>
+
+    <div class="cliente-list">
+      ${lista.length === 0 ? `
+        <div class="empty-state">
+          <div class="empty-state-icon">🎯</div>
+          <div class="empty-state-title">Sin resultados</div>
+          <div class="empty-state-desc">Probá cambiar los filtros o cargá de nuevo</div>
+        </div>
+      ` : lista.map(h => cardHuerfano(h)).join('')}
+    </div>
+  `;
+}
+
+function setF(key, val) { state[key] = val; render(); }
+
+function cardHuerfano(h) {
+  const fact = h.facturacion_90d || 0;
+  const factClass = fact > 300000 ? 'fact-high' : 'fact';
+  const dias = h.dias_desde_ult_pedido != null ? `hace ${h.dias_desde_ult_pedido}d` : '—';
+  const waNum = (h.telefono||'').replace(/\D/g, '');
+  return `
+    <div class="card">
+      <div class="card-head">
+        <div class="card-nombre">${esc(h.nombre)}</div>
+        <span class="card-badge-origen origen-pool">HUÉRFANO</span>
+      </div>
+      <div class="card-info">
+        <div class="card-info-item"><span class="ico">📍</span><span class="val">${esc(h.localidad||'—')}</span></div>
+        <div class="card-info-item ${factClass}"><span class="ico">💵</span><span class="val">${fmt(fact)} (90d)</span></div>
+        <div class="card-info-item"><span class="ico">📅</span><span class="val">Últ. ${dias}</span></div>
+        <div class="card-info-item"><span class="ico">📞</span><span class="val">${esc(h.telefono||'—')}</span></div>
+      </div>
+      <div class="card-cuit">
+        <span>CUIT/DNI: ${esc(h.cuit_dni||'—')}</span>
+        ${h.cuit_dni ? `<button class="card-cuit-copy" onclick="copiar('${esc(h.cuit_dni)}')">Copiar</button>` : ''}
+      </div>
+      <div class="card-actions">
+        ${waNum ? `<a class="btn-like card-btn btn-wa" href="https://wa.me/${waNum}" target="_blank">💬 WhatsApp</a>` 
+                : '<button class="card-btn btn-historico" disabled style="opacity:.5">💬 Sin teléfono</button>'}
+        <button class="card-btn btn-historico" onclick="mostrarHistorico('${esc(h.nombre)}','${esc(h.cliente_id)}')">📊 Compras</button>
+        <button class="card-btn btn-cerrado" onclick="abrirModalCierre('huerfano','${esc(h.cliente_id)}')">🪦 Cerró</button>
+        <button class="card-btn btn-no-mio" onclick="pedirConfirmDescartar('${esc(h.cliente_id)}')">✗ No es mío</button>
+        <button class="card-btn btn-tomar" onclick="pedirConfirmTomar('${esc(h.cliente_id)}')">🙋 Es mío</button>
+      </div>
+    </div>
+  `;
+}
+
+function copiar(txt) {
+  navigator.clipboard.writeText(txt).then(() => toast('Copiado: '+txt, 'info'))
+    .catch(() => toast('No se pudo copiar', 'error'));
+}
+
+async function mostrarHistorico(nombre, clienteId) {
+  setLoading(true);
+  let compras = [];
+  try {
+    compras = await cargarHistorial(nombre);
+  } catch (e) {
+    console.error('[hist]', e);
+    toast('Error cargando historial', 'error');
+  }
+  setLoading(false);
+  const div = document.createElement('div');
+  div.className = 'modal-overlay';
+  div.id = 'modal-overlay';
+  div.innerHTML = `
+    <div class="modal-historial">
+      <div class="modal-historial-head">
+        <div class="modal-historial-title">📊 Últimas compras</div>
+        <div class="modal-historial-sub">${esc(nombre)}</div>
+      </div>
+      <div class="modal-historial-body">
+        ${compras.length === 0 ? `
+          <div style="text-align:center;padding:30px 0;color:#9ca3af;font-size:13px">Sin pedidos registrados</div>
+        ` : compras.map(c => {
+          const fecha = c.fecha_hora ? c.fecha_hora.substring(0,10) : '—';
+          return `
+            <div class="historial-item">
+              <div>
+                <div class="historial-fecha">${fecha}</div>
+                <div style="font-size:10px;color:#9ca3af;margin-top:2px">${esc(c.estado||'—')}</div>
+              </div>
+              <span class="historial-monto">${fmt(c.total||0)}</span>
+            </div>
+          `;
+        }).join('')}
+      </div>
+      <div class="modal-historial-foot">
+        <button class="modal-btn modal-cancel" style="width:100%" onclick="cerrarModal()">Cerrar</button>
+      </div>
+    </div>
+  `;
+  document.body.appendChild(div);
+}
+
+function cerrarModal() {
+  const el = $('modal-overlay'); if (el) el.remove();
+}
+
+function pedirConfirmTomar(cid) {
+  const h = state.huerfanos.find(x => x.cliente_id === cid);
+  if (!h) return;
+  const div = document.createElement('div');
+  div.className = 'modal-overlay';
+  div.id = 'modal-overlay';
+  div.innerHTML = `
+    <div class="modal-confirm">
+      <div class="modal-icon">🙋</div>
+      <div class="modal-title">¿Tomar este cliente?</div>
+      <div class="modal-nombre">${esc(h.nombre)}</div>
+      <div class="modal-desc">Se asigna como tu cliente y desaparece del pool de los demás.<br>Después te pido el canal y los días.</div>
+      <div class="modal-actions">
+        <button class="modal-btn modal-cancel" onclick="cerrarModal()">Cancelar</button>
+        <button class="modal-btn modal-ok" onclick="confirmarTomar('${esc(cid)}')">Sí, tomar</button>
+      </div>
+    </div>
+  `;
+  document.body.appendChild(div);
+}
+
+async function confirmarTomar(cid) {
+  cerrarModal();
+  setLoading(true);
+  try {
+    const r = await rpc('tomar_cliente_huerfano', { p_cliente_id: cid, p_vendedor: state.vendedor });
+    if (!r.ok) {
+      toast(r.error === 'ya_tomado_o_no_disponible' ? 'Otro lo tomó primero' : ('Error: '+r.error), 'error');
+      await cargarPool(); render(); setLoading(false); return;
+    }
+    state.tomadosHoy++;
+    toast('✓ ' + r.nombre + ' es tuyo', 'success');
+    // Lo movemos a misClientes localmente sin esperar refetch
+    const h = state.huerfanos.find(x => x.cliente_id === cid);
+    if (h) {
+      state.huerfanos = state.huerfanos.filter(x => x.cliente_id !== cid);
+      const estado = h.dias_desde_ult_pedido != null
+        ? (h.dias_desde_ult_pedido <= 30 ? 'activo_30d' 
+           : h.dias_desde_ult_pedido <= 60 ? 'activo_60d'
+           : h.dias_desde_ult_pedido <= 90 ? 'activo_90d'
+           : h.dias_desde_ult_pedido <= 180 ? 'dormido_>90d'
+           : 'sin_compra_6m')
+        : 'sin_compra_6m';
+      state.misClientes.unshift({...h, vendedor: state.vendedor, canal: null, dias_visita: null, estado_actividad: estado});
+    }
+    setLoading(false);
+    // abrir modal canal+días inmediatamente
+    abrirModalCanal('huerfano', cid);
+  } catch (e) {
+    setLoading(false);
+    console.error('[tomar]', e);
+    toast('Error: ' + e.message, 'error');
+  }
+}
+
+function pedirConfirmDescartar(cid) {
+  const h = state.huerfanos.find(x => x.cliente_id === cid);
+  if (!h) return;
+  const div = document.createElement('div');
+  div.className = 'modal-overlay';
+  div.id = 'modal-overlay';
+  div.innerHTML = `
+    <div class="modal-confirm">
+      <div class="modal-icon">🤔</div>
+      <div class="modal-title">¿No es tuyo?</div>
+      <div class="modal-nombre">${esc(h.nombre)}</div>
+      <div class="modal-desc">Lo descartás de tu vista. Los otros vendedores lo siguen viendo.<br>Si nadie lo toma, queda como mostrador.</div>
+      <div class="modal-actions">
+        <button class="modal-btn modal-cancel" onclick="cerrarModal()">Cancelar</button>
+        <button class="modal-btn modal-ok danger" onclick="confirmarDescartar('${esc(cid)}')">No es mío</button>
+      </div>
+    </div>
+  `;
+  document.body.appendChild(div);
+}
+
+async function confirmarDescartar(cid) {
+  cerrarModal();
+  setLoading(true);
+  try {
+    const r = await rpc('descartar_huerfano', { p_cliente_id: cid, p_vendedor: state.vendedor });
+    if (!r.ok) { toast('Error: '+r.error, 'error'); setLoading(false); return; }
+    state.huerfanos = state.huerfanos.filter(h => h.cliente_id !== cid);
+    state.descartadosHoy++;
+    toast('Marcado: no es tuyo', 'info');
+  } catch (e) {
+    console.error('[descartar]', e);
+    toast('Error: ' + e.message, 'error');
+  }
+  setLoading(false);
+  render();
+}
+
+// MIS CLIENTES
+function renderClasificar() {
+  let lista = state.misClientes.slice();
+  if (state.filtroMis !== 'todos') lista = lista.filter(n => n.estado_actividad === state.filtroMis);
+
+  const ord = {'activo_30d':1,'activo_60d':2,'activo_90d':3,'dormido_>90d':4,'sin_compra_6m':5};
+  lista.sort((a,b) => (ord[a.estado_actividad]||9) - (ord[b.estado_actividad]||9) || (b.facturacion_90d||0) - (a.facturacion_90d||0));
+
+  const stats = {};
+  state.misClientes.forEach(n => { stats[n.estado_actividad] = (stats[n.estado_actividad]||0) + 1; });
+
+  const estadoLabel = {
+    'activo_30d':'🔥 ≤30d','activo_60d':'≤60d','activo_90d':'≤90d',
+    'dormido_>90d':'😴 >90d','sin_compra_6m':'❄️ 6m'
+  };
+
+  app().innerHTML = `
+    <div class="header">
+      <button class="header-back" onclick="goHome()">‹</button>
+      <div class="header-title">Mis clientes a clasificar</div>
+      <div class="header-vendedor">${state.vendedor}</div>
+    </div>
+
+    <div class="toolbar">
+      <div class="toolbar-row">
+        <span class="chip-label">Estado:</span>
+        <button class="chip ${state.filtroMis==='todos'?'active':''}" onclick="setF('filtroMis','todos')">Todos (${Object.values(stats).reduce((a,b)=>a+b,0)})</button>
+        ${['activo_30d','activo_60d','activo_90d','dormido_>90d','sin_compra_6m'].map(e => stats[e] ? `
+          <button class="chip ${state.filtroMis===e?'active':''}" onclick="setF('filtroMis','${e}')">${estadoLabel[e]} (${stats[e]})</button>
+        ` : '').join('')}
+      </div>
+    </div>
+
+    <div class="pool-stats">
+      <span>${lista.length} clientes</span>
+      <span class="pool-stats-fact">${fmt(lista.reduce((s,n)=>s+(n.facturacion_90d||0),0))} en 90d</span>
+    </div>
+
+    <div class="cliente-list">
+      ${lista.length === 0 ? `
+        <div class="empty-state">
+          <div class="empty-state-icon">🎉</div>
+          <div class="empty-state-title">¡Todos clasificados!</div>
+          <div class="empty-state-desc">Volvé al home, la tarea desaparece sola</div>
+        </div>
+      ` : lista.map(n => cardMisClientes(n)).join('')}
+    </div>
+  `;
+}
+
+function cardMisClientes(n) {
+  const fact = n.facturacion_90d || 0;
+  const factClass = fact > 300000 ? 'fact-high' : 'fact';
+  const dias = n.dias_desde_ult_pedido != null ? `hace ${n.dias_desde_ult_pedido}d` : '—';
+  const waNum = (n.telefono||'').replace(/\D/g, '');
+  const estadoLabel = {
+    'activo_30d':'🔥 ≤30d','activo_60d':'≤60d','activo_90d':'≤90d',
+    'dormido_>90d':'😴 >90d','sin_compra_6m':'❄️ 6m'
+  };
+  return `
+    <div class="card">
+      <div class="card-head">
+        <div class="card-nombre">${esc(n.nombre)}</div>
+        <span class="card-badge-origen estado-${(n.estado_actividad||'').replace('>','')}">${estadoLabel[n.estado_actividad]||n.estado_actividad}</span>
+      </div>
+      <div class="card-info">
+        <div class="card-info-item"><span class="ico">📍</span><span class="val">${esc(n.localidad||'—')}</span></div>
+        <div class="card-info-item ${factClass}"><span class="ico">💵</span><span class="val">${fmt(fact)} (90d)</span></div>
+        <div class="card-info-item"><span class="ico">📅</span><span class="val">Últ. ${dias}</span></div>
+        <div class="card-info-item"><span class="ico">📞</span><span class="val">${esc(n.telefono||'—')}</span></div>
+      </div>
+      <div class="card-cuit">
+        <span>CUIT/DNI: ${esc(n.cuit_dni||'—')}</span>
+        ${n.cuit_dni ? `<button class="card-cuit-copy" onclick="copiar('${esc(n.cuit_dni)}')">Copiar</button>` : ''}
+      </div>
+      <div class="card-actions">
+        ${waNum ? `<a class="btn-like card-btn btn-wa" href="https://wa.me/${waNum}" target="_blank">💬 WhatsApp</a>`
+                : '<button class="card-btn btn-historico" disabled style="opacity:.5">💬 Sin teléfono</button>'}
+        <button class="card-btn btn-historico" onclick="mostrarHistorico('${esc(n.nombre)}','${esc(n.cliente_id)}')">📊 Compras</button>
+        <button class="card-btn btn-cerrado" onclick="abrirModalCierre('mis','${esc(n.cliente_id)}')">🪦 Cerró</button>
+        <button class="card-btn btn-no-mio" onclick="pedirConfirmDevolver('${esc(n.cliente_id)}')">✗ No es mío</button>
+        <button class="card-btn btn-clasificar" onclick="abrirModalCanal('mis','${esc(n.cliente_id)}')">🏷️ Clasificar canal+días</button>
+      </div>
+    </div>
+  `;
+}
+
+function pedirConfirmDevolver(cid) {
+  const n = state.misClientes.find(x => x.cliente_id === cid);
+  if (!n) return;
+  const div = document.createElement('div');
+  div.className = 'modal-overlay';
+  div.id = 'modal-overlay';
+  div.innerHTML = `
+    <div class="modal-confirm">
+      <div class="modal-icon">↩️</div>
+      <div class="modal-title">¿Devolver al pool?</div>
+      <div class="modal-nombre">${esc(n.nombre)}</div>
+      <div class="modal-desc">Si no es tuyo, lo devolvés al pool de huérfanos y otro vendedor lo puede tomar.<br><br><b>Ojo:</b> una vez devuelto, si otro lo agarra rápido ya no podés recuperarlo.</div>
+      <div class="modal-actions">
+        <button class="modal-btn modal-cancel" onclick="cerrarModal()">Cancelar</button>
+        <button class="modal-btn modal-ok danger" onclick="confirmarDevolver('${esc(cid)}')">Sí, devolver</button>
+      </div>
+    </div>
+  `;
+  document.body.appendChild(div);
+}
+
+async function confirmarDevolver(cid) {
+  cerrarModal();
+  setLoading(true);
+  try {
+    const r = await rpc('devolver_al_pool', { p_cliente_id: cid, p_vendedor: state.vendedor });
+    if (!r.ok) { toast('Error: '+r.error, 'error'); setLoading(false); return; }
+    state.misClientes = state.misClientes.filter(n => n.cliente_id !== cid);
+    state.devueltosHoy++;
+    toast('↩️ Devuelto al pool', 'info');
+  } catch (e) {
+    console.error('[devolver]', e);
+    toast('Error: ' + e.message, 'error');
+  }
+  setLoading(false);
+  render();
+}
+
+// MODAL CANAL + DÍAS
+function abrirModalCanal(tipo, cid) {
+  const cliente = tipo === 'huerfano'
+    ? (state.huerfanos.find(h => h.cliente_id === cid) || state.misClientes.find(n => n.cliente_id === cid))
+    : state.misClientes.find(n => n.cliente_id === cid);
+  if (!cliente) return;
+
+  state.modalCliente = { tipo, cliente_id: cid };
+  state.modalCanal = cliente.canal || null;
+  state.modalDias = new Set(Array.isArray(cliente.dias_visita) ? cliente.dias_visita : []);
+
+  const cards = CANAL_CATEGORIAS.map(c => `
+    <button class="canal-card ${state.modalCanal===c.id?'selected':''}" onclick="selectCanal('${c.id}')"
+            style="${c.id==='otros'?'grid-column:1/-1;':''}">
+      <div class="canal-card-emoji">${c.emoji}</div>
+      <div>
+        <div class="canal-card-nombre">${c.nombre}</div>
+        <div class="canal-card-desc">${c.desc}</div>
+      </div>
+    </button>
+  `).join('');
+
+  const dias = CANAL_DIAS.map(d => `
+    <button class="canal-dia ${state.modalDias.has(d.id)?'selected':''}" onclick="toggleDia('${d.id}')">
+      <div class="canal-dia-letra">${d.letra}</div>
+      <div class="canal-dia-corto">${d.corto}</div>
+    </button>
+  `).join('');
+
+  const div = document.createElement('div');
+  div.className = 'canal-overlay';
+  div.id = 'canal-overlay';
+  div.innerHTML = `
+    <div class="canal-modal">
+      <div class="canal-header">
+        <div class="canal-header-icon">🏷️</div>
+        <div>
+          <div class="canal-header-title">Clasificá a <span class="canal-header-cliente">${esc(cliente.nombre)}</span></div>
+          <div class="canal-header-sub">Tipo de comercio y días que lo visitás</div>
+        </div>
+      </div>
+      <div class="canal-progress">
+        <div class="canal-progress-step ${state.modalCanal?'done':''}" id="prog-1"></div>
+        <div class="canal-progress-step ${state.modalDias.size>0?'done':''}" id="prog-2"></div>
+      </div>
+      <div class="canal-section">
+        <div class="canal-section-title"><span class="canal-step-num">1</span>¿Qué tipo de comercio?</div>
+        <div class="canal-grid" id="canal-grid">${cards}</div>
+      </div>
+      <div class="canal-section">
+        <div class="canal-section-title"><span class="canal-step-num">2</span>¿Qué día(s) lo visitás?</div>
+        <div class="canal-dias" id="canal-dias">${dias}</div>
+        <div class="canal-resumen" id="canal-resumen"></div>
+      </div>
+      <div class="canal-actions">
+        <button class="canal-btn canal-btn-secondary" onclick="cerrarModalCanal()">Cancelar</button>
+        <button class="canal-btn canal-btn-primary" id="canal-ok" onclick="guardarModalCanal()"
+                ${(!state.modalCanal || state.modalDias.size===0)?'disabled':''}>Guardar</button>
+      </div>
+    </div>
+  `;
+  document.body.appendChild(div);
+  document.body.style.overflow = 'hidden';
+  actualizarModalEstado();
+}
+
+function selectCanal(id) {
+  state.modalCanal = id;
+  document.querySelectorAll('#canal-grid .canal-card').forEach((b, i) => {
+    b.classList.toggle('selected', CANAL_CATEGORIAS[i].id === id);
+  });
+  actualizarModalEstado();
+}
+
+function toggleDia(id) {
+  if (state.modalDias.has(id)) state.modalDias.delete(id);
+  else state.modalDias.add(id);
+  document.querySelectorAll('#canal-dias .canal-dia').forEach((b, i) => {
+    b.classList.toggle('selected', state.modalDias.has(CANAL_DIAS[i].id));
+  });
+  actualizarModalEstado();
+}
+
+function actualizarModalEstado() {
+  const p1=$('prog-1'), p2=$('prog-2'), btn=$('canal-ok'), res=$('canal-resumen');
+  if (p1) p1.classList.toggle('done', !!state.modalCanal);
+  if (p2) p2.classList.toggle('done', state.modalDias.size > 0);
+  if (btn) btn.disabled = !state.modalCanal || state.modalDias.size === 0;
+  if (res) {
+    if (state.modalDias.size > 0) {
+      const lista = Array.from(state.modalDias).map(id => (CANAL_DIAS.find(d=>d.id===id)||{}).corto).join(', ');
+      res.textContent = '✓ Visita: ' + lista;
+    } else res.textContent = '';
+  }
+}
+
+function cerrarModalCanal() {
+  const el = $('canal-overlay'); if (el) el.remove();
+  document.body.style.overflow = '';
+  state.modalCliente = null; state.modalCanal = null; state.modalDias = new Set();
+}
+
+async function guardarModalCanal() {
+  if (!state.modalCanal || state.modalDias.size === 0) return;
+  const { cliente_id } = state.modalCliente;
+  const cliente = state.misClientes.find(n => n.cliente_id === cliente_id);
+  const dias = Array.from(state.modalDias);
+  setLoading(true);
+  try {
+    await actualizarCanalDias(cliente_id, state.modalCanal, dias);
+    if (cliente) {
+      cliente.canal = state.modalCanal;
+      cliente.dias_visita = dias;
+      // como ahora está clasificado, sale de misClientes (la vista filtra por NULL)
+      state.misClientes = state.misClientes.filter(n => n.cliente_id !== cliente_id);
+    }
+    state.clasificadosHoy++;
+    cerrarModalCanal();
+    toast('✓ Clasificado', 'success');
+  } catch (e) {
+    console.error('[guardar canal]', e);
+    toast('Error guardando: ' + e.message, 'error');
+  }
+  setLoading(false);
+  render();
+}
+
+// MODAL CIERRE
+function abrirModalCierre(tipo, cid) {
+  const cliente = tipo === 'huerfano'
+    ? state.huerfanos.find(h => h.cliente_id === cid)
+    : state.misClientes.find(n => n.cliente_id === cid);
+  if (!cliente) return;
+
+  state.modalCierre = { tipo, cliente_id: cid };
+  state.modalMotivo = null;
+  state.modalMotivoOtro = '';
+
+  const motivos = MOTIVOS_CIERRE.map(m => `
+    <button class="cierre-motivo" onclick="seleccionarMotivo('${m.id}')" data-motivo="${m.id}">
+      <span class="cierre-motivo-ico">${m.emoji}</span>
+      <span>${m.label}</span>
+    </button>
+  `).join('');
+
+  const div = document.createElement('div');
+  div.className = 'modal-overlay';
+  div.id = 'modal-overlay';
+  div.innerHTML = `
+    <div class="cierre-modal">
+      <div class="cierre-head">
+        <div class="cierre-icon">🪦</div>
+        <div class="cierre-title">Marcar como cerrado</div>
+        <div class="cierre-nombre">${esc(cliente.nombre)}</div>
+      </div>
+      <div class="cierre-body">
+        <label class="cierre-label">¿Por qué cerró?</label>
+        <div class="cierre-motivos" id="cierre-motivos">${motivos}</div>
+        <input type="text" class="cierre-otro-input" id="cierre-otro"
+               placeholder="Especificá el motivo (mín 5 caracteres)"
+               oninput="state.modalMotivoOtro = this.value; actualizarBtnCierre()">
+        <div class="cierre-warn">
+          ⚠️ Una vez marcado, desaparece para todos los vendedores. Francisco puede revertirlo si fue un error.
+        </div>
+      </div>
+      <div class="cierre-actions">
+        <button class="cierre-btn cierre-btn-cancel" onclick="cerrarModal()">Cancelar</button>
+        <button class="cierre-btn cierre-btn-ok" id="cierre-ok" onclick="confirmarCierre()" disabled>Confirmar cierre</button>
+      </div>
+    </div>
+  `;
+  document.body.appendChild(div);
+}
+
+function seleccionarMotivo(id) {
+  state.modalMotivo = id;
+  document.querySelectorAll('#cierre-motivos .cierre-motivo').forEach(b => {
+    b.classList.toggle('selected', b.dataset.motivo === id);
+  });
+  const otroInput = $('cierre-otro');
+  if (otroInput) {
+    otroInput.classList.toggle('show', id === 'otro');
+    if (id === 'otro') setTimeout(() => otroInput.focus(), 50);
+  }
+  actualizarBtnCierre();
+}
+
+function actualizarBtnCierre() {
+  const btn = $('cierre-ok');
+  if (!btn) return;
+  if (!state.modalMotivo) { btn.disabled = true; return; }
+  if (state.modalMotivo === 'otro' && state.modalMotivoOtro.trim().length < 5) {
+    btn.disabled = true; return;
+  }
+  btn.disabled = false;
+}
+
+async function confirmarCierre() {
+  if (!state.modalCierre || !state.modalMotivo) return;
+  const { tipo, cliente_id } = state.modalCierre;
+  const motivoLabel = state.modalMotivo === 'otro'
+    ? 'otro: ' + state.modalMotivoOtro.trim()
+    : (MOTIVOS_CIERRE.find(m => m.id === state.modalMotivo) || {}).label;
+
+  cerrarModal();
+  setLoading(true);
+  try {
+    const r = await rpc('cerrar_cliente', { p_cliente_id: cliente_id, p_vendedor: state.vendedor, p_motivo: motivoLabel });
+    if (!r.ok) { toast('Error: '+r.error, 'error'); setLoading(false); return; }
+    if (tipo === 'huerfano') state.huerfanos = state.huerfanos.filter(h => h.cliente_id !== cliente_id);
+    else state.misClientes = state.misClientes.filter(n => n.cliente_id !== cliente_id);
+    state.cerradosHoy++;
+    toast('🪦 Marcado cerrado', 'info');
+  } catch (e) {
+    console.error('[cerrar]', e);
+    toast('Error: ' + e.message, 'error');
+  }
+  setLoading(false);
+  render();
+}
+
+// ──────────────────────────────────────────────────────────────────────
+// AUTO-LOGIN si hay sesión guardada
+// ──────────────────────────────────────────────────────────────────────
+(async function init() {
+  try {
+    const guardado = localStorage.getItem('tck_clasif_v');
+    if (guardado && ['MIGUEL','JUAN','LISANDRO'].includes(guardado)) {
+      state.vendedor = guardado;
+      state.screen = 'home';
+      setLoading(true);
+      await Promise.all([cargarPool(), cargarMisClientes()]);
+      setLoading(false);
+    }
+  } catch (e) {
+    console.error('[auto-login]', e);
+  }
+  render();
+})();
+</script>
+</body>
+</html>
