@@ -2,6 +2,65 @@
 <html lang="es">
 <head>
 <!-- ═══════════════════════════════════════════════════════════════════════
+     TCK VENTAS — v14.22.3 — 19/05/2026
+     ──────────────────────────────────────────────────────────────────────
+     HOTFIX: CERRAR VENTA del tomador del check-in (bug ALMIRON-TOMADOR)
+
+     SÍNTOMA REPORTADO (Miguel, 19/05 ~08:50):
+       Al tomar pedido por check-in (con xubio_id) y apretar "✅ CERRAR
+       VENTA", el modal de resumen se cerraba pero NADA se guardaba: no
+       quedaba pedido en la app, no aparecía en Xubio, no había mensaje
+       de error. Al reintentar, "te vuelve a la ventana" (la grilla de
+       productos del tomador). Reproducido con cliente MARIA ALEJANDRA
+       CORTESE y total $132.700.
+
+     CAUSA RAÍZ:
+       v14.20.0 (18/05) reescribió _tomadorConfirmarFinalContinuar para
+       pedir sucursal antes del flujo de entrega. La llamada quedó:
+         abrirSelectorSucursalSiAplica(cliente, function(res){...})
+       Pero esa función nunca se definió en el archivo. El JS pasaba
+       node --check (sintaxis OK), pero en runtime tiraba ReferenceError
+       silencioso: el modal de resumen se removía justo antes
+       (modal.remove() en línea 26138), la excepción se perdía dentro
+       del callback async de canalClienteChequearYAbrir, el try/finally
+       de tomadorConfirmarConEntrega NUNCA arrancaba → cero guardado
+       en Sheet, cero Xubio. El lock _tomadorEnviando se liberaba recién
+       a los 90s por el timeout de seguridad, lo que también bloqueaba
+       el "Editar nota" / búsqueda de cliente reportados en paralelo.
+
+       El flujo gemelo _manualWAConfirmarContinuar (manualWA) usa
+       sucElegirAbrir(cliente, fn(suc, modo)) que SÍ existe y está
+       probado en producción desde v14.17.2.
+
+     FIX (1 línea de cambio efectivo):
+       Reemplazar abrirSelectorSucursalSiAplica(cliente, fn(res))
+                  → sucElegirAbrir(cliente, fn(suc, modo))
+       y mapear:
+         res.continuar === false  →  modo === 'cancelado'
+         res.sucursal             →  suc
+       Mismo patrón que el flujo manualWA.
+
+     POR QUÉ SE COLÓ:
+       - node --check no detecta símbolos no definidos, solo sintaxis.
+       - La función rota está dentro de un callback de canalCliente,
+         que la engulle silenciosamente.
+       - Lisandro (que adopta poco el tomador) y Miguel (que lo usó
+         por primera vez hoy con clientes nuevos) recién hoy lo
+         dispararon en producción.
+
+     LO QUE NO CAMBIA:
+       - Jornada Inteligente (v14.22.0/1/2): intacto.
+       - Mi Ronda, Sistema Tipo A, Xubio automático: intactos.
+       - Los 2 botones de check-in (Visitas + Jornada/Mi Ronda) son
+         entradas distintas al mismo flujo, NO duplicados. Sin cambios.
+
+     QUEDA PARA v14.22.4+:
+       - Auditoría general de símbolos no definidos en otros flujos.
+       - Pasar todos los callback flow a try/catch con toast de error,
+         para que un ReferenceError nunca más sea silencioso.
+     ══════════════════════════════════════════════════════════════════════ -->
+
+<!-- ═══════════════════════════════════════════════════════════════════════
      TCK VENTAS — v14.22.2 — 18/05/2026
      ──────────────────────────────────────────────────────────────────────
      JORNADA INTELIGENTE: GPS + proximidad + próximo sugerido
@@ -26139,9 +26198,18 @@ async function _tomadorConfirmarFinalContinuar() {
 
   // v8.6: preguntar sucursal si el cliente tiene varias registradas.
   // Si no tiene o tiene 1 sola, el callback sigue directo al flujo de entrega.
+  // v14.22.3 FIX BUG ALMIRON-TOMADOR: la llamada original era a
+  //   abrirSelectorSucursalSiAplica(cliente, fn(res)) — función NUNCA definida.
+  //   Cuando v14.20.0 introdujo el flujo Xubio automático, la cadena
+  //   tomadorConfirmar → _tomadorConfirmarFinalContinuar quedó rota:
+  //   ReferenceError silencioso, el resumen se cerraba pero nada se
+  //   guardaba en Sheet ni se llamaba a Xubio. El usuario veía "vuelve
+  //   a la ventana de productos" sin ningún error visible.
+  //   Migramos al wrapper sucElegirAbrir(cliente, fn(suc, modo)) que ya
+  //   usa _manualWAConfirmarContinuar desde v14.17.2 sin problemas.
   var cliente = _gpsCheckinActivo ? _gpsCheckinActivo.nombre_cliente : '';
-  abrirSelectorSucursalSiAplica(cliente, function(res){
-    if (!res.continuar) {
+  sucElegirAbrir(cliente, function(suc, modo){
+    if (modo === 'cancelado') {
       // v14.17.2: usuario canceló el selector de sucursal. Liberar lock
       // + limpiar timeout vía helper, y reabrir el resumen.
       _tomadorLiberarLock();
@@ -26149,7 +26217,7 @@ async function _tomadorConfirmarFinalContinuar() {
       return;
     }
     // v8.6: guardamos la sucursal elegida en una variable accesible al confirmar
-    _tomadorSucursalElegida = res.sucursal; // null si el cliente no tiene
+    _tomadorSucursalElegida = suc || null; // null si el cliente no tiene
     // v14.2 F-Modal: inferir entrega desde localidad del check-in (NO modal)
     // v14.17.2 FIX BUG: leíamos `.localidad_cliente` (propiedad que NO existe);
     // gpsConfirmarCheckin guarda en `.localidad`. Por eso siempre caía al modal
