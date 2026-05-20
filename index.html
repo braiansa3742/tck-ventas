@@ -2,6 +2,77 @@
 <html lang="es">
 <head>
 <!-- ═══════════════════════════════════════════════════════════════════════
+     TCK VENTAS — v14.23.2 — 20/05/2026
+     ──────────────────────────────────────────────────────────────────────
+     FIX: BÚSQUEDA DE CLIENTES TOLERANTE AL ORDEN DE PALABRAS
+
+     SÍNTOMA REPORTADO (Braian, 20/05 ~11:15, vendedor Lisandro):
+       Lisandro hizo check-in y tipeó "Horacio elena" para buscar al cliente
+       ELENA HORACIO. El autocomplete devolvió "No se encontraron clientes"
+       a pesar de que el cliente está cargado en Xubio.
+       Resultado: Lisandro tuvo que salir del check-in y cargar el pedido
+       desde "Cargar pedido por WhatsApp" tipeando manualmente "ELENA HORACIO"
+       (perdiendo el check-in con GPS + el flujo de presupuesto automático).
+
+     CAUSA RAÍZ:
+       Tanto gpsBuscarClienteXubio (check-in) como manualWABuscarCliente
+       (cargar pedido por WA) usaban búsqueda por SUBCADENA CONSECUTIVA:
+         nombre_norm.ilike.*horacio elena*
+       Esto requiere que las palabras estén en el orden exacto que aparecen
+       en el nombre cargado en Xubio. Si el cliente está como "ELENA HORACIO"
+       y el vendedor tipea "Horacio elena", no hay match porque la subcadena
+       "horacio elena" no existe en "elena horacio".
+
+       Este orden no es predecible para el vendedor: algunos clientes están
+       cargados Apellido+Nombre, otros Nombre+Apellido, otros con segundo
+       nombre intercalado, etc.
+
+     FIX:
+       Cambiar ambas funciones para que cada palabra del query haga match
+       INDEPENDIENTE con AND sobre nombre_norm. Tipear "horacio elena"
+       ahora encuentra:
+         · ELENA HORACIO
+         · HORACIO ELENA
+         · JUAN HORACIO ELENA PÉREZ
+         · ELENA MARÍA HORACIO
+       Cualquier orden, con o sin palabras intermedias.
+
+       Sintaxis PostgREST:
+         &or=(and(nombre_norm.ilike.*horacio*,nombre_norm.ilike.*elena*))
+
+       Detalles:
+       · Palabras de menos de 2 caracteres se filtran (evita matchear todo
+         con "a" o "y"). Si después del filtro no queda nada, se usa el
+         query completo como fallback.
+       · El query se normaliza con _mwaNormalizarTexto (lowercase, sin
+         tildes) — antes el check-in no lo hacía y buscaba contra `nombre`
+         con tildes; ahora ambos usan nombre_norm.
+       · Branch CUIT: solo se incluye en el OR si el query original tiene
+         dígitos. Antes se buscaba el query completo contra CUIT siempre,
+         lo cual era ruidoso e inútil para queries de texto puro.
+
+     FUNCIONES TOCADAS:
+       · gpsBuscarClienteXubio (línea ~24407) — autocomplete del check-in.
+       · manualWABuscarCliente (línea ~32314) — autocomplete del flujo
+         "Cargar pedido por WA". El historial local (todosLosPedidos) ya
+         usaba .includes() y NO necesita cambio — solo se patcha el branch
+         que pega a Supabase.
+
+     NO CAMBIADO:
+       · Lógica anti-duplicado v14.23.1 (overlay + reset debounce + chequeo BD).
+       · Rediseño de cards v14.23.0.
+       · Todo el resto.
+
+     RIESGO:
+       Bajo. El cambio solo afecta la query de búsqueda; el resto del
+       flujo (selección de cliente, check-in, manualWA) no se toca.
+       Posible efecto colateral: más resultados (más permisivo).
+       Si el vendedor tipea una sola palabra muy genérica (ej: "juan")
+       va a traer 50 resultados — el límite y el order alfabético ya
+       estaban antes. Para refinarlo, el vendedor tipea segunda palabra.
+     ══════════════════════════════════════════════════════════════════════ -->
+
+<!-- ═══════════════════════════════════════════════════════════════════════
      TCK VENTAS — v14.23.1 — 19/05/2026
      ──────────────────────────────────────────────────────────────────────
      ANTI-DUPLICADO DE PEDIDOS POR CHECK-IN
@@ -24418,8 +24489,32 @@ function gpsBuscarClienteXubio(q) {
 
   _gpsTimer = setTimeout(function() {
     // v14.2 F3: pega DIRECTO a Supabase clientes_xubio (más rápido que Apps Script)
+    // v14.23.2: búsqueda TOLERANTE AL ORDEN DE PALABRAS y a tildes.
+    //   ANTES: nombre.ilike.*Horacio elena*  → no encontraba "ELENA HORACIO"
+    //   AHORA: cada palabra del query hace match independiente con AND sobre
+    //          nombre_norm (sin tildes). "horacio elena" ahora encuentra
+    //          "ELENA HORACIO", "HORACIO ELENA", etc.
+    //   CUIT: si el query tiene dígitos, lo intentamos también como CUIT
+    //          (OR aparte). Si no, no perdemos tiempo en ese branch.
+    var qNorm = _mwaNormalizarTexto(q);
+    var palabras = qNorm.split(/\s+/).filter(function(w) { return w.length >= 2; });
+    if (palabras.length === 0) {
+      // Solo 1 letra o solo dígitos sueltos: usar el query tal cual como fallback
+      palabras = [qNorm];
+    }
+    // Construir AND de ilikes para nombre_norm: cada palabra debe estar en el nombre
+    var andNombre = palabras.map(function(w) {
+      return 'nombre_norm.ilike.*' + encodeURIComponent(w) + '*';
+    }).join(',');
+    // Branch CUIT solo si hay dígitos en el query original
+    var tieneDigitos = /\d/.test(q);
+    var orCuit = tieneDigitos
+      ? 'cuit.ilike.*' + encodeURIComponent(q.replace(/\D/g,'')) + '*'
+      : '';
     var path = 'clientes_xubio?select=id,nombre,cuit,localidad'
-             + '&or=(nombre.ilike.*' + encodeURIComponent(q) + '*,cuit.ilike.*' + encodeURIComponent(q) + '*)'
+             + '&or=(and(' + andNombre + ')'
+             +     (orCuit ? ',' + orCuit : '')
+             + ')'
              + '&limit=10';
     sbFetch(path)
       .then(function(filas) {
@@ -32392,10 +32487,25 @@ function manualWABuscarCliente(q) {
     //    v14.8.1: usar nombre_norm (insensible a tildes) si el query tiene tildes
     //    El campo nombre_norm en Supabase ya viene sin tildes (lo arma _xubioNormalizarTexto)
     //    v14.16.0: subir limit server-side de 15 a 50 + agregar order para resultados consistentes
-    var qParaXubio = qNorm; // sin tildes
+    //    v14.23.2: búsqueda TOLERANTE AL ORDEN DE PALABRAS.
+    //      ANTES: nombre_norm.ilike.*horacio elena*  → no encontraba "ELENA HORACIO"
+    //      AHORA: cada palabra del query hace AND. Tipear "horacio elena"
+    //             encuentra "ELENA HORACIO", "HORACIO ELENA", "JUAN HORACIO ELENA", etc.
+    var palabras = qNorm.split(/\s+/).filter(function(w) { return w.length >= 2; });
+    if (palabras.length === 0) {
+      palabras = [qNorm];
+    }
+    var andNombre = palabras.map(function(w) {
+      return 'nombre_norm.ilike.*' + encodeURIComponent(w) + '*';
+    }).join(',');
+    var tieneDigitos = /\d/.test(q);
+    var orCuit = tieneDigitos
+      ? 'cuit.ilike.*' + encodeURIComponent(q.replace(/\D/g,'')) + '*'
+      : '';
     var path = 'clientes_xubio?select=id,nombre,cuit,localidad'
-             + '&or=(nombre_norm.ilike.*' + encodeURIComponent(qParaXubio) + '*'
-             +     ',cuit.ilike.*' + encodeURIComponent(qParaXubio) + '*)'
+             + '&or=(and(' + andNombre + ')'
+             +     (orCuit ? ',' + orCuit : '')
+             + ')'
              + '&order=nombre.asc'
              + '&limit=50';
     sbFetch(path)
