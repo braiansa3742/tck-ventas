@@ -52,11 +52,16 @@
          lo cual era ruidoso e inútil para queries de texto puro.
 
      FUNCIONES TOCADAS:
-       · gpsBuscarClienteXubio (línea ~24407) — autocomplete del check-in.
-       · manualWABuscarCliente (línea ~32314) — autocomplete del flujo
+       · gpsBuscarClienteXubio (línea ~24478) — autocomplete del check-in.
+       · manualWABuscarCliente (línea ~32414) — autocomplete del flujo
          "Cargar pedido por WA". El historial local (todosLosPedidos) ya
          usaba .includes() y NO necesita cambio — solo se patcha el branch
          que pega a Supabase.
+       · xubioBuscarCliente (línea ~21661) — buscador del panel Xubio dentro
+         de cada card de pedido (admin asigna cliente para presupuesto).
+         Mismo bug, mismo fix. No fue reportado por Francisco aún pero
+         hubiera aparecido si tipeaba un nombre en orden invertido.
+         Branch CUIT separado se preserva (es lógica vieja útil).
 
      NO CAMBIADO:
        · Lógica anti-duplicado v14.23.1 (overlay + reset debounce + chequeo BD).
@@ -21690,8 +21695,15 @@ function xubioBuscarCliente(input, pedidoId, id) {
            + '&cuit=ilike.*' + encodeURIComponent(qLimpio) + '*'
            + '&limit=12';
     } else {
+      // v14.23.2: cada palabra del query hace AND independiente sobre
+      // nombre_norm. Tipear "horacio elena" encuentra "ELENA HORACIO".
+      var palabras = qNorm.split(/\s+/).filter(function(w) { return w.length >= 2; });
+      if (palabras.length === 0) palabras = [qNorm];
+      var andNombre = palabras.map(function(w) {
+        return 'nombre_norm.ilike.*' + encodeURIComponent(w) + '*';
+      }).join(',');
       path = 'clientes_xubio?select=id,nombre,cuit,localidad'
-           + '&nombre_norm=ilike.' + encodeURIComponent('*' + qNorm + '*')
+           + '&and=(' + andNombre + ')'
            + '&order=nombre.asc'
            + '&limit=12';
     }
