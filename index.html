@@ -2,6 +2,62 @@
 <html lang="es">
 <head>
 <!-- ═══════════════════════════════════════════════════════════════════════
+     TCK VENTAS — v14.23.3 — 21/05/2026
+     ──────────────────────────────────────────────────────────────────────
+     FEATURE: BOTÓN WHATSAPP PARA PEDIDOS DEL CATÁLOGO WEB
+
+     CONTEXTO (Braian, 21/05):
+       Los pedidos que entran por catálogo web (origen=catalogo) los
+       recibe el vendedor (Miguel por defecto). El vendedor tiene que:
+         1) Saber que el pedido vino de la web (no de WhatsApp directo)
+         2) Confirmar con el cliente para armar el presupuesto en Xubio
+         3) A veces pedir algún dato extra (RUC, dirección de envío, etc)
+
+       Hoy el vendedor ve el badge "🌐 CATÁLOGO" en la card (v14.23.0)
+       pero no tiene un atajo directo para contactar al cliente con un
+       mensaje que mencione el N° de pedido y el resumen.
+
+     SOLUCIÓN:
+       Botón "WhatsApp al cliente" verde (logo oficial WA) en la sección
+       Acciones de la card. Se muestra SOLO cuando:
+         · origen = 'catalogo' (catálogo web TCK)
+         · estado ∈ {Pendiente, Confirmado}
+
+       Al tocarlo, abre wa.me/<telefono>?text=<mensaje pre-armado>:
+         · Saludo personalizado por nombre
+         · Identificación del vendedor
+         · N° de pedido completo
+         · Resumen de productos parseado desde p.detalle
+         · Total estimado
+         · Queda con espacio en blanco para que el vendedor agregue
+           lo que necesite preguntar.
+
+       Si el pedido no tiene teléfono guardado, abre wa.me sin número
+       (el vendedor elige el contacto manualmente).
+
+     FUNCIONES AGREGADAS:
+       · _v23WaCatalogoBtnHtml(p) — devuelve el HTML del botón o ''.
+
+     FUNCIONES MODIFICADAS:
+       · renderCard — invoca _v23WaCatalogoBtnHtml al inicio de accBtns
+         (queda como botón principal, ancho completo).
+
+     CSS AGREGADO:
+       · .cv23-btn.wa { background: #25D366; color: #fff; ... }
+       · El SVG del logo WhatsApp está inline en el HTML del botón.
+
+     NO CAMBIADO:
+       · Lógica de búsqueda v14.23.2 (tolerante a orden).
+       · Anti-duplicado v14.23.1.
+       · Rediseño cards v14.23.0.
+       · Todo el resto.
+
+     RIESGO:
+       Muy bajo. Es código aditivo (un botón nuevo, una función nueva,
+       CSS nuevo). No toca lógica existente. Si _v23WaCatalogoBtnHtml
+       devuelve '' (no es catálogo), nada cambia.
+
+     ──────────────────────────────────────────────────────────────────────
      TCK VENTAS — v14.23.2 — 20/05/2026
      ──────────────────────────────────────────────────────────────────────
      FIX: BÚSQUEDA DE CLIENTES TOLERANTE AL ORDEN DE PALABRAS
@@ -4271,6 +4327,19 @@ body {
 .cv23-btn.entrega { background: #E3F2FD; color: var(--blue); border-color: var(--blue); }
 .cv23-btn.entrega:hover { background: var(--blue); color: #fff; }
 .cv23-btn.sucursales { background: #FFF8DC; color: #8B6F50; border-color: #D4A574; }
+
+/* v14.23.3 — Botón WhatsApp para pedidos del catálogo (verde oficial) */
+.cv23-btn.wa {
+  background: #25D366;
+  color: #fff;
+  border-color: #25D366;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 5px;
+}
+.cv23-btn.wa:hover { background: #1FAE54; border-color: #1FAE54; }
+.cv23-btn.wa svg { vertical-align: -2px; flex-shrink: 0; }
 
 .cv23-chofer-badge {
   display: inline-flex;
@@ -18716,6 +18785,84 @@ function _v23CanalPillHtml(p) {
   return '';
 }
 
+// ════════════════════════════════════════════════════════════════════════
+// v14.23.3 — Botón WhatsApp para pedidos del catálogo
+// ────────────────────────────────────────────────────────────────────
+// Se muestra SOLO en pedidos `origen = catalogo` y pedidos PENDIENTES /
+// CONFIRMADOS (no entregados ni cancelados).
+//
+// El vendedor toca → se abre WhatsApp con un mensaje pre-armado que:
+//   1) Saluda al cliente por nombre
+//   2) Menciona el N° de pedido completo (TCK-YYYYMMDD-...)
+//   3) Resume los productos
+//   4) Muestra el total
+//   5) Queda abierto para que el vendedor agregue lo que necesite
+//
+// Si el pedido no tiene teléfono guardado, el botón abre wa.me sin número
+// (el vendedor elige a quién mandárselo desde sus contactos).
+// ════════════════════════════════════════════════════════════════════════
+function _v23WaCatalogoBtnHtml(p) {
+  if (!p) return '';
+  // Solo para pedidos del catálogo
+  if (pedidoOrigen(p) !== 'catalogo') return '';
+  // Solo si está activo (Pendiente / Confirmado)
+  if (p.estado !== 'Pendiente' && p.estado !== 'Confirmado') return '';
+
+  // Armar resumen del pedido (productos parseados)
+  var prods = [];
+  try {
+    var arr = (typeof _v23ParseProductos === 'function') ? _v23ParseProductos(p.detalle || '') : [];
+    arr.forEach(function(it){
+      var qty = it.qty || 1;
+      var nombre = (it.nombre || '').trim();
+      if (!nombre) return;
+      // Línea estilo: "• 4× Pollo A x6"
+      prods.push('• ' + qty + '× ' + nombre);
+    });
+  } catch(e){}
+
+  // Fallback: si no se pudo parsear, usar el resumen del pedido
+  var resumenLinea = '';
+  if (prods.length > 0) {
+    resumenLinea = '\n*Detalle:*\n' + prods.join('\n');
+  } else if (p.resumen) {
+    resumenLinea = '\n*Detalle:* ' + p.resumen;
+  }
+
+  // Total formateado
+  var totalFmt = fmtTotal(p.total);
+
+  // Saludo personalizado (nombre antes del primer espacio o "(sin nombre)")
+  var nombre = (p.cliente || '').trim();
+  var primerNombre = nombre.split(/\s+/)[0] || '';
+  var saludo = primerNombre ? ('Hola ' + primerNombre + '!') : '¡Hola!';
+
+  // Mensaje pre-armado
+  var msg =
+    saludo + ' Soy ' + (p.vendedor || 'tu vendedor') + ' de TCK 🐔\n\n' +
+    'Te escribo por tu pedido del catálogo:\n' +
+    '*N° ' + p.pedidoId + '*' + resumenLinea + '\n\n' +
+    '*Total estimado:* ' + totalFmt + '\n\n' +
+    'Lo recibí, voy a armarte el presupuesto. ';
+
+  // Limpiar el teléfono: dejar solo dígitos. Si está vacío, abrir wa.me sin número.
+  var tel = (p.telefono || '').toString().replace(/[^\d]/g, '');
+  // Si el tel está cortado (sin código país), lo dejamos como vino — wa.me lo maneja.
+  var waUrl = tel
+    ? ('https://wa.me/' + tel + '?text=' + encodeURIComponent(msg))
+    : ('https://wa.me/?text=' + encodeURIComponent(msg));
+
+  // Logo oficial WhatsApp en SVG
+  var svg = '<svg viewBox="0 0 24 24" width="13" height="13" fill="#fff">' +
+    '<path d="M17.472 14.382c-.297-.149-1.758-.867-2.03-.967-.273-.099-.471-.148-.67.15-.197.297-.767.966-.94 1.164-.173.199-.347.223-.644.075-.297-.15-1.255-.463-2.39-1.475-.883-.788-1.48-1.761-1.653-2.059-.173-.297-.018-.458.13-.606.134-.133.298-.347.446-.52.149-.174.198-.298.298-.497.099-.198.05-.371-.025-.52-.075-.149-.669-1.612-.916-2.207-.242-.579-.487-.5-.669-.51-.173-.008-.371-.01-.57-.01-.198 0-.52.074-.792.372-.272.297-1.04 1.016-1.04 2.479 0 1.462 1.065 2.875 1.213 3.074.149.198 2.096 3.2 5.077 4.487.709.306 1.262.489 1.694.625.712.227 1.36.195 1.871.118.571-.085 1.758-.719 2.006-1.413.248-.694.248-1.289.173-1.413-.074-.124-.272-.198-.57-.347m-5.421 7.403h-.004a9.87 9.87 0 01-5.031-1.378l-.361-.214-3.741.982.998-3.648-.235-.374a9.86 9.86 0 01-1.51-5.26c.001-5.45 4.436-9.884 9.888-9.884 2.64 0 5.122 1.03 6.988 2.898a9.825 9.825 0 012.893 6.994c-.003 5.45-4.437 9.884-9.885 9.884m8.413-18.297A11.815 11.815 0 0012.05 0C5.495 0 .16 5.335.157 11.892c0 2.096.547 4.142 1.588 5.945L.057 24l6.305-1.654a11.882 11.882 0 005.683 1.448h.005c6.554 0 11.89-5.335 11.893-11.893a11.821 11.821 0 00-3.48-8.413z"/>' +
+    '</svg>';
+
+  // El botón es un <a> para evitar interceptar el toggleCard. event.stopPropagation onclick.
+  return '<a class="cv23-btn wa principal" href="' + waUrl + '" target="_blank" rel="noopener noreferrer" onclick="event.stopPropagation();" title="Abrir WhatsApp con mensaje pre-armado">' +
+    svg + ' WhatsApp al cliente' +
+  '</a>';
+}
+
 // Devuelve la clase y el contenido de la pill de fecha de entrega para la
 // card colapsada. Considera urgencia (HOY) y casos especiales (entregado,
 // sin fecha asignada).
@@ -19045,6 +19192,9 @@ function renderCard(p) {
   // viable (es string concatenado). Replanteamos: armar acciones desde cero
   // usando las MISMAS condiciones que el código viejo.
   var accBtns = '';
+  // v14.23.3: botón WhatsApp arriba de todo si el pedido vino del catálogo.
+  // Se renderiza primero y es de tipo "principal" (ocupa todo el ancho).
+  accBtns += _v23WaCatalogoBtnHtml(p);
   // Botón principal: "Asignar a chofer" (admin + Confirmado sin chofer)
   if (esAdmin && p.estado === 'Confirmado' && !p.choferAsignado) {
     accBtns += '<button class="cv23-btn chofer principal" data-pedido="' + p.pedidoId + '" onclick="mostrarPickerChofer(this,event)">🚚 Asignar a chofer</button>';
