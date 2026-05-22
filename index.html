@@ -2,8 +2,51 @@
 <html lang="es">
 <head>
 <!-- ═══════════════════════════════════════════════════════════════════════
-     TCK VENTAS — v14.23.3 — 21/05/2026
+     TCK VENTAS — v14.24.0 — 22/05/2026
      ──────────────────────────────────────────────────────────────────────
+     FIX: CAPTURA GPS PRECISA + UBICACIÓN REAL DEL COMERCIO
+
+     CONTEXTO (Braian, 22/05):
+       El mapa de admin tiraba 60+ alertas de ubicación falsas y nunca
+       guardaba la posición real de los comercios. Causa raíz: el GPS se
+       pedía mal (caché de hasta 60s, sin descartar lecturas imprecisas)
+       y la "ubicación del comercio" era la PRIMERA lectura ruidosa, que
+       no se corregía nunca. Se comparaba ruido contra ruido → alertas.
+
+     CAMBIOS:
+
+       1. _gpsObtenerPosicion (captura GPS):
+          · maximumAge: 0 (nunca usa posición cacheada — era la causa #1
+            de alertas falsas: lectura de cuadras atrás).
+          · Captura pos.coords.accuracy (precisión en metros).
+          · watchPosition: toma hasta 4 lecturas en ~6s y se queda con la
+            de mejor precisión. Corte temprano si llega una <30m.
+          · Devuelve {lat, lng, accuracy}. Retrocompatible.
+
+       2. gpsGuardarUbicacionCliente (ubicación del comercio):
+          · Solo lecturas con accuracy < 80m mueven/comparan la ubicación.
+          · La ubicación se PROMEDIA (lat_suma/lng_suma/muestras_buenas):
+            converge a la posición real en pocas visitas.
+          · Tras 5 lecturas buenas → ubicacion_confirmada=true.
+          · ALERTA solo si: confirmada + lectura precisa + >150m de
+            diferencia (= mudanza real). Antes alertaba a >200m comparando
+            cualquier lectura, por ruidosa que fuera.
+
+       3. checkin y checkout ahora guardan `accuracy` en tabla visitas.
+
+     REQUIERE MIGRACIÓN SUPABASE (correr en SQL Editor antes de deploy):
+       Tabla clientes_ubicaciones: + precision_actual, ubicacion_confirmada,
+         lat_suma, lng_suma, muestras_buenas. Resetear contadores a 0 para
+         que las ubicaciones viejas (imprecisas) se re-asienten con el uso.
+       Tabla visitas: + accuracy.
+       SQL completo entregado aparte.
+
+     NOTA: las ubicaciones existentes parten de cero (muestras_buenas=0).
+       Durante ~5 semanas se van confirmando solas; mientras tanto no
+       disparan alertas (sin confirmar = no hay contra qué comparar).
+
+     ─── histórico ───
+     v14.23.3 — 21/05/2026
      FEATURE: BOTÓN WHATSAPP PARA PEDIDOS DEL CATÁLOGO WEB
 
      CONTEXTO (Braian, 21/05):
@@ -23472,24 +23515,95 @@ function gpsGetCoords() {
   });
 }
 
+// v14.24.0 — CAPTURA GPS MEJORADA
+// Cambios vs v14.23.3:
+//   · maximumAge: 0 (NUNCA usar caché; la lectura cacheada de hasta 60s
+//     era la causa #1 de alertas falsas: posición de cuadras atrás).
+//   · Captura pos.coords.accuracy y la devuelve como `accuracy`.
+//   · Toma hasta 4 lecturas en una ventana de ~6s y se queda con la de
+//     MEJOR precisión (menor accuracy). El GPS "afina" con el tiempo:
+//     la primera lectura suele ser de red (impreciso), las siguientes
+//     del chip GPS real.
+//   · Devuelve {lat, lng, accuracy}. Retrocompatible: los callers que
+//     solo leen .lat/.lng siguen funcionando igual.
 function _gpsObtenerPosicion(resolve) {
-  navigator.geolocation.getCurrentPosition(
-    function(pos) {
-      resolve({lat: pos.coords.latitude, lng: pos.coords.longitude});
-    },
-    function(err) {
-      if (err.code === 1) {
-        // Permiso denegado en el momento de pedir — mostrar modal
-        mostrarModalGPS();
-      } else if (err.code === 3) {
-        toast('⏱️ GPS tardó demasiado. Salí al aire libre e intentá de nuevo.', 'err');
-      } else {
-        toast('📍 No se pudo obtener la ubicación', 'err');
-      }
-      resolve({lat: null, lng: null});
-    },
-    {timeout: 10000, maximumAge: 60000, enableHighAccuracy: true}
-  );
+  var mejor = null;          // mejor lectura hasta ahora {lat,lng,accuracy}
+  var lecturas = 0;          // cuántas lecturas válidas llegaron
+  var MAX_LECTURAS = 4;      // techo de lecturas a evaluar
+  var VENTANA_MS = 6000;     // tiempo máximo total juntando lecturas
+  var BUENA_MS = 30;         // accuracy considerada "ya está, no busco más"
+  var resuelto = false;
+  var watchId = null;
+  var timer = null;
+
+  function terminar() {
+    if (resuelto) return;
+    resuelto = true;
+    if (watchId !== null && navigator.geolocation.clearWatch) {
+      navigator.geolocation.clearWatch(watchId);
+    }
+    if (timer) clearTimeout(timer);
+    if (mejor) {
+      resolve({ lat: mejor.lat, lng: mejor.lng, accuracy: mejor.accuracy });
+    } else {
+      resolve({ lat: null, lng: null, accuracy: null });
+    }
+  }
+
+  function onPos(pos) {
+    var acc = pos.coords.accuracy != null ? pos.coords.accuracy : 9999;
+    lecturas++;
+    if (!mejor || acc < mejor.accuracy) {
+      mejor = { lat: pos.coords.latitude, lng: pos.coords.longitude, accuracy: acc };
+    }
+    // Si ya tenemos una lectura muy buena, no esperamos más.
+    if (mejor.accuracy <= BUENA_MS) { terminar(); return; }
+    // Si llegamos al techo de lecturas, cortamos con la mejor que haya.
+    if (lecturas >= MAX_LECTURAS) { terminar(); return; }
+  }
+
+  function onErr(err) {
+    // Si ya juntamos al menos una lectura buena, la devolvemos igual.
+    if (mejor) { terminar(); return; }
+    resuelto = true;
+    if (timer) clearTimeout(timer);
+    if (watchId !== null && navigator.geolocation.clearWatch) {
+      navigator.geolocation.clearWatch(watchId);
+    }
+    if (err.code === 1) {
+      mostrarModalGPS();
+    } else if (err.code === 3) {
+      toast('⏱️ GPS tardó demasiado. Salí al aire libre e intentá de nuevo.', 'err');
+    } else {
+      toast('📍 No se pudo obtener la ubicación', 'err');
+    }
+    resolve({ lat: null, lng: null, accuracy: null });
+  }
+
+  // watchPosition entrega lecturas sucesivas que van afinando la precisión.
+  if (navigator.geolocation.watchPosition) {
+    watchId = navigator.geolocation.watchPosition(onPos, onErr, {
+      enableHighAccuracy: true,
+      maximumAge: 0,
+      timeout: VENTANA_MS
+    });
+    // Corte duro por tiempo: pase lo que pase, a los VENTANA_MS resolvemos
+    // con la mejor lectura disponible (o null si no llegó ninguna).
+    timer = setTimeout(terminar, VENTANA_MS);
+  } else {
+    // Fallback si no hay watchPosition: una sola lectura de alta precisión.
+    navigator.geolocation.getCurrentPosition(
+      function(pos) {
+        resolve({
+          lat: pos.coords.latitude,
+          lng: pos.coords.longitude,
+          accuracy: pos.coords.accuracy != null ? pos.coords.accuracy : null
+        });
+      },
+      onErr,
+      { timeout: 10000, maximumAge: 0, enableHighAccuracy: true }
+    );
+  }
 }
 
 // Cargar historial del día
@@ -24982,7 +25096,8 @@ async function gpsConfirmarCheckin(nombreCliente, localidadCliente, xubioId, xub
           nombre_cliente: nombreCliente,
           tipo:           'checkin',
           lat:            coords.lat,
-          lng:            coords.lng
+          lng:            coords.lng,
+          accuracy:       coords.accuracy != null ? coords.accuracy : null
         })
       });
       // SI LLEGAMOS ACÁ, EL INSERT FUNCIONÓ
@@ -25137,64 +25252,139 @@ async function _gpsBuscarMatchMaster_LEGACY_v14_13_1(nombreCliente, vendedorId) 
 }
 */
 
-// Guardar ubicación permanente del cliente (solo si no tiene una ya)
+// ════════════════════════════════════════════════════════════════
+// v14.24.0 — UBICACIÓN REAL DEL COMERCIO (promedio incremental)
+// ────────────────────────────────────────────────────────────────
+// Problema viejo (v14.23.3 y anteriores):
+//   La "ubicación del comercio" era la PRIMERA lectura GPS que hubo,
+//   que podía ser imprecisa (red WiFi/celda a 200-400m). Cada visita
+//   nueva comparaba una lectura ruidosa contra otra lectura ruidosa
+//   → diferencias de cientos de metros por puro error de GPS → 60+
+//   alertas falsas. Nunca se obtenía la posición real del local.
+//
+// Modelo nuevo:
+//   1. Solo lecturas PRECISAS (accuracy < GPS_ACC_MAX) mueven o
+//      comparan la ubicación. Las imprecisas registran la visita pero
+//      no tocan la posición oficial.
+//   2. La ubicación se PROMEDIA: cada lectura buena se acumula
+//      (lat_suma, lng_suma, muestras_buenas) y lat/lng = promedio.
+//      Así converge a la posición real en pocas visitas.
+//   3. Tras GPS_MUESTRAS_CONFIRMAR lecturas buenas → ubicacion_confirmada=true.
+//      Recién ahí la ubicación se considera oficial.
+//   4. ALERTA solo si: ubicación CONFIRMADA + lectura PRECISA + la
+//      diferencia supera GPS_DIST_ALERTA. Eso = mudanza real, no ruido.
+//
+// Requiere columnas nuevas en clientes_ubicaciones (Supabase):
+//   precision_actual numeric, ubicacion_confirmada boolean default false,
+//   lat_suma numeric default 0, lng_suma numeric default 0,
+//   muestras_buenas integer default 0
+// (SQL de migración entregado aparte; Braian lo corre en SQL Editor).
+// ════════════════════════════════════════════════════════════════
+var GPS_ACC_MAX           = 80;   // m — sobre esto la lectura es "imprecisa"
+var GPS_MUESTRAS_CONFIRMAR = 5;   // lecturas buenas para congelar la ubicación
+var GPS_DIST_ALERTA       = 150;  // m — diferencia para alertar mudanza real
+
 async function gpsGuardarUbicacionCliente(nombreCliente, coords, vendedorId) {
   if (!coords.lat || !coords.lng) return;
+  var acc = (coords.accuracy != null) ? coords.accuracy : 9999;
+  var esBuena = acc <= GPS_ACC_MAX;     // ¿lectura lo bastante precisa?
+  var ahora = new Date().toISOString();
+
   try {
     var existing = await sbFetch('clientes_ubicaciones?nombre_cliente=eq.' + encodeURIComponent(nombreCliente) + '&select=*');
-    
-    if (existing && existing.length > 0) {
-      var ub = existing[0];
-      // Calcular distancia con la ubicación registrada
+
+    // ── CASO 1: cliente nuevo, sin ubicación previa ──
+    if (!existing || existing.length === 0) {
+      var body = {
+        nombre_cliente: nombreCliente,
+        vendedor_id:    vendedorId,
+        primera_visita: ahora,
+        ultima_visita:  ahora,
+        visitas_count:  1,
+        alerta_ubicacion: false,
+        ubicacion_confirmada: false
+      };
+      if (esBuena) {
+        // Arranca el promedio con esta primera muestra buena.
+        body.lat = coords.lat;
+        body.lng = coords.lng;
+        body.lat_suma = coords.lat;
+        body.lng_suma = coords.lng;
+        body.muestras_buenas = 1;
+        body.precision_actual = acc;
+      } else {
+        // Imprecisa: guardamos una posición tentativa solo para tener un
+        // punto en el mapa, pero NO arranca el promedio (muestras=0).
+        body.lat = coords.lat;
+        body.lng = coords.lng;
+        body.lat_suma = 0;
+        body.lng_suma = 0;
+        body.muestras_buenas = 0;
+        body.precision_actual = acc;
+      }
+      await sbFetch('clientes_ubicaciones', {
+        method: 'POST', prefer: 'return=minimal', body: JSON.stringify(body)
+      });
+      return;
+    }
+
+    // ── CASO 2: cliente con registro previo ──
+    var ub = existing[0];
+    var patch = {
+      ultima_visita: ahora,
+      visitas_count: (ub.visitas_count || 1) + 1
+    };
+
+    // Si la lectura es imprecisa, NO tocamos la ubicación oficial ni
+    // disparamos alerta. Solo actualizamos el contador de visitas.
+    if (!esBuena) {
+      await sbFetch('clientes_ubicaciones?nombre_cliente=eq.' + encodeURIComponent(nombreCliente), {
+        method: 'PATCH', prefer: 'return=minimal', body: JSON.stringify(patch)
+      });
+      return;
+    }
+
+    // Lectura BUENA. Decidir si alertar (solo si ya está confirmada).
+    var confirmada = ub.ubicacion_confirmada === true;
+    if (confirmada && ub.lat != null && ub.lng != null) {
       var distancia = Math.sqrt(
         Math.pow((coords.lat - ub.lat) * 111000, 2) +
         Math.pow((coords.lng - ub.lng) * 111000 * Math.cos(ub.lat * Math.PI / 180), 2)
       );
-      
-      if (distancia > 200) {
-        // Más de 200 metros de diferencia — guardar alerta
+      if (distancia > GPS_DIST_ALERTA) {
+        // Mudanza real: ubicación confirmada + lectura precisa + lejos.
+        // NO movemos la ubicación automáticamente; queda la alerta para
+        // que admin decida si actualiza el domicilio del comercio.
+        patch.alerta_ubicacion = true;
+        patch.lat_anterior = ub.lat;
+        patch.lng_anterior = ub.lng;
         await sbFetch('clientes_ubicaciones?nombre_cliente=eq.' + encodeURIComponent(nombreCliente), {
-          method: 'PATCH',
-          prefer: 'return=minimal',
-          body: JSON.stringify({
-            alerta_ubicacion: true,
-            lat_anterior: ub.lat,
-            lng_anterior: ub.lng,
-            ultima_visita: new Date().toISOString(),
-            visitas_count: (ub.visitas_count || 1) + 1
-          })
+          method: 'PATCH', prefer: 'return=minimal', body: JSON.stringify(patch)
         });
-        // Mostrar alerta al vendedor
         setTimeout(function() {
-          toast('⚠️ ' + nombreCliente + ': ubicación diferente a la registrada (' + Math.round(distancia) + 'm)', 'err');
+          toast('⚠️ ' + nombreCliente + ': posible cambio de dirección (' + Math.round(distancia) + 'm)', 'err');
         }, 1000);
-      } else {
-        // Ubicación normal — actualizar conteo
-        await sbFetch('clientes_ubicaciones?nombre_cliente=eq.' + encodeURIComponent(nombreCliente), {
-          method: 'PATCH',
-          prefer: 'return=minimal',
-          body: JSON.stringify({
-            ultima_visita: new Date().toISOString(),
-            visitas_count: (ub.visitas_count || 1) + 1,
-            alerta_ubicacion: false
-          })
-        });
+        return;
       }
-    } else {
-      // Primera vez — guardar ubicación
-      await sbFetch('clientes_ubicaciones', {
-        method: 'POST',
-        prefer: 'return=minimal',
-        body: JSON.stringify({
-          nombre_cliente: nombreCliente,
-          lat: coords.lat,
-          lng: coords.lng,
-          vendedor_id: vendedorId,
-          primera_visita: new Date().toISOString(),
-          ultima_visita: new Date().toISOString()
-        })
-      });
     }
+
+    // Lectura buena dentro de lo esperado (o ubicación aún no confirmada):
+    // sumar al promedio y recalcular la posición oficial.
+    var nMuestras = (ub.muestras_buenas || 0) + 1;
+    var sumaLat = (ub.lat_suma || 0) + coords.lat;
+    var sumaLng = (ub.lng_suma || 0) + coords.lng;
+    patch.muestras_buenas = nMuestras;
+    patch.lat_suma = sumaLat;
+    patch.lng_suma = sumaLng;
+    patch.lat = sumaLat / nMuestras;     // promedio = ubicación real
+    patch.lng = sumaLng / nMuestras;
+    patch.precision_actual = acc;
+    patch.alerta_ubicacion = false;
+    if (nMuestras >= GPS_MUESTRAS_CONFIRMAR) patch.ubicacion_confirmada = true;
+
+    await sbFetch('clientes_ubicaciones?nombre_cliente=eq.' + encodeURIComponent(nombreCliente), {
+      method: 'PATCH', prefer: 'return=minimal', body: JSON.stringify(patch)
+    });
   } catch(e) {
     console.warn('No se pudo guardar ubicación cliente:', e);
   }
@@ -25374,7 +25564,8 @@ async function gpsCheckoutFinal(motivo) {
           tipo:             'checkout',
           motivo_no_compra: motivo || null,
           lat:              coords.lat,
-          lng:              coords.lng
+          lng:              coords.lng,
+          accuracy:         coords.accuracy != null ? coords.accuracy : null
         })
       });
     })
