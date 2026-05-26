@@ -2,6 +2,31 @@
 <html lang="es">
 <head>
 <!-- ═══════════════════════════════════════════════════════════════════════
+     TCK VENTAS — v14.26.0 — 26/05/2026
+     ──────────────────────────────────────────────────────────────────────
+     MIGUEL ATIENDE EL TRÁFICO ONLINE DE PUBLICIDAD (TCK Online)
+
+       Decisión de negocio (Braian): los pedidos del catálogo que entran por
+       publicidad (vendedor "TCK Online") ahora llegan a Miguel, que los
+       atiende como clientes propios — los ve, confirma, crea presupuesto,
+       edita y cancela sin distinción visual ni fricción.
+       La diferenciación cliente-propio vs online-publicidad se hace SOLO
+       desde el admin vía vendedor_origen (inmutable).
+
+       Implementación: constante VENDEDOR_ONLINE='Miguel' + helper
+       esPedidoDeEsteVendedor() reutilizado en:
+         · pedidosVisibles()         (lista de pedidos)
+         · actualizarTitle()         (contador de pendientes del título)
+         · esPedidoPropio            (botón cancelar, vista 1)
+         · esPedidoPropioV23         (botón cancelar, vista V23)
+         · esVendedorDueno           (botón desbloquear/anular presupuesto)
+         · esMiPedido                (modal cancelación con motivo)
+       Para cambiar el vendedor online en el futuro, editar VENDEDOR_ONLINE.
+
+       NOTA: el WhatsApp al que llega el pedido NO se cambia acá — eso vive
+       en n8n/catálogo. Este cambio es solo de visibilidad/operación en panel.
+
+     ──────────────────────────────────────────────────────────────────────
      TCK VENTAS — v14.25.0 — 26/05/2026
      ──────────────────────────────────────────────────────────────────────
      LÍNEA PREMIUM FRESNOVA en TOMADOR_CAT
@@ -18417,7 +18442,9 @@ function parseCsv(line) {
 // ── STATS ─────────────────────────────────────────────────────────
 function actualizarTitle() {
   var pend = todosLosPedidos.filter(function(p){
-    return p.estado === 'Pendiente' && (vendedorActual === 'ADMIN' || p.vendedor.toLowerCase().includes(vendedorActual.toLowerCase()));
+    if (p.estado !== 'Pendiente') return false;
+    if (vendedorActual === 'ADMIN') return true;
+    return esPedidoDeEsteVendedor(p, vendedorActual);
   }).length;
   if (pend > 0) {
     document.title = '⏳ ' + pend + ' — TCK Ventas';
@@ -18441,10 +18468,25 @@ function actualizarStats() {
   document.getElementById('stat-entregado').textContent = activos.filter(function(p){return p.estado==='Entregado';}).length;
 }
 
+// v14.26.0: Miguel atiende también el tráfico online de publicidad (TCK Online).
+// Decisión de negocio (Braian): esos pedidos llegan a Miguel y él los atiende
+// como clientes propios (los ve, confirma, crea presupuesto, edita y cancela).
+// Para Miguel NO hay distinción visual. La separación cliente-propio vs
+// online-publicidad se hace SOLO desde el admin vía vendedor_origen (inmutable).
+// VENDEDOR_ONLINE = vendedor que recibe el tráfico de publicidad del catálogo.
+var VENDEDOR_ONLINE = 'Miguel';
+function esPedidoDeEsteVendedor(p, vendActual) {
+  if (!vendActual) return false;
+  var vend = (p.vendedor || '').toLowerCase();
+  // El vendedor online ve/opera además los pedidos de "TCK Online"
+  if (vendActual === VENDEDOR_ONLINE && vend.indexOf('tck online') !== -1) return true;
+  return vend.indexOf(vendActual.toLowerCase()) !== -1;
+}
+
 function pedidosVisibles() {
   if (vendedorActual === 'ADMIN') return todosLosPedidos;
   return todosLosPedidos.filter(function(p){
-    return p.vendedor.toLowerCase().includes(vendedorActual.toLowerCase());
+    return esPedidoDeEsteVendedor(p, vendedorActual);
   });
 }
 
@@ -19089,7 +19131,7 @@ function renderCard(p) {
   //     Estado "Entregado" sigue bloqueado (solo ADMIN puede revertir).
   //   · El botón abre el modal nuevo con motivos predefinidos (no `confirm()` simple).
   // Antes (v14.14.x): solo ADMIN veía el botón. Vendedores no podían cancelar.
-  var esPedidoPropio = !esAdmin && !esChofer && p.vendedor === vendedorActual;
+  var esPedidoPropio = !esAdmin && !esChofer && esPedidoDeEsteVendedor(p, vendedorActual);
   var puedeVendedorCancelar = esPedidoPropio && (p.estado === 'Pendiente' || p.estado === 'Confirmado');
   var puedeAdminCancelar = esAdmin && p.estado !== 'Cancelado';
   if (puedeAdminCancelar || puedeVendedorCancelar) {
@@ -19278,7 +19320,7 @@ function renderCard(p) {
     accBtns += '<button class="cv23-btn pendiente" onclick="cambiarEstado(\'' + p.pedidoId + '\',' + p.fila + ',\'Pendiente\',event)">⏳ Pendiente</button>';
   }
   // Cancelar (admin todos != Cancelado, vendedor solo SUS Pendiente/Confirmado)
-  var esPedidoPropioV23 = !esAdmin && !esChofer && p.vendedor === vendedorActual;
+  var esPedidoPropioV23 = !esAdmin && !esChofer && esPedidoDeEsteVendedor(p, vendedorActual);
   var puedeCancelar = (esAdmin && p.estado !== 'Cancelado')
                    || (esPedidoPropioV23 && (p.estado === 'Pendiente' || p.estado === 'Confirmado'));
   if (puedeCancelar) {
@@ -21782,7 +21824,7 @@ function buildXubioPanel(p, id) {
     // v14.7.0: el vendedor dueño puede destrabar el pedido para editarlo.
     // Anula el presupuesto Xubio + lo pasa a Pendiente. Solo el dueño puede.
     var esVendedorDueno = vendedorActual && p.vendedor &&
-      p.vendedor.toLowerCase().indexOf(vendedorActual.toLowerCase()) !== -1;
+      esPedidoDeEsteVendedor(p, vendedorActual);
     var btnDesbloquear = '';
     if (esVendedorDueno) {
       btnDesbloquear = '<button class="xubio-btn-desbloquear" onclick="desbloquearPedidoXubio(\'' + p.pedidoId + '\', \'' + (p.xubioTransaccionid||'') + '\', \'' + (p.xubioNroPresupuesto||'') + '\', this)">🔓 Editar pedido (anula presupuesto)</button>';
@@ -34780,9 +34822,10 @@ async function dupCancelarPedido(pedidoId) {
   if (!p) return;
 
   // v9.0: distinguir si cancela su propio pedido o el de otro
+  // v14.26.0: para Miguel, los pedidos de TCK Online cuentan como propios.
   var miVendKey = (vendedorActual || '').toLowerCase().trim();
   var pVendKey = (p.vendedor || '').toLowerCase().trim();
-  var esMiPedido = pVendKey === miVendKey;
+  var esMiPedido = (pVendKey === miVendKey) || esPedidoDeEsteVendedor(p, vendedorActual);
   var esAdmin = vendedorActual === 'ADMIN';
 
   // Encontrar el otro pedido del grupo (para log)
