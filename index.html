@@ -2,6 +2,53 @@
 <html lang="es">
 <head>
 <!-- ═══════════════════════════════════════════════════════════════════════
+     TCK VENTAS — v14.28.0 — 27/05/2026
+     ──────────────────────────────────────────────────────────────────────
+     SINCRONIZACIÓN COMPLETA DE FOTOS CON CATÁLOGO v3.11.7
+
+       Reescritura completa de IMGMAP para que todas las fotos de
+       tck-ventas coincidan con las del catálogo público. El sistema
+       de tck-ventas ya prefijaba "https://tckcatalogo.com/img/" a todo
+       lo que devuelve IMGMAP, así que basta con apuntar los nombres
+       de archivo correctos — no hay que duplicar imágenes en este repo.
+
+       CAMBIOS POR CATEGORÍA:
+
+       POLLOS CONGELADOS:
+         · Pollo A/B/C/Ginosa/Optimo  → pollo_entero.jpg (antes: 2 fotos
+           viejas Pollo ginosa.jpg y pollo optimo.jpg)
+         · Suprema (5kg)              → suprema_x_5kg.jpg (antes: suprema.jpg)
+         · Suprema IQF / Suprema B    → suprema_x15_IQF.jpg
+
+       TROZADOS:
+         · Alita Congelada Granel     → alitas_x_15.jpg
+         · Cuarto Trasero IQF         → cuarto_trasero_x_15_iqf.jpg
+         · Pollo C agregado a IMGMAP (antes caía al fallback)
+
+       REBOZADOS PREMIUM (Fresnova) — FIX 3 productos sin foto:
+         · Medallon de Pollo Premium     → medallon de pollo clasico.jpg
+         · Formitas Premium              → Formita Clasica.jpg
+         · Medallon Pollo JyQ Premium    → Medallon Pollo JyQ.jpg
+           (los tres reutilizan la foto del Shaddai equivalente, que es
+           lo que también hace el catálogo. Cuando haya fotos propias
+           de Fresnova se reemplaza con una línea.)
+         · Langostinos, Rabas, Bocaditos de Mar, Filet FH Premium
+           agregados explícitamente a IMGMAP (antes funcionaban por
+           coincidencia con item.img+.jpg)
+
+       REBOZADOS (Shaddai):
+         · Milanesa Soja a Granel/Espinaca, Bocadito Clasico GTA
+           agregados a IMGMAP explícitamente (antes fallback)
+
+       HUEVOS:
+         · Maple N° 1/2/3 → huevos_caja_abierta_3q.jpg (la misma que
+           muestra el catálogo como principal; antes mostraba la foto
+           legacy "Maple N° 2.jpg")
+
+       TOTAL: 86 entradas en IMGMAP (antes: 58)
+       100% match con _imgmap del catálogo donde aplica.
+
+     ──────────────────────────────────────────────────────────────────────
      TCK VENTAS — v14.27.0 — 27/05/2026
      ──────────────────────────────────────────────────────────────────────
      SINCRONIZACIÓN MILANESAS Y HAMBURGUESAS CON CATÁLOGO v3.11.7
@@ -26917,39 +26964,84 @@ function _tomadorBlockDblTap(e) {
 }
 
 const IMGMAP = {
-        "Pollo A":"Pollo ginosa.jpg","Pollo Ginosa":"Pollo ginosa.jpg","Pollo B":"pollo optimo.jpg","Pollo Optimo":"pollo optimo.jpg",
-        "Suprema":"suprema.jpg","Suprema IQF":"suprema iqf.jpg","Suprema B IQF":"suprema iqf.jpg",
-        "Alita Congelada Granel":"alita congelada granel.jpg",
-        "MDM - Carne Molida de Pollo":"MDM.jpg","Cuarto Trasero IQF":"cuarto trasero IQF.jpg",
+        // POLLOS CONGELADOS — sincronizado con catálogo (v14.28.0)
+        "Pollo A":"pollo_entero.jpg","Pollo Ginosa":"pollo_entero.jpg",
+        "Pollo B":"pollo_entero.jpg","Pollo Optimo":"pollo_entero.jpg",
+        "Pollo C":"pollo_entero.jpg",
+        "Suprema":"suprema_x_5kg.jpg",
+        "Suprema IQF":"suprema_x15_IQF.jpg",
+        "Suprema B IQF":"suprema_x15_IQF.jpg",
+
+        // TROZADOS — sincronizado con catálogo (v14.28.0)
+        "Alita Congelada Granel":"alitas_x_15.jpg",
+        "MDM - Carne Molida de Pollo":"MDM.jpg",
+        "Cuarto Trasero IQF":"cuarto_trasero_x_15_iqf.jpg",
+        "Fino de Ave Cocida":"Fino de ave cocido.png",
+
+        // REBOZADOS (El Shaddai)
         "Medallon de Pollo Clasico":"medallon de pollo clasico.jpg",
         "Medallon Pollo c/Cheddar":"medallon de Pollo c cheddar.jpg",
         "Medallon Pollo JyQ":"Medallon Pollo JyQ.jpg",
         "Medallon Pollo y Espinaca":"Medallon Pollo y Espinaca.jpg",
-        "Formita Clasica":"Formita Clasica.jpg","Formitas Pollo JyQ":"Formitas Pollo JyQ.jpg",
+        "Formita Clasica":"Formita Clasica.jpg",
+        "Formitas Pollo JyQ":"Formitas Pollo JyQ.jpg",
         "Nuggets de Pollo Crocante":"Nuggets de Pollo Crocante.jpg",
         "Bocadito de Papa y Jamon":"Bocadito de Papa y Jamon.jpg",
         "Pechuguitas al Verdeo":"Pechuguitas al Verdeo.jpg",
         "Filet Merluza Finas Hierbas":"Filet Merluza Finas Hierbas.jpg",
         "Filet de Merluza Rebozado":"Filet de Merluza Rebozado.jpg",
         "Filet Merluza a Granel":"Filet Merluza a Granel.jpg",
-        "Milanesa de Nalga":"Milanesa de Nalga.jpg","Milanesa de Pollo":"Milanesa de Pollo.jpg",
+        "Milanesa de Soja a Granel":"milanesa_soja_granel.jpg",
+        "Milanesa de Soja y Espinaca":"milanesa_soja_espinaca.jpg",
+        "Bocadito Clasico":"bocadito_clasico_gta.jpg",
+
+        // REBOZADOS PREMIUM (Fresnova) — reutiliza fotos de Shaddai donde no hay propia (v14.28.0)
+        "Medallon de Pollo Premium":"medallon de pollo clasico.jpg",
+        "Formitas Premium":"Formita Clasica.jpg",
+        "Medallon Pollo JyQ Premium":"Medallon Pollo JyQ.jpg",
+        "Filet Merluza Finas Hierbas Premium":"filet_merluza_fh_premium.jpg",
+        "Langostinos Rebozados":"langostinos_rebozados.jpg",
+        "Rabas":"rabas.jpg",
+        "Bocaditos de Mar Rebozados":"bocaditos_de_mar.jpg",
+
+        // MILANESAS Y HAMBURGUESAS
+        "Milanesa de Nalga":"Milanesa de Nalga.jpg",
+        "Milanesa de Pollo":"Milanesa de Pollo.jpg",
         "Milanesa de Nalga x 800g":"mila_carne_800g.jpg",
         "Milanesa de Pollo x 800g":"mila_pollo_800g.jpg",
         "Hamburguesa 100% Carne":"Hamburguesa Carne.jpg",
         "Hamburguesa 100% Carne Premium 83g":"hamburguesa_carne_premium_83g.jpg",
         "Hamburguesa 100% Carne Clasica 100g":"hamburguesa_clasica_100g.jpg",
         "Hamburguesa de Pollo":"hamburguesa_pollo.jpg",
-        "Pulpa de Palta":"Pulpa de Palta.jpg","Papa Baston Balcarce":"Papa Baston Balcarce.jpg",
-        "Maple N° 2":"Maple N° 2.jpg","Maple N° 1":"Maple N° 2.jpg","Maple N° 3":"Maple N° 2.jpg",
+
+        // McCAIN & BALCARCE
+        "Pulpa de Palta":"Pulpa de Palta.jpg",
+        "Papa Baston Balcarce":"Papa Baston Balcarce.jpg",
+
+        // HUEVOS — usar foto principal del catálogo (v14.28.0)
+        "Maple N° 2":"huevos_caja_abierta_3q.jpg",
+        "Maple N° 1":"huevos_caja_abierta_3q.jpg",
+        "Maple N° 3":"huevos_caja_abierta_3q.jpg",
         "Cajita 1/2 Docena N° 2":"Cajita 12 Docena N° 2.jpg",
+
+        // VERDURAS CONGELADAS
         "Arándanos Solimeno":"Arándanos Solimeno.jpg",
-        "Brocoli":"Brocoli.jpg","Espinacas":"Espinacas.jpg","Morron":"Morron.jpg",
-        "Primavera":"Primavera.jpg","Frutos Rojos":"Frutos Rojos.jpg","Cebolla":"Cebolla.jpg",
+        "Brocoli":"Brocoli.jpg",
+        "Espinacas":"Espinacas.jpg",
+        "Morron":"Morron.jpg",
+        "Primavera":"Primavera.jpg",
+        "Frutos Rojos":"Frutos Rojos.jpg",
+        "Cebolla":"Cebolla.jpg",
+
+        // PASTAS LA CASERIANA
         "Ravioles de Calabaza":"Ravioles de Calabaza.jpg",
         "Raviolones Espinaca y Mozz":"Raviolones Espinaca y Mozz.jpg",
-        "Gnoquis de Papa":"Gnoquis de Papa.jpg","Gnoquis de Espinaca":"Gnoquis de Espinaca.jpg",
+        "Gnoquis de Papa":"Gnoquis de Papa.jpg",
+        "Gnoquis de Espinaca":"Gnoquis de Espinaca.jpg",
         "Sorrentinos Jamon y Queso":"Sorrentinos Jamon y Queso.jpg",
         "Sorrentinos Ricota 4 Quesos":"Sorrentinos Ricota 4 Quesos.jpg",
+
+        // VEGGIE LA CASERIANA
         "Hamburguesa de Garbanzos":"Hamburguesa de Garbanzos.jpg",
         "Hamburguesa de Lentejas":"Hamburguesa de Lentejas.jpg",
         "Hamburguesa de Quinoa":"Hamburguesa de Quinoa.jpg",
@@ -26957,8 +27049,7 @@ const IMGMAP = {
         "Hamburguesa de Hongos":"Hamburguesa de Hongos.jpg",
         "Hamburguesa de Espinaca":"Hamburguesa de Espinaca.jpg",
         "Hamburguesa Mexicana":"Hamburguesa Mexicana.jpg",
-        "Hamburguesa 5 Vegetales":"Hamburguesa 5 Vegetales.jpg",
-        "Fino de Ave Cocida":"Fino de ave cocido.png"
+        "Hamburguesa 5 Vegetales":"Hamburguesa 5 Vegetales.jpg"
       };
 
 // ═══════════════════════════════════════════════════════════════════════
