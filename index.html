@@ -2,6 +2,15 @@
 <html lang="es">
 <head>
 <!-- ═══════════════════════════════════════════════════════════════════════
+     TCK VENTAS — v14.30.0 — 01/06/2026
+     v14.30.0: NUEVO bloque "Mi desempeño en campo" dentro del tab Visitas
+       (solo vendedores de campo: Juan/Lisandro). Portado de la vista v2 del
+       admin (av*), autofiltrado por vendedor_id del logueado. Muestra resumen
+       semanal (días en calle, visitas, prom/día, días que cumplió objetivo,
+       conversión), calendario mensual por cumplimiento y detalle por día
+       (jornada, conv., timeline). Sin selección de vendedor y sin botón de
+       mapa. No toca el check-in en vivo ni gpsCargarHistorial. Prefijo vdes*.
+     ──────────────────────────────────────────────────────────────────────────
      TCK VENTAS — v14.29.2 — 29/05/2026
      v14.29.2: precios fallback Shaddai +1500/+2000 sobre precio real. Cheddar 49500, Merluza Reb 45500 (alineado a Xubio). Nuggets 36000. Fuente real: Sheet gid=1658103892.
      ──────────────────────────────────────────────────────────────────────
@@ -13826,6 +13835,57 @@ body {
   box-shadow: 0 2px 6px rgba(0,0,0,0.08);
 }
 
+/* ══ v14.30.0 — MI DESEMPEÑO EN CAMPO (visitas, vista vendedor) — portado de admin v12.27 ══ */
+.vdes-card{background:#fff;border:1.5px solid #eee;border-radius:14px;overflow:hidden;margin-top:16px;}
+.vdes-hdr{background:linear-gradient(135deg,#4A0000,#8B0000);padding:14px 16px 12px;}
+.vdes-hdr-tit{font-family:'Barlow Condensed',sans-serif;font-size:16px;font-weight:900;color:#fff;letter-spacing:.5px;}
+.vdes-hdr-sub{font-size:11px;color:rgba(255,255,255,.7);margin:1px 0 12px;}
+.vdes-body{padding:14px;}
+.vdes-sem-hdr{display:flex;align-items:center;justify-content:space-between;margin-bottom:10px;}
+.vdes-sem-t{font-family:'Barlow Condensed',sans-serif;font-size:15px;font-weight:900;color:#5C4030;}
+.vdes-arrow{width:28px;height:28px;border-radius:8px;background:#fff;border:1.5px solid #eee;display:flex;align-items:center;justify-content:center;font-size:15px;color:#8B0000;cursor:pointer;font-weight:700;}
+.vdes-kpis{display:grid;grid-template-columns:repeat(3,1fr);gap:8px;margin-bottom:8px;}
+.vdes-kpi{background:#fff;border:1.5px solid #eee;border-radius:12px;padding:10px 6px;text-align:center;}
+.vdes-kpi-num{font-family:'Barlow Condensed',sans-serif;font-size:24px;font-weight:900;line-height:1;}
+.vdes-kpi-lbl{font-size:9px;color:#9C7050;margin-top:4px;text-transform:uppercase;letter-spacing:.3px;}
+.vdes-kpi-wide{grid-column:span 3;display:flex;align-items:center;justify-content:space-between;padding:11px 14px;}
+.vdes-kpi-wide .l{font-family:'Barlow Condensed',sans-serif;font-size:13px;font-weight:700;color:#5C4030;}
+.vdes-kpi-wide .r{font-family:'Barlow Condensed',sans-serif;font-size:18px;font-weight:900;}
+.vdes-dots{display:flex;gap:3px;}
+.vdes-dot{width:13px;height:13px;border-radius:4px;}
+.vdes-cal-nav{display:flex;align-items:center;justify-content:space-between;margin:16px 0 10px;}
+.vdes-cal-mes{font-family:'Barlow Condensed',sans-serif;font-size:17px;font-weight:900;text-transform:capitalize;}
+.vdes-grid{display:grid;grid-template-columns:repeat(7,1fr);gap:4px;}
+.vdes-dow{text-align:center;font-family:'Barlow Condensed',sans-serif;font-size:11px;font-weight:700;color:#9C7050;padding-bottom:2px;}
+.vdes-cell{aspect-ratio:.92;border-radius:9px;padding:3px;display:flex;flex-direction:column;align-items:center;justify-content:center;border:2px solid transparent;position:relative;cursor:pointer;}
+.vdes-cell.empty{background:transparent;cursor:default;}
+.vdes-cell .d{font-size:9px;font-weight:700;position:absolute;top:3px;left:5px;opacity:.65;}
+.vdes-cell .v{font-family:'Barlow Condensed',sans-serif;font-size:19px;font-weight:900;line-height:1;}
+.vdes-cell .chk{font-size:8px;font-weight:700;opacity:.85;margin-top:1px;}
+.vdes-ok{background:#7DC36F;color:#0d2b0a;}
+.vdes-cerca{background:#FFE082;color:#7A5A00;}
+.vdes-flojo{background:#FFCC9E;color:#8a3d00;}
+.vdes-sindata{background:#EFEBE6;color:#BCB0A4;}
+.vdes-dom{background:#F4F1ED;color:#cfc7bd;}
+.vdes-cell.weeksel{border-color:#8B0000;}
+.vdes-cell.daysel{outline:3px solid #4A0000;outline-offset:-2px;}
+.vdes-ley{display:flex;flex-wrap:wrap;gap:9px;margin-top:11px;font-size:10px;color:#9C7050;}
+.vdes-ley .sw{width:13px;height:13px;border-radius:3px;display:inline-block;vertical-align:middle;margin-right:3px;}
+.vdes-nota{font-size:10px;color:#9C7050;text-align:center;margin-top:10px;line-height:1.45;padding:0 4px;}
+.vdes-det{margin-top:16px;background:#fff;border:1.5px solid #eee;border-radius:14px;overflow:hidden;display:none;}
+.vdes-det-hdr{background:#E8F5E9;padding:11px 14px;}
+.vdes-det-f{font-family:'Barlow Condensed',sans-serif;font-weight:900;font-size:16px;}
+.vdes-det-j{font-size:11px;color:#5C4030;margin-top:1px;}
+.vdes-det-stats{display:grid;grid-template-columns:repeat(4,1fr);border-bottom:1px solid #f0f0f0;}
+.vdes-det-stat{padding:9px 4px;text-align:center;border-right:1px solid #f4f4f4;}
+.vdes-det-stat .n{font-family:'Barlow Condensed',sans-serif;font-size:17px;font-weight:900;}
+.vdes-det-stat .l{font-size:8px;color:#9C7050;margin-top:2px;text-transform:uppercase;}
+.vdes-tl{display:flex;align-items:center;gap:10px;padding:8px 14px;border-bottom:1px solid #f6f6f6;}
+.vdes-tl-ic{width:24px;height:24px;border-radius:50%;background:#f5f5f5;display:flex;align-items:center;justify-content:center;font-size:12px;flex-shrink:0;}
+.vdes-tl-nom{font-family:'Barlow Condensed',sans-serif;font-size:14px;font-weight:700;line-height:1.1;}
+.vdes-tl-meta{font-size:10px;color:#9E9E9E;}
+.vdes-tl-res{font-size:10px;font-weight:700;margin-left:auto;white-space:nowrap;}
+.vdes-empty{text-align:center;padding:40px 20px;color:#999;font-size:13px;}
 </style>
 </head>
 <body>
@@ -14257,6 +14317,14 @@ body {
           <div id="gps-historial">
             <div class="gps-empty">Aún no hay visitas registradas hoy</div>
           </div>
+        </div>
+        <!-- ══ v14.30.0: MI DESEMPEÑO EN CAMPO (visitas, vista vendedor) ══ -->
+        <div class="vdes-card" id="vdes-card">
+          <div class="vdes-hdr">
+            <div class="vdes-hdr-tit">📊 Mi desempeño en campo</div>
+            <div class="vdes-hdr-sub">Objetivo: 20 visitas/día (sábado 10)</div>
+          </div>
+          <div class="vdes-body" id="vdes-body"></div>
         </div>
 
       </div>
@@ -18249,6 +18317,8 @@ function salir() {
   _gpsHizoPedido    = false;
   _lastTrackPos     = null;
   _trackingVendorId = null;
+  // v14.30.0: resetear estado de "Mi desempeño" para que no se cruce entre sesiones
+  _vdesVendId = null; _vdesVisitas = []; _vdesRangoMes = ''; _vdesMesRef = null; _vdesSemanaRef = null;
   // Resetear filtros para que no se crucen entre sesiones
   _repVendedor  = 'todos';
   _cliPeriodo   = 'semana';
@@ -20513,6 +20583,7 @@ function cambiarTab(tab) {
       adminVisitasCargar();
     } else {
       gpsCargarHistorial();
+      vdesCargar();
     }
     var v = document.getElementById('view-gps'); if (v) v.scrollTop = 0;
   }
@@ -24204,6 +24275,306 @@ async function gpsCargarHistorial() {
     console.error('GPS historial:', e);
   }
 }
+
+// ══════════════════════════════════════════════════════════════════
+// v14.30.0 — MI DESEMPEÑO EN CAMPO (visitas del vendedor logueado)
+//   Portado de la vista v2 del admin (TCK ADMIN v12.27, funciones av*).
+//   Diferencias con el admin:
+//     · Sin selección de vendedor: cada uno ve SOLO lo suyo.
+//     · Query filtrado por vendedor_id (no se traen visitas de otros).
+//     · Sin botón "Ver recorrido en el mapa" (el vendedor no tiene mapa).
+//   Se monta dentro del tab Visitas, debajo de "Hoy en campo".
+//   No toca la detección de check-in activo (eso queda en gpsCargarHistorial).
+// ══════════════════════════════════════════════════════════════════
+var _vdesMesRef    = null;   // Date dia 1 del mes mostrado en el calendario
+var _vdesSemanaRef = null;   // Date lunes de la semana del resumen
+var _vdesVisitas   = [];     // cache de visitas del rango cargado (ya filtradas al vendedor)
+var _vdesRangoMes  = '';     // 'YYYY-M' del mes cacheado
+var _vdesVendId    = null;   // id del vendedor logueado (para invalidar cache al cambiar sesion)
+
+function vdesHoyAR() { var d = new Date(); d.setHours(0,0,0,0); return d; }
+function vdesLunesDe(date) {
+  var d = new Date(date); d.setHours(0,0,0,0);
+  var dow = d.getDay();                 // 0=dom .. 6=sab
+  var diff = (dow === 0) ? -6 : (1 - dow);
+  d.setDate(d.getDate() + diff);
+  return d;
+}
+function vdesObjetivoDia(dow) {          // 0=dom -> 0 ; 6=sab -> 10 ; resto -> 20
+  if (dow === 0) return 0;
+  if (dow === 6) return 10;
+  return 20;
+}
+function vdesDiaISO(date) {
+  var y = date.getFullYear(), m = date.getMonth()+1, dd = date.getDate();
+  return y + '-' + String(m).padStart(2,'0') + '-' + String(dd).padStart(2,'0');
+}
+function vdesDiaISOdeUTC(fechaUTC) { return vdesDiaISO(new Date(fechaUTC)); }
+function vdesInit() {
+  if (!_vdesMesRef)    { var h = vdesHoyAR(); _vdesMesRef = new Date(h.getFullYear(), h.getMonth(), 1); }
+  if (!_vdesSemanaRef) { _vdesSemanaRef = vdesLunesDe(vdesHoyAR()); }
+}
+
+async function vdesCargar() {
+  vdesInit();
+  var body = document.getElementById('vdes-body');
+  if (!body) return;
+  if (!document.getElementById('vdes-resumen')) {
+    body.innerHTML = '<div id="vdes-resumen"></div><div id="vdes-calendario"></div><div class="vdes-det" id="vdes-det"></div>';
+  }
+  await vdesCargarVisitas();
+  vdesRender();
+}
+
+async function vdesCargarVisitas() {
+  var vendedorId = await gpsObtenerVendedorId();
+  var res = document.getElementById('vdes-resumen');
+  // Sin vendedor identificado: no mostramos datos de nadie.
+  if (!vendedorId) {
+    _vdesVisitas = []; _vdesRangoMes = ''; _vdesVendId = null;
+    if (res) res.innerHTML = '<div class="vdes-empty">No pudimos identificar tu usuario.</div>';
+    return;
+  }
+  var mesKey = _vdesMesRef.getFullYear() + '-' + _vdesMesRef.getMonth();
+  // cache hit: mismo mes y mismo vendedor
+  if (mesKey === _vdesRangoMes && vendedorId === _vdesVendId && _vdesVisitas.length) return;
+  if (res) res.innerHTML = '<div class="vdes-empty">⏳ Cargando...</div>';
+  var y = _vdesMesRef.getFullYear(), m = _vdesMesRef.getMonth();
+  var ini = new Date(y, m, 1);     ini.setDate(ini.getDate()-7); ini.setHours(0,0,0,0);
+  var fin = new Date(y, m+1, 0);   fin.setDate(fin.getDate()+7); fin.setHours(23,59,59,999);
+  try {
+    var path = 'visitas?vendedor_id=eq.' + vendedorId
+      + '&fecha=gte.' + ini.toISOString() + '&fecha=lte.' + fin.toISOString()
+      + '&select=*&order=fecha.asc';
+    var data = await sbFetch(path);
+    _vdesVisitas = Array.isArray(data) ? data : [];
+    _vdesRangoMes = mesKey;
+    _vdesVendId   = vendedorId;
+  } catch (e) {
+    console.error('vdes - error cargando visitas:', e);
+    _vdesVisitas = [];
+  }
+}
+
+// Agrupa los eventos (ya filtrados al vendedor) por dia ISO en visitas completas
+function vdesPorDia() {
+  var mapa = {};      // fechaISO -> { checkins, visitas:[{cliente,entrada,salida,tuvo_pedido,motivo}] }
+  var abierta = {};   // fechaISO -> visita abierta (checkin sin checkout)
+  _vdesVisitas.forEach(function(v) {
+    var dia = vdesDiaISOdeUTC(v.fecha);
+    if (!mapa[dia]) mapa[dia] = { checkins: 0, visitas: [] };
+    if (v.tipo === 'checkin') {
+      var nv = { cliente: v.nombre_cliente, entrada: new Date(v.fecha), salida: null, tuvo_pedido: false, motivo: null };
+      mapa[dia].visitas.push(nv); mapa[dia].checkins++; abierta[dia] = nv;
+    } else if (v.tipo === 'pedido_campo') {
+      if (abierta[dia] && abierta[dia].cliente === v.nombre_cliente) abierta[dia].tuvo_pedido = true;
+    } else if (v.tipo === 'checkout') {
+      if (abierta[dia] && abierta[dia].cliente === v.nombre_cliente) {
+        abierta[dia].salida = new Date(v.fecha);
+        abierta[dia].motivo = v.motivo_no_compra || null;
+        abierta[dia] = null;
+      }
+    } else if (v.tipo === 'visita_sin_pedido') {
+      mapa[dia].visitas.push({ cliente: v.nombre_cliente, entrada: new Date(v.fecha), salida: null, tuvo_pedido: false, motivo: v.motivo_no_compra || 'Sin motivo' });
+      mapa[dia].checkins++;
+    }
+  });
+  return mapa;
+}
+
+function vdesRender() {
+  if (!_vdesVendId) return;  // sin vendedor: vdesCargarVisitas ya pintó el empty
+  vdesRenderResumen();
+  vdesRenderCalendario();
+  var det = document.getElementById('vdes-det');
+  if (det) { det.style.display = 'none'; det.innerHTML = ''; }
+}
+
+function vdesRenderResumen() {
+  var mapa = vdesPorDia();
+  var lunes = new Date(_vdesSemanaRef);
+  var dias = [];
+  for (var i=0;i<6;i++) { var d=new Date(lunes); d.setDate(d.getDate()+i); dias.push(d); }
+  var totalVis=0, totalPed=0, diasCalle=0, dotsHtml='', cumplidos=0, posibles=0;
+  dias.forEach(function(d) {
+    var iso = vdesDiaISO(d);
+    var info = mapa[iso];
+    var obj = vdesObjetivoDia(d.getDay());
+    var n = info ? info.checkins : 0;
+    if (n>0) { diasCalle++; posibles++; }
+    totalVis += n;
+    if (info) totalPed += info.visitas.filter(function(x){return x.tuvo_pedido;}).length;
+    var col;
+    if (n===0) col = '#EFEBE6';
+    else if (n>=obj) { col = '#7DC36F'; cumplidos++; }
+    else col = '#FFCC9E';
+    dotsHtml += '<div class="vdes-dot" style="background:' + col + '" title="' + iso + ': ' + n + ' visitas"></div>';
+  });
+  var prom = diasCalle ? (totalVis/diasCalle) : 0;
+  var promTxt = (Math.round(prom*10)/10).toString().replace('.',',');
+  var conv = totalVis ? Math.round(100*totalPed/totalVis) : 0;
+  var dom = new Date(lunes); dom.setDate(dom.getDate()+5);
+  var rango = lunes.getDate() + ' → ' + dom.getDate() + ' ' + dom.toLocaleDateString('es-AR',{month:'short'});
+  var convColor = conv>=55 ? '#2E7D32' : conv>=40 ? '#E65100' : '#C62828';
+  var objColor = (posibles>0 && cumplidos>=posibles) ? '#2E7D32' : '#E65100';
+  var html =
+    '<div class="vdes-sem-hdr">'
+    + '<div class="vdes-sem-t">Semana ' + rango + '</div>'
+    + '<div style="display:flex;gap:6px;"><div class="vdes-arrow" onclick="vdesCambiarSemana(-1)">‹</div><div class="vdes-arrow" onclick="vdesCambiarSemana(1)">›</div></div>'
+    + '</div>'
+    + '<div class="vdes-kpis">'
+    + '<div class="vdes-kpi"><div class="vdes-kpi-num" style="color:#8B0000">' + diasCalle + '</div><div class="vdes-kpi-lbl">Días en calle</div></div>'
+    + '<div class="vdes-kpi"><div class="vdes-kpi-num" style="color:#2E7D32">' + totalVis + '</div><div class="vdes-kpi-lbl">Visitas</div></div>'
+    + '<div class="vdes-kpi"><div class="vdes-kpi-num">' + promTxt + '</div><div class="vdes-kpi-lbl">Prom/día</div></div>'
+    + '<div class="vdes-kpi vdes-kpi-wide"><div class="l">Días que cumpliste el objetivo</div>'
+    + '<div style="display:flex;align-items:center;gap:10px;"><div class="vdes-dots">' + dotsHtml + '</div>'
+    + '<div class="r" style="color:' + objColor + '">' + cumplidos + ' / ' + posibles + '</div></div></div>'
+    + '<div class="vdes-kpi vdes-kpi-wide" style="grid-column:span 3;"><div class="l">Conversión a pedido</div><div class="r" style="color:' + convColor + '">' + conv + '%</div></div>'
+    + '</div>';
+  var el = document.getElementById('vdes-resumen');
+  if (el) el.innerHTML = html;
+}
+
+function vdesRenderCalendario() {
+  var mapa = vdesPorDia();
+  var y = _vdesMesRef.getFullYear(), m = _vdesMesRef.getMonth();
+  var primero = new Date(y, m, 1);
+  var nombreMes = primero.toLocaleDateString('es-AR',{month:'long',year:'numeric'});
+  var diasMes = new Date(y, m+1, 0).getDate();
+  var primerDow = primero.getDay();
+  var offsetLun = (primerDow===0) ? 6 : primerDow-1;
+  var semDias = {};
+  var lunes = new Date(_vdesSemanaRef);
+  for (var i=0;i<6;i++) { var ds=new Date(lunes); ds.setDate(ds.getDate()+i); semDias[vdesDiaISO(ds)] = true; }
+
+  var dows = ['L','M','M','J','V','S','D'];
+  var grid = dows.map(function(x){ return '<div class="vdes-dow">' + x + '</div>'; }).join('');
+  for (var k=0;k<offsetLun;k++) grid += '<div class="vdes-cell empty"></div>';
+  for (var dia=1; dia<=diasMes; dia++) {
+    var dd = new Date(y, m, dia);
+    var iso = vdesDiaISO(dd);
+    var dow = dd.getDay();
+    var esDom = (dow===0);
+    var info = mapa[iso];
+    var n = info ? info.checkins : 0;
+    var obj = vdesObjetivoDia(dow);
+    var cls, vTxt, chk = '';
+    if (esDom) { cls='vdes-dom'; vTxt=''; }
+    else if (!info) { cls='vdes-sindata'; vTxt='·'; }
+    else if (n>=obj) { cls='vdes-ok'; vTxt=n; chk='✓'; }
+    else if (n>=Math.round(obj*0.65)) { cls='vdes-cerca'; vTxt=n; }
+    else { cls='vdes-flojo'; vTxt=n; }
+    var clsExtra = semDias[iso] ? ' weeksel' : '';
+    var clickable = (!esDom) ? 'onclick="vdesAbrirDia(\'' + iso + '\')"' : '';
+    grid += '<div class="vdes-cell ' + cls + clsExtra + '" ' + clickable + ' data-iso="' + iso + '">'
+      + '<span class="d">' + dia + '</span>'
+      + '<span class="v">' + vTxt + '</span>'
+      + (chk ? '<span class="chk">' + chk + '</span>' : '')
+      + '</div>';
+  }
+  var html =
+    '<div class="vdes-cal-nav">'
+    + '<div class="vdes-arrow" onclick="vdesCambiarMes(-1)">‹</div>'
+    + '<div class="vdes-cal-mes">' + nombreMes + '</div>'
+    + '<div class="vdes-arrow" onclick="vdesCambiarMes(1)">›</div>'
+    + '</div>'
+    + '<div class="vdes-grid">' + grid + '</div>'
+    + '<div class="vdes-ley">'
+    + '<span><span class="sw" style="background:#7DC36F"></span>cumpliste</span>'
+    + '<span><span class="sw" style="background:#FFE082"></span>cerca</span>'
+    + '<span><span class="sw" style="background:#FFCC9E"></span>flojo</span>'
+    + '<span><span class="sw" style="background:#EFEBE6"></span>sin check-in</span>'
+    + '</div>'
+    + '<div class="vdes-nota">Gris = sin check-in ese día. Tocá un día para ver el detalle y su semana.</div>';
+  var el = document.getElementById('vdes-calendario');
+  if (el) el.innerHTML = html;
+}
+
+function vdesAbrirDia(iso) {
+  var p = iso.split('-');
+  var dd = new Date(+p[0], +p[1]-1, +p[2]);
+  _vdesSemanaRef = vdesLunesDe(dd);
+  vdesRenderResumen();
+  vdesRenderCalendario();
+  vdesRenderDetalle(iso);
+}
+
+function vdesRenderDetalle(iso) {
+  var mapa = vdesPorDia();
+  var info = mapa[iso];
+  var det = document.getElementById('vdes-det');
+  if (!det) return;
+  document.querySelectorAll('.vdes-cell').forEach(function(c){ c.classList.remove('daysel'); });
+  var cell = document.querySelector('.vdes-cell[data-iso="' + iso + '"]');
+  if (cell) cell.classList.add('daysel');
+
+  var p = iso.split('-');
+  var dd = new Date(+p[0], +p[1]-1, +p[2]);
+  var fechaTxt = dd.toLocaleDateString('es-AR',{weekday:'long',day:'numeric',month:'numeric'});
+  fechaTxt = fechaTxt.charAt(0).toUpperCase() + fechaTxt.slice(1);
+
+  if (!info || !info.visitas.length) {
+    det.innerHTML = '<div class="vdes-det-hdr"><div class="vdes-det-f">' + fechaTxt + '</div><div class="vdes-det-j">Sin check-in registrado ese día</div></div>';
+    det.style.display = 'block';
+    det.scrollIntoView({behavior:'smooth',block:'nearest'});
+    return;
+  }
+  var vis = info.visitas;
+  var n = info.checkins;
+  var ped = vis.filter(function(x){return x.tuvo_pedido;}).length;
+  var conv = n ? Math.round(100*ped/n) : 0;
+  var entradas = vis.map(function(x){return x.entrada;}).filter(Boolean).sort(function(a,b){return a-b;});
+  var salidas  = vis.map(function(x){return x.salida;}).filter(Boolean).sort(function(a,b){return a-b;});
+  var ini  = entradas.length ? entradas[0] : null;
+  var finJ = salidas.length ? salidas[salidas.length-1] : null;
+  var fmtH = function(d){ return d ? d.toLocaleTimeString('es-AR',{hour:'2-digit',minute:'2-digit'}) : '—'; };
+  var jornada = '🕗 ' + fmtH(ini) + ' → ' + fmtH(finJ);
+  if (ini && finJ) { var mins = Math.round((finJ-ini)/60000); jornada += ' · ' + Math.floor(mins/60) + 'h ' + (mins%60) + 'm'; }
+  var conDur = vis.filter(function(x){return x.salida;});
+  var durProm = conDur.length ? Math.round(conDur.reduce(function(a,x){return a+(x.salida-x.entrada)/60000;},0)/conDur.length) : 0;
+
+  var timeline = vis.map(function(v) {
+    var hora = v.entrada.toLocaleTimeString('es-AR',{hour:'2-digit',minute:'2-digit'});
+    var dur = v.salida ? Math.round((v.salida-v.entrada)/60000) + 'm' : '(activo)';
+    var icono = v.tuvo_pedido ? '📦' : (v.motivo ? '🔴' : '🟢');
+    var res = v.tuvo_pedido ? 'Pedido' : (v.motivo || 'Sin pedido');
+    var col = v.tuvo_pedido ? '#2E7D32' : '#C62828';
+    return '<div class="vdes-tl"><div class="vdes-tl-ic">' + icono + '</div>'
+      + '<div style="flex:1;min-width:0;"><div class="vdes-tl-nom">' + (v.cliente||'—') + '</div><div class="vdes-tl-meta">' + hora + ' · ' + dur + '</div></div>'
+      + '<div class="vdes-tl-res" style="color:' + col + '">' + res + '</div></div>';
+  }).join('');
+
+  var html =
+    '<div class="vdes-det-hdr"><div class="vdes-det-f">' + fechaTxt + '</div><div class="vdes-det-j">' + jornada + '</div></div>'
+    + '<div class="vdes-det-stats">'
+    + '<div class="vdes-det-stat"><div class="n">' + n + '</div><div class="l">Visitas</div></div>'
+    + '<div class="vdes-det-stat"><div class="n" style="color:#2E7D32">' + ped + '</div><div class="l">Pedidos</div></div>'
+    + '<div class="vdes-det-stat"><div class="n" style="color:' + (conv>=55?'#2E7D32':'#E65100') + '">' + conv + '%</div><div class="l">Conv.</div></div>'
+    + '<div class="vdes-det-stat" style="border-right:none;"><div class="n">' + (durProm ? durProm + "'" : '—') + '</div><div class="l">Prom/visita</div></div>'
+    + '</div>'
+    + timeline;
+  det.innerHTML = html;
+  det.style.display = 'block';
+  det.scrollIntoView({behavior:'smooth',block:'nearest'});
+}
+
+function vdesCambiarSemana(dir) {
+  var d = new Date(_vdesSemanaRef); d.setDate(d.getDate() + dir*7);
+  _vdesSemanaRef = d;
+  // mes "dominante" de la semana = el del jueves (estilo ISO)
+  var jue = new Date(d); jue.setDate(jue.getDate()+3);
+  var nm = new Date(jue.getFullYear(), jue.getMonth(), 1);
+  if (nm.getTime() !== _vdesMesRef.getTime()) { _vdesMesRef = nm; vdesCargar(); }
+  else vdesRender();
+}
+function vdesCambiarMes(dir) {
+  var y = _vdesMesRef.getFullYear(), m = _vdesMesRef.getMonth();
+  _vdesMesRef = new Date(y, m+dir, 1);
+  // semana del resumen = la del dia 1 del nuevo mes
+  _vdesSemanaRef = vdesLunesDe(_vdesMesRef);
+  vdesCargar();
+}
+// ══ FIN MI DESEMPEÑO EN CAMPO (vdes) ══════════════════════════════
 
 // v14.19.0: timer que actualiza el contador "hace X min" cada minuto.
 // Se inicia al hacer check-in y se detiene al hacer checkout.
