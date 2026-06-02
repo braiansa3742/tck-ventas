@@ -2,6 +2,70 @@
 <html lang="es">
 <head>
 <!-- ═══════════════════════════════════════════════════════════════════════
+     TCK VENTAS — v14.32.0 — 02/06/2026
+     ──────────────────────────────────────────────────────────────────────
+     FIX DEFINITIVO: PEDIDOS DUPLICADOS POR CHECK-IN (la causa real)
+
+     SÍNTOMA (Braian, 02/06): Lisandro carga un pedido por check-in y salen 2
+       (a veces 3) idénticos en el panel: uno Confirmado y otro Pendiente.
+       Casos del día: LAURA RAQUEL VERA ($268.000) y SUSANA LILIAN PAULON
+       ($68.000), ambos de Pellegrini.
+
+     QUÉ MOSTRÓ LA BASE (no es teoría, son los datos):
+       · La tabla visitas tiene 3 eventos pedido_campo por cliente, con el
+         MISMO contenido, espaciados ~6,7 segundos:
+           LAURA  → 12:31:53, 12:32:00, 12:32:07
+           SUSANA → 12:18:03, 12:18:11, 12:18:17
+         O sea: el flujo de guardado corrió 3 veces para la misma venta.
+       · En pedidos_zona SOLO aparecen los Confirmados (C7YXS, CA3SZ). Los
+         Pendientes (C3IYJ, CCAQP) NO están en pedidos_zona. Y de 139 pedidos
+         origen=campo en pedidos_zona, solo 1 estaba Pendiente.
+
+     POR QUÉ PASA (dos fallas que se suman):
+       1) El lock (_tomadorEnviando) y el debounce protegen DENTRO de un envío,
+          pero _tomadorLiberarLock() los RESETEA al terminar cada guardado
+          (pone _tomadorUltimoTap=0). En red rural cada guardado tarda ~6-8s.
+          El vendedor no ve respuesta, re-abre el carrito (tomadorCerrar NO
+          limpia _tomadorQtys, así que el carrito sigue cargado) y vuelve a
+          tocar "Confirmar" cuando el lock YA se soltó → flujo completo otra
+          vez → pedido nuevo con ID nuevo. Cada ~6,7s = un round-trip de red.
+       2) El anti-dup "final" de v14.23.1 consultaba pedidos_zona. Pero los
+          pedidos de campo recién creados NO entran a pedidos_zona hasta que
+          Xubio los confirma. Es decir: consultaba la tabla equivocada y nunca
+          frenó un duplicado fresco. Encima sumaba latencia en cada guardado.
+
+     POR QUÉ UNO QUEDA CONFIRMADO Y OTRO PENDIENTE:
+       Todos nacen Pendiente. Solo el que completó el flujo Xubio
+       (_tomadorEjecutarXubio) pasa a Confirmado y se replica a pedidos_zona.
+       El/los otros quedan Pendientes huérfanos solo en la planilla.
+
+     FIX APLICADO (client-side, este archivo):
+       · _tomadorFingerprint(): huella del carrito (cliente + items+cantidades).
+       · En tomadorConfirmarFinal, ANTES de generar nada, si la huella coincide
+         con la del último pedido guardado OK y pasaron <3 min → se bloquea con
+         toast claro ("Este pedido ya se registró hace Xs. ID: ..."). No depende
+         de taps ni del timing del lock: ataca la causa raíz (mismo carrito
+         re-enviado).
+       · La huella se setea recién cuando appsScriptFetch confirma el guardado.
+       · Se ELIMINÓ la consulta a pedidos_zona previa al guardado (era inútil y
+         lenta). Esto además acelera el guardado en celular.
+
+     FALTA (server-side, va al Apps Script — NO a este archivo):
+       Agregar LockService + dedup en guardarPedido (escanear las últimas filas
+       de la planilla por cliente+vendedor+total+origen=campo en los últimos
+       ~90s y, si ya existe, devolver el ID existente sin crear otra fila). Esa
+       es la barrera dura y definitiva sobre la MISMA fuente (la planilla).
+       Snippet entregado aparte.
+
+     LIMPIEZA MANUAL PENDIENTE (en el panel/planilla):
+       · LAURA RAQUEL VERA: dejar C7YXS (Confirmado c/Xubio), cancelar C3IYJ.
+       · SUSANA LILIAN PAULON: dejar CA3SZ (Confirmado c/Xubio), cancelar CCAQP.
+
+     1. Subir este archivo al repo tck-ventas como index.html
+     2. Hard refresh
+     ══════════════════════════════════════════════════════════════════════ -->
+
+<!-- ═══════════════════════════════════════════════════════════════════════
      TCK VENTAS — v14.31.0 — 02/06/2026
      ──────────────────────────────────────────────────────────────────────
      MI RENDIMIENTO — movido a Mi Día + actualizado a la altura del admin v13.8
@@ -28753,6 +28817,21 @@ function _tomadorLiberarLock() {
   }
 }
 
+// v14.32.0: huella del carrito actual (cliente + items+cantidades, ordenado).
+// Se usa para bloquear el RE-ENVÍO del mismo pedido cuando el vendedor toca
+// "Confirmar" varias veces en una red lenta. Insensible al orden de carga.
+function _tomadorFingerprint() {
+  try {
+    var cli = _gpsCheckinActivo ? (_gpsCheckinActivo.nombre_cliente || '') : '';
+    var its = Object.keys(_tomadorQtys || {}).sort().map(function(n){
+      return n + ':' + _tomadorQtys[n];
+    }).join(',');
+    var nPromos = _tomadorPromos ? Object.keys(_tomadorPromos).length : 0;
+    if (!cli || (!its && !nPromos)) return '';
+    return (cli + '|' + its + '|promos' + nPromos).toLowerCase();
+  } catch (e) { return ''; }
+}
+
 async function tomadorConfirmarFinal() {
   // v14.17.1 ANTI-DOBLE-TAP: debounce de 1800ms (primera barrera).
   var _ahoraTap = Date.now();
@@ -28766,6 +28845,28 @@ async function tomadorConfirmarFinal() {
   // v14.17.2 ANTI-DUP: chequear lock ANTES de cualquier acción.
   if (window._tomadorEnviando) {
     console.warn('[ANTI-DUP] tomadorConfirmarFinal bloqueado por lock activo');
+    return;
+  }
+
+  // ── v14.32.0 ANTI-DUP (FINGERPRINT) — la barrera que faltaba ──────────────
+  // CAUSA RAÍZ real (detectada 02/06 con LAURA VERA y SUSANA PAULON):
+  //   El lock _tomadorEnviando y el debounce protegen DENTRO de un envío, pero
+  //   _tomadorLiberarLock() los RESETEA al terminar (incl. _tomadorUltimoTap=0).
+  //   En red rural cada guardado tarda ~6-8s. El vendedor, sin ver respuesta,
+  //   re-abre el carrito (tomadorCerrar NO limpia _tomadorQtys) y vuelve a tocar
+  //   "Confirmar" cuando el lock YA se liberó → flujo completo otra vez → otro
+  //   pedido idéntico con ID nuevo. En visitas se vieron 3 inserts ~6.7s para
+  //   el mismo cliente/contenido. El chequeo a pedidos_zona NO ayuda: los
+  //   pedidos de campo recién creados NO entran a pedidos_zona hasta que Xubio
+  //   los confirma (de 139 campo en pedidos_zona, solo 1 estaba Pendiente).
+  // SOLUCIÓN: recordar la huella del último pedido guardado OK y bloquear
+  //   carritos idénticos por 3 min, sin importar taps ni timing del lock.
+  var _fpActual = _tomadorFingerprint();
+  var _fpUlt = window._tomadorUltimoPedidoFP;
+  if (_fpActual && _fpUlt && _fpUlt.fp === _fpActual && (Date.now() - _fpUlt.ts) < 180000) {
+    var _segFp = Math.round((Date.now() - _fpUlt.ts) / 1000);
+    console.warn('[ANTI-DUP fingerprint] re-envío idéntico bloqueado (' + _segFp + 's, id ' + _fpUlt.pedidoId + ')');
+    toast('⚠️ Este pedido ya se registró hace ' + _segFp + 's.\nID: ' + _fpUlt.pedidoId + '\nNo se duplicó. Para cargar otro igual, esperá unos minutos.', 'warn');
     return;
   }
 
@@ -29085,56 +29186,29 @@ async function tomadorConfirmarConEntrega(entregaData) {
       params.append('viaje_id_elegido', window._viajeEspElegido);
     }
 
-    // v14.23.1 ANTI-DUP server-side: chequear en Supabase si hay un pedido
-    // del MISMO cliente + vendedor + total creado en los últimos 60 segundos.
-    // Si existe, abortar con mensaje claro. Esta es la defensa final contra
-    // duplicados — si el lock client-side falla por cualquier razón
-    // (race, error en helper, etc), Supabase es la fuente de verdad y nos
-    // dice si ya hay un pedido prácticamente idéntico recién creado.
-    //
-    // Detección: same cliente (case-insensitive), same vendedor, same total
-    // numérico, origen=campo, creado_at>=now()-60s.
-    try {
-      var clienteNormDup = (cliente || '').toLowerCase().trim();
-      var sinceISO = new Date(Date.now() - 60 * 1000).toISOString();
-      // PostgREST: filtramos por created_at + vendedor + total exacto, y luego
-      // matcheamos cliente case-insensitive en el cliente JS (más confiable
-      // que ilike con tildes/espacios).
-      var dupPath = 'pedidos_zona?'
-        + 'select=pedido_id,cliente,total,estado,creado_at'
-        + '&vendedor=eq.' + encodeURIComponent(vendedor)
-        + '&total=eq.' + encodeURIComponent(String(total))
-        + '&origen=eq.campo'
-        + '&estado=neq.Cancelado'
-        + '&creado_at=gte.' + encodeURIComponent(sinceISO)
-        + '&limit=5';
-      var dupResp = await sbFetch(dupPath);
-      if (Array.isArray(dupResp) && dupResp.length > 0) {
-        var matchDup = dupResp.find(function(r) {
-          return (r.cliente || '').toLowerCase().trim() === clienteNormDup;
-        });
-        if (matchDup) {
-          // Pedido duplicado detectado — abortar con toast claro.
-          console.warn('[ANTI-DUP server] pedido reciente detectado:', matchDup.pedido_id);
-          toast('⚠️ Este pedido ya se cerró hace menos de 1 minuto.\nID: ' + matchDup.pedido_id + '\nNo se creó otro para evitar duplicado.', 'warn');
-          // Re-lanzar como error para que el catch externo cierre el modal
-          // y libere el lock. Marcamos especial para distinguir.
-          var errDup = new Error('Pedido duplicado en BD (60s)');
-          errDup._antiDupHit = true;
-          throw errDup;
-        }
-      }
-    } catch (errDupOuter) {
-      if (errDupOuter && errDupOuter._antiDupHit) throw errDupOuter; // propagar
-      // Si el chequeo falla (red, RLS, etc), loguear pero NO bloquear.
-      // Mejor un duplicado eventual que un pedido perdido.
-      console.warn('[ANTI-DUP server] chequeo falló, continuando con guardado:', errDupOuter);
-    }
+    // ── v14.32.0: REEMPLAZA al anti-dup que consultaba pedidos_zona ──────────
+    // El chequeo anterior (v14.23.1) consultaba pedidos_zona buscando un pedido
+    // de campo de los últimos 60s. NUNCA frenó nada: los pedidos de campo recién
+    // creados NO están en pedidos_zona — entran ahí recién cuando Xubio los
+    // confirma. Verificado en BD: de 139 pedidos origen=campo en pedidos_zona,
+    // solo 1 estaba en estado Pendiente. Encima sumaba un round-trip de red en
+    // CADA guardado, justo lo que más duele en el celular del vendedor.
+    // El anti-dup real ahora vive en dos lados:
+    //   1) FINGERPRINT client-side en tomadorConfirmarFinal (bloquea el carrito
+    //      idéntico re-enviado, que es la causa raíz observada).
+    //   2) LockService + dedup en el Apps Script (guardarPedido), que es la
+    //      barrera dura server-side sobre la MISMA fuente (la planilla).
+    // Por eso acá ya no se consulta pedidos_zona antes de guardar.
 
     // v14.6.0 NO-CORS FIX: estricto. Si Apps Script falla, el catch externo
     // de tomadorConfirmarConEntrega (try/finally del lock) maneja el error
     // y muestra toast. Antes era fire-and-forget silencioso → bug ALMIRON.
     await appsScriptFetch(params);
+
+    // v14.32.0 ANTI-DUP: registrar la huella del pedido recién guardado OK.
+    // Si el vendedor vuelve a confirmar el mismo carrito dentro de 3 min,
+    // tomadorConfirmarFinal lo frena antes de generar otro ID.
+    window._tomadorUltimoPedidoFP = { fp: _tomadorFingerprint(), ts: Date.now(), pedidoId: pedidoId };
 
     // v9.2: Descontar stock de combos en Supabase (fire-and-forget)
     if (combosAplicados.length > 0) {
