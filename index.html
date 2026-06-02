@@ -2,6 +2,33 @@
 <html lang="es">
 <head>
 <!-- ═══════════════════════════════════════════════════════════════════════
+     TCK VENTAS — v14.31.0 — 02/06/2026
+     ──────────────────────────────────────────────────────────────────────
+     MI RENDIMIENTO — movido a Mi Día + actualizado a la altura del admin v13.8
+
+       1. El bloque "Mi desempeño en campo" se sacó del fondo del tab Visitas
+          (donde se perdía) y se movió ARRIBA del tab Mi Día como "📊 Mi
+          rendimiento". Cada vendedor ve SOLO lo suyo (visitas por su
+          vendedor_id; monto por su nombre = vendedorActual).
+       2. Meta 30 visitas/día (mín. 25; sábado 15/10; domingo 0).
+       3. Semana de LUNES A DOMINGO (el $ suma el finde).
+       4. Monto vendido desde el Sheet (todosLosPedidos): solo CONFIRMADOS;
+          pendientes mostrados aparte ("⏳ + $X pendiente de confirmar").
+          Calendario: # grande = visitas, # chico = $ del día.
+       5. Detalle del día con bloques ☀️Mañana / 🌇Tarde (corte por pausa de
+          almuerzo), $/visita y monto por visita en el timeline.
+       6. Calendario ADAPTATIVO: si el vendedor no tiene visitas (ej. Miguel,
+          mostrador/teléfono) → modo ventas: color por nivel de venta del día
+          + lista de pedidos, sin métricas de campo. Detección automática.
+       7. Día de HOY destacado (número en círculo bordó). Sin botón "ver
+          recorrido" (el vendedor no tiene mapa).
+
+       Carga: vdesCargar() ahora se dispara al abrir Mi Día (antes en Visitas).
+       Prefijo vdes*. No toca el check-in en vivo ni gpsCargarHistorial.
+
+       1. Subir este archivo al repo tck-ventas como index.html
+       2. Hard refresh (Cmd+Shift+R).
+     ──────────────────────────────────────────────────────────────────────
      TCK VENTAS — v14.30.0 — 01/06/2026
      v14.30.0: NUEVO bloque "Mi desempeño en campo" dentro del tab Visitas
        (solo vendedores de campo: Juan/Lisandro). Portado de la vista v2 del
@@ -13862,6 +13889,18 @@ body {
 .vdes-cell .d{font-size:9px;font-weight:700;position:absolute;top:3px;left:5px;opacity:.65;}
 .vdes-cell .v{font-family:'Barlow Condensed',sans-serif;font-size:19px;font-weight:900;line-height:1;}
 .vdes-cell .chk{font-size:8px;font-weight:700;opacity:.85;margin-top:1px;}
+.vdes-cell .vdes-cell-monto{font-family:'Barlow Condensed',sans-serif;font-weight:900;font-size:9.5px;color:#1B5E20;opacity:.92;line-height:1;}
+.vdes-cell.vdeshoy .d{color:#fff;background:#8B0000;border-radius:50%;width:15px;height:15px;line-height:15px;text-align:center;opacity:1;left:3px;top:3px;font-size:8.5px;}
+.vdes-blq{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-top:10px;}
+.vdes-blq-card{background:#FAFAF7;border:1.5px solid #eee;border-radius:11px;padding:9px 11px;}
+.vdes-blq-t{font-size:9px;color:#9C7050;text-transform:uppercase;letter-spacing:.4px;font-weight:700;margin-bottom:3px;}
+.vdes-blq-cli{font-family:'Barlow Condensed',sans-serif;font-size:14px;font-weight:900;color:#1A0800;line-height:1.05;}
+.vdes-blq-h{font-size:11px;color:#5C4030;margin-top:2px;}
+.vdes-blq-n{font-family:'Barlow Condensed',sans-serif;font-size:13px;font-weight:900;color:#8B0000;margin-top:2px;}
+.vdes-vend-row{display:flex;align-items:center;justify-content:space-between;padding:10px 14px;background:#E8F5E9;border-bottom:1px solid #eef3ee;}
+.vdes-vend-l{font-family:'Barlow Condensed',sans-serif;font-size:13px;font-weight:700;color:#5C4030;}
+.vdes-vend-r{font-family:'Barlow Condensed',sans-serif;font-size:20px;font-weight:900;color:#1B5E20;}
+.vdes-vend-ori{font-size:10px;color:#7A8A7A;text-align:right;margin-top:1px;}
 .vdes-ok{background:#7DC36F;color:#0d2b0a;}
 .vdes-cerca{background:#FFE082;color:#7A5A00;}
 .vdes-flojo{background:#FFCC9E;color:#8a3d00;}
@@ -14104,6 +14143,14 @@ body {
   <!-- ══ VIEW: MI DÍA ══ -->
   <div class="view" id="view-midia">
     <div class="midia-view-inner" id="mi-dia-body-outer">
+      <!-- ══ v14.31: MI RENDIMIENTO (movido desde Visitas; meta 30 + ventas) ══ -->
+      <div class="vdes-card" id="vdes-card">
+        <div class="vdes-hdr">
+          <div class="vdes-hdr-tit">📊 Mi rendimiento</div>
+          <div class="vdes-hdr-sub">Meta: 30 visitas/día · mín. 25 (sáb 15)</div>
+        </div>
+        <div class="vdes-body" id="vdes-body"></div>
+      </div>
       <!-- Renderizado por renderMiDia() en tarjetas separadas -->
       <div id="mi-dia-body" style="padding-top:4px;"></div>
     </div>
@@ -14318,14 +14365,7 @@ body {
             <div class="gps-empty">Aún no hay visitas registradas hoy</div>
           </div>
         </div>
-        <!-- ══ v14.30.0: MI DESEMPEÑO EN CAMPO (visitas, vista vendedor) ══ -->
-        <div class="vdes-card" id="vdes-card">
-          <div class="vdes-hdr">
-            <div class="vdes-hdr-tit">📊 Mi desempeño en campo</div>
-            <div class="vdes-hdr-sub">Objetivo: 20 visitas/día (sábado 10)</div>
-          </div>
-          <div class="vdes-body" id="vdes-body"></div>
-        </div>
+        <!-- v14.31: "Mi rendimiento" se movió al tab Mi Día -->
 
       </div>
     </div>
@@ -20583,7 +20623,6 @@ function cambiarTab(tab) {
       adminVisitasCargar();
     } else {
       gpsCargarHistorial();
-      vdesCargar();
     }
     var v = document.getElementById('view-gps'); if (v) v.scrollTop = 0;
   }
@@ -20593,6 +20632,7 @@ function cambiarTab(tab) {
   }
   if (tab === 'midia') {
     renderMiDia();
+    vdesCargar();
     // Scroll to top
     var v = document.getElementById('view-midia');
     if (v) v.scrollTop = 0;
@@ -24295,16 +24335,18 @@ var _vdesVendId    = null;   // id del vendedor logueado (para invalidar cache a
 function vdesHoyAR() { var d = new Date(); d.setHours(0,0,0,0); return d; }
 function vdesLunesDe(date) {
   var d = new Date(date); d.setHours(0,0,0,0);
-  var dow = d.getDay();                 // 0=dom .. 6=sab
+  var dow = d.getDay();
   var diff = (dow === 0) ? -6 : (1 - dow);
   d.setDate(d.getDate() + diff);
   return d;
 }
-function vdesObjetivoDia(dow) {          // 0=dom -> 0 ; 6=sab -> 10 ; resto -> 20
-  if (dow === 0) return 0;
-  if (dow === 6) return 10;
-  return 20;
+// v14.31 — metas por día: dom 0 · sáb 15 (mín 10) · resto 30 (mín 25)
+function vdesMetaDia(dow) {
+  if (dow === 0) return { meta: 0,  min: 0  };
+  if (dow === 6) return { meta: 15, min: 10 };
+  return { meta: 30, min: 25 };
 }
+function vdesObjetivoDia(dow) { return vdesMetaDia(dow).meta; }   // compat
 function vdesDiaISO(date) {
   var y = date.getFullYear(), m = date.getMonth()+1, dd = date.getDate();
   return y + '-' + String(m).padStart(2,'0') + '-' + String(dd).padStart(2,'0');
@@ -24313,6 +24355,89 @@ function vdesDiaISOdeUTC(fechaUTC) { return vdesDiaISO(new Date(fechaUTC)); }
 function vdesInit() {
   if (!_vdesMesRef)    { var h = vdesHoyAR(); _vdesMesRef = new Date(h.getFullYear(), h.getMonth(), 1); }
   if (!_vdesSemanaRef) { _vdesSemanaRef = vdesLunesDe(vdesHoyAR()); }
+}
+
+// ── helpers de monto (fuente: todosLosPedidos del Sheet, filtrado al vendedor logueado) ──
+function vdesMismoVendedor(a, b) {
+  a = (a || '').trim().toLowerCase(); b = (b || '').trim().toLowerCase();
+  if (!a || !b) return false;
+  return a === b || a.indexOf(b) === 0 || b.indexOf(a) === 0;
+}
+function vdesMontoFull(n)  { return '$' + Math.round(n || 0).toLocaleString('es-AR'); }
+function vdesMontoCorto(n) {
+  n = Math.round(n || 0);
+  if (n >= 1000000) return '$' + (n / 1000000).toFixed(n >= 10000000 ? 0 : 1).replace('.', ',') + 'M';
+  if (n >= 1000)    return '$' + Math.round(n / 1000) + 'k';
+  return '$' + n;
+}
+function vdesParseMontoTexto(txt) {
+  if (!txt) return 0; var s = 0, re = /\$\s*([\d.]+)/g, m;
+  while ((m = re.exec(txt))) { s += (parseInt(m[1].replace(/\./g, ''), 10) || 0); }
+  return s;
+}
+// Ventas del vendedor logueado por día ISO. Confirmado cuenta; pendiente aparte; cancelado nunca.
+function vdesVentasDia() {
+  var mapa = {};
+  var fuente = (typeof todosLosPedidos !== 'undefined' && todosLosPedidos) ? todosLosPedidos : [];
+  var quien = (typeof vendedorActual !== 'undefined' && vendedorActual) ? vendedorActual : '';
+  fuente.forEach(function(p) {
+    if (!p || p.estado === 'Cancelado') return;
+    if (!vdesMismoVendedor(p.vendedor, quien)) return;
+    var iso = null, mm = (p.pedidoId || '').match(/TCK-(\d{4})(\d{2})(\d{2})/);
+    if (mm) iso = mm[1] + '-' + mm[2] + '-' + mm[3];
+    else if ((p.fechaHora || '').length >= 10) iso = p.fechaHora.substring(0, 10);
+    if (!iso) return;
+    var monto = parseInt((p.total || '0').replace(/[^\d]/g, ''), 10) || 0;
+    if (!mapa[iso]) mapa[iso] = { total: 0, pend: 0, n: 0, np: 0, ori: {} };
+    if (p.estado === 'Confirmado') {
+      mapa[iso].total += monto; mapa[iso].n++;
+      var o = (p.origen || 'otro').toLowerCase();
+      mapa[iso].ori[o] = (mapa[iso].ori[o] || 0) + monto;
+    } else { mapa[iso].pend += monto; mapa[iso].np++; }
+  });
+  return mapa;
+}
+function vdesEsCampo() {
+  var mapa = vdesPorDia();
+  for (var k in mapa) { if (mapa[k] && mapa[k].checkins > 0) return true; }
+  return false;
+}
+function vdesNivelVenta(monto, maxMes) {
+  if (!monto || monto <= 0) return 'cero';
+  if (!maxMes) return 'alto';
+  var r = monto / maxMes;
+  if (r >= 0.66) return 'alto';
+  if (r >= 0.33) return 'medio';
+  return 'bajo';
+}
+function vdesPedidosDelDia(iso) {
+  var out = [];
+  var fuente = (typeof todosLosPedidos !== 'undefined' && todosLosPedidos) ? todosLosPedidos : [];
+  var quien = (typeof vendedorActual !== 'undefined' && vendedorActual) ? vendedorActual : '';
+  fuente.forEach(function(p) {
+    if (!p || p.estado === 'Cancelado') return;
+    if (!vdesMismoVendedor(p.vendedor, quien)) return;
+    var mm = (p.pedidoId || '').match(/TCK-(\d{4})(\d{2})(\d{2})/);
+    var pi = mm ? mm[1] + '-' + mm[2] + '-' + mm[3] : ((p.fechaHora || '').substring(0, 10));
+    if (pi !== iso) return;
+    out.push({ cliente: p.cliente || p.comercio || '—', monto: parseInt((p.total || '0').replace(/[^\d]/g, ''), 10) || 0, estado: p.estado, origen: (p.origen || '').toLowerCase() });
+  });
+  out.sort(function(a, b) { return b.monto - a.monto; });
+  return out;
+}
+function vdesSplitAlmuerzo(vis) {
+  if (!vis || vis.length < 2) return null;
+  var maxGap = 0, idx = -1;
+  for (var i = 0; i < vis.length - 1; i++) {
+    var finA = vis[i].salida || vis[i].entrada;
+    var iniB = vis[i + 1].entrada;
+    if (!finA || !iniB) continue;
+    var gap = (iniB - finA) / 60000;
+    var hB = iniB.getHours();
+    if (gap > 60 && hB >= 12 && hB <= 18 && gap > maxGap) { maxGap = gap; idx = i; }
+  }
+  if (idx === -1) return null;
+  return { idx: idx, finManana: vis[idx].salida || vis[idx].entrada, iniTarde: vis[idx + 1].entrada, gapMin: Math.round(maxGap) };
 }
 
 async function vdesCargar() {
@@ -24329,14 +24454,12 @@ async function vdesCargar() {
 async function vdesCargarVisitas() {
   var vendedorId = await gpsObtenerVendedorId();
   var res = document.getElementById('vdes-resumen');
-  // Sin vendedor identificado: no mostramos datos de nadie.
   if (!vendedorId) {
     _vdesVisitas = []; _vdesRangoMes = ''; _vdesVendId = null;
     if (res) res.innerHTML = '<div class="vdes-empty">No pudimos identificar tu usuario.</div>';
     return;
   }
   var mesKey = _vdesMesRef.getFullYear() + '-' + _vdesMesRef.getMonth();
-  // cache hit: mismo mes y mismo vendedor
   if (mesKey === _vdesRangoMes && vendedorId === _vdesVendId && _vdesVisitas.length) return;
   if (res) res.innerHTML = '<div class="vdes-empty">⏳ Cargando...</div>';
   var y = _vdesMesRef.getFullYear(), m = _vdesMesRef.getMonth();
@@ -24358,16 +24481,19 @@ async function vdesCargarVisitas() {
 
 // Agrupa los eventos (ya filtrados al vendedor) por dia ISO en visitas completas
 function vdesPorDia() {
-  var mapa = {};      // fechaISO -> { checkins, visitas:[{cliente,entrada,salida,tuvo_pedido,motivo}] }
-  var abierta = {};   // fechaISO -> visita abierta (checkin sin checkout)
+  var mapa = {};
+  var abierta = {};
   _vdesVisitas.forEach(function(v) {
     var dia = vdesDiaISOdeUTC(v.fecha);
     if (!mapa[dia]) mapa[dia] = { checkins: 0, visitas: [] };
     if (v.tipo === 'checkin') {
-      var nv = { cliente: v.nombre_cliente, entrada: new Date(v.fecha), salida: null, tuvo_pedido: false, motivo: null };
+      var nv = { cliente: v.nombre_cliente, entrada: new Date(v.fecha), salida: null, tuvo_pedido: false, motivo: null, montoCampo: 0 };
       mapa[dia].visitas.push(nv); mapa[dia].checkins++; abierta[dia] = nv;
     } else if (v.tipo === 'pedido_campo') {
-      if (abierta[dia] && abierta[dia].cliente === v.nombre_cliente) abierta[dia].tuvo_pedido = true;
+      if (abierta[dia] && abierta[dia].cliente === v.nombre_cliente) {
+        abierta[dia].tuvo_pedido = true;
+        if (!abierta[dia].montoCampo) abierta[dia].montoCampo = vdesParseMontoTexto(v.observacion);
+      }
     } else if (v.tipo === 'checkout') {
       if (abierta[dia] && abierta[dia].cliente === v.nombre_cliente) {
         abierta[dia].salida = new Date(v.fecha);
@@ -24375,7 +24501,7 @@ function vdesPorDia() {
         abierta[dia] = null;
       }
     } else if (v.tipo === 'visita_sin_pedido') {
-      mapa[dia].visitas.push({ cliente: v.nombre_cliente, entrada: new Date(v.fecha), salida: null, tuvo_pedido: false, motivo: v.motivo_no_compra || 'Sin motivo' });
+      mapa[dia].visitas.push({ cliente: v.nombre_cliente, entrada: new Date(v.fecha), salida: null, tuvo_pedido: false, motivo: v.motivo_no_compra || 'Sin motivo', montoCampo: 0 });
       mapa[dia].checkins++;
     }
   });
@@ -24383,7 +24509,7 @@ function vdesPorDia() {
 }
 
 function vdesRender() {
-  if (!_vdesVendId) return;  // sin vendedor: vdesCargarVisitas ya pintó el empty
+  if (!_vdesVendId) return;
   vdesRenderResumen();
   vdesRenderCalendario();
   var det = document.getElementById('vdes-det');
@@ -24392,51 +24518,76 @@ function vdesRender() {
 
 function vdesRenderResumen() {
   var mapa = vdesPorDia();
+  var ventas = vdesVentasDia();
+  var esCampo = vdesEsCampo();
   var lunes = new Date(_vdesSemanaRef);
   var dias = [];
-  for (var i=0;i<6;i++) { var d=new Date(lunes); d.setDate(d.getDate()+i); dias.push(d); }
+  for (var i=0;i<7;i++) { var d=new Date(lunes); d.setDate(d.getDate()+i); dias.push(d); }   // L → D
   var totalVis=0, totalPed=0, diasCalle=0, dotsHtml='', cumplidos=0, posibles=0;
+  var totalVend=0, totalPend=0, nPedVenta=0, diasVenta=0;
   dias.forEach(function(d) {
     var iso = vdesDiaISO(d);
     var info = mapa[iso];
-    var obj = vdesObjetivoDia(d.getDay());
+    var meta = vdesMetaDia(d.getDay());
     var n = info ? info.checkins : 0;
-    if (n>0) { diasCalle++; posibles++; }
+    if (n>0) diasCalle++;
     totalVis += n;
     if (info) totalPed += info.visitas.filter(function(x){return x.tuvo_pedido;}).length;
-    var col;
-    if (n===0) col = '#EFEBE6';
-    else if (n>=obj) { col = '#7DC36F'; cumplidos++; }
-    else col = '#FFCC9E';
-    dotsHtml += '<div class="vdes-dot" style="background:' + col + '" title="' + iso + ': ' + n + ' visitas"></div>';
+    var vd = ventas[iso];
+    if (vd) { totalVend += vd.total; totalPend += vd.pend; nPedVenta += vd.n; if (vd.total>0) diasVenta++; }
+    if (meta.meta>0) {
+      posibles++;
+      var col;
+      if (n===0) col = '#EFEBE6';
+      else if (n>=meta.meta) { col = '#7DC36F'; cumplidos++; }
+      else if (n>=meta.min)  { col = '#FFE082'; }
+      else col = '#FFCC9E';
+      dotsHtml += '<div class="vdes-dot" style="background:' + col + '" title="' + iso + ': ' + n + ' visitas"></div>';
+    }
   });
-  var prom = diasCalle ? (totalVis/diasCalle) : 0;
-  var promTxt = (Math.round(prom*10)/10).toString().replace('.',',');
-  var conv = totalVis ? Math.round(100*totalPed/totalVis) : 0;
-  var dom = new Date(lunes); dom.setDate(dom.getDate()+5);
+  var dom = new Date(lunes); dom.setDate(dom.getDate()+6);
   var rango = lunes.getDate() + ' → ' + dom.getDate() + ' ' + dom.toLocaleDateString('es-AR',{month:'short'});
-  var convColor = conv>=55 ? '#2E7D32' : conv>=40 ? '#E65100' : '#C62828';
-  var objColor = (posibles>0 && cumplidos>=posibles) ? '#2E7D32' : '#E65100';
-  var html =
-    '<div class="vdes-sem-hdr">'
-    + '<div class="vdes-sem-t">Semana ' + rango + '</div>'
-    + '<div style="display:flex;gap:6px;"><div class="vdes-arrow" onclick="vdesCambiarSemana(-1)">‹</div><div class="vdes-arrow" onclick="vdesCambiarSemana(1)">›</div></div>'
-    + '</div>'
-    + '<div class="vdes-kpis">'
-    + '<div class="vdes-kpi"><div class="vdes-kpi-num" style="color:#8B0000">' + diasCalle + '</div><div class="vdes-kpi-lbl">Días en calle</div></div>'
-    + '<div class="vdes-kpi"><div class="vdes-kpi-num" style="color:#2E7D32">' + totalVis + '</div><div class="vdes-kpi-lbl">Visitas</div></div>'
-    + '<div class="vdes-kpi"><div class="vdes-kpi-num">' + promTxt + '</div><div class="vdes-kpi-lbl">Prom/día</div></div>'
-    + '<div class="vdes-kpi vdes-kpi-wide"><div class="l">Días que cumpliste el objetivo</div>'
-    + '<div style="display:flex;align-items:center;gap:10px;"><div class="vdes-dots">' + dotsHtml + '</div>'
-    + '<div class="r" style="color:' + objColor + '">' + cumplidos + ' / ' + posibles + '</div></div></div>'
-    + '<div class="vdes-kpi vdes-kpi-wide" style="grid-column:span 3;"><div class="l">Conversión a pedido</div><div class="r" style="color:' + convColor + '">' + conv + '%</div></div>'
-    + '</div>';
+  var navHtml = '<div class="vdes-sem-hdr"><div class="vdes-sem-t">Semana ' + rango + '</div>'
+    + '<div style="display:flex;gap:6px;"><div class="vdes-arrow" onclick="vdesCambiarSemana(-1)">‹</div><div class="vdes-arrow" onclick="vdesCambiarSemana(1)">›</div></div></div>';
+  var pendTxt = totalPend>0 ? '<div class="vdes-vend-ori" style="text-align:right;">+' + vdesMontoCorto(totalPend) + ' pend.</div>' : '';
+  var html;
+  if (esCampo) {
+    var prom = diasCalle ? (totalVis/diasCalle) : 0;
+    var promTxt = (Math.round(prom*10)/10).toString().replace('.',',');
+    var conv = totalVis ? Math.round(100*totalPed/totalVis) : 0;
+    var xVisita = totalVis ? Math.round(totalVend/totalVis) : 0;
+    var convColor = conv>=55 ? '#2E7D32' : conv>=40 ? '#E65100' : '#C62828';
+    var objColor = (posibles>0 && cumplidos>=posibles) ? '#2E7D32' : '#E65100';
+    html = navHtml + '<div class="vdes-kpis">'
+      + '<div class="vdes-kpi"><div class="vdes-kpi-num" style="color:#8B0000">' + diasCalle + '</div><div class="vdes-kpi-lbl">Días en calle</div></div>'
+      + '<div class="vdes-kpi"><div class="vdes-kpi-num" style="color:#2E7D32">' + totalVis + '</div><div class="vdes-kpi-lbl">Visitas</div></div>'
+      + '<div class="vdes-kpi"><div class="vdes-kpi-num">' + promTxt + '</div><div class="vdes-kpi-lbl">Prom/día</div></div>'
+      + '<div class="vdes-kpi vdes-kpi-wide"><div class="l">Vendido en la semana</div><div style="text-align:right;"><div class="r" style="color:#1B5E20">' + vdesMontoFull(totalVend) + '</div>' + pendTxt + '</div></div>'
+      + '<div class="vdes-kpi vdes-kpi-wide"><div class="l">$ por visita</div><div class="r" style="color:#5C4030">' + vdesMontoFull(xVisita) + '</div></div>'
+      + '<div class="vdes-kpi vdes-kpi-wide"><div class="l">Días que llegaste a la meta (30)</div>'
+      + '<div style="display:flex;align-items:center;gap:10px;"><div class="vdes-dots">' + dotsHtml + '</div>'
+      + '<div class="r" style="color:' + objColor + '">' + cumplidos + ' / ' + posibles + '</div></div></div>'
+      + '<div class="vdes-kpi vdes-kpi-wide" style="grid-column:span 3;"><div class="l">Conversión a pedido</div><div class="r" style="color:' + convColor + '">' + conv + '%</div></div>'
+      + '</div>';
+  } else {
+    var promDia = diasVenta ? Math.round(totalVend/diasVenta) : 0;
+    var ticket = nPedVenta ? Math.round(totalVend/nPedVenta) : 0;
+    html = navHtml + '<div class="vdes-kpis">'
+      + '<div class="vdes-kpi"><div class="vdes-kpi-num" style="color:#8B0000">' + diasVenta + '</div><div class="vdes-kpi-lbl">Días con venta</div></div>'
+      + '<div class="vdes-kpi"><div class="vdes-kpi-num" style="color:#2E7D32">' + nPedVenta + '</div><div class="vdes-kpi-lbl">Pedidos</div></div>'
+      + '<div class="vdes-kpi"><div class="vdes-kpi-num" style="font-size:17px;">' + vdesMontoCorto(ticket) + '</div><div class="vdes-kpi-lbl">Ticket prom</div></div>'
+      + '<div class="vdes-kpi vdes-kpi-wide"><div class="l">Vendido en la semana</div><div style="text-align:right;"><div class="r" style="color:#1B5E20">' + vdesMontoFull(totalVend) + '</div>' + pendTxt + '</div></div>'
+      + '<div class="vdes-kpi vdes-kpi-wide"><div class="l">Promedio por día con venta</div><div class="r" style="color:#5C4030">' + vdesMontoFull(promDia) + '</div></div>'
+      + '</div>';
+  }
   var el = document.getElementById('vdes-resumen');
   if (el) el.innerHTML = html;
 }
 
 function vdesRenderCalendario() {
   var mapa = vdesPorDia();
+  var ventas = vdesVentasDia();
+  var esCampo = vdesEsCampo();
   var y = _vdesMesRef.getFullYear(), m = _vdesMesRef.getMonth();
   var primero = new Date(y, m, 1);
   var nombreMes = primero.toLocaleDateString('es-AR',{month:'long',year:'numeric'});
@@ -24445,7 +24596,10 @@ function vdesRenderCalendario() {
   var offsetLun = (primerDow===0) ? 6 : primerDow-1;
   var semDias = {};
   var lunes = new Date(_vdesSemanaRef);
-  for (var i=0;i<6;i++) { var ds=new Date(lunes); ds.setDate(ds.getDate()+i); semDias[vdesDiaISO(ds)] = true; }
+  for (var i=0;i<7;i++) { var ds=new Date(lunes); ds.setDate(ds.getDate()+i); semDias[vdesDiaISO(ds)] = true; }
+  var hoyISO = vdesDiaISO(vdesHoyAR());
+  var maxMes = 0;
+  if (!esCampo) { for (var dM=1; dM<=diasMes; dM++){ var isoM=vdesDiaISO(new Date(y,m,dM)); if (ventas[isoM] && ventas[isoM].total>maxMes) maxMes=ventas[isoM].total; } }
 
   var dows = ['L','M','M','J','V','S','D'];
   var grid = dows.map(function(x){ return '<div class="vdes-dow">' + x + '</div>'; }).join('');
@@ -24457,21 +24611,44 @@ function vdesRenderCalendario() {
     var esDom = (dow===0);
     var info = mapa[iso];
     var n = info ? info.checkins : 0;
-    var obj = vdesObjetivoDia(dow);
-    var cls, vTxt, chk = '';
-    if (esDom) { cls='vdes-dom'; vTxt=''; }
-    else if (!info) { cls='vdes-sindata'; vTxt='·'; }
-    else if (n>=obj) { cls='vdes-ok'; vTxt=n; chk='✓'; }
-    else if (n>=Math.round(obj*0.65)) { cls='vdes-cerca'; vTxt=n; }
-    else { cls='vdes-flojo'; vTxt=n; }
+    var meta = vdesMetaDia(dow);
+    var vd = ventas[iso];
+    var vend = vd ? vd.total : 0;
+    var cls, vTxt, montoTxt='', montoBig=false;
+    if (esCampo) {
+      if (esDom)             { cls='vdes-dom';     vTxt = (n>0 ? n : ''); }
+      else if (!info)        { cls='vdes-sindata'; vTxt='·'; }
+      else if (n>=meta.meta) { cls='vdes-ok';      vTxt=n; }
+      else if (n>=meta.min)  { cls='vdes-cerca';   vTxt=n; }
+      else { cls='vdes-flojo'; vTxt=n; }
+      montoTxt = vend>0 ? vdesMontoCorto(vend) : '';
+    } else {
+      var niv = vdesNivelVenta(vend, maxMes);
+      cls = (niv==='alto') ? 'vdes-ok' : (niv==='medio') ? 'vdes-cerca' : (niv==='bajo') ? 'vdes-flojo' : 'vdes-sindata';
+      vTxt = vend>0 ? vdesMontoCorto(vend) : (esDom ? '' : '·');
+      montoBig = true;
+    }
     var clsExtra = semDias[iso] ? ' weeksel' : '';
-    var clickable = (!esDom) ? 'onclick="vdesAbrirDia(\'' + iso + '\')"' : '';
+    if (iso===hoyISO) clsExtra += ' vdeshoy';
+    var clickable = (vend>0 || n>0 || !esDom) ? 'onclick="vdesAbrirDia(\'' + iso + '\')"' : '';
     grid += '<div class="vdes-cell ' + cls + clsExtra + '" ' + clickable + ' data-iso="' + iso + '">'
       + '<span class="d">' + dia + '</span>'
-      + '<span class="v">' + vTxt + '</span>'
-      + (chk ? '<span class="chk">' + chk + '</span>' : '')
+      + '<span class="v"' + (montoBig?' style="font-size:12.5px;"':'') + '>' + vTxt + '</span>'
+      + (montoTxt ? '<span class="chk vdes-cell-monto">' + montoTxt + '</span>' : '')
       + '</div>';
   }
+  var leyenda = esCampo
+    ? '<span><span class="sw" style="background:#7DC36F"></span>meta (30+)</span>'
+      + '<span><span class="sw" style="background:#FFE082"></span>mín. (25+)</span>'
+      + '<span><span class="sw" style="background:#FFCC9E"></span>flojo (&lt;25)</span>'
+      + '<span><span class="sw" style="background:#EFEBE6"></span>sin check-in</span>'
+    : '<span><span class="sw" style="background:#7DC36F"></span>día top</span>'
+      + '<span><span class="sw" style="background:#FFE082"></span>medio</span>'
+      + '<span><span class="sw" style="background:#FFCC9E"></span>flojo</span>'
+      + '<span><span class="sw" style="background:#EFEBE6"></span>sin venta</span>';
+  var nota = esCampo
+    ? 'Número grande = visitas · número chico = $ vendido (confirmado). Borde bordó = hoy. Tocá un día para el detalle.'
+    : 'Coloreado por nivel de venta (confirmado), relativo a tu mejor día del mes. Borde bordó = hoy. Tocá un día para el detalle.';
   var html =
     '<div class="vdes-cal-nav">'
     + '<div class="vdes-arrow" onclick="vdesCambiarMes(-1)">‹</div>'
@@ -24479,13 +24656,8 @@ function vdesRenderCalendario() {
     + '<div class="vdes-arrow" onclick="vdesCambiarMes(1)">›</div>'
     + '</div>'
     + '<div class="vdes-grid">' + grid + '</div>'
-    + '<div class="vdes-ley">'
-    + '<span><span class="sw" style="background:#7DC36F"></span>cumpliste</span>'
-    + '<span><span class="sw" style="background:#FFE082"></span>cerca</span>'
-    + '<span><span class="sw" style="background:#FFCC9E"></span>flojo</span>'
-    + '<span><span class="sw" style="background:#EFEBE6"></span>sin check-in</span>'
-    + '</div>'
-    + '<div class="vdes-nota">Gris = sin check-in ese día. Tocá un día para ver el detalle y su semana.</div>';
+    + '<div class="vdes-ley">' + leyenda + '</div>'
+    + '<div class="vdes-nota">' + nota + '</div>';
   var el = document.getElementById('vdes-calendario');
   if (el) el.innerHTML = html;
 }
@@ -24501,6 +24673,8 @@ function vdesAbrirDia(iso) {
 
 function vdesRenderDetalle(iso) {
   var mapa = vdesPorDia();
+  var ventas = vdesVentasDia();
+  var esCampo = vdesEsCampo();
   var info = mapa[iso];
   var det = document.getElementById('vdes-det');
   if (!det) return;
@@ -24512,32 +24686,89 @@ function vdesRenderDetalle(iso) {
   var dd = new Date(+p[0], +p[1]-1, +p[2]);
   var fechaTxt = dd.toLocaleDateString('es-AR',{weekday:'long',day:'numeric',month:'numeric'});
   fechaTxt = fechaTxt.charAt(0).toUpperCase() + fechaTxt.slice(1);
+  var fmtH = function(d){ return d ? d.toLocaleTimeString('es-AR',{hour:'2-digit',minute:'2-digit'}) : '—'; };
+  var vdia = ventas[iso] || null;
+  var vendDia = vdia ? vdia.total : 0;
+  var pendDia = vdia ? vdia.pend : 0;
 
-  if (!info || !info.visitas.length) {
-    det.innerHTML = '<div class="vdes-det-hdr"><div class="vdes-det-f">' + fechaTxt + '</div><div class="vdes-det-j">Sin check-in registrado ese día</div></div>';
-    det.style.display = 'block';
-    det.scrollIntoView({behavior:'smooth',block:'nearest'});
+  function filaVendido(xVisitaTxt) {
+    var oriTxt = '';
+    if (vdia) oriTxt = Object.keys(vdia.ori).sort(function(a,b){return vdia.ori[b]-vdia.ori[a];})
+      .map(function(o){ return o + ' ' + vdesMontoCorto(vdia.ori[o]); }).join(' · ');
+    var pendLine = pendDia>0 ? '<div class="vdes-vend-ori" style="text-align:left;color:#B26A00;">⏳ + ' + vdesMontoFull(pendDia) + ' pendiente de confirmar (' + vdia.np + ')</div>' : '';
+    return '<div class="vdes-vend-row"><div style="min-width:0;"><div class="vdes-vend-l">💰 Vendido en el día (confirmado)</div>'
+      + (oriTxt ? '<div class="vdes-vend-ori" style="text-align:left;">' + oriTxt + '</div>' : '')
+      + pendLine
+      + '</div><div style="text-align:right;"><div class="vdes-vend-r">' + vdesMontoFull(vendDia) + '</div>'
+      + (xVisitaTxt ? '<div class="vdes-vend-ori">' + xVisitaTxt + '</div>' : '') + '</div></div>';
+  }
+
+  // ===== MODO VENTAS (sin visitas) =====
+  if (!esCampo) {
+    var peds = vdesPedidosDelDia(iso);
+    var listHtml = peds.length ? peds.map(function(x){
+      var ic = x.estado==='Confirmado' ? '📦' : '⏳';
+      var col = x.estado==='Confirmado' ? '#2E7D32' : '#B26A00';
+      return '<div class="vdes-tl"><div class="vdes-tl-ic">' + ic + '</div>'
+        + '<div style="flex:1;min-width:0;"><div class="vdes-tl-nom">' + x.cliente + '</div><div class="vdes-tl-meta">' + (x.origen||'—') + (x.estado!=='Confirmado'?' · pendiente':'') + '</div></div>'
+        + '<div class="vdes-tl-res" style="color:' + col + '">' + vdesMontoCorto(x.monto) + '</div></div>';
+    }).join('') : '<div class="vdes-tl"><div style="flex:1;color:#999;font-size:12px;padding:4px 0;">Sin pedidos ese día</div></div>';
+    det.innerHTML = '<div class="vdes-det-hdr"><div class="vdes-det-f">' + fechaTxt + '</div><div class="vdes-det-j">🛒 Venta del día</div></div>'
+      + filaVendido('') + listHtml;
+    det.style.display = 'block'; det.scrollIntoView({behavior:'smooth',block:'nearest'});
     return;
   }
-  var vis = info.visitas;
+
+  // ===== MODO CAMPO =====
+  if (!info || !info.visitas.length) {
+    var extra = (vendDia>0 || pendDia>0) ? filaVendido('') : '';
+    det.innerHTML = '<div class="vdes-det-hdr"><div class="vdes-det-f">' + fechaTxt + '</div><div class="vdes-det-j">Sin check-in registrado ese día</div></div>' + extra;
+    det.style.display = 'block'; det.scrollIntoView({behavior:'smooth',block:'nearest'});
+    return;
+  }
+
+  var vis = info.visitas.slice().sort(function(a,b){ return a.entrada - b.entrada; });
   var n = info.checkins;
   var ped = vis.filter(function(x){return x.tuvo_pedido;}).length;
   var conv = n ? Math.round(100*ped/n) : 0;
-  var entradas = vis.map(function(x){return x.entrada;}).filter(Boolean).sort(function(a,b){return a-b;});
-  var salidas  = vis.map(function(x){return x.salida;}).filter(Boolean).sort(function(a,b){return a-b;});
-  var ini  = entradas.length ? entradas[0] : null;
-  var finJ = salidas.length ? salidas[salidas.length-1] : null;
-  var fmtH = function(d){ return d ? d.toLocaleTimeString('es-AR',{hour:'2-digit',minute:'2-digit'}) : '—'; };
+  var ini  = vis[0].entrada;
+  var salidas = vis.map(function(x){return x.salida;}).filter(Boolean).sort(function(a,b){return a-b;});
+  var finJ = salidas.length ? salidas[salidas.length-1] : vis[vis.length-1].entrada;
   var jornada = '🕗 ' + fmtH(ini) + ' → ' + fmtH(finJ);
-  if (ini && finJ) { var mins = Math.round((finJ-ini)/60000); jornada += ' · ' + Math.floor(mins/60) + 'h ' + (mins%60) + 'm'; }
+  if (ini && finJ) { var mins = Math.round((finJ-ini)/60000); if (mins>0) jornada += ' · ' + Math.floor(mins/60) + 'h ' + (mins%60) + 'm'; }
   var conDur = vis.filter(function(x){return x.salida;});
   var durProm = conDur.length ? Math.round(conDur.reduce(function(a,x){return a+(x.salida-x.entrada)/60000;},0)/conDur.length) : 0;
+  var xVisita = n ? Math.round(vendDia/n) : 0;
+
+  var split = vdesSplitAlmuerzo(vis);
+  var blqHtml;
+  if (split) {
+    var manana = vis.slice(0, split.idx+1);
+    var tarde  = vis.slice(split.idx+1);
+    blqHtml = '<div class="vdes-blq">'
+      + '<div class="vdes-blq-card"><div class="vdes-blq-t">☀️ Mañana</div>'
+        + '<div class="vdes-blq-cli">' + (manana[0].cliente||'—') + '</div>'
+        + '<div class="vdes-blq-h">Arrancaste ' + fmtH(manana[0].entrada) + ' · cerraste ' + fmtH(split.finManana) + '</div>'
+        + '<div class="vdes-blq-n">' + manana.length + ' cliente' + (manana.length!==1?'s':'') + '</div></div>'
+      + '<div class="vdes-blq-card"><div class="vdes-blq-t">🌇 Tarde</div>'
+        + '<div class="vdes-blq-cli">' + (tarde[0].cliente||'—') + '</div>'
+        + '<div class="vdes-blq-h">Arrancaste ' + fmtH(tarde[0].entrada) + ' · terminaste ' + fmtH(finJ) + '</div>'
+        + '<div class="vdes-blq-n">' + tarde.length + ' cliente' + (tarde.length!==1?'s':'') + '</div></div>'
+      + '</div>';
+  } else {
+    blqHtml = '<div class="vdes-blq" style="grid-template-columns:1fr;">'
+      + '<div class="vdes-blq-card"><div class="vdes-blq-t">Jornada continua (sin pausa larga)</div>'
+        + '<div class="vdes-blq-cli">Primer cliente: ' + (vis[0].cliente||'—') + '</div>'
+        + '<div class="vdes-blq-h">Arrancaste ' + fmtH(ini) + ' · terminaste ' + fmtH(finJ) + '</div>'
+        + '<div class="vdes-blq-n">' + n + ' cliente' + (n!==1?'s':'') + '</div></div>'
+      + '</div>';
+  }
 
   var timeline = vis.map(function(v) {
     var hora = v.entrada.toLocaleTimeString('es-AR',{hour:'2-digit',minute:'2-digit'});
     var dur = v.salida ? Math.round((v.salida-v.entrada)/60000) + 'm' : '(activo)';
     var icono = v.tuvo_pedido ? '📦' : (v.motivo ? '🔴' : '🟢');
-    var res = v.tuvo_pedido ? 'Pedido' : (v.motivo || 'Sin pedido');
+    var res = v.tuvo_pedido ? (v.montoCampo ? vdesMontoCorto(v.montoCampo) : 'Pedido') : (v.motivo || 'Sin pedido');
     var col = v.tuvo_pedido ? '#2E7D32' : '#C62828';
     return '<div class="vdes-tl"><div class="vdes-tl-ic">' + icono + '</div>'
       + '<div style="flex:1;min-width:0;"><div class="vdes-tl-nom">' + (v.cliente||'—') + '</div><div class="vdes-tl-meta">' + hora + ' · ' + dur + '</div></div>'
@@ -24546,11 +24777,13 @@ function vdesRenderDetalle(iso) {
 
   var html =
     '<div class="vdes-det-hdr"><div class="vdes-det-f">' + fechaTxt + '</div><div class="vdes-det-j">' + jornada + '</div></div>'
+    + filaVendido(vdesMontoFull(xVisita) + ' /visita')
+    + '<div style="padding:0 14px 4px;">' + blqHtml + '</div>'
     + '<div class="vdes-det-stats">'
     + '<div class="vdes-det-stat"><div class="n">' + n + '</div><div class="l">Visitas</div></div>'
     + '<div class="vdes-det-stat"><div class="n" style="color:#2E7D32">' + ped + '</div><div class="l">Pedidos</div></div>'
     + '<div class="vdes-det-stat"><div class="n" style="color:' + (conv>=55?'#2E7D32':'#E65100') + '">' + conv + '%</div><div class="l">Conv.</div></div>'
-    + '<div class="vdes-det-stat" style="border-right:none;"><div class="n">' + (durProm ? durProm + "'" : '—') + '</div><div class="l">Prom/visita</div></div>'
+    + '<div class="vdes-det-stat" style="border-right:none;"><div class="n">' + (durProm ? durProm + "\'" : '—') + '</div><div class="l">Prom/visita</div></div>'
     + '</div>'
     + timeline;
   det.innerHTML = html;
@@ -24561,7 +24794,6 @@ function vdesRenderDetalle(iso) {
 function vdesCambiarSemana(dir) {
   var d = new Date(_vdesSemanaRef); d.setDate(d.getDate() + dir*7);
   _vdesSemanaRef = d;
-  // mes "dominante" de la semana = el del jueves (estilo ISO)
   var jue = new Date(d); jue.setDate(jue.getDate()+3);
   var nm = new Date(jue.getFullYear(), jue.getMonth(), 1);
   if (nm.getTime() !== _vdesMesRef.getTime()) { _vdesMesRef = nm; vdesCargar(); }
@@ -24570,7 +24802,6 @@ function vdesCambiarSemana(dir) {
 function vdesCambiarMes(dir) {
   var y = _vdesMesRef.getFullYear(), m = _vdesMesRef.getMonth();
   _vdesMesRef = new Date(y, m+dir, 1);
-  // semana del resumen = la del dia 1 del nuevo mes
   _vdesSemanaRef = vdesLunesDe(_vdesMesRef);
   vdesCargar();
 }
