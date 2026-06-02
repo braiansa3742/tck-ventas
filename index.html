@@ -2,6 +2,20 @@
 <html lang="es">
 <head>
 <!-- ═══════════════════════════════════════════════════════════════════════
+     TCK VENTAS — v14.38.2 — 02/06/2026
+     v14.38.2: "✏️ Cambiar cobro" abre DIRECTO el cobro detallado editable.
+       Antes: Cambiar cobro → modal rápido viejo (un toque) → recién ahí, al
+       tocar transferencia/cheque, se reabría el modal grande con la foto. El
+       doble salto confundía y el bloque de foto quedaba abajo (parecía que "no
+       daba la opción de cargar foto").
+       Ahora: Cambiar cobro reabre el cobro detallado en la MISMA pantalla, con
+       el cobro actual ya precargado y editable. Si hay transferencia o cheque,
+       la captura de foto aparece ahí mismo y el botón pasa a "✅ Confirmar cobro".
+       Una sola pantalla, sin hojita intermedia. El bypass de comprobante queda
+       cerrado (toda transferencia/cheque pasa por la foto). Sin cambios de SQL.
+       Nota: editar un cobro con CHEQUE vuelve a pedir los datos + foto del cheque
+       (no se recuerdan del registro viejo). Transferencia es directo.
+     ──────────────────────────────────────────────────────────────────────
      TCK VENTAS — v14.38.1 — 02/06/2026
      v14.38.1: TAPAR BYPASS DE COMPROBANTE en "✏️ Cambiar cobro".
        El modal rápido/legacy de cobro (#cobro-modal) seteaba forma_cobro de un
@@ -32858,12 +32872,10 @@ async function deshacerEntregaModal() {
 
 function reabrirCobroModal() {
   if (!_entregaModalId) return;
-  const e = _entregasCache.find(x => x.id === _entregaModalId);
-  if (!e) return;
-  const montoReal = (parseFloat(e.monto)||0) < 1000 && (parseFloat(e.monto)||0) > 0
-    ? parseFloat(e.monto) * 1000 : (parseFloat(e.monto)||0);
-  cambiarCobroEntrega(e.id, e.cliente, montoReal);
-  cerrarEntregaModal();
+  // v14.38.2 — "Cambiar cobro" ahora abre directo el cobro DETALLADO editable
+  // (con captura de foto), sin pasar por el modal rápido viejo. Pre-carga el
+  // cobro actual y, si hay transferencia/cheque, exige el comprobante.
+  _abrirCobroConComprobante(_entregaModalId, null);
 }
 
 // ── CAMBIAR FORMA DE COBRO ────────────────────────────────────
@@ -32958,9 +32970,21 @@ function _abrirCobroConComprobante(entregaId, metodo) {
   });
   var montoReal = (parseFloat(e.monto) || 0) < 1000 && (parseFloat(e.monto) || 0) > 0
     ? parseFloat(e.monto) * 1000 : (parseFloat(e.monto) || 0);
-  var inpMet = document.getElementById('cobro-m-' + metodo + '-val');
-  if (inpMet) inpMet.value = Math.round(montoReal);
-  cobroMultipleActualizar(); // muestra el bloque de comprobante (transferencia) y resalta el método
+  if (metodo) {
+    // Vino de un método elegido en el modal viejo: cargar el total en ese método.
+    var inpMet = document.getElementById('cobro-m-' + metodo + '-val');
+    if (inpMet) inpMet.value = Math.round(montoReal);
+  } else {
+    // "Cambiar cobro": pre-cargar el cobro que ya tenía la entrega para editarlo.
+    var pre = {};
+    if (e.detalle_cobro) { try { pre = JSON.parse(e.detalle_cobro) || {}; } catch(_) {} }
+    if (!Object.keys(pre).length && e.forma_cobro) pre[e.forma_cobro] = montoReal;
+    Object.keys(pre).forEach(function(m) {
+      var inp = document.getElementById('cobro-m-' + m + '-val');
+      if (inp && (parseFloat(pre[m]) || 0) > 0) inp.value = Math.round(parseFloat(pre[m]));
+    });
+  }
+  cobroMultipleActualizar(); // muestra el bloque de comprobante si hay transferencia y resalta los métodos
   setTimeout(function() {
     var w = document.getElementById('entrega-modal-cobro-wrap');
     if (w) w.scrollIntoView({ behavior: 'smooth', block: 'start' });
