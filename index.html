@@ -2,7 +2,16 @@
 <html lang="es">
 <head>
 <!-- ═══════════════════════════════════════════════════════════════════════
-     TCK VENTAS — v14.34.0 — 02/06/2026
+     TCK VENTAS — v14.35.0 — 02/06/2026
+     v14.35.0: TRAMOS DE PRECIO + CAP DE DESCUENTO POR TRAMO.
+       · Suprema 4x5: 1 a 3 bolsas $36.000 (sin dto) · caja x4+ $34.000 (dto máx 3%).
+       · Fuente: Supabase producto_tramos (match por nombre, zona 'todas') + columna descuento_max_pct.
+       · Helpers tck* (nombre único para no chocar con vars locales 'precioUnit'):
+         tckPrecioTramo / tckDtoMaxPct / tckPrecioFinal centralizan el precio en los
+         4 cálculos de pedido (tomador resumen, tomador total, editar total, editar detalle, manualWA desglose).
+       · Cap de descuento validado en las 3 funciones guardar (tomador/editar/mwa): si supera el cap, rechaza con aviso.
+       · Modales de descuento: botones adaptados al cap (1..N) + aviso; cap 0 oculta botones y muestra bloqueo.
+       · Garantía facturación: el descuento se capa según la cantidad VIGENTE, así cambiar la cantidad después no deja un dto inválido. Ventas manda solo texto → parser legacy lee el precio del tramo del propio texto.
      ──────────────────────────────────────────────────────────────────────
      FIX: UNIR PEDIDOS — "NO SE PUEDE UNIR — FORMATO CORRUPTO" falso
 
@@ -16697,6 +16706,127 @@ function _viajeEspEscape(txt) {
 // ═══════════════════════════════════════════════════════════════
 let _combosData = [];
 
+// ═══════════════════════════════════════════════════════════════
+//  v14.23.0 — TRAMOS DE PRECIO + CAP DE DESCUENTO POR TRAMO
+//  Fuente: Supabase tabla producto_tramos. Match por nombre
+//  (TOMADOR_CAT.n === productos_canonicos.nombre). Producto con
+//  tramos → manda la tabla; sin tramos → item.pr (sin cambios).
+//  Nombre tck* para no colisionar con vars locales 'precioUnit'.
+// ═══════════════════════════════════════════════════════════════
+var TRAMOS_V = {};  // { "Suprema": [{min, precio, dtoMax}, ...] }
+
+async function cargarTramosVentas() {
+  try {
+    var data = await sbFetch('producto_tramos'
+      + '?select=cantidad_min,precio,descuento_max_pct,producto_id,productos_canonicos(nombre)'
+      + '&activo=eq.true&zona=eq.todas&order=producto_id.asc,cantidad_min.asc');
+    var rows = Array.isArray(data) ? data : [];
+    var map = {};
+    rows.forEach(function(row) {
+      var nombre = row.productos_canonicos && row.productos_canonicos.nombre;
+      if (!nombre) return;
+      if (!map[nombre]) map[nombre] = [];
+      map[nombre].push({
+        min: Number(row.cantidad_min),
+        precio: Number(row.precio),
+        dtoMax: (row.descuento_max_pct == null ? 0 : Number(row.descuento_max_pct))
+      });
+    });
+    Object.keys(map).forEach(function(n) { map[n].sort(function(a, b) { return a.min - b.min; }); });
+    TRAMOS_V = map;
+  } catch (e) {
+    console.error('[tramos] cargar:', e);
+    TRAMOS_V = {};  // fallback seguro: todo usa item.pr, descuento libre
+  }
+}
+
+function tckTramosDe(nombre) {
+  if (!nombre) return null;
+  var t = TRAMOS_V[nombre];
+  return (t && t.length) ? t : null;
+}
+
+// Tramo vigente para una cantidad (el de mayor min<=q). null si no hay tramos.
+function tckTramoVigente(nombre, q) {
+  var t = tckTramosDe(nombre);
+  if (!t) return null;
+  var qn = Math.max(1, Number(q) || 1);
+  var tr = null;
+  for (var i = 0; i < t.length; i++) { if (qn >= t[i].min) tr = t[i]; }
+  return tr;  // puede ser null si q < primer min (no debería pasar con min=1)
+}
+
+// Precio unitario del tramo según cantidad. Sin tramos (o sin piso) → item.pr.
+function tckPrecioTramo(item, q) {
+  var base = (item && item.pr) || 0;
+  if (!item || !item.n) return base;
+  var tr = tckTramoVigente(item.n, q);
+  return tr ? tr.precio : base;
+}
+
+// Cap de descuento del tramo vigente. null = sin tramos = descuento libre (como hoy).
+function tckDtoMaxPct(nombre, q) {
+  var tr = tckTramoVigente(nombre, q);
+  return tr ? tr.dtoMax : null;
+}
+
+// Precio FINAL (tramo + descuento capado). Centraliza la regla de facturación:
+// el descuento se calcula sobre el precio del tramo y nunca supera el cap del
+// tramo vigente para esa cantidad. Productos sin tramo → comportamiento de antes.
+function tckPrecioFinal(item, q, dtoPct) {
+  var base = tckPrecioTramo(item, q);
+  var cap  = (item && item.n) ? tckDtoMaxPct(item.n, q) : null;
+  var dto  = Number(dtoPct) || 0;
+  if (cap !== null) dto = Math.min(dto, cap);   // capar (cap 0 → sin descuento)
+  if (dto <= 0) return base;
+  return Math.round(base * (1 - dto / 100));
+}
+
+// Para los modales: info de tramo+cap del producto en su cantidad actual.
+// contexto: 'tomador' | 'editar' | 'mwa' → de dónde leer la cantidad.
+function tckCapParaModal(nombre, contexto) {
+  var t = tckTramosDe(nombre);
+  if (!t) return { tieneTramo: false, cap: null, qty: 0 };
+  var qty = 0;
+  try {
+    if (contexto === 'mwa')        qty = (_manualWAQtys || {})[nombre] || 0;
+    else if (contexto === 'editar') qty = (_editarQtys || {})[nombre] || 0;
+    else                            qty = (_tomadorQtys || {})[nombre] || 0;
+  } catch (e) { qty = 0; }
+  var cap = tckDtoMaxPct(nombre, qty);
+  return { tieneTramo: true, cap: (cap == null ? 0 : cap), qty: qty };
+}
+
+// v14.23.0 — botones del modal de descuento adaptados al cap del tramo.
+function tckBotonesDto(dtoActual, contexto, nombre) {
+  var info = tckCapParaModal(nombre, contexto);
+  var base = [5, 10, 15, 20, 25, 50, 100];
+  var lista = base, aviso = '';
+  if (info.tieneTramo) {
+    if (info.cap <= 0) {
+      lista = [];
+      aviso = '<div style="background:#FFF3E0;border:1px solid #FFB74D;border-radius:10px;padding:9px 11px;margin-bottom:8px;font-size:12px;color:#7A4F01;">'
+        + '"' + nombre + '" no admite descuento en esta cantidad. Cargá la caja completa para habilitarlo.</div>';
+    } else {
+      lista = [];
+      for (var k = 1; k <= info.cap; k++) lista.push(k);
+      aviso = '<div style="background:#E8F5E9;border:1px solid #81C784;border-radius:10px;padding:8px 11px;margin-bottom:8px;font-size:12px;color:#1B5E20;">'
+        + 'Máximo ' + info.cap + '% en ' + nombre + ' (margen ajustado).</div>';
+    }
+  }
+  var botones = lista.map(function(p) {
+    var sel = dtoActual === p;
+    return '<button onclick="tomadorSelDto(' + p + ')" id="dto-btn-' + p + '" '
+      + 'style="flex:1;min-width:44px;padding:9px 0;border:2px solid ' + (sel ? '#1565C0' : '#E0E0E0') + ';'
+      + 'background:' + (sel ? '#E3F2FD' : '#fff') + ';border-radius:10px;'
+      + 'font-family:Barlow Condensed,sans-serif;font-size:15px;font-weight:900;'
+      + 'color:' + (sel ? '#1565C0' : '#666') + ';cursor:pointer;touch-action:manipulation;">'
+      + p + '%</button>';
+  }).join('');
+  return { aviso: aviso, botones: botones, bloqueado: info.tieneTramo && info.cap <= 0 };
+}
+
+
 async function combosCargarVentas() {
   try {
     const data = await sbFetch('combos?activo=eq.true&order=orden.asc');
@@ -18369,6 +18499,10 @@ function login(nombre) {
   // v13.4: cargar promos 1+1 de abril
   if (typeof promosCargarVentas === 'function') {
     promosCargarVentas().catch(function(e){ console.error('[promos] cargar:', e); });
+  }
+  // v14.23.0: tramos de precio escalonado + cap de descuento por tramo
+  if (typeof cargarTramosVentas === 'function') {
+    cargarTramosVentas().catch(function(e){ console.error('[tramos] cargar:', e); });
   }
   // v13.3: Cargar info de última sync de clientes Xubio + iniciar refresh automático
   if (typeof xubioCargarUltimaSync === 'function') {
@@ -28442,6 +28576,7 @@ function tomadorRenderProductos(catId) {
 // ── DESCUENTOS ─────────────────────────────────────────────
 function tomadorAbrirDescuento(nombre) {
   var dto = _tomadorDescuentos[nombre] || { pct: 0, motivo: '' };
+  window._dtoContexto = 'tomador';  // v14.23.0
   var existing = document.getElementById('tomador-dto-modal');
   if (existing) existing.remove();
 
@@ -28453,22 +28588,16 @@ function tomadorAbrirDescuento(nombre) {
   modal.id = 'tomador-dto-modal';
   modal.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,.6);z-index:500;display:flex;align-items:flex-end;';
 
-  var botonesDto = [5,10,15,20,25,50,100].map(function(p) {
-    var sel = dto.pct === p;
-    return '<button onclick="tomadorSelDto(' + p + ')" id="dto-btn-' + p + '" '
-      + 'style="flex:1;min-width:44px;padding:9px 0;border:2px solid ' + (sel?'#1565C0':'#E0E0E0') + ';'
-      + 'background:' + (sel?'#E3F2FD':'#fff') + ';border-radius:10px;'
-      + 'font-family:Barlow Condensed,sans-serif;font-size:15px;font-weight:900;'
-      + 'color:' + (sel?'#1565C0':'#666') + ';cursor:pointer;touch-action:manipulation;">'
-      + p + '%</button>';
-  }).join('');
+  var _dtoUI = tckBotonesDto(dto.pct, 'tomador', nombre);  // v14.23.0
+  var botonesDto = _dtoUI.botones;
 
   modal.innerHTML = '<div style="background:#fff;border-radius:20px 20px 0 0;width:100%;padding:20px 20px calc(20px + env(safe-area-inset-bottom));">'
     + '<div style="font-family:Barlow Condensed,sans-serif;font-size:20px;font-weight:900;color:#1A0800;margin-bottom:4px;">% Descuento — ' + nombre + '</div>'
     + '<div style="font-size:12px;color:#999;margin-bottom:14px;">100% = producto bonificado · Requiere aprobación del admin</div>'
+    + _dtoUI.aviso
     + '<div style="margin-bottom:12px;">'
-    + '<div style="font-size:11px;font-weight:700;color:#666;text-transform:uppercase;letter-spacing:.8px;margin-bottom:8px;">Porcentaje</div>'
-    + '<div style="display:flex;gap:6px;flex-wrap:wrap;">' + botonesDto + '</div>'
+    + (_dtoUI.bloqueado ? '' : '<div style="font-size:11px;font-weight:700;color:#666;text-transform:uppercase;letter-spacing:.8px;margin-bottom:8px;">Porcentaje</div>'
+    + '<div style="display:flex;gap:6px;flex-wrap:wrap;">' + botonesDto + '</div>')
     + '<div style="margin-top:8px;display:flex;gap:8px;align-items:center;">'
     + '<span style="font-size:12px;color:#999;">Otro %:</span>'
     + '<input id="dto-custom" type="number" min="1" max="100" placeholder="1-100" value="' + (dto.pct||'') + '" oninput="tomadorSelDto(parseInt(this.value)||0)" style="width:80px;padding:6px 10px;border:1.5px solid #E0E0E0;border-radius:8px;font-size:14px;font-weight:700;">'
@@ -28504,6 +28633,8 @@ function tomadorGuardarDescuento(nombre) {
   var motivo = (document.getElementById('dto-motivo').value || '').trim();
   var errEl  = document.getElementById('dto-motivo-err');
   if (!pct || pct < 1 || pct > 100) { errEl.textContent = 'Elegí un porcentaje entre 1 y 100'; return; }
+  var _capT = tckCapParaModal(nombre, 'tomador');  // v14.23.0
+  if (_capT.tieneTramo && pct > _capT.cap) { errEl.textContent = _capT.cap === 0 ? ('"' + nombre + '" no admite descuento en esta cantidad') : ('Máximo ' + _capT.cap + '% en ' + nombre); return; }
   if (!motivo)   { errEl.textContent = 'El motivo es obligatorio'; return; }
   _tomadorDescuentos[nombre] = { pct: pct, motivo: motivo };
   document.getElementById('tomador-dto-modal').remove();
@@ -28631,7 +28762,7 @@ function tomadorActualizarTotal() {
       }
       if (item) break;
     }
-    if (item) { total += item.pr * qty; count += qty; }
+    if (item) { total += tckPrecioFinal(item, qty, (_tomadorDescuentos[nombre]||{}).pct||0) * qty; count += qty; }
   });
   // v13.4: sumar promos 1+1 al total
   var tp = (typeof promosTotalVentas === 'function') ? promosTotalVentas(_tomadorPromos) : { total:0, unidades:0 };
@@ -28736,10 +28867,10 @@ async function tomadorConfirmar() {
     var imgFileR = IMGMAP[item.n] || (item.img + '.jpg');
     var imgUrlR = 'https://tckcatalogo.com/img/' + encodeURIComponent(imgFileR).replace(/%20/g,'%20');
     var dto = _tomadorDescuentos[nombre];
-    var precioFinal = dto ? Math.round(item.pr * (1 - dto.pct/100)) : item.pr;
+    var precioFinal = tckPrecioFinal(item, qty, dto ? dto.pct : 0);  // v14.23.0 tramo + dto capado
     var sub = precioFinal * qty;
     resumenTotal += sub;
-    resumenLineas.push({ nombre: nombre, qty: qty, presentacion: item.p, precio: item.pr, precioFinal: precioFinal, dto: dto, subtotal: sub, imgUrl: item.img2 || imgUrlR });
+    resumenLineas.push({ nombre: nombre, qty: qty, presentacion: item.p, precio: tckPrecioTramo(item, qty), precioFinal: precioFinal, dto: dto, subtotal: sub, imgUrl: item.img2 || imgUrlR });
   });
 
   // Crear modal de resumen
@@ -33054,7 +33185,7 @@ function editarActualizarTotal() {
     const qty = _editarQtys[nombre];
     TOMADOR_CAT.forEach(function(sec) {
       sec.items.forEach(function(item) {
-        if (item.n === nombre) { const d=_editarDescuentos[nombre]; total += Math.round(item.pr*(d?1-d.pct/100:1))*qty; }
+        if (item.n === nombre) { const d=_editarDescuentos[nombre]; total += tckPrecioFinal(item, qty, d?d.pct:0)*qty; }
       });
     });
   });
@@ -33090,15 +33221,14 @@ function editarAbrirDescuento(nombre) {
   var modal = document.createElement('div');
   modal.id = 'tomador-dto-modal';
   modal.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,.6);z-index:600;display:flex;align-items:flex-end;';
-  var botonesDto = [5,10,15,20,25,50,100].map(function(p){
-    var sel=dto.pct===p;
-    return '<button onclick="tomadorSelDto('+p+')" id="dto-btn-'+p+'" style="flex:1;min-width:44px;padding:9px 0;border:2px solid '+(sel?'#1565C0':'#E0E0E0')+';background:'+(sel?'#E3F2FD':'#fff')+';border-radius:10px;font-family:Barlow Condensed,sans-serif;font-size:15px;font-weight:900;color:'+(sel?'#1565C0':'#666')+';cursor:pointer;touch-action:manipulation;">'+p+'%</button>';
-  }).join('');
+  var _dtoUI = tckBotonesDto(dto.pct, 'editar', nombre);  // v14.23.0
+  var botonesDto = _dtoUI.botones;
   modal.innerHTML = '<div style="background:#fff;border-radius:20px 20px 0 0;width:100%;padding:20px 20px calc(20px + env(safe-area-inset-bottom));">'
     +'<div style="font-family:Barlow Condensed,sans-serif;font-size:20px;font-weight:900;color:#1A0800;margin-bottom:4px;">% Descuento — '+nombre+'</div>'
     +'<div style="font-size:12px;color:#999;margin-bottom:14px;">100% = bonificado · Requiere aprobación del admin</div>'
-    +'<div style="margin-bottom:12px;"><div style="font-size:11px;font-weight:700;color:#666;text-transform:uppercase;letter-spacing:.8px;margin-bottom:8px;">Porcentaje</div>'
-    +'<div style="display:flex;gap:6px;flex-wrap:wrap;">'+botonesDto+'</div>'
+    + _dtoUI.aviso
+    +'<div style="margin-bottom:12px;">'+(_dtoUI.bloqueado ? '' : '<div style="font-size:11px;font-weight:700;color:#666;text-transform:uppercase;letter-spacing:.8px;margin-bottom:8px;">Porcentaje</div>'
+    +'<div style="display:flex;gap:6px;flex-wrap:wrap;">'+botonesDto+'</div>')
     +'<div style="margin-top:8px;display:flex;gap:8px;align-items:center;"><span style="font-size:12px;color:#999;">Otro %:</span>'
     +'<input id="dto-custom" type="number" min="1" max="100" placeholder="1-100" value="'+(dto.pct||'')+'" oninput="tomadorSelDto(parseInt(this.value)||0)" style="width:80px;padding:6px 10px;border:1.5px solid #E0E0E0;border-radius:8px;font-size:14px;font-weight:700;">'
     +'<span style="font-size:12px;color:#666;">%</span></div></div>'
@@ -33116,6 +33246,8 @@ function editarAbrirDescuento(nombre) {
 function editarGuardarDescuento(nombre) {
   var pct=window._dtoActualPct||0, motivo=(document.getElementById('dto-motivo').value||'').trim(), errEl=document.getElementById('dto-motivo-err');
   if(!pct||pct<1||pct>100){errEl.textContent='Elegí un porcentaje';return;}
+  var _capE = tckCapParaModal(nombre, 'editar');  // v14.23.0
+  if(_capE.tieneTramo && pct > _capE.cap){errEl.textContent = _capE.cap === 0 ? ('"'+nombre+'" no admite descuento en esta cantidad') : ('Máximo '+_capE.cap+'% en '+nombre);return;}
   if(!motivo){errEl.textContent='El motivo es obligatorio';return;}
   _editarDescuentos[nombre]={pct,motivo};
   document.getElementById('tomador-dto-modal').remove();
@@ -33183,7 +33315,7 @@ async function _editarConfirmarContinuar() {
       sec.items.forEach(function(item) {
         if (item.n === nombre) {
           const dto = _editarDescuentos[nombre];
-          const precioEd = dto ? Math.round(item.pr*(1-dto.pct/100)) : item.pr;
+          const precioEd = tckPrecioFinal(item, qty, dto?dto.pct:0);  // v14.23.0 tramo + dto capado
           const sub = precioEd * qty;
           total += sub; items += qty;
           // v14.33.0: si el producto traía calibre (Pollo A/B/C del catálogo web),
@@ -33549,15 +33681,14 @@ function mwaAbrirDescuento(nombre) {
   var modal = document.createElement('div');
   modal.id = 'tomador-dto-modal';
   modal.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,.6);z-index:600;display:flex;align-items:flex-end;';
-  var botonesDto = [5,10,15,20,25,50,100].map(function(p) {
-    var sel = dto.pct === p;
-    return '<button onclick="tomadorSelDto('+p+')" id="dto-btn-'+p+'" style="flex:1;min-width:44px;padding:9px 0;border:2px solid '+(sel?'#1565C0':'#E0E0E0')+';background:'+(sel?'#E3F2FD':'#fff')+';border-radius:10px;font-family:Barlow Condensed,sans-serif;font-size:15px;font-weight:900;color:'+(sel?'#1565C0':'#666')+';cursor:pointer;touch-action:manipulation;">'+p+'%</button>';
-  }).join('');
+  var _dtoUI = tckBotonesDto(dto.pct, 'mwa', nombre);  // v14.23.0
+  var botonesDto = _dtoUI.botones;
   modal.innerHTML = '<div style="background:#fff;border-radius:20px 20px 0 0;width:100%;padding:20px 20px calc(20px + env(safe-area-inset-bottom));">'
     +'<div style="font-family:Barlow Condensed,sans-serif;font-size:20px;font-weight:900;color:#1A0800;margin-bottom:4px;">% Descuento — '+nombre+'</div>'
     +'<div style="font-size:12px;color:#999;margin-bottom:14px;">100% = producto bonificado · Requiere aprobación del admin</div>'
-    +'<div style="margin-bottom:12px;"><div style="font-size:11px;font-weight:700;color:#666;text-transform:uppercase;letter-spacing:.8px;margin-bottom:8px;">Porcentaje</div>'
-    +'<div style="display:flex;gap:6px;flex-wrap:wrap;">'+botonesDto+'</div>'
+    + _dtoUI.aviso
+    +'<div style="margin-bottom:12px;">'+(_dtoUI.bloqueado ? '' : '<div style="font-size:11px;font-weight:700;color:#666;text-transform:uppercase;letter-spacing:.8px;margin-bottom:8px;">Porcentaje</div>'
+    +'<div style="display:flex;gap:6px;flex-wrap:wrap;">'+botonesDto+'</div>')
     +'<div style="margin-top:8px;display:flex;gap:8px;align-items:center;"><span style="font-size:12px;color:#999;">Otro %:</span>'
     +'<input id="dto-custom" type="number" min="1" max="100" placeholder="1-100" value="'+(dto.pct||'')+'" oninput="tomadorSelDto(parseInt(this.value)||0)" style="width:80px;padding:6px 10px;border:1.5px solid #E0E0E0;border-radius:8px;font-size:14px;font-weight:700;">'
     +'<span style="font-size:12px;color:#666;">%</span></div></div>'
@@ -33577,6 +33708,8 @@ function mwaGuardarDescuento(nombre) {
   var motivo = (document.getElementById('dto-motivo').value||'').trim();
   var errEl = document.getElementById('dto-motivo-err');
   if (!pct||pct<1||pct>100) { errEl.textContent='Elegí un porcentaje'; return; }
+  var _capM = tckCapParaModal(nombre, 'mwa');  // v14.23.0
+  if (_capM.tieneTramo && pct > _capM.cap) { errEl.textContent = _capM.cap === 0 ? ('"'+nombre+'" no admite descuento en esta cantidad') : ('Máximo '+_capM.cap+'% en '+nombre); return; }
   if (!motivo) { errEl.textContent='El motivo es obligatorio'; return; }
   _manualWADescuentos[nombre] = { pct, motivo };
   document.getElementById('tomador-dto-modal').remove();
@@ -33695,8 +33828,8 @@ function mwaCalcularDesglose() {
     }
     if (!item) return;
     var dto = _manualWADescuentos[nombre];
-    var precioUnit = item.pr || 0;
-    var precioFinal = dto ? Math.round(precioUnit * (1 - dto.pct/100)) : precioUnit;
+    var precioUnit = tckPrecioTramo(item, qty);          // v14.23.0 precio del tramo
+    var precioFinal = tckPrecioFinal(item, qty, dto ? dto.pct : 0);  // tramo + dto capado
     var subtotal = precioFinal * qty;
 
     desglose.sueltos.push({
