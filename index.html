@@ -2,6 +2,13 @@
 <html lang="es">
 <head>
 <!-- ═══════════════════════════════════════════════════════════════════════
+     TCK VENTAS — v14.37.0 — 02/06/2026
+     v14.37.0: SEGURIDAD DE PINS. Los PINs salieron del HTML (antes en texto plano,
+       visibles en el código fuente público). Ahora el login valida server-side contra
+       Supabase (función verificar_pin, bcrypt). La tabla app_usuarios no es accesible
+       por la anon key. Alta/baja/cambio de PIN = SQL, sin redeploy. Requiere correr el
+       SQL de creación de tabla+función en Supabase y cargar los usuarios.
+     ──────────────────────────────────────────────────────────────────────
      TCK VENTAS — v14.36.0 — 02/06/2026
      v14.36.0: el vendedor ahora VE los tramos en las cards (antes solo veía un precio
        y podía comunicar mal). Caja destacada en verde (mejor precio) + suelto chico debajo,
@@ -15570,7 +15577,10 @@ body {
 const APPS_SCRIPT_URL = 'https://script.google.com/macros/s/AKfycbxbx9ma8S5wcuRqFXjRyFYvIo_kLwc5Px4eE4Y7-CqPmIfJbI3VBEP4I9qSV8s0owMMYg/exec';
 const SHEET_CSV = 'https://docs.google.com/spreadsheets/d/e/2PACX-1vQDZk6Z5pejrI_djbUYBLEvh-X7H_sLF5ZCW2RQr0Bc03r8LOL17_C3pCmwwyLe2iXf3Fan0tgl7IJG/pub?gid=0&single=true&output=csv';
 const NUM_ADMIN = '5492314475357';
-const PINS = { 'Miguel':'3356', 'Juan':'4256', 'Lisandro':'8020', 'ADMIN':'3050', 'Joan':'9060', 'Luis':'7040', 'Juan Pablo':'3070' };
+// v14.37.0 — Los PINs ya NO viven en el cliente (antes estaban en texto plano y
+// eran visibles en el código fuente público). Ahora se validan server-side en
+// Supabase con la función verificar_pin (bcrypt). El alta/baja/cambio de PIN se
+// hace por SQL en la tabla app_usuarios, sin necesidad de redeploy.
 
 // v14.6.0: Helper para fetches a Apps Script CON manejo de errores real.
 // Reemplaza el patrón anterior `fetch(..., {mode:'no-cors'}).catch(()=>{})`
@@ -18246,7 +18256,7 @@ var _modoCampo = new URLSearchParams(window.location.search).get('modo') === 'ca
 // Recuperar sesión si existe
 (function() {
   var sesion = recuperarSesion();
-  if (sesion && PINS[sesion]) {
+  if (sesion) {
     // En tckadmin.lat solo restaurar si es ADMIN
     var host = window.location.hostname;
     var esAdminSite = host === 'tckadmin.lat' || host === 'www.tckadmin.lat';
@@ -18517,11 +18527,28 @@ function actualizarDots() {
   });
 }
 
-function verificarPin() {
-  if (pinActual === PINS[pinVendedorTemp]) {
-    login(pinVendedorTemp);
-  } else {
-    document.getElementById('pin-error').textContent = 'PIN incorrecto. Intentá de nuevo.';
+async function verificarPin() {
+  // v14.37.0 — validación server-side. El PIN nunca está en el cliente.
+  var nombre = pinVendedorTemp;
+  var pin = pinActual;
+  var errEl = document.getElementById('pin-error');
+  errEl.textContent = 'Verificando…';
+  try {
+    var data = await sbFetch('rpc/verificar_pin', {
+      method: 'POST',
+      body: JSON.stringify({ p_nombre: nombre, p_pin: pin })
+    });
+    if (data && data.ok) {
+      errEl.textContent = '';
+      login(nombre);
+    } else {
+      errEl.textContent = 'PIN incorrecto. Intentá de nuevo.';
+      pinActual = '';
+      actualizarDots();
+    }
+  } catch (e) {
+    console.error('[login] verificar_pin:', e);
+    errEl.textContent = 'Error de conexión. Reintentá.';
     pinActual = '';
     actualizarDots();
   }
