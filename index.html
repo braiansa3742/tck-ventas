@@ -2,6 +2,17 @@
 <html lang="es">
 <head>
 <!-- ═══════════════════════════════════════════════════════════════════════
+     TCK VENTAS — v14.38.1 — 02/06/2026
+     v14.38.1: TAPAR BYPASS DE COMPROBANTE en "✏️ Cambiar cobro".
+       El modal rápido/legacy de cobro (#cobro-modal) seteaba forma_cobro de un
+       toque, sin pedir foto. Si desde "✏️ Cambiar cobro" se elegía Transferencia
+       o Cheque, cambiaba sin comprobante (bug detectado en un pedido de Luis).
+       AHORA: al tocar Transferencia o Cheque en ese modal, NO se setea directo —
+       se abre el cobro DETALLADO con la captura de foto (y, para cheque, datos +
+       foto de cada cheque). Efectivo y Cuenta corriente siguen siendo de un toque.
+       Vale tanto para corregir una entrega ya hecha como para un cobro nuevo.
+       Reusa la lógica de v14.38.0, no duplica UI. Sin cambios de SQL.
+     ──────────────────────────────────────────────────────────────────────
      TCK VENTAS — v14.38.0 — 02/06/2026
      v14.38.0: FOTO DE COMPROBANTE OBLIGATORIA (transferencia y cheque).
        OBJETIVO: cerrar el agujero de cobranzas. El comprobante ES la plata —
@@ -32923,10 +32934,58 @@ function cobroCancelar() {
   _entregasPedidoActual = null;
 }
 
+// v14.38.1 — Abre el cobro DETALLADO (con foto de comprobante) para un método
+// que exige prueba (transferencia/cheque), incluso si la entrega ya estaba
+// marcada como entregada (corrección vía "✏️ Cambiar cobro"). Reusa toda la
+// lógica de captura de foto del flujo normal — no duplica nada.
+function _abrirCobroConComprobante(entregaId, metodo) {
+  abrirEntregaModal(entregaId);
+  var e = _entregasCache.find(function(x) { return x.id === entregaId; });
+  if (!e) return;
+  // Mostrar la sección de cobro aunque la entrega ya esté entregada.
+  var cobroWrap = document.getElementById('entrega-modal-cobro-wrap');
+  if (cobroWrap) cobroWrap.style.display = '';
+  // Forzar el botón de confirmar: si la entrega ya estaba hecha, abrirEntregaModal
+  // muestra "Cambiar cobro / Deshacer"; acá necesitamos poder confirmar el cobro.
+  var btns = document.getElementById('entrega-modal-btns');
+  if (btns) btns.innerHTML = '<button class="entrega-modal-btn entregar" onclick="confirmarEntregaModal()">✅ Confirmar cobro</button>';
+  // Limpiar inputs y pre-cargar el monto total en el método elegido.
+  ['efectivo','transferencia','cheque','cuenta_corriente'].forEach(function(m) {
+    var inp = document.getElementById('cobro-m-' + m + '-val');
+    if (inp) inp.value = '';
+    var item = document.getElementById('cobro-m-' + m);
+    if (item) item.classList.remove('activo');
+  });
+  var montoReal = (parseFloat(e.monto) || 0) < 1000 && (parseFloat(e.monto) || 0) > 0
+    ? parseFloat(e.monto) * 1000 : (parseFloat(e.monto) || 0);
+  var inpMet = document.getElementById('cobro-m-' + metodo + '-val');
+  if (inpMet) inpMet.value = Math.round(montoReal);
+  cobroMultipleActualizar(); // muestra el bloque de comprobante (transferencia) y resalta el método
+  setTimeout(function() {
+    var w = document.getElementById('entrega-modal-cobro-wrap');
+    if (w) w.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  }, 150);
+}
+
 async function cobroSeleccionar(formaCobro) {
   if (!_entregasPedidoActual) return;
   document.querySelectorAll('.cobro-opt').forEach(b => b.classList.remove('sel'));
   event.target.closest('.cobro-opt').classList.add('sel');
+
+  // v14.38.1 — transferencia y cheque EXIGEN comprobante (foto). No se setean
+  // directo desde este modal rápido/legacy: se manda al cobro detallado, que
+  // tiene la captura de foto (y, para cheque, los datos + foto de cada cheque).
+  // Aplica también al "✏️ Cambiar cobro" de una entrega ya hecha.
+  if (formaCobro === 'transferencia' || formaCobro === 'cheque') {
+    var _idDet = _entregasPedidoActual;
+    document.getElementById('cobro-modal').classList.add('hidden');
+    _entregasPedidoActual = null;
+    _entregaClienteActual = null;
+    _entregaCiudadActual  = null;
+    _modoCobroCambio      = false;
+    _abrirCobroConComprobante(_idDet, formaCobro);
+    return;
+  }
 
   const id      = _entregasPedidoActual;
   const cliente = _entregaClienteActual;
