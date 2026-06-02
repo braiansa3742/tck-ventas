@@ -2,6 +2,46 @@
 <html lang="es">
 <head>
 <!-- ═══════════════════════════════════════════════════════════════════════
+     TCK VENTAS — v14.33.0 — 02/06/2026
+     ──────────────────────────────────────────────────────────────────────
+     FIX: EDITAR PEDIDO CON POLLO + CALIBRE (ej "Pollo B · calibre x7")
+
+     SÍNTOMA (Braian, 02/06 — Lucas Iriarte): el cliente agregó "Pollo B ·
+       calibre x7" por el catálogo web. Al abrir el editor, saltaba el warning
+       rojo "PEDIDO ORIGINAL INCOMPLETO" y la línea no se podía editar; tampoco
+       presupuestar bien, porque al guardar la línea se PERDÍA.
+
+     CAUSA: el editor matchea el producto contra TOMADOR_CAT por nombre EXACTO
+       (it.n === nombre). "Pollo B · calibre x7" no existe así (el catálogo tiene
+       "Pollo B" pelado), entonces lo marcaba huérfano, lo BORRABA del carrito y
+       disparaba el warning. Al guardar, el detalle se reconstruye solo con lo que
+       matchea el CAT → la línea con calibre desaparecía del Sheet.
+
+     IMPORTANTE: el Apps Script NO tiene el problema. El presupuesto resuelve por
+       el mapeo de Supabase (mapeo[linea.nombre]) y ese mapeo YA tiene
+       "Pollo B · calibre x7" → SKU correcto. El único bug estaba acá, en el editor.
+
+     FIX (solo client-side, este archivo):
+       · _editarSepararCalibre(): saca el calibre del nombre ("Pollo B · calibre
+         x7" → base "Pollo B" + calibre "calibre x7").
+       · Al validar contra el CAT, si el nombre no matchea pero su BASE sí, se
+         carga bajo el producto base (editable, cantidad y precio correctos) y se
+         guarda el calibre en _editarCalibres. NO va más a huérfanos → no hay warning.
+       · Al guardar, se reescribe la línea con el calibre ("1x Pollo B · calibre x7
+         (x 20 Kg) → $72.000"). El parser de texto del Apps Script lo conserva y el
+         mapeo lo resuelve → el presupuesto sale bien.
+       · Nota verde informativa (no bloqueante) listando los calibres detectados.
+
+     NOTA DE DATOS (no es este fix): el mapeo de Supabase tiene "· calibre x6/x7"
+       para Pollo A/B/C, pero NO para x8/x9. Si los clientes piden esos calibres por
+       catálogo, hay que agregar esas filas a productos_xubio_mapping o el
+       presupuesto va a fallar para esos casos puntuales.
+
+     1. Subir este archivo al repo tck-ventas como index.html
+     2. Hard refresh
+     ══════════════════════════════════════════════════════════════════════ -->
+
+<!-- ═══════════════════════════════════════════════════════════════════════
      TCK VENTAS — v14.32.0 — 02/06/2026
      ──────────────────────────────────────────────────────────────────────
      FIX DEFINITIVO: PEDIDOS DUPLICADOS POR CHECK-IN (la causa real)
@@ -32524,6 +32564,20 @@ let _editarPromos     = {};
 let _editarTotalOriginal    = 0;   // total del pedido al abrir el editor
 let _editarLineasNoParseadas = []; // líneas del detalle que no matcheó la regex
 let _editarQtysHuerfanos    = []; // productos parseados que no existen en TOMADOR_CAT
+let _editarCalibres         = {}; // v14.33.0: nombre base → calibre detectado (ej "Pollo B" → "calibre x7")
+
+// v14.33.0: separa el calibre embebido en el nombre de un Pollo genérico.
+// "Pollo B · calibre x7" → { base:"Pollo B", calibre:"calibre x7" }. Acepta
+// separador · o . y "calibre x7" / "calibre 7" (normaliza siempre a "calibre xN",
+// que es la forma con la que el mapeo de Xubio reconoce el producto).
+// Devuelve null si el nombre no tiene calibre embebido.
+function _editarSepararCalibre(nombre) {
+  try {
+    var m = String(nombre || '').match(/^(.*?)\s*[·.]\s*calibre\s*x?\s*(\d+)\s*$/i);
+    if (!m || !m[1].trim()) return null;
+    return { base: m[1].trim(), calibre: 'calibre x' + m[2] };
+  } catch (e) { return null; }
+}
 
 function editarPedidoBtn(btn, event) {
   event.stopPropagation();
@@ -32638,13 +32692,39 @@ function _abrirEditarPedidoInterno(p, detalle) {
 
   // v9.9: validación de productos parseados contra TOMADOR_CAT
   // Si un nombre parseado no existe en el CAT, también va al warning.
+  // v14.33.0: ANTES de marcarlo huérfano, intentar matchear por nombre BASE
+  // sacando el calibre ("Pollo B · calibre x7" → "Pollo B"). Así un pollo con
+  // calibre del catálogo web se carga editable bajo su producto base, NO se
+  // pierde, y el calibre se conserva para reescribirlo al guardar (el mapeo de
+  // Xubio reconoce "Pollo B · calibre x7", así que el presupuesto sale igual).
   _editarQtysHuerfanos = [];
+  _editarCalibres = {};
+  var _remapCalibre = [];
   Object.keys(_editarQtys).forEach(function(nombre){
     var existe = false;
     TOMADOR_CAT.forEach(function(sec){
       sec.items.forEach(function(it){ if (it.n === nombre) existe = true; });
     });
-    if (!existe) _editarQtysHuerfanos.push(nombre);
+    if (existe) return;
+    var sep = _editarSepararCalibre(nombre);
+    if (sep) {
+      var baseExiste = false;
+      TOMADOR_CAT.forEach(function(sec){
+        sec.items.forEach(function(it){ if (it.n === sep.base) baseExiste = true; });
+      });
+      if (baseExiste) {
+        _remapCalibre.push({ full: nombre, base: sep.base, calibre: sep.calibre, qty: _editarQtys[nombre] });
+        return; // no es huérfano: es un pollo genérico con calibre
+      }
+    }
+    _editarQtysHuerfanos.push(nombre);
+  });
+  // v14.33.0: aplicar remapeos de calibre (full → base, y guardar el calibre).
+  // Si ya había una línea del mismo producto base, se suman las cantidades.
+  _remapCalibre.forEach(function(r){
+    delete _editarQtys[r.full];
+    _editarQtys[r.base] = (_editarQtys[r.base] || 0) + (parseInt(r.qty) || 1);
+    _editarCalibres[r.base] = r.calibre;
   });
   // Los huérfanos también se sacan de _editarQtys para no arrastrar basura
   _editarQtysHuerfanos.forEach(function(n){ delete _editarQtys[n]; });
@@ -32664,12 +32744,34 @@ function _abrirEditarPedidoInterno(p, detalle) {
     _editarMostrarWarningParsing(detalle);
   }
 
+  // v14.33.0: nota informativa (no bloqueante) si se cargaron pollos con calibre.
+  if (Object.keys(_editarCalibres).length > 0) {
+    _editarMostrarNotaCalibre();
+  }
+
   // v8.6: cargar sucursal vinculada (si tiene) para mostrarla y permitir cambiar
   pedidoSucursalObtener(p.pedidoId).then(function(suc) {
     _editarSucursalOriginal = suc || null;
     _editarSucursalActual   = suc || null;
     _editarRenderSucursalBloque();
   }).catch(function(){});
+}
+
+// v14.33.0: nota verde informativa cuando se cargaron pollos con calibre.
+// Reemplaza el susto del warning rojo: el producto NO se perdió, se cargó bajo
+// su nombre base y el calibre se conserva al guardar.
+function _editarMostrarNotaCalibre() {
+  var body = document.querySelector('#editar-overlay .editar-body');
+  if (!body) return;
+  if (document.getElementById('editar-nota-calibre')) return;
+  var lista = Object.keys(_editarCalibres).map(function(base){
+    return base + ' (' + _editarCalibres[base] + ')';
+  }).join(', ');
+  var div = document.createElement('div');
+  div.id = 'editar-nota-calibre';
+  div.style.cssText = 'margin:12px;padding:12px 14px;background:linear-gradient(135deg,#E8F5E9,#C8E6C9);border:2px solid #2E7D32;border-radius:12px;font-family:Barlow,sans-serif;color:#1B5E20;font-size:13.5px;line-height:1.45;';
+  div.innerHTML = '✅ <b>Calibre detectado:</b> ' + lista + '. Se cargó bajo el producto base; el calibre se conserva al guardar. Cambiá la cantidad normalmente.';
+  body.insertBefore(div, body.firstChild);
 }
 
 // v9.9: muestra warning rojo al editar cuando hay líneas del detalle que no se
@@ -33058,8 +33160,13 @@ async function _editarConfirmarContinuar() {
           const precioEd = dto ? Math.round(item.pr*(1-dto.pct/100)) : item.pr;
           const sub = precioEd * qty;
           total += sub; items += qty;
-          resumenLineas.push(qty + 'x ' + nombre);
-          detalleParts.push(qty + 'x ' + nombre + ' (' + item.p + ')' + (dto?'[-'+dto.pct+'%]':'') + ' → $' + sub.toLocaleString('es-AR'));
+          // v14.33.0: si el producto traía calibre (Pollo A/B/C del catálogo web),
+          // reescribirlo en el detalle para no perderlo. El parser de texto + el
+          // mapeo de Xubio reconocen "Pollo B · calibre x7" y lo presupuestan bien.
+          var _calEd = _editarCalibres[nombre];
+          var _nomEd = _calEd ? (nombre + ' · ' + _calEd) : nombre;
+          resumenLineas.push(qty + 'x ' + _nomEd);
+          detalleParts.push(qty + 'x ' + _nomEd + ' (' + item.p + ')' + (dto?'[-'+dto.pct+'%]':'') + ' → $' + sub.toLocaleString('es-AR'));
         }
       });
     });
