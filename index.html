@@ -2,6 +2,14 @@
 <html lang="es">
 <head>
 <!-- ═══════════════════════════════════════════════════════════════════════
+     TCK VENTAS — v14.36.0 — 02/06/2026
+     v14.36.0: el vendedor ahora VE los tramos en las cards (antes solo veía un precio
+       y podía comunicar mal). Caja destacada en verde (mejor precio) + suelto chico debajo,
+       apilado para entrar en la grilla de 3 columnas (mobile). En los 3 flujos:
+       tomar pedido (tomador), cargar por WA (manualWA) y editar (inline compacto).
+       Helpers tckCardPrecioHTML (tomador/WA) y tckEditarPrecioTxt (editar). Productos sin
+       tramos: sin cambios. Solo presentación — el subtotal ya calculaba el tramo (v14.35.0).
+     ──────────────────────────────────────────────────────────────────────
      TCK VENTAS — v14.35.0 — 02/06/2026
      v14.35.0: TRAMOS DE PRECIO + CAP DE DESCUENTO POR TRAMO.
        · Suprema 4x5: 1 a 3 bolsas $36.000 (sin dto) · caja x4+ $34.000 (dto máx 3%).
@@ -5426,6 +5434,12 @@ body {
   color: var(--red);
   margin-bottom: 4px;
 }
+.tomador-item-tramos { margin-bottom: 4px; }
+.tit-caja { display:inline-block; background:#EAF3DE; border:.5px solid #97C459; border-radius:6px; padding:2px 6px; line-height:1.1; }
+.tit-caja-p { font-family:'Barlow Condensed',sans-serif; font-size:14px; font-weight:900; color:#27500A; }
+.tit-caja-l { font-size:8.5px; font-weight:600; color:#3B6D11; display:block; margin-top:-1px; }
+.tit-suelto { font-size:9.5px; color:#888; margin-top:3px; }
+.tit-suelto b { font-weight:700; color:#666; }
 .tomador-qty {
   display: flex;
   align-items: center;
@@ -5948,6 +5962,12 @@ body {
   color: var(--red);
   margin-bottom: 4px;
 }
+.tomador-item-tramos { margin-bottom: 4px; }
+.tit-caja { display:inline-block; background:#EAF3DE; border:.5px solid #97C459; border-radius:6px; padding:2px 6px; line-height:1.1; }
+.tit-caja-p { font-family:'Barlow Condensed',sans-serif; font-size:14px; font-weight:900; color:#27500A; }
+.tit-caja-l { font-size:8.5px; font-weight:600; color:#3B6D11; display:block; margin-top:-1px; }
+.tit-suelto { font-size:9.5px; color:#888; margin-top:3px; }
+.tit-suelto b { font-weight:700; color:#666; }
 .tomador-qty {
   display: flex;
   align-items: center;
@@ -16754,6 +16774,34 @@ function tckTramoVigente(nombre, q) {
   var tr = null;
   for (var i = 0; i < t.length; i++) { if (qn >= t[i].min) tr = t[i]; }
   return tr;  // puede ser null si q < primer min (no debería pasar con min=1)
+}
+
+// v14.36.0 — HTML del precio en la card de ventas. Si el producto tiene tramos,
+// muestra caja (verde, mejor precio) + suelto chico debajo. Si no, precio simple.
+// Apilado a la izquierda para entrar cómodo en la grilla de 3 columnas (mobile).
+function tckEditarPrecioTxt(item) {
+  // Texto de precio para la fila de edición (compacto). Con tramos: caja + suelto.
+  var pr = (item && item.pr) || 0;
+  var t = (item && item.n) ? tckTramosDe(item.n) : null;
+  if (!t || t.length < 2) return '$' + pr.toLocaleString('es-AR');
+  var suelto = t[0], caja = t[t.length - 1];
+  return '<span style="color:#27500A;font-weight:700;">caja ' + caja.min + '+ $' + caja.precio.toLocaleString('es-AR')
+    + '</span> · 1 a ' + (caja.min - 1) + ' $' + suelto.precio.toLocaleString('es-AR');
+}
+
+function tckCardPrecioHTML(item) {
+  var pr = (item && item.pr) || 0;
+  var t = (item && item.n) ? tckTramosDe(item.n) : null;
+  if (!t || t.length < 2) {
+    return '<div class="tomador-item-precio">$' + pr.toLocaleString('es-AR') + '</div>';
+  }
+  // tramos ordenados asc por min; el de mayor min = caja, el menor = suelto
+  var suelto = t[0], caja = t[t.length - 1];
+  return '<div class="tomador-item-tramos">'
+    + '<span class="tit-caja"><span class="tit-caja-p">$' + caja.precio.toLocaleString('es-AR') + '</span>'
+    + '<span class="tit-caja-l">caja ' + caja.min + '+ c/u</span></span>'
+    + '<div class="tit-suelto">1 a ' + (caja.min - 1) + ': <b>$' + suelto.precio.toLocaleString('es-AR') + '</b></div>'
+    + '</div>';
 }
 
 // Precio unitario del tramo según cantidad. Sin tramos (o sin piso) → item.pr.
@@ -28553,7 +28601,7 @@ function tomadorRenderProductos(catId) {
         + '<div class="tomador-item-body">'
         + '<div class="tomador-item-nombre">' + item.n + '</div>'
         + '<div class="tomador-item-presentacion">' + item.p + '</div>'
-        + '<div class="tomador-item-precio">$' + item.pr.toLocaleString('es-AR') + '</div>'
+        + tckCardPrecioHTML(item)
         + stockBadge
         + '<div class="tomador-qty">'
         + '<button class="tomador-qty-btn" onclick="tomadorCambiarQty(&quot;' + safeName + '&quot;,-1)">−</button>'
@@ -33069,7 +33117,7 @@ function editarRenderItems() {
         '<img class="editar-item-img" src="' + imgUrl + '" onerror="this.style.display=&quot;none&quot;">' +
         '<div class="editar-item-info">' +
           '<div class="editar-item-nombre">' + item.n + '</div>' +
-          '<div class="editar-item-pres">' + item.p + ' · $' + item.pr.toLocaleString('es-AR') + '</div>' +
+          '<div class="editar-item-pres">' + item.p + ' · ' + tckEditarPrecioTxt(item) + '</div>' +
           stockBadge +
         '</div>' +
         '<div class="editar-qty-ctrl">' +
@@ -33612,7 +33660,7 @@ function manualWAHTML() {
         '<div class="tomador-item-body">' +
           '<div class="tomador-item-nombre">' + item.n + '</div>' +
           '<div class="tomador-item-presentacion">' + item.p + '</div>' +
-          '<div class="tomador-item-precio">$' + item.pr.toLocaleString('es-AR') + '</div>' +
+          tckCardPrecioHTML(item) +
           stockBadge +
           '<div class="tomador-qty">' +
             '<button class="tomador-qty-btn" onclick="manualWAQty(&quot;' + safeName + '&quot;,-1)">−</button>' +
