@@ -2,6 +2,14 @@
 <html lang="es">
 <head>
 <!-- ═══════════════════════════════════════════════════════════════════════
+     TCK VENTAS — v14.38.3 — 02/06/2026
+     v14.38.3: el CHOFER ya no ve el tab "Jornada".
+       El tab Jornada (asistente de campo del VENDEDOR, v14.22.0) se colaba en el
+       nav del chofer porque no estaba en la lista que mostrarTabs() oculta para
+       choferes. Se agregó 'jornada' a esa lista. El chofer ahora ve solo lo suyo:
+       Entregas (su ruta + cobro + foto) y Mis Viajes/Rendiciones. Cambio de 1
+       palabra, sin tocar nada más. Sin SQL.
+     ──────────────────────────────────────────────────────────────────────
      TCK VENTAS — v14.38.2 — 02/06/2026
      v14.38.2: "✏️ Cambiar cobro" abre DIRECTO el cobro detallado editable.
        Antes: Cambiar cobro → modal rápido viejo (un toque) → recién ahí, al
@@ -21103,7 +21111,7 @@ function mostrarTabs() {
 
   // Choferes: solo ven tab Entregas
   if (esChofer) {
-    ['pedidos','midia','clientes','gps','mapa','bot','reportes','mironda','mas'].forEach(function(t) {
+    ['pedidos','midia','clientes','gps','mapa','bot','reportes','mironda','jornada','mas'].forEach(function(t) {
       var btn = document.getElementById('tab-btn-' + t);
       if (btn) btn.style.display = 'none';
     });
