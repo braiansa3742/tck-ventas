@@ -2,6 +2,32 @@
 <html lang="es">
 <head>
 <!-- ═══════════════════════════════════════════════════════════════════════
+     TCK VENTAS — v14.34.0 — 02/06/2026
+     ──────────────────────────────────────────────────────────────────────
+     FIX: UNIR PEDIDOS — "NO SE PUEDE UNIR — FORMATO CORRUPTO" falso
+
+     SÍNTOMA (Braian, 02/06): al unir pedidos saltaba el modal rojo "FORMATO
+       CORRUPTO" señalando: "Bloque no reconocido: 1 paquete retail
+       (El Shaddai · x 6 Kg) x $34.500 → $34.500".
+
+     CAUSA: el parser de unión (_dupParsearDetalle) matcheaba la 2da línea del
+       catálogo con una regex que solo aceptaba UNA palabra como unidad (\w+).
+       "paquete retail" son DOS palabras → la línea no matcheaba, la cabecera
+       "🍗 *Nombre*" se salteaba como "suelta", y la línea quedaba huérfana →
+       "bloque no reconocido". NO era un pedido corrupto: era la regex.
+       (El Apps Script ya tenía este mismo fix en v25.10.3; acá faltaba.)
+
+     FIX (solo este archivo, _dupParsearDetalle):
+       · Regex del catálogo: \w+ → [\w\s]+? (acepta "paquete retail" y demás
+         unidades de más de una palabra).
+       · Set de emojis de cabecera ampliado (+ 🍔 🍝) para alinear con el parser
+         del Apps Script (rebozados/hamburguesas/pastas).
+
+     1. Subir este archivo al repo tck-ventas como index.html
+     2. Hard refresh
+     ══════════════════════════════════════════════════════════════════════ -->
+
+<!-- ═══════════════════════════════════════════════════════════════════════
      TCK VENTAS — v14.33.0 — 02/06/2026
      ──────────────────────────────────────────────────────────────────────
      FIX: EDITAR PEDIDO CON POLLO + CALIBRE (ej "Pollo B · calibre x7")
@@ -36213,13 +36239,18 @@ function _dupParsearDetalle(detalle) {
     }
 
     // CATALOGO WEB: cabecera "🐔 *Nombre*" + bloque siguiente con precios
-    var mCabCat = b.match(/^[🔥🐔🍗🥚🍟🍖🥦🥬🥔📦🍅]+\s*\*([^*]+)\*\s*$/u);
+    // v14.34.0: set de emojis ampliado (agrego 🍔 🍝) para alinear con el parser
+    // del Apps Script y no fallar la cabecera de rebozados/hamburguesas/pastas.
+    var mCabCat = b.match(/^[🔥🐔🍗🥚🍟🍖🥦🥬🥔📦🍅🍝🍔]+\s*\*([^*]+)\*\s*$/u);
     if (mCabCat) {
       var nombreCat = mCabCat[1].trim();
       var emojiCat = b.match(/^\S+/)[0];
       if (i + 1 < bloques.length) {
         var sig = bloques[i + 1];
-        var mCat = sig.match(/^(\d+)\s+\w+\s*(?:\(([^)]*)\))?\s*x\s*\$?([\d.,]+)\s*→\s*\$?([\d.,]+)/i);
+        // v14.34.0: [\w\s]+? (en vez de \w+) acepta unidades de MÁS de una palabra
+        // como "paquete retail", "bolsa retail", etc. Mismo fix que el Apps Script
+        // ya tenía (v25.10.3); acá había quedado la regex vieja → "bloque no reconocido".
+        var mCat = sig.match(/^(\d+)\s+[\w\s]+?\s*(?:\(([^)]*)\))?\s*x\s*\$?([\d.,]+)\s*→\s*\$?([\d.,]+)/i);
         if (mCat) {
           out.productos.push({
             formato: 'catalogo', emoji: emojiCat, nombre: nombreCat,
