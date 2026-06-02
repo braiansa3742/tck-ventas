@@ -2,6 +2,38 @@
 <html lang="es">
 <head>
 <!-- ═══════════════════════════════════════════════════════════════════════
+     TCK VENTAS — v14.38.0 — 02/06/2026
+     v14.38.0: FOTO DE COMPROBANTE OBLIGATORIA (transferencia y cheque).
+       OBJETIVO: cerrar el agujero de cobranzas. El comprobante ES la plata —
+       si el chofer no sube la foto, ese cobro no se da por hecho.
+
+       · TRANSFERENCIA: al cargar un monto en transferencia, aparece en el modal
+         de cobro un bloque verde para subir la captura del comprobante. Dos
+         botones: "📷 Tomar foto" (cámara trasera) y "🖼️ Subir foto" (galería).
+         confirmarEntregaModal() BLOQUEA la confirmación si hay transferencia > 0
+         sin comprobante (toast + scroll + parpadeo rojo al bloque).
+       · CHEQUE: cada cheque del sub-modal pide foto del frente (mismos 2 botones).
+         confirmarChequeModal() bloquea si algún cheque no tiene foto.
+       · Las fotos se comprimen en el celular (máx 1600px, JPEG ~0.72 → ~150-400KB)
+         antes de subir, para que ande en red rural sin colgarse.
+       · Suben a Supabase Storage, bucket privado 'comprobantes'
+         (transferencias/AAAA-MM/... y cheques/AAAA-MM/...). Se guarda la RUTA:
+           - entregas.comprobante_transfer (nueva columna)
+           - cheques_recibidos.foto_url   (nueva columna)
+       · El chofer ve preview local (no necesita permiso de lectura del bucket).
+         La vista en el panel de admin (URL firmada) va aparte.
+       · Estados claros: vacío → "Subiendo…" (spinner) → "✅ cargado" (con thumb +
+         "Cambiar"). Si la subida falla: toast de error y queda para reintentar.
+
+       REQUIERE SQL EN SUPABASE ANTES DE USAR (ver bloque al pie del changelog):
+         1) crear bucket privado 'comprobantes' + policy de INSERT
+         2) alter table entregas add column comprobante_transfer text
+         3) alter table cheques_recibidos add column foto_url text
+
+       1. Correr el SQL en Supabase.
+       2. Subir este archivo al repo tck-ventas como index.html.
+       3. Hard refresh en el celular del chofer (cerrar app + reabrir).
+     ──────────────────────────────────────────────────────────────────────
      TCK VENTAS — v14.37.0 — 02/06/2026
      v14.37.0: SEGURIDAD DE PINS. Los PINs salieron del HTML (antes en texto plano,
        visibles en el código fuente público). Ahora el login valida server-side contra
@@ -14873,7 +14905,7 @@ body {
       </div>
       <div class="entrega-modal-body" style="overflow-y:auto;">
         <div style="background:#FFF8E1;border-radius:10px;padding:10px 12px;margin-bottom:14px;font-size:12px;color:#E65100;">
-          ⚠️ Cargá los datos de cada cheque. La suma debe coincidir con el monto total.
+          ⚠️ Cargá los datos de cada cheque y sacale una foto al frente. La suma debe coincidir con el monto total.
         </div>
 
         <!-- Resumen suma vs total -->
@@ -14962,6 +14994,35 @@ body {
               <input class="cobro-multiple-input" id="cobro-m-cuenta_corriente-val" type="number" min="0" placeholder="$0" oninput="cobroMultipleActualizar()">
             </div>
           </div>
+
+          <!-- v14.38.0 — Comprobante de transferencia (foto obligatoria si hay transferencia) -->
+          <div id="comprobante-transfer-wrap" style="display:none;margin-top:12px;background:#E8F5E9;border:1.5px solid #2E7D32;border-radius:12px;padding:12px;">
+            <div style="font-family:'Barlow Condensed',sans-serif;font-size:15px;font-weight:900;color:#1B5E20;margin-bottom:3px;">📲 Comprobante de la transferencia</div>
+            <div style="font-size:12px;color:#2E7D32;margin-bottom:10px;line-height:1.35;">Subí o sacá la captura del pago. <b>Sin comprobante, la transferencia queda como deuda tuya.</b></div>
+            <div id="comprobante-transfer-vacio">
+              <div style="display:flex;gap:8px;">
+                <button type="button" onclick="document.getElementById('compTransfer-cam').click()" style="flex:1;padding:13px 8px;background:#2E7D32;color:#fff;border:none;border-radius:10px;font-family:'Barlow Condensed',sans-serif;font-size:14px;font-weight:800;cursor:pointer;touch-action:manipulation;">📷 Tomar foto</button>
+                <button type="button" onclick="document.getElementById('compTransfer-gal').click()" style="flex:1;padding:13px 8px;background:#fff;color:#2E7D32;border:1.5px solid #2E7D32;border-radius:10px;font-family:'Barlow Condensed',sans-serif;font-size:14px;font-weight:800;cursor:pointer;touch-action:manipulation;">🖼️ Subir foto</button>
+              </div>
+            </div>
+            <div id="comprobante-transfer-cargando" style="display:none;align-items:center;gap:10px;padding:6px 2px;">
+              <div style="width:18px;height:18px;border:2.5px solid #C8E6C9;border-top-color:#2E7D32;border-radius:50%;animation:spin .8s linear infinite;flex-shrink:0;"></div>
+              <span style="font-size:13px;font-weight:700;color:#2E7D32;">Subiendo comprobante…</span>
+            </div>
+            <div id="comprobante-transfer-ok" style="display:none;">
+              <div style="display:flex;align-items:center;gap:10px;">
+                <img id="comprobante-transfer-thumb" src="" alt="comprobante" onclick="_verComprobanteTransfer()" style="width:54px;height:54px;border-radius:8px;object-fit:cover;border:1.5px solid #2E7D32;cursor:pointer;flex-shrink:0;">
+                <div style="flex:1;min-width:0;">
+                  <div style="font-size:13px;font-weight:800;color:#1B5E20;">✅ Comprobante cargado</div>
+                  <div style="font-size:11px;color:#2E7D32;">Tocá la foto para verla en grande</div>
+                </div>
+                <button type="button" onclick="_quitarComprobanteTransfer()" style="background:#FFEBEE;border:1.5px solid rgba(198,40,40,.3);color:#C62828;border-radius:8px;padding:8px 10px;font-family:'Barlow Condensed',sans-serif;font-size:12px;font-weight:800;cursor:pointer;touch-action:manipulation;flex-shrink:0;">Cambiar</button>
+              </div>
+            </div>
+            <input type="file" id="compTransfer-cam" accept="image/*" capture="environment" style="display:none;" onchange="_comprobanteTransferSeleccionada(this)">
+            <input type="file" id="compTransfer-gal" accept="image/*" style="display:none;" onchange="_comprobanteTransferSeleccionada(this)">
+          </div>
+
           <div id="cobro-multiple-total" style="text-align:right;font-family:'Barlow Condensed',sans-serif;font-size:13px;color:var(--text3);margin-top:8px;"></div>
         </div>
       </div>
@@ -31438,6 +31499,8 @@ function abrirEntregaModal(entregaId) {
     const item = document.getElementById('cobro-m-' + m);
     if (item) item.classList.remove('activo');
   });
+  // v14.38.0 — reset del comprobante de transferencia al abrir otra entrega
+  _resetComprobanteTransfer();
   document.getElementById('cobro-multiple-total').textContent = '';
 
   // Botones
@@ -31829,8 +31892,10 @@ function cerrarEntregaModal() {
   _devolucionCategoria = '';
   // v14.16.2 — Limpiar estado de cheques pendientes y alerta de "cobró menos"
   // para evitar arrastrar datos entre entregas distintas.
+  _revocarPreviewsCheques();
   _cobrosPendientes = null;
   _chequesData = [];
+  _resetComprobanteTransfer();
   window._cobroMenosMotivo = null;
   window._cobroMenosMonto = null;
   var alertaCM = document.getElementById('cobro-menos-alerta');
@@ -31931,6 +31996,8 @@ function cobroMultipleActualizar() {
   } else {
     totalEl.textContent = '';
   }
+  // v14.38.0 — mostrar/ocultar el bloque de comprobante de transferencia
+  _toggleComprobanteTransfer();
 }
 
 async function confirmarEntregaModal() {
@@ -31946,6 +32013,32 @@ async function confirmarEntregaModal() {
   // Validar devolución si hay items marcados
   const devData = _getDevolucionData();
   if (devData === 'SIN_CATEGORIA') { toast('❌ Elegí un motivo de devolución', 'err'); return; }
+
+  // v14.38.0 — COMPROBANTE DE TRANSFERENCIA OBLIGATORIO.
+  // Si cobró algo por transferencia, exige la foto del comprobante ANTES de
+  // seguir. Sin comprobante, esa plata no se da por cobrada (queda como deuda
+  // del chofer). Es la barrera que ataca el agujero de Trenque.
+  if ((cobros.transferencia || 0) > 0) {
+    if (_comprobanteTransfer.subiendo) {
+      toast('⏳ Esperá: el comprobante se está subiendo', 'err');
+      return;
+    }
+    if (!_comprobanteTransfer.path) {
+      toast('📲 Falta la foto del comprobante de la transferencia', 'err');
+      var _w = document.getElementById('comprobante-transfer-wrap');
+      if (_w) {
+        _w.style.display = 'block';
+        _w.scrollIntoView({ behavior:'smooth', block:'center' });
+        if (_w.animate) {
+          _w.animate(
+            [{ boxShadow:'0 0 0 0 rgba(198,40,40,.55)' }, { boxShadow:'0 0 0 9px rgba(198,40,40,0)' }],
+            { duration:850, iterations:2 }
+          );
+        }
+      }
+      return;
+    }
+  }
 
   // v14.16.2 — REORGANIZACIÓN DEL FLUJO:
   // Si hay cobro con cheque, abrir sub-modal de cheques PRIMERO.
@@ -32090,8 +32183,237 @@ async function _validarDiferenciaYConfirmar(cobros, totalCobrado) {
 let _cobrosPendientes = null;
 let _chequesData = [];  // v14.15.4: array de cheques cargados en el sub-modal
 
+// ═══════════════════════════════════════════════════════════════
+// v14.38.0 — COMPROBANTES (foto de transferencia y de cheque)
+// ═══════════════════════════════════════════════════════════════
+// Estado del comprobante de transferencia de la entrega actual.
+//   path      → ruta en Supabase Storage (lo que se guarda en BD)
+//   previewUrl→ blob local para mostrar la miniatura sin leer el bucket
+//   subiendo  → true mientras se sube (bloquea la confirmación)
+let _comprobanteTransfer = { path: null, previewUrl: null, subiendo: false };
+
+// Comprime y redimensiona una imagen en el celular antes de subirla.
+// Devuelve un Blob JPEG. Clave para que ande en red rural (una foto de
+// cámara de 5-8MB se baja a ~150-400KB).
+function _comprimirImagen(file, maxLado, calidad) {
+  return new Promise(function(resolve, reject) {
+    var url = URL.createObjectURL(file);
+    var img = new Image();
+    img.onload = function() {
+      try { URL.revokeObjectURL(url); } catch(e){}
+      var w = img.width, h = img.height;
+      if (!w || !h) { reject(new Error('Imagen sin dimensiones')); return; }
+      if (w > h && w > maxLado) { h = Math.round(h * maxLado / w); w = maxLado; }
+      else if (h >= w && h > maxLado) { w = Math.round(w * maxLado / h); h = maxLado; }
+      var canvas = document.createElement('canvas');
+      canvas.width = w; canvas.height = h;
+      var ctx = canvas.getContext('2d');
+      ctx.fillStyle = '#fff'; ctx.fillRect(0, 0, w, h); // fondo blanco si la foto tiene transparencia
+      ctx.drawImage(img, 0, 0, w, h);
+      canvas.toBlob(function(blob) {
+        if (blob) resolve(blob);
+        else reject(new Error('No se pudo procesar la imagen'));
+      }, 'image/jpeg', calidad || 0.72);
+    };
+    img.onerror = function() {
+      try { URL.revokeObjectURL(url); } catch(e){}
+      reject(new Error('No se pudo leer la imagen (formato no soportado)'));
+    };
+    img.src = url;
+  });
+}
+
+// Sube un comprobante al bucket privado 'comprobantes' de Supabase Storage.
+// Devuelve la RUTA del objeto (no una URL pública). El admin la lee con URL
+// firmada desde el panel (server-side). carpeta: 'transferencias' | 'cheques'.
+async function _subirComprobante(file, carpeta, nombreBase) {
+  var blob = await _comprimirImagen(file, 1600, 0.72);
+  var f = new Date();
+  var ym = f.getFullYear() + '-' + String(f.getMonth() + 1).padStart(2, '0');
+  var safeBase = String(nombreBase || 'comprobante').replace(/[^a-zA-Z0-9_-]/g, '').slice(0, 40) || 'c';
+  var path = carpeta + '/' + ym + '/' + safeBase + '_' + Date.now() + '.jpg';
+  var resp = await fetch(SUPABASE_URL + '/storage/v1/object/comprobantes/' + path, {
+    method: 'POST',
+    headers: {
+      'apikey': SUPABASE_KEY,
+      'Authorization': 'Bearer ' + SUPABASE_KEY,
+      'Content-Type': 'image/jpeg',
+      'x-upsert': 'true'
+    },
+    body: blob
+  });
+  if (!resp.ok) {
+    var t = '';
+    try { t = await resp.text(); } catch(e){}
+    throw new Error('Storage ' + resp.status + ': ' + t);
+  }
+  return path;
+}
+
+// Lightbox simple para ver el comprobante en grande (usa el preview local).
+function _verComprobanteImg(src) {
+  if (!src) return;
+  var ov = document.createElement('div');
+  ov.style.cssText = 'position:fixed;inset:0;z-index:3000;background:rgba(0,0,0,.92);display:flex;align-items:center;justify-content:center;padding:18px;';
+  ov.onclick = function() { ov.remove(); };
+  var img = document.createElement('img');
+  img.src = src;
+  img.style.cssText = 'max-width:100%;max-height:100%;border-radius:10px;box-shadow:0 12px 44px rgba(0,0,0,.55);';
+  ov.appendChild(img);
+  var hint = document.createElement('div');
+  hint.textContent = 'Tocá para cerrar';
+  hint.style.cssText = "position:absolute;bottom:18px;left:0;right:0;text-align:center;color:#fff;font-family:'Barlow Condensed',sans-serif;font-size:14px;opacity:.85;";
+  ov.appendChild(hint);
+  document.body.appendChild(ov);
+}
+
+// ── Comprobante de TRANSFERENCIA ────────────────────────────────
+function _toggleComprobanteTransfer() {
+  var wrap = document.getElementById('comprobante-transfer-wrap');
+  if (!wrap) return;
+  var inp = document.getElementById('cobro-m-transferencia-val');
+  var val = parseFloat(inp && inp.value) || 0;
+  if (val > 0) {
+    wrap.style.display = 'block';
+    _renderComprobanteTransferEstado();
+  } else {
+    wrap.style.display = 'none';
+  }
+}
+
+function _renderComprobanteTransferEstado() {
+  var vacio = document.getElementById('comprobante-transfer-vacio');
+  var cargando = document.getElementById('comprobante-transfer-cargando');
+  var ok = document.getElementById('comprobante-transfer-ok');
+  var thumb = document.getElementById('comprobante-transfer-thumb');
+  if (!vacio || !cargando || !ok) return;
+  if (_comprobanteTransfer.subiendo) {
+    vacio.style.display = 'none'; ok.style.display = 'none'; cargando.style.display = 'flex';
+  } else if (_comprobanteTransfer.path) {
+    vacio.style.display = 'none'; cargando.style.display = 'none'; ok.style.display = 'block';
+    if (thumb && _comprobanteTransfer.previewUrl) thumb.src = _comprobanteTransfer.previewUrl;
+  } else {
+    cargando.style.display = 'none'; ok.style.display = 'none'; vacio.style.display = 'block';
+  }
+}
+
+async function _comprobanteTransferSeleccionada(input) {
+  var file = input.files && input.files[0];
+  input.value = ''; // permitir re-elegir el mismo archivo
+  if (!file) return;
+  if (_comprobanteTransfer.previewUrl) { try { URL.revokeObjectURL(_comprobanteTransfer.previewUrl); } catch(e){} }
+  _comprobanteTransfer = { path: null, previewUrl: URL.createObjectURL(file), subiendo: true };
+  _renderComprobanteTransferEstado();
+  try {
+    var e = _entregasCache.find(function(x) { return x.id === _entregaModalId; });
+    var base = (e && e.pedido_id) ? e.pedido_id : ('ent' + (_entregaModalId || ''));
+    var path = await _subirComprobante(file, 'transferencias', base);
+    _comprobanteTransfer.path = path;
+    _comprobanteTransfer.subiendo = false;
+    _renderComprobanteTransferEstado();
+    toast('✅ Comprobante cargado', 'ok');
+  } catch(err) {
+    console.error('Error subiendo comprobante de transferencia:', err);
+    _comprobanteTransfer.subiendo = false;
+    _comprobanteTransfer.path = null;
+    _renderComprobanteTransferEstado();
+    toast('❌ No se pudo subir el comprobante. Probá de nuevo', 'err');
+  }
+}
+
+function _quitarComprobanteTransfer() {
+  if (_comprobanteTransfer.previewUrl) { try { URL.revokeObjectURL(_comprobanteTransfer.previewUrl); } catch(e){} }
+  _comprobanteTransfer = { path: null, previewUrl: null, subiendo: false };
+  _renderComprobanteTransferEstado();
+}
+
+function _verComprobanteTransfer() {
+  _verComprobanteImg(_comprobanteTransfer.previewUrl);
+}
+
+function _resetComprobanteTransfer() {
+  if (_comprobanteTransfer && _comprobanteTransfer.previewUrl) {
+    try { URL.revokeObjectURL(_comprobanteTransfer.previewUrl); } catch(e){}
+  }
+  _comprobanteTransfer = { path: null, previewUrl: null, subiendo: false };
+  var wrap = document.getElementById('comprobante-transfer-wrap');
+  if (wrap) wrap.style.display = 'none';
+}
+
+// ── Foto de CHEQUE (una por cheque, dentro del sub-modal) ───────
+function _chequeFotoHTML(ch, idx) {
+  var header = '<div style="font-size:11px;font-weight:700;color:var(--text3);text-transform:uppercase;letter-spacing:.8px;margin-bottom:4px;">Foto del cheque (frente)</div>';
+  var inputs =
+    '<input type="file" id="cheque-cam-' + idx + '" accept="image/*" capture="environment" style="display:none;" onchange="_chequeFotoSeleccionada(' + idx + ',this)">' +
+    '<input type="file" id="cheque-gal-' + idx + '" accept="image/*" style="display:none;" onchange="_chequeFotoSeleccionada(' + idx + ',this)">';
+  if (ch.fotoSubiendo) {
+    return '<div>' + header +
+      '<div style="display:flex;align-items:center;gap:10px;padding:7px 2px;">' +
+        '<div style="width:18px;height:18px;border:2.5px solid #C5CAE9;border-top-color:#1A237E;border-radius:50%;animation:spin .8s linear infinite;flex-shrink:0;"></div>' +
+        '<span style="font-size:13px;font-weight:700;color:#1A237E;">Subiendo foto…</span>' +
+      '</div>' + inputs + '</div>';
+  }
+  if (ch.fotoPath) {
+    var prev = (ch.fotoPreview || '').replace(/'/g, "%27");
+    return '<div>' + header +
+      '<div style="display:flex;align-items:center;gap:10px;">' +
+        '<img src="' + (ch.fotoPreview || '') + '" onclick="_verComprobanteImg(\'' + prev + '\')" style="width:50px;height:50px;border-radius:8px;object-fit:cover;border:1.5px solid #2E7D32;cursor:pointer;flex-shrink:0;">' +
+        '<div style="flex:1;min-width:0;font-size:13px;font-weight:800;color:#1B5E20;">✅ Foto cargada</div>' +
+        '<button type="button" onclick="_quitarChequeFoto(' + idx + ')" style="background:#FFEBEE;border:1.5px solid rgba(198,40,40,.3);color:#C62828;border-radius:8px;padding:7px 10px;font-family:\'Barlow Condensed\',sans-serif;font-size:12px;font-weight:800;cursor:pointer;touch-action:manipulation;flex-shrink:0;">Cambiar</button>' +
+      '</div>' + inputs + '</div>';
+  }
+  return '<div>' + header +
+    '<div style="display:flex;gap:8px;">' +
+      '<button type="button" onclick="document.getElementById(\'cheque-cam-' + idx + '\').click()" style="flex:1;padding:11px 6px;background:#1A237E;color:#fff;border:none;border-radius:10px;font-family:\'Barlow Condensed\',sans-serif;font-size:13px;font-weight:800;cursor:pointer;touch-action:manipulation;">📷 Tomar foto</button>' +
+      '<button type="button" onclick="document.getElementById(\'cheque-gal-' + idx + '\').click()" style="flex:1;padding:11px 6px;background:#fff;color:#1A237E;border:1.5px solid #1A237E;border-radius:10px;font-family:\'Barlow Condensed\',sans-serif;font-size:13px;font-weight:800;cursor:pointer;touch-action:manipulation;">🖼️ Subir foto</button>' +
+    '</div>' + inputs + '</div>';
+}
+
+async function _chequeFotoSeleccionada(idx, input) {
+  var file = input.files && input.files[0];
+  input.value = '';
+  if (!file || !_chequesData[idx]) return;
+  if (_chequesData[idx].fotoPreview) { try { URL.revokeObjectURL(_chequesData[idx].fotoPreview); } catch(e){} }
+  _chequesData[idx].fotoPreview = URL.createObjectURL(file);
+  _chequesData[idx].fotoPath = null;
+  _chequesData[idx].fotoSubiendo = true;
+  _renderChequesLista();
+  try {
+    var e = _entregasCache.find(function(x) { return x.id === _entregaModalId; });
+    var base = ((e && e.pedido_id) ? e.pedido_id : ('ent' + (_entregaModalId || ''))) + '_ch' + (idx + 1);
+    var path = await _subirComprobante(file, 'cheques', base);
+    if (_chequesData[idx]) {
+      _chequesData[idx].fotoPath = path;
+      _chequesData[idx].fotoSubiendo = false;
+    }
+    _renderChequesLista();
+  } catch(err) {
+    console.error('Error subiendo foto de cheque:', err);
+    if (_chequesData[idx]) { _chequesData[idx].fotoSubiendo = false; _chequesData[idx].fotoPath = null; }
+    _renderChequesLista();
+    toast('❌ No se pudo subir la foto del cheque. Probá de nuevo', 'err');
+  }
+}
+
+function _quitarChequeFoto(idx) {
+  if (!_chequesData[idx]) return;
+  if (_chequesData[idx].fotoPreview) { try { URL.revokeObjectURL(_chequesData[idx].fotoPreview); } catch(e){} }
+  _chequesData[idx].fotoPreview = null;
+  _chequesData[idx].fotoPath = null;
+  _chequesData[idx].fotoSubiendo = false;
+  _renderChequesLista();
+}
+
+function _revocarPreviewsCheques() {
+  if (!_chequesData) return;
+  _chequesData.forEach(function(ch) {
+    if (ch && ch.fotoPreview) { try { URL.revokeObjectURL(ch.fotoPreview); } catch(e){} }
+  });
+}
+
 function cerrarChequeModal() {
   document.getElementById('cheque-modal').classList.add('hidden');
+  _revocarPreviewsCheques();
   _cobrosPendientes = null;
   _chequesData = [];
 }
@@ -32133,6 +32455,7 @@ function _renderChequesLista() {
             '<div style="font-size:11px;font-weight:700;color:var(--text3);text-transform:uppercase;letter-spacing:.8px;margin-bottom:4px;">Fecha de vencimiento</div>' +
             '<input type="date" value="' + (ch.vencimiento || '') + '" oninput="_actualizarChequeCampo(' + idx + ',\'vencimiento\',this.value);" style="width:100%;padding:11px 12px;border:1.5px solid #E0E0E0;border-radius:10px;font-family:\'Barlow\',sans-serif;font-size:14px;outline:none;box-sizing:border-box;">' +
           '</div>' +
+          _chequeFotoHTML(ch, idx) +
         '</div>' +
       '</div>';
   }).join('');
@@ -32208,6 +32531,15 @@ async function confirmarChequeModal() {
       errEl.textContent = 'Ingresá un monto válido en ' + label;
       return;
     }
+    // v14.38.0 — foto del cheque obligatoria
+    if (ch.fotoSubiendo) {
+      errEl.textContent = 'Esperá: la foto de ' + label + ' se está subiendo';
+      return;
+    }
+    if (!ch.fotoPath) {
+      errEl.textContent = 'Sacale una foto a ' + label;
+      return;
+    }
   }
   // Validar suma vs total cheque (margen $50)
   var totalCheque = Math.round(_cobrosPendientes.cheque || 0);
@@ -32268,6 +32600,11 @@ async function _ejecutarConfirmacionEntrega(cobros) {
   }
   if (Object.keys(cobros).length > 1) payload.detalle_cobro = detalleCobroStr;
 
+  // v14.38.0 — guardar la ruta del comprobante de transferencia en la entrega
+  if ((cobros.transferencia || 0) > 0 && _comprobanteTransfer.path) {
+    payload.comprobante_transfer = _comprobanteTransfer.path;
+  }
+
   // v14.0: si el chofer cobró menos y justificó, guardar el motivo y monto real
   if (window._cobroMenosMotivo) {
     payload.diferencia_motivo = window._cobroMenosMotivo;
@@ -32299,6 +32636,7 @@ async function _ejecutarConfirmacionEntrega(cobros) {
             numero_cheque: ch.numero,
             emisor:    ch.emisor,
             fecha_vencimiento: ch.vencimiento,
+            foto_url:  ch.fotoPath || null,
             estado:    'recibido'
           };
         });
