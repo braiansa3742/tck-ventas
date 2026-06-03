@@ -2,6 +2,23 @@
 <html lang="es">
 <head>
 <!-- ═══════════════════════════════════════════════════════════════════════
+     TCK VENTAS — v14.39.0 — 03/06/2026
+     v14.39.0: FIX PRECIO DE TRAMO EN CHECK-IN (tomador presencial).
+       Bug: tomadorConfirmarConEntrega calculaba el total y las líneas con
+       item.pr (precio plano del Sheet), mientras que la card, el carrito, el
+       resumen y WhatsApp manual muestran/guardan el precio de TRAMO (tckPrecioFinal).
+       Resultado: lo que el vendedor veía y le cerraba al cliente NO era lo que se
+       guardaba ni se facturaba. Caso real: Suprema vendida de a 1-3u (suelto) se
+       veía $36.000 pero se guardaba/facturaba $34.000 (precio de caja) → subfacturación
+       de $2.000/u en suelto. Mismo problema con Maples sueltos. Síntoma colateral:
+       confusión del vendedor ("vendí a X y el sistema dice Y") y reintentos.
+       Fix: una línea — el cálculo del guardado pasa a tckPrecioFinal(item, qty, dto?dto.pct:0),
+       idéntico al carrito/resumen/manualWA. Corrige de paso que el descuento del
+       check-in no respetaba el tope (dtoMax) del tramo.
+       NO rompe Xubio: el presupuesto se arma desde el detalle de texto guardado
+       (mismo formato y mismo backend que manualWA, que ya guardaba a tramo OK).
+       Sin cambios de SQL. Sin cambios de UI.
+     ───────────────────────────────────────────────────────────────────────
      TCK VENTAS — v14.38.3 — 02/06/2026
      v14.38.3: el CHOFER ya no ve el tab "Jornada".
        El tab Jornada (asistente de campo del VENDEDOR, v14.22.0) se colaba en el
@@ -29432,7 +29449,11 @@ async function tomadorConfirmarConEntrega(entregaData) {
     }
     if (!item) return;
     var dto = _tomadorDescuentos[nombre];
-    var precioDef = dto ? Math.round(item.pr * (1 - dto.pct/100)) : item.pr;
+    // v14.39.0 FIX: usar el precio de TRAMO (suelto/caja) igual que el carrito,
+    // el resumen y WhatsApp manual. Antes usaba item.pr → guardaba/facturaba el
+    // suelto al precio de caja (Suprema 1-3u salía $34k en vez de $36k) y no
+    // respetaba el tope de descuento del tramo. tckPrecioFinal(item,qty,0) = tramo puro.
+    var precioDef = tckPrecioFinal(item, qty, dto ? dto.pct : 0);
     var subtotal = precioDef * qty;
     total += subtotal;
     lineas.push(qty + 'x ' + nombre + ' (' + item.p + ')' + (dto ? ' [-' + dto.pct + '%]' : '') + ' → $' + subtotal.toLocaleString('es-AR'));
