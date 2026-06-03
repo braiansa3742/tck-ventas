@@ -2,6 +2,25 @@
 <html lang="es">
 <head>
 <!-- ═══════════════════════════════════════════════════════════════════════
+     TCK VENTAS — v14.42.0 — 03/06/2026
+     v14.42.0: FIX RAÍZ del falso "El pedido no se guardó (sin internet)".
+       Diagnóstico (video del 03/06, pedidos Giménez y Savy): el guardado del
+       tomador (await appsScriptFetch en tomadorConfirmarConEntrega) usaba el
+       timeout default de 15s. Con la carga de hoy el Apps Script tarda más en
+       escribir, el fetch abortaba (AbortError) y el catch mostraba "no se guardó
+       (sin internet)" cuando en realidad el server SÍ guardaba. Ese falso error
+       es la raíz del caos: el vendedor reintenta, se disparan flujos Xubio
+       solapados, uno con un pedidoId que nunca terminó de guardarse → "Pedido
+       no encontrado" → carteles de error y de éxito peleándose + duplicados
+       visuales (en el server el pedido quedaba una sola vez y Confirmado).
+       Fix: subir SOLO el timeout de ese guardado a 35s, para que el front espere
+       la respuesta real en vez de abortar antes de tiempo. Cambio de una línea.
+       Esperado: desaparece el falso "no se guardó" → no hay reintentos ni flujos
+       fantasma → no hay duplicados. Si tras probar esto todavía aparecen casos de
+       "Pedido no encontrado" o carteles peleándose, el siguiente paso es el
+       candado de idempotencia del flujo Xubio por pedidoId.
+       Sin cambios de SQL ni de backend.
+     ───────────────────────────────────────────────────────────────────────
      TCK VENTAS — v14.41.0 — 03/06/2026
      v14.41.0: FIX "Pedido no encontrado" al crear el presupuesto Xubio
        (caso Lisandro 03/06 — cliente MIGUEL ANGEL GIMENEZ, pedidos que quedaban
@@ -29707,7 +29726,13 @@ async function tomadorConfirmarConEntrega(entregaData) {
     // v14.6.0 NO-CORS FIX: estricto. Si Apps Script falla, el catch externo
     // de tomadorConfirmarConEntrega (try/finally del lock) maneja el error
     // y muestra toast. Antes era fire-and-forget silencioso → bug ALMIRON.
-    await appsScriptFetch(params);
+    // v14.42.0 TIMEOUT 35s: el default de appsScriptFetch es 15s, pero bajo
+    // carga (día con mucho pedido) el Apps Script tarda más en escribir y el
+    // fetch abortaba con AbortError → el catch mostraba "no se guardó (sin
+    // internet)" SIENDO FALSO (el server igual guardaba). Ese falso error es
+    // lo que disparaba reintentos y flujos Xubio fantasma. 35s da aire para
+    // que el front espere la respuesta real en vez de abortar antes de tiempo.
+    await appsScriptFetch(params, { timeout: 35000 });
 
     // v14.32.0 ANTI-DUP: registrar la huella del pedido recién guardado OK.
     // Si el vendedor vuelve a confirmar el mismo carrito dentro de 3 min,
