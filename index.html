@@ -2,6 +2,23 @@
 <html lang="es">
 <head>
 <!-- ═══════════════════════════════════════════════════════════════════════
+     TCK VENTAS — v14.40.0 — 03/06/2026
+     v14.40.0: FIX "el pedido no aparece en Mis pedidos" (caso Lisandro 03/06).
+       Síntoma: el vendedor cierra la venta, mira Mis pedidos y no está; cierra
+       y reabre la app y sigue sin aparecer (recién aparece "en un rato"). El
+       pedido SÍ se guardaba — el problema era de visibilidad.
+       Causa: cargarPedidos lee del CSV PUBLICADO del Sheet, que Google regenera
+       con varios minutos de lag. El OPTIMISTIC UI (v14.5.0) tapaba ese hueco,
+       pero (a) su TTL era 90s — más corto que el lag del CSV — y (b) vivía solo
+       en memoria, así que al cerrar/reabrir la app se borraba.
+       Fix: TTL del optimista subido a 10 min + persistencia en localStorage
+       (_OPTIMISTIC_LS_KEY). El pedido ahora aparece al instante y NO desaparece
+       al reabrir, hasta que el CSV lo confirma (ahí _mergeOptimisticos lo suelta).
+       Efecto colateral buscado: como el vendedor ahora SÍ ve su pedido, deja de
+       re-cargarlo pensando que se perdió → corta los reintentos que disparaban
+       el cartel rojo de "duplicado bloqueado".
+       Se limpia el localStorage al cerrar sesión. Sin cambios de SQL ni de backend.
+     ───────────────────────────────────────────────────────────────────────
      TCK VENTAS — v14.39.0 — 03/06/2026
      v14.39.0: FIX PRECIO DE TRAMO EN CHECK-IN (tomador presencial).
        Bug: tomadorConfirmarConEntrega calculaba el total y las líneas con
@@ -18413,20 +18430,64 @@ function hayAlgoAbierto() {
 let _pedidosPendientesNotif = 0;
 
 // v14.5.0 OPTIMISTIC UI: pedidos creados localmente que aún no aparecen
-// en la Sheet (Apps Script tarda 5-15 seg en escribir). Se mantienen en
-// el array local hasta que el server confirma o pasan 90 segundos.
+// en la Sheet. Se mantienen en el array local hasta que el server confirma
+// o pasa el TTL.
+// v14.40.0 — DOS arreglos sobre el caso Lisandro (03/06: "lo cargué y no aparece,
+// cierro la app y sigue sin aparecer"):
+//   (1) TTL subido de 90s a 10 min. cargarPedidos lee del CSV PUBLICADO del Sheet,
+//       que Google regenera con varios minutos de lag. Con 90s el optimista vencía
+//       ANTES de que el CSV trajera el pedido → quedaba un hueco donde "no aparecía".
+//   (2) Persistencia en localStorage. El Map vivía solo en memoria, así que al
+//       CERRAR Y REABRIR la app el optimista se perdía y el pedido desaparecía de
+//       "Mis pedidos" aunque estuviera guardado en el Sheet. Ahora sobrevive al
+//       reinicio hasta que el CSV lo confirma (ahí _mergeOptimisticos lo suelta).
 // Map<pedidoId, { creadoEn: timestamp, datos: pedido }>
 const _optimisticPedidos = new Map();
-const OPTIMISTIC_TTL_MS = 90000; // 90 segundos
+const OPTIMISTIC_TTL_MS = 10 * 60 * 1000; // v14.40.0: 10 min (antes 90s)
+const _OPTIMISTIC_LS_KEY = 'tck_ventas_optimistas_v1';
+
+// v14.40.0 — Persistir el Map a localStorage para que sobreviva a cerrar/reabrir.
+function _optimisticGuardarLS() {
+  try {
+    var arr = [];
+    _optimisticPedidos.forEach(function(entry, id) {
+      arr.push({ id: id, creadoEn: entry.creadoEn, datos: entry.datos });
+    });
+    localStorage.setItem(_OPTIMISTIC_LS_KEY, JSON.stringify(arr));
+  } catch (e) {}
+}
+
+// v14.40.0 — Recuperar optimistas persistidos (descarta los ya vencidos).
+function _optimisticCargarLS() {
+  try {
+    var raw = localStorage.getItem(_OPTIMISTIC_LS_KEY);
+    if (!raw) return;
+    var arr = JSON.parse(raw) || [];
+    var ahora = Date.now();
+    arr.forEach(function(o) {
+      if (!o || !o.id || !o.datos) return;
+      if (ahora - (Number(o.creadoEn) || 0) > OPTIMISTIC_TTL_MS) return; // vencido
+      _optimisticPedidos.set(o.id, { creadoEn: Number(o.creadoEn) || ahora, datos: o.datos });
+    });
+  } catch (e) {}
+}
+
+// v14.40.0 — Limpiar todo (logout: no arrastrar optimistas a otro vendedor).
+function _optimisticLimpiarLS() {
+  try { localStorage.removeItem(_OPTIMISTIC_LS_KEY); } catch (e) {}
+  _optimisticPedidos.clear();
+}
 
 function _registrarOptimistico(pedido) {
   _optimisticPedidos.set(pedido.pedidoId, {
     creadoEn: Date.now(),
     datos: pedido
   });
+  _optimisticGuardarLS(); // v14.40.0
   // Auto-cleanup defensivo: liberar tras TTL
   setTimeout(function() {
     _optimisticPedidos.delete(pedido.pedidoId);
+    _optimisticGuardarLS(); // v14.40.0
   }, OPTIMISTIC_TTL_MS + 5000);
 }
 
@@ -18435,12 +18496,14 @@ function _mergeOptimisticos(pedidosFromServer) {
   const ahora = Date.now();
   const idsServer = new Set(pedidosFromServer.map(function(p){ return p.pedidoId; }));
   const result = pedidosFromServer.slice();
+  var _cambioLS = false; // v14.40.0
 
   _optimisticPedidos.forEach(function(entry, id) {
     if (ahora - entry.creadoEn > OPTIMISTIC_TTL_MS) {
       // Vencido: ya no lo defendemos. Si el server lo tiene, lo veremos
       // en el siguiente fetch. Si no, se perdió.
       _optimisticPedidos.delete(id);
+      _cambioLS = true;
       return;
     }
     if (!idsServer.has(id)) {
@@ -18449,8 +18512,10 @@ function _mergeOptimisticos(pedidosFromServer) {
     } else {
       // Server lo confirmó → soltar el optimista
       _optimisticPedidos.delete(id);
+      _cambioLS = true;
     }
   });
+  if (_cambioLS) _optimisticGuardarLS(); // v14.40.0: persistir los que se soltaron
   return result;
 }
 
@@ -18748,6 +18813,7 @@ function login(nombre) {
   document.getElementById('filtros-vendedor').style.display = esAdmin ? 'flex' : 'none';
   setTimeout(function() {
     if (!esChofer) {
+      _optimisticCargarLS(); // v14.40.0: recuperar pedidos optimistas persistidos (sobreviven a cerrar/reabrir la app)
       cargarPedidos();
     }
     if (esAdmin) cargarAsignaciones();
@@ -18819,6 +18885,7 @@ function salir() {
   limpiarSesion();
   document.title = 'TCK Ventas';
   vendedorActual = null; pinActual = ''; pinVendedorTemp = null; todosLosPedidos = []; _pedidosCache = [];
+  _optimisticLimpiarLS(); // v14.40.0: no arrastrar optimistas de un vendedor al siguiente
   document.getElementById('login-wrap').style.display = 'flex';
   document.getElementById('panel').classList.remove('on');
   document.getElementById('lista-pedidos').innerHTML = '';
