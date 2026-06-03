@@ -2,6 +2,30 @@
 <html lang="es">
 <head>
 <!-- ═══════════════════════════════════════════════════════════════════════
+     TCK VENTAS — v14.41.0 — 03/06/2026
+     v14.41.0: FIX "Pedido no encontrado" al crear el presupuesto Xubio
+       (caso Lisandro 03/06 — cliente MIGUEL ANGEL GIMENEZ, pedidos que quedaban
+       en Pendiente con el modal "XUBIO NO RESPONDIÓ").
+       Síntoma: el pedido SE GUARDA bien (queda en pedidos_zona con su total),
+       pero el primer paso del flujo Xubio (detectarCalibres) lo lee un instante
+       después y devuelve "Pedido no encontrado" → corta antes de presupuestar →
+       el pedido queda Pendiente y el vendedor reintenta.
+       Causa: consistencia eventual de Google Sheets. guardarPedido escribe la
+       fila y hace flush, pero la lectura inmediata desde la ejecución siguiente
+       golpea una réplica que todavía no la tiene. Empeora bajo carga (día con
+       muchos pedidos / pedidos grandes).
+       Fix (frontend, en _tomadorEjecutarXubio):
+         (1) Ante "Pedido no encontrado", reintentar detectarCalibres SOLO,
+             hasta 3 veces con espera creciente (2s / 3.5s / 5s). Cada reintento
+             es una request nueva = ejecución nueva = lee el Sheet ya propagado.
+             Recién si se agotan los 3 reintentos se muestra el modal de error.
+         (2) Se muestra el overlay de progreso DESDE el arranque del flujo Xubio
+             (antes aparecía recién en _tomadorXubioFinalizar): da feedback
+             inmediato y bloquea el doble-toque mientras Xubio trabaja. Se cierra
+             en el modal de calibres, en el error final y en el catch de red.
+       Sin cambios de SQL ni de backend. Workaround sin deploy: si igual aparece
+       el modal, tocar "Reintentar Xubio" (NO recargar) — el pedido ya está guardado.
+     ───────────────────────────────────────────────────────────────────────
      TCK VENTAS — v14.40.0 — 03/06/2026
      v14.40.0: FIX "el pedido no aparece en Mis pedidos" (caso Lisandro 03/06).
        Síntoma: el vendedor cierra la venta, mira Mis pedidos y no está; cierra
@@ -23595,11 +23619,20 @@ function xubioCambiarFechaPicker(nuevaFechaISO) {
 // el pedido queda como Pendiente y aparece en la lista con el botón
 // "Crear presupuesto Xubio" como hoy.
 
-function _tomadorEjecutarXubio(pedidoId, fila, entregaData, clienteNombre) {
+function _tomadorEjecutarXubio(pedidoId, fila, entregaData, clienteNombre, _reintento) {
+  _reintento = _reintento || 0;
   if (!_gpsCheckinActivo || !_gpsCheckinActivo.xubio_id) {
     console.warn('[v14.20.0] _tomadorEjecutarXubio sin xubio_id, saltando');
     _gpsMostrarModalCheckoutAuto(clienteNombre);
     return;
+  }
+
+  // v14.41.0: mostrar el overlay de progreso DESDE el inicio del flujo Xubio
+  // (cubre detectarCalibres + reintentos + presupuesto), no recién en
+  // _tomadorXubioFinalizar. Da feedback inmediato y bloquea el doble-toque
+  // mientras Xubio (lento en red rural) trabaja. Solo en el primer intento.
+  if (_reintento === 0 && typeof _tomadorMostrarProgreso === 'function') {
+    _tomadorMostrarProgreso(clienteNombre);
   }
 
   // Calcular fecha del presupuesto = fecha de entrega
@@ -23627,13 +23660,29 @@ function _tomadorEjecutarXubio(pedidoId, fila, entregaData, clienteNombre) {
     .then(function(r) { return r.json(); })
     .then(function(data) {
       if (data.status !== 'ok') {
-        // Backend devolvió error — pedido sigue Pendiente, mostrar modal error
+        // v14.41.0: "Pedido no encontrado" casi siempre es propagación eventual
+        // del Sheet — el pedido SÍ se guardó (con flush), pero esta lectura,
+        // hecha apenas después, golpea una réplica que todavía no lo tiene.
+        // Reintentar SOLO en ese caso, hasta 3 veces con espera creciente; cada
+        // reintento es una request nueva = ejecución nueva = lectura ya propagada.
+        var _esNoEncontrado = /no encontrado|not[\s_]?found|no se encontr/i.test(String(data.message || ''));
+        if (_esNoEncontrado && _reintento < 3) {
+          var _espera = 2000 + _reintento * 1500; // 2s, 3.5s, 5s
+          setTimeout(function() {
+            _tomadorEjecutarXubio(pedidoId, fila, entregaData, clienteNombre, _reintento + 1);
+          }, _espera);
+          return;
+        }
+        // Error real (o se agotaron los reintentos): cerrar progreso y avisar.
+        if (typeof _tomadorCerrarProgreso === 'function') _tomadorCerrarProgreso();
         _tomadorMostrarErrorXubio(pedidoId, fila, clienteNombre, entregaData,
           'No se pudo verificar el pedido: ' + (data.message || 'error desconocido'));
         return;
       }
 
       if (data.necesitaModal && data.genericos && data.genericos.length) {
+        // v14.41.0: cerrar el overlay de progreso para que no tape el modal de calibres.
+        if (typeof _tomadorCerrarProgreso === 'function') _tomadorCerrarProgreso();
         // Hay genéricos (Pollo A/B) → abrir modal de calibres con callback custom
         _xubioCalibresState = {
           genericos: data.genericos,
@@ -23671,6 +23720,7 @@ function _tomadorEjecutarXubio(pedidoId, fila, entregaData, clienteNombre) {
     })
     .catch(function(err) {
       console.error('[_tomadorEjecutarXubio] error detectarCalibres:', err);
+      if (typeof _tomadorCerrarProgreso === 'function') _tomadorCerrarProgreso();
       _tomadorMostrarErrorXubio(pedidoId, fila, clienteNombre, entregaData,
         'Sin conexión para verificar calibres. El pedido se guardó como Pendiente.');
     });
