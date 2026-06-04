@@ -2,6 +2,23 @@
 <html lang="es">
 <head>
 <!-- ═══════════════════════════════════════════════════════════════════════
+     TCK VENTAS — v14.43.0 — 03/06/2026
+     v14.43.0: PERFORMANCE — la lista de pedidos lee un tab recortado.
+       Problema: cargarPedidos bajaba el CSV ENTERO del tab Pedidos (~2.585
+       filas y creciendo) en cada carga/refresh. Era lo más lento de la app,
+       sobre todo en celular, y empeoraba cada semana.
+       Fix: nuevo tab publicado "pedidos_recientes" (=QUERY que trae las
+       últimas ~1.500 filas del tab Pedidos) + nueva constante
+       SHEET_CSV_RECIENTES (gid=1792723858). cargarPedidos ahora lee de ahí.
+       Mismas 19 columnas y mismo formato -> cero cambios en render, detección
+       de duplicados ni en la escritura por fila. El payload deja de crecer.
+       Los dos lookups de productos por id (cargarProductosEntrega y
+       _cargarProductosDesdeSheet) SIGUEN leyendo el tab completo (SHEET_CSV,
+       gid=0) para no fallar al abrir un pedido viejo.
+       El recorte se ajusta cambiando el 1500 en la formula del tab, sin
+       redeploy. Reversible: volver SHEET_CSV_RECIENTES a gid=0.
+       Sin cambios de SQL ni de backend.
+     ───────────────────────────────────────────────────────────────────────
      TCK VENTAS — v14.42.0 — 03/06/2026
      v14.42.0: FIX RAÍZ del falso "El pedido no se guardó (sin internet)".
        Diagnóstico (video del 03/06, pedidos Giménez y Savy): el guardado del
@@ -15747,6 +15764,9 @@ body {
 <script>
 const APPS_SCRIPT_URL = 'https://script.google.com/macros/s/AKfycbxbx9ma8S5wcuRqFXjRyFYvIo_kLwc5Px4eE4Y7-CqPmIfJbI3VBEP4I9qSV8s0owMMYg/exec';
 const SHEET_CSV = 'https://docs.google.com/spreadsheets/d/e/2PACX-1vQDZk6Z5pejrI_djbUYBLEvh-X7H_sLF5ZCW2RQr0Bc03r8LOL17_C3pCmwwyLe2iXf3Fan0tgl7IJG/pub?gid=0&single=true&output=csv';
+// v14.43.0: tab "pedidos_recientes" (QUERY ultimas ~1500 filas) — SOLO para la LISTA.
+// Recorta el payload de cargarPedidos y deja de crecer. Para volver atras: poner gid=0.
+const SHEET_CSV_RECIENTES = 'https://docs.google.com/spreadsheets/d/e/2PACX-1vQDZk6Z5pejrI_djbUYBLEvh-X7H_sLF5ZCW2RQr0Bc03r8LOL17_C3pCmwwyLe2iXf3Fan0tgl7IJG/pub?gid=1792723858&single=true&output=csv';
 const NUM_ADMIN = '5492314475357';
 // v14.37.0 — Los PINs ya NO viven en el cliente (antes estaban en texto plano y
 // eran visibles en el código fuente público). Ahora se validan server-side en
@@ -18953,7 +18973,7 @@ async function cargarPedidos(silencioso, _reintentos) {
   if (!silencioso) document.getElementById('lista-pedidos').innerHTML =
     '<div class="loading"><div class="loading-spinner"></div>Cargando pedidos...</div>';
   try {
-    var res = await fetch(SHEET_CSV + '&t=' + Date.now());
+    var res = await fetch(SHEET_CSV_RECIENTES + '&t=' + Date.now());
     var csv = await res.text();
     var lines = csv.trim().split('\n');
     var pedidos = [];
