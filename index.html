@@ -2,6 +2,40 @@
 <html lang="es">
 <head>
 <!-- ═══════════════════════════════════════════════════════════════════════
+     TCK VENTAS — v14.44.0 — 04/06/2026
+     v14.44.0: FIX CRÍTICO ANTI-DUP — el cliente nunca leía el JSON de
+       respuesta del Apps Script.
+       Causa raíz: appsScriptFetch sólo miraba el HTTP status code (200 OK)
+       y devolvía { ok: true, response: res } sin parsear el body. Cuando el
+       anti-dup server-side (Apps Script v25.32+/v25.37+) bloqueaba un
+       segundo intento del mismo pedido y devolvía
+         { status: 'duplicate', antiDup: true, id: '<existente>' }
+       el cliente IGNORABA esa respuesta, asumía OK, y seguía el flujo como
+       si hubiera escrito un pedido nuevo: metía pedidoId fantasma en el
+       array optimista local + arrancaba flujo Xubio sobre ese ID inexistente.
+       Resultado: Lisandro veía DOBLE en su panel pero ni la Sheet ni
+       pedidos_zona tenían el segundo (vivía solo en su memoria local).
+       Reportado 04/06/2026 (sesión actual). Diagnóstico cruzado con
+       Supabase: en 30 días, cero duplicados de Lisandro con firma clásica
+       en pedidos_zona — porque el fantasma NUNCA llegaba al server.
+       Fixes:
+         1. appsScriptFetch lee res.text() + JSON.parse y expone .data.
+            Compat hacia atrás: callers que no miran data siguen igual.
+         2. tomadorConfirmarConEntrega chequea data.status === 'duplicate':
+            adopta data.id como pedidoId real, setea fingerprint con ese ID,
+            muestra toast informativo, NO mete optimista y NO arranca Xubio.
+         3. manualWAGuardar: tratamiento explícito de 'duplicate' como
+            "ya estaba registrado" (antes mostraba "no se pudo guardar").
+         4. tomadorCerrar() ahora limpia _tomadorQtys / _tomadorPromos /
+            _tomadorDescuentos / _tomadorCombos / _tomadorCompetencia /
+            _tomadorSucursalElegida / _viajeEspElegido. Mata el vector
+            "vendedor reabre carrito intacto y reintenta" (v14.32.0 nota).
+         5. TELEMETRÍA — nueva tabla Supabase `tomador_eventos` +
+            función _telemetriaTomadorRegistrar(). 5 pasos: apps_script_ok,
+            bloqueado_por_server, bloqueado_por_server_mwa,
+            apps_script_error, apps_script_timeout. Fire-and-forget.
+            Requiere CREATE TABLE en Supabase ANTES del deploy (se entrega
+            aparte para que Braian lo corra manual).
      TCK VENTAS — v14.43.0 — 03/06/2026
      v14.43.0: PERFORMANCE — la lista de pedidos lee un tab recortado.
        Problema: cargarPedidos bajaba el CSV ENTERO del tab Pedidos (~2.585
@@ -15809,7 +15843,27 @@ async function appsScriptFetch(params, opts) {
       }
       throw err;
     }
-    return { ok: true, response: res };
+    // v14.44.0 FIX CRÍTICO ANTI-DUP — leer el body como JSON.
+    // Antes esta función devolvía solo { ok: true, response: res } sin leer
+    // el body. Eso significaba que cuando Apps Script (server-side anti-dup
+    // v25.32+/v25.37+) devolvía { status: 'duplicate', antiDup: true, id: ... }
+    // el cliente NUNCA se enteraba: HTTP 200 = ok = sigo como si hubiera guardado.
+    // Resultado: el optimista metía un pedidoId fantasma en el panel del
+    // vendedor (memoria local solamente, no llegaba a Sheet ni Supabase) y
+    // el cache anti-flicker lo dejaba indefinidamente → Lisandro veía doble
+    // (el real + el fantasma). El fantasma NO se veía desde admin de otro
+    // dispositivo porque vivía solo en la sesión del vendedor.
+    // Ahora leemos el JSON y lo exponemos como `data`. Los callers que no
+    // miran data siguen funcionando igual (compat hacia atrás).
+    var _dataParsed = null;
+    try {
+      var _txt = await res.text();
+      if (_txt) _dataParsed = JSON.parse(_txt);
+    } catch (eParse) {
+      // No es JSON o body vacío — no rompemos, queda data=null
+      console.warn('[appsScriptFetch] body no es JSON:', eParse.message);
+    }
+    return { ok: true, response: res, data: _dataParsed };
   } catch (e) {
     clearTimeout(tid);
     const tipo = (e.name === 'AbortError') ? 'timeout' : 'red';
@@ -15819,6 +15873,52 @@ async function appsScriptFetch(params, opts) {
     throw e;
   }
 }
+
+// ════════════════════════════════════════════════════════════════
+//  v14.44.0 — TELEMETRÍA TOMADOR (fire-and-forget)
+// ════════════════════════════════════════════════════════════════
+// Registra cada paso crítico del flujo de guardado del tomador (campo y WA)
+// para poder reconstruir post-mortem qué pasó cuando se reporta un duplicado.
+// Insertar en tabla `tomador_eventos` de Supabase. Si la tabla no existe
+// (caso primer deploy), el fetch falla silencioso y no impacta al vendedor.
+//
+// Pasos esperados:
+//   - apps_script_ok         (guardado exitoso)
+//   - bloqueado_por_server   (anti-dup server-side bloqueó, tomador campo)
+//   - bloqueado_por_server_mwa (anti-dup server-side bloqueó, manualWA)
+//   - apps_script_error      (error HTTP / status del server)
+//   - apps_script_timeout    (AbortError, fetch abortado por timeout)
+//
+// La función NO usa await — es fire-and-forget. Cualquier latencia del
+// telemetry NO bloquea el flujo del vendedor.
+function _telemetriaTomadorRegistrar(evento) {
+  try {
+    var payload = {
+      paso:                evento.paso || 'desconocido',
+      pedido_id_intentado: evento.pedido_id_intentado || null,
+      pedido_id_existente: evento.pedido_id_existente || null,
+      cliente:             evento.cliente || null,
+      vendedor:            evento.vendedor || null,
+      total:               (evento.total != null) ? Number(evento.total) : null,
+      fingerprint:         evento.fingerprint || null,
+      error_msg:           evento.error_msg || null,
+      error_status:        (evento.error_status != null) ? Number(evento.error_status) : null,
+      user_agent:          (navigator && navigator.userAgent) ? navigator.userAgent.substring(0, 200) : null
+    };
+    // Fire-and-forget: no await, no .then exitoso, solo log si rompe.
+    sbFetch('tomador_eventos', {
+      method:  'POST',
+      prefer:  'return=minimal',
+      body:    JSON.stringify(payload)
+    }).catch(function(err) {
+      // Si la tabla no existe todavía o hay problema de red, log y seguir.
+      console.warn('[_telemetriaTomadorRegistrar] no se pudo enviar:', err && err.message);
+    });
+  } catch (e) {
+    console.warn('[_telemetriaTomadorRegistrar] excepción defensiva:', e && e.message);
+  }
+}
+
 const SESSION_KEY   = 'tck_session';
 const SESSION_HORAS = 720; // 30 días — cada vendedor tiene su propio celular
 
@@ -28812,6 +28912,27 @@ function tomadorCerrar() {
     el.remove();
   }
   document.body.style.overflow = '';
+  // v14.44.0 ANTI-DUP — limpiar el carrito al cerrar.
+  // ANTES: tomadorCerrar() solo quitaba el DOM. Las estructuras
+  // _tomadorQtys / _tomadorPromos / etc. quedaban intactas. Si el vendedor
+  // reabría el check-in con el mismo cliente, el carrito aparecía con todos
+  // los productos del intento anterior (no había forma de "empezar de cero").
+  // Combinado con el bug B1 (cliente no leía 'duplicate' del server), esto
+  // hacía que reintentos del mismo carrito se sintieran como "el sistema lo
+  // perdió, voy de nuevo" y generaran pedidos fantasma en memoria local.
+  // Limpiar acá es seguro porque tomadorConfirmarConEntrega ya leyó todo
+  // antes del POST, y la recursión por localidad no canónica hace `return`
+  // ANTES de llegar a tomadorCerrar (se cierra recién al final del segundo
+  // pase, una vez procesado todo).
+  try {
+    _tomadorQtys = {};
+    _tomadorPromos = {};
+    _tomadorDescuentos = {};
+    _tomadorCombos = {};
+    _tomadorCompetencia = {};
+    _tomadorSucursalElegida = null;
+    window._viajeEspElegido = null;
+  } catch (eClr) { /* defensivo: nunca rompemos el cierre */ }
 }
 
 function tomadorHTML() {
@@ -29752,12 +29873,55 @@ async function tomadorConfirmarConEntrega(entregaData) {
     // internet)" SIENDO FALSO (el server igual guardaba). Ese falso error es
     // lo que disparaba reintentos y flujos Xubio fantasma. 35s da aire para
     // que el front espere la respuesta real en vez de abortar antes de tiempo.
-    await appsScriptFetch(params, { timeout: 35000 });
+    // v14.44.0 ANTI-DUP-SERVER: capturamos la respuesta para detectar el
+    // status:'duplicate' que devuelve el Apps Script cuando su anti-dup
+    // server-side bloquea el guardado.
+    var _respGuardar = await appsScriptFetch(params, { timeout: 35000 });
+
+    // v14.44.0 FIX CRÍTICO — chequeo server-side anti-dup.
+    // Si Apps Script (v25.32+) detectó que ya existe un pedido idéntico en
+    // los últimos 90s (mismo cliente+vendedor+total no cancelado), devuelve
+    // { status:'duplicate', antiDup:true, id:'<pedidoId existente>' }.
+    // ANTES (v14.43.0): appsScriptFetch no leía el body → cliente ignoraba
+    // la respuesta → metía OPTIMISTA con pedidoId NUEVO (no escrito en
+    // Sheet) → fantasma visible solo en el panel de Lisandro.
+    // AHORA: adoptamos el pedidoId EXISTENTE (data.id), seteamos fingerprint
+    // con ese pedidoId, NO metemos optimista y NO arrancamos Xubio.
+    if (_respGuardar && _respGuardar.data && _respGuardar.data.status === 'duplicate') {
+      var _idExistente = _respGuardar.data.id || pedidoId;
+      console.warn('[tomadorConfirmarConEntrega] ANTI-DUP server bloqueó. Pedido existente:', _idExistente);
+      // Setear fingerprint con el ID existente — futuros taps del mismo
+      // carrito en los próximos 3 min se bloquearán client-side antes de
+      // llegar al server.
+      window._tomadorUltimoPedidoFP = { fp: _tomadorFingerprint(), ts: Date.now(), pedidoId: _idExistente };
+      toast('⚠️ Este pedido ya estaba registrado.\nID: ' + _idExistente + '\nNo se duplicó.', 'warn');
+      _telemetriaTomadorRegistrar({
+        paso:                 'bloqueado_por_server',
+        pedido_id_intentado:  pedidoId,
+        pedido_id_existente:  _idExistente,
+        cliente:              cliente,
+        vendedor:             vendedor,
+        total:                total,
+        fingerprint:          _tomadorFingerprint()
+      });
+      tomadorCerrar();
+      return; // NO mete optimista, NO arranca Xubio
+    }
 
     // v14.32.0 ANTI-DUP: registrar la huella del pedido recién guardado OK.
     // Si el vendedor vuelve a confirmar el mismo carrito dentro de 3 min,
     // tomadorConfirmarFinal lo frena antes de generar otro ID.
     window._tomadorUltimoPedidoFP = { fp: _tomadorFingerprint(), ts: Date.now(), pedidoId: pedidoId };
+
+    // v14.44.0 — telemetría: pedido guardado OK en Sheet.
+    _telemetriaTomadorRegistrar({
+      paso:                 'apps_script_ok',
+      pedido_id_intentado:  pedidoId,
+      cliente:              cliente,
+      vendedor:             vendedor,
+      total:                total,
+      fingerprint:          _tomadorFingerprint()
+    });
 
     // v9.2: Descontar stock de combos en Supabase (fire-and-forget)
     if (combosAplicados.length > 0) {
@@ -29838,6 +30002,18 @@ async function tomadorConfirmarConEntrega(entregaData) {
     else if (e && e.status) msgErrTom += ' (server ' + e.status + ')';
     msgErrTom += '\nReintentá. Si persiste, avisá al admin.';
     toast(msgErrTom, 'err');
+
+    // v14.44.0 — telemetría: error real en el guardado.
+    _telemetriaTomadorRegistrar({
+      paso:                 (e && e.name === 'AbortError') ? 'apps_script_timeout' : 'apps_script_error',
+      pedido_id_intentado:  pedidoId,
+      cliente:              cliente,
+      vendedor:             vendedor,
+      total:                total,
+      fingerprint:          _tomadorFingerprint(),
+      error_msg:            (e && (e.message || e.toString())) || 'desconocido',
+      error_status:         (e && e.status) || null
+    });
   }
 
   tomadorCerrar();
@@ -35192,9 +35368,27 @@ async function manualWAGuardar(cliente, localidad, entrega, sucursal) {
 
   // v14.2 F9: fetch con cors + await + chequeo real de status
   // Antes: fetch(...{mode:'no-cors'}).catch(()=>{}) → siempre "ok" aunque falle
+  // v14.44.0: detectar status:'duplicate' del anti-dup server-side y NO
+  // tratarlo como error genérico. Adopta el ID existente y muestra toast.
   try {
     const respGuardar = await fetch(APPS_SCRIPT_URL + '?' + params.toString());
     const dataGuardar = await respGuardar.json();
+    if (dataGuardar.status === 'duplicate') {
+      var _idExistenteMWA = dataGuardar.id || pedidoId;
+      console.warn('[manualWAGuardar] ANTI-DUP server bloqueó. Pedido existente:', _idExistenteMWA);
+      toast('⚠️ Este pedido ya estaba registrado.\nID: ' + _idExistenteMWA + '\nNo se duplicó.', 'warn');
+      cerrarCargaManualWA();
+      _telemetriaTomadorRegistrar({
+        paso:                 'bloqueado_por_server_mwa',
+        pedido_id_intentado:  pedidoId,
+        pedido_id_existente:  _idExistenteMWA,
+        cliente:              cliente,
+        vendedor:             vendedor,
+        total:                Number(total) || 0,
+        fingerprint:          ''
+      });
+      return;
+    }
     if (dataGuardar.status !== 'ok') {
       console.error('[F9 manualWAGuardar] Error backend:', dataGuardar);
       toast('❌ ' + (dataGuardar.message || 'No se pudo guardar el pedido'), 'err');
