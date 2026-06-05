@@ -2,6 +2,48 @@
 <html lang="es">
 <head>
 <!-- ═══════════════════════════════════════════════════════════════════════
+     TCK VENTAS — v14.45.0 — 05/06/2026
+     ──────────────────────────────────────────────────────────────────────
+     FIX DUPLICADO CHECK-IN — barrera de fingerprint en el GUARDADO real
+
+     SÍNTOMA (Braian, 05/06): cada pedido por tomador del check-in (Lisandro)
+     crea DOS pedidos: uno Confirmado con presupuesto Xubio y otro Pendiente.
+     Los vendedores venían cancelando el Pendiente a mano.
+
+     CAUSA RAÍZ (confirmada con la tabla tomador_eventos):
+       tomadorConfirmarConEntrega corre DOS veces por cierre, con 2 pedidoId
+       distintos, ~6-8s aparte (los ~7s = un guardarPedido en red rural).
+       Ambas llaman guardarPedido y ambas vuelven apps_script_ok (van al Sheet).
+       · Corrida 1 → guarda → _tomadorEjecutarXubio crea presupuesto
+         (_xubioActivo=true) → ese id queda Confirmado.
+       · Corrida 2 → guarda el 2do id → _tomadorXubioFinalizar arranca con
+         `if (_xubioActivo) return;` → aborta → ese id queda Pendiente.
+       Las 4 capas anti-dup previas NO lo frenan porque:
+         - debounce/lock/fingerprint viven en tomadorConfirmarFinal, y la 2da
+           corrida NO re-entra por ahí (entra más abajo en la cadena);
+         - además el fingerprint se seteaba RECIÉN tras el guardado de 7s
+           (post-await), así que la 2da corrida nunca lo veía a tiempo.
+
+     FIX (sin tocar Apps Script):
+       1) La huella del carrito (_tomadorFingerprint) ahora se setea en el
+          PUNTO DE GUARDADO real de tomadorConfirmarConEntrega, ANTES del
+          await appsScriptFetch — no después. La 2da corrida, al llegar a ese
+          punto ~7s después, ve la huella EN CURSO de la 1ra y aborta antes de
+          mandar el 2do guardado. Atrapa la 2da corrida venga del callback que
+          venga (no depende de identificar el gatillo exacto del doble disparo).
+       2) No rompe el retry legítimo de localidad (que retorna ANTES de este
+          punto) ni el retry tras error de red (el catch limpia la huella si
+          el guardado falló de verdad, así el vendedor puede reintentar).
+
+     NO CAMBIADO:
+       - Apps Script (el anti-dup server-side _detectarDuplicadoReciente no
+         atrapa este caso; queda anotado para revisar aparte — esta barrera
+         client-side lo cubre mientras tanto).
+       - Toda la lógica de Xubio, cards, choferes, manualWA.
+       - Las 4 capas anti-dup previas siguen intactas (defensa en profundidad).
+     ══════════════════════════════════════════════════════════════════════ -->
+
+<!-- ═══════════════════════════════════════════════════════════════════════
      TCK VENTAS — v14.44.0 — 04/06/2026
      v14.44.0: FIX CRÍTICO ANTI-DUP — el cliente nunca leía el JSON de
        respuesta del Apps Script.
@@ -29828,6 +29870,44 @@ async function tomadorConfirmarConEntrega(entregaData) {
       return;
     }
 
+    // ── v14.45.0 FIX DUPLICADO CHECK-IN — barrera en el GUARDADO real ────────
+    // La huella del carrito se evalúa y se setea ACÁ (antes del await), no
+    // después del guardado de 7s. Causa raíz (tabla tomador_eventos):
+    // tomadorConfirmarConEntrega corría 2 veces por cierre, con 2 IDs distintos
+    // ~7s aparte; la 1ra creaba presupuesto (Confirmado) y la 2da quedaba
+    // Pendiente (lo cancelaban a mano). El fingerprint vivía sólo en
+    // tomadorConfirmarFinal y se seteaba tarde (post-guardado), así que la 2da
+    // corrida nunca lo veía. Ahora la barrera está en el punto de guardado:
+    // si la huella EN CURSO del mismo carrito tiene <3 min y otro pedidoId,
+    // abortamos antes de mandar el 2do guardado. No afecta el retry de
+    // localidad (retorna antes de este punto) ni el retry tras error de red
+    // (el catch limpia la huella si el guardado falla de verdad).
+    var _fpGuardar = _tomadorFingerprint();
+    if (_fpGuardar) {
+      var _fpPrev = window._tomadorUltimoPedidoFP;
+      if (_fpPrev && _fpPrev.fp === _fpGuardar && _fpPrev.pedidoId !== pedidoId
+          && (Date.now() - _fpPrev.ts) < 180000) {
+        var _segPrev = Math.round((Date.now() - _fpPrev.ts) / 1000);
+        console.warn('[ANTI-DUP entrada] 2da corrida bloqueada en el guardado (' +
+          _segPrev + 's, id previo ' + _fpPrev.pedidoId + ')');
+        _telemetriaTomadorRegistrar({
+          paso:                 'bloqueado_por_fingerprint_entrada',
+          pedido_id_intentado:  pedidoId,
+          pedido_id_existente:  _fpPrev.pedidoId,
+          cliente:              cliente,
+          vendedor:             vendedor,
+          total:                total,
+          fingerprint:          _fpGuardar
+        });
+        toast('⚠️ Este pedido ya se está registrando.\nID: ' + _fpPrev.pedidoId +
+              '\nNo se duplicó.', 'warn');
+        tomadorCerrar();
+        return; // NO guarda, NO arranca Xubio. El finally libera el lock.
+      }
+      // Marcar EN CURSO antes del await — la 2da corrida que llegue acá lo ve.
+      window._tomadorUltimoPedidoFP = { fp: _fpGuardar, ts: Date.now(), pedidoId: pedidoId };
+    }
+
     var params = new URLSearchParams({
       accion:        'guardarPedido',
       pedidoId:      pedidoId,
@@ -30014,6 +30094,13 @@ async function tomadorConfirmarConEntrega(entregaData) {
       error_msg:            (e && (e.message || e.toString())) || 'desconocido',
       error_status:         (e && e.status) || null
     });
+
+    // v14.45.0: si el guardado falló de verdad (no anti-dup), limpiar la huella
+    // EN CURSO para que el vendedor pueda reintentar el MISMO carrito sin que la
+    // barrera de entrada lo bloquee. Sólo si la huella corresponde a este intento.
+    if (window._tomadorUltimoPedidoFP && window._tomadorUltimoPedidoFP.pedidoId === pedidoId) {
+      window._tomadorUltimoPedidoFP = null;
+    }
   }
 
   tomadorCerrar();
