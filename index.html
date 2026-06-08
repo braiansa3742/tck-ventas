@@ -6598,6 +6598,104 @@ body {
   box-shadow: 0 2px 6px rgba(139,0,0,0.4);
 }
 .tab-badge.on { display: flex; }
+
+/* ════════════════════════════════════════════════════════════════════════
+   v14.46 — SHELL DE ESCRITORIO (solo PC, ≥1024px). NO afecta mobile:
+   todo vive dentro de @media (min-width:1024px) y se ata a la sesión
+   logueada con :has(.tab-nav.visible), así el login no se descoloca.
+   La barra de tabs inferior pasa a sidebar vertical izquierdo; el header
+   y el contenido se corren a la derecha. Mismos botones / mismos onclick.
+   ════════════════════════════════════════════════════════════════════════ */
+@media (min-width: 1024px) {
+
+  /* Barra de tabs → sidebar vertical fijo a la izquierda */
+  .tab-nav.visible {
+    flex-direction: column;
+    align-items: stretch;
+    justify-content: flex-start;
+    top: 0;
+    bottom: 0;
+    left: 0;
+    right: auto;
+    width: 248px;
+    border-top: none;
+    border-right: 1px solid var(--cream3);
+    box-shadow: 2px 0 18px rgba(80,40,10,.06);
+    padding: 18px 12px;
+    gap: 3px;
+    overflow-y: auto;
+  }
+
+  /* Items del sidebar: ícono a la izquierda + label al lado */
+  .tab-nav.visible .tab-btn {
+    flex: none;
+    flex-direction: row;
+    justify-content: flex-start;
+    align-items: center;
+    gap: 12px;
+    width: 100%;
+    padding: 12px 14px;
+    border-radius: 12px;
+    transition: background .15s, color .15s;
+  }
+  .tab-nav.visible .tab-btn:hover { background: var(--cream); }
+  .tab-nav.visible .tab-btn:active { transform: none; }
+  .tab-nav.visible .tab-btn .tab-icon { font-size: 21px; transform: none; }
+  .tab-nav.visible .tab-btn .tab-icon svg { width: 21px; height: 21px; }
+  .tab-nav.visible .tab-btn .tab-label {
+    font-size: 14.5px;
+    letter-spacing: .3px;
+    text-transform: none;
+  }
+  .tab-nav.visible .tab-btn.active {
+    background: linear-gradient(90deg, rgba(183,28,28,.10), rgba(183,28,28,.01));
+  }
+  .tab-nav.visible .tab-btn.active .tab-icon { transform: none; }
+
+  /* FAB central (Mi Ronda) → item destacado normal, sin círculo */
+  .tab-nav.visible .tab-btn.center {
+    flex: none;
+    width: 100%;
+    height: auto;
+    margin: 0 0 8px;
+    border: none;
+    border-radius: 12px;
+    flex-direction: row;
+    justify-content: flex-start;
+    gap: 12px;
+    padding: 13px 14px;
+    box-shadow: 0 4px 12px rgba(139,0,0,.28);
+    overflow: visible;
+  }
+  .tab-nav.visible .tab-btn.center::before { display: none; }
+  .tab-nav.visible .tab-btn.center .tab-icon { font-size: 21px; }
+  .tab-nav.visible .tab-btn.center .tab-icon svg { width: 21px; height: 21px; }
+  .tab-nav.visible .tab-btn.center .tab-label {
+    font-size: 14.5px;
+    margin-top: 0;
+    letter-spacing: .3px;
+    text-transform: none;
+  }
+
+  /* Badge (ej. "7" en Pedidos) → a la derecha del item */
+  .tab-nav.visible .tab-badge {
+    position: static;
+    order: 9;
+    margin-left: auto;
+    top: auto;
+    right: auto;
+  }
+
+  /* Header y contenido se corren a la derecha del sidebar.
+     Solo con sesión activa (nav visible) → el login queda intacto. */
+  body:has(.tab-nav.visible) .hdr { margin-left: 248px; }
+  body:has(.tab-nav.visible) .panel {
+    margin-left: 248px;
+    margin-right: auto;
+    max-width: 1040px;
+  }
+}
+
 .tab-btn.center .tab-badge {
   top: -4px;
   right: -4px;
