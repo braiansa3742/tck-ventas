@@ -6715,8 +6715,6 @@ body {
   position: fixed;
   inset: 0;
   background: rgba(40, 20, 20, 0.55);
-  backdrop-filter: blur(3px);
-  -webkit-backdrop-filter: blur(3px);
   z-index: 800;
   align-items: flex-end;
   justify-content: center;
@@ -7211,8 +7209,6 @@ body {
   opacity: 0;
   pointer-events: none;
   transition: opacity .2s ease;
-  backdrop-filter: blur(3px);
-  -webkit-backdrop-filter: blur(3px);
 }
 .rep-periodo-mas-backdrop.on {
   opacity: 1;
@@ -10176,7 +10172,6 @@ body {
   display: none;
   align-items: flex-end;
   justify-content: center;
-  backdrop-filter: blur(3px);
 }
 .mwa-cart-modal-overlay.on {
   display: flex;
@@ -10377,8 +10372,6 @@ body {
   position: fixed;
   inset: 0;
   background: rgba(40, 20, 20, 0.6);
-  backdrop-filter: blur(4px);
-  -webkit-backdrop-filter: blur(4px);
   z-index: 700;
   align-items: flex-end;
   justify-content: center;
@@ -10392,8 +10385,6 @@ body {
   position: fixed;
   inset: 0;
   background: rgba(40, 20, 20, 0.65);
-  backdrop-filter: blur(4px);
-  -webkit-backdrop-filter: blur(4px);
   z-index: 710;
   align-items: flex-end;
   justify-content: center;
@@ -10662,8 +10653,6 @@ body {
   position: fixed;
   inset: 0;
   background: rgba(40, 20, 20, 0.7);
-  backdrop-filter: blur(4px);
-  -webkit-backdrop-filter: blur(4px);
   z-index: 720;
   align-items: flex-end;
   justify-content: center;
@@ -12858,8 +12847,6 @@ body {
   display: none;
   align-items: flex-end;
   justify-content: center;
-  -webkit-backdrop-filter: blur(6px);
-  backdrop-filter: blur(6px);
 }
 .mr-motivo-backdrop.on { display: flex; }
 .mr-motivo-sheet {
@@ -13775,7 +13762,6 @@ body {
   z-index: 99999;
   display: flex; align-items: center; justify-content: center;
   padding: 24px;
-  backdrop-filter: blur(3px);
 }
 .xubio-sync-overlay-box {
   background: #fff;
@@ -13815,7 +13801,6 @@ body {
   display: none;
   align-items: center; justify-content: center;
   padding: 16px;
-  backdrop-filter: blur(2px);
 }
 .modal-overlay.on { display: flex; }
 .modal-overlay .modal-box {
@@ -14432,6 +14417,37 @@ body {
 .vdes-tl-meta{font-size:10px;color:#9E9E9E;}
 .vdes-tl-res{font-size:10px;font-weight:700;margin-left:auto;white-space:nowrap;}
 .vdes-empty{text-align:center;padding:40px 20px;color:#999;font-size:13px;}
+</style>
+<style id="perf-patch-v1444">
+/* ===== v14.44 — PARCHE DE PERFORMANCE (solo CSS, sin tocar logica) =====
+   content-visibility:auto => el navegador NO hace layout/paint NI anima los
+   items fuera de la pantalla; solo procesa los visibles. Resuelve scroll lento
+   y demora al abrir vistas pesadas (Tomador, Clientes, Entregas, Pedidos) en PC.
+   contain-intrinsic-size = alto estimado antes de renderizar (usa el real una
+   vez medido; solo afecta levemente la barra de scroll inicial). */
+.tomador-item {
+  content-visibility: auto;
+  contain-intrinsic-size: auto 96px;
+}
+.entrega-card,
+.pedido-card {
+  content-visibility: auto;
+  contain-intrinsic-size: auto 150px;
+}
+.rend-pedido-card,
+.canal-card,
+.canal-dia-card,
+.def-pend-card {
+  content-visibility: auto;
+  contain-intrinsic-size: auto 110px;
+}
+.cli-row,
+.manual-item,
+.cobro-multiple-item,
+.ranking-item {
+  content-visibility: auto;
+  contain-intrinsic-size: auto 56px;
+}
 </style>
 </head>
 <body>
@@ -37136,7 +37152,6 @@ function dupConfirmModal(titulo, cuerpoHtml, labelOk, opts) {
       overlay.id = 'dup-confirm-overlay';
       overlay.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,.6);z-index:99999;' +
         'display:flex;align-items:center;justify-content:center;padding:20px;' +
-        'backdrop-filter:blur(4px);-webkit-backdrop-filter:blur(4px);' +
         'opacity:0;transition:opacity .18s ease;';
       document.body.appendChild(overlay);
     }
