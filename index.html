@@ -6690,17 +6690,17 @@ body {
      Solo con sesión activa (nav visible) → el login queda intacto. */
   body:has(.tab-nav.visible) .hdr { margin-left: 248px; }
   body:has(.tab-nav.visible) .panel {
-    margin-left: 248px;
+    max-width: 600px;
+    margin-left: max(288px, calc((100% - 352px) / 2));
     margin-right: auto;
-    max-width: 1040px;
   }
 
   /* Las views que viven FUERA de #panel (Mi Ronda, Jornada, Bot, Entregas,
      Mis Viajes son hijas directas de <body>) también se corren a la derecha. */
   body:has(.tab-nav.visible) > .view {
-    margin-left: 248px;
+    max-width: 600px;
+    margin-left: max(288px, calc((100% - 352px) / 2));
     margin-right: auto;
-    max-width: 1040px;
   }
 }
 
