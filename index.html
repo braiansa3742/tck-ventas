@@ -6694,6 +6694,14 @@ body {
     margin-right: auto;
     max-width: 1040px;
   }
+
+  /* Las views que viven FUERA de #panel (Mi Ronda, Jornada, Bot, Entregas,
+     Mis Viajes son hijas directas de <body>) también se corren a la derecha. */
+  body:has(.tab-nav.visible) > .view {
+    margin-left: 248px;
+    margin-right: auto;
+    max-width: 1040px;
+  }
 }
 
 .tab-btn.center .tab-badge {
@@ -21573,6 +21581,39 @@ function mostrarTabs() {
   if (_tabActual === 'gps' && !esCampo && !esAdmin) cambiarTab('pedidos');
   if (_tabActual === 'mapa' && !esAdmin) cambiarTab('pedidos');
   if (_tabActual === 'mironda' && !esVendedor) cambiarTab('pedidos');
+
+  tckDesktopNav();   // v14.46.1 — en PC: ocultar "Más" y mostrar sus destinos en el sidebar
+}
+
+// v14.46.1 — Nav de escritorio: en PC (>=1024px) el sidebar tiene lugar de sobra,
+// así que ocultamos el botón "Más" y mostramos directo los mismos destinos que
+// ese menú expone para el rol actual (espeja el menú → respeta el role-gating:
+// p.ej. Miguel no ve Reportes). En mobile no cambia nada.
+function tckDesktopNav() {
+  try {
+    var nav = document.getElementById('tab-nav');
+    if (!nav) return;
+    var isDesktop = window.matchMedia('(min-width: 1024px)').matches;
+    var masBtn = document.getElementById('tab-btn-mas');
+    document.querySelectorAll('#menu-mas-backdrop .menu-mas-item').forEach(function(item) {
+      var visibleEnMas = window.getComputedStyle(item).display !== 'none';
+      var m = (item.getAttribute('onclick') || '').match(/cambiarTab\('([^']+)'\)/);
+      if (!m) return;
+      var btn = document.getElementById('tab-btn-' + m[1]);
+      if (!btn) return;
+      if (isDesktop && visibleEnMas) {
+        btn.style.setProperty('display', 'flex', 'important');
+        btn.dataset.tckMas = '1';
+      } else if (btn.dataset.tckMas) {
+        btn.style.setProperty('display', 'none', 'important');
+      }
+    });
+    if (masBtn) masBtn.style.display = isDesktop ? 'none' : '';
+  } catch (e) { console.warn('[tckDesktopNav]', e); }
+}
+if (!window._tckDesktopNavBound) {
+  window._tckDesktopNavBound = true;
+  window.addEventListener('resize', tckDesktopNav);
 }
 
 function ocultarTabs() {
