@@ -2,6 +2,54 @@
 <html lang="es">
 <head>
 <!-- ═══════════════════════════════════════════════════════════════════════
+     TCK VENTAS — v14.46.0 — 09/06/2026
+     ──────────────────────────────────────────────────────────────────────
+     FIX JORNADA/MI RONDA — clientes ya visitados o vendidos reaparecían
+
+     SÍNTOMA (Lisandro, 09/06): la tab Jornada le mostraba como pendientes
+     clientes a los que ya les vendió o visitó. Confirmado con datos: MOYANO,
+     BUCHIARELLI y CARBONEL tenían pedido cargado 1-2h antes de la captura
+     y seguían como pendientes a las 13:21.
+
+     4 CAUSAS RAÍZ (confirmadas contra Supabase):
+       1) El hook de cargarPedidos solo recalculaba estados si _tabActual
+          era 'mironda'. En Jornada, los verdes quedaban congelados.
+       2) mrVentanaPreparacion EXCLUÍA el día de salida: vendido un martes
+          en RUTA_MARTES → fuera de ventana → nunca verde tras recálculo.
+       3) Rutas de 2 días (LUNES_MARTES, JUEVES_VIERNES): el día 2,
+          mrFechaRonda saltaba a la semana siguiente → gestiones y ventas
+          del día 1 dejaban de matchear → reaparecían todos.
+       4) ruta_viaje null / SIN_RUTA → ventana null → jamás verde aunque
+          hubiera pedido (caso CARBONEL ROBAINA, ruta_viaje = null).
+
+     FIX:
+       A) Nuevo criterio "HECHO HOY" en Jornada (overlay sobre el criterio
+          de ronda): un cliente se considera hecho si tiene pedido de HOY
+          (cualquier estado salvo Cancelado, matching por nombre+vendedor),
+          gestión creada HOY o check-in de HOY en `visitas`. Funciones
+          nuevas: jornadaPedidosHoySet, jornadaClienteHechoHoy,
+          jornadaCargarCheckinsHoy (+caches _jornadaGestionesHoy,
+          _jornadaCheckinsHoy con throttle de 60s).
+       B) mrViajeDeRonda(rutaKey): nueva fuente única del "viaje de la
+          ronda actual" — devuelve HOY si hoy es día de salida, el viaje
+          EN CURSO si la ruta es multi-día, o el próximo. Lo usan
+          mrFechaRonda y mrVentanaPreparacion.
+       C) MR_RUTAS_CONFIG: nuevo campo duracionDias (LUNES_MARTES=2,
+          JUEVES_VIERNES=2, MARTES=1). La ventana de ventas ahora INCLUYE
+          los días del viaje (inicio = día después del fin del viaje
+          anterior, fin = último día del viaje actual 23:59).
+       D) SIN_RUTA / ruta sin diaSalida → ventana = semana corriente
+          (antes: null → nunca verde).
+       E) Re-render de Jornada al recargar pedidos, al confirmar venta por
+          tomador y al sincronizar un checkout (antes solo Mi Ronda).
+       F) jornadaRenderVisitado: etiquetas para hechos-hoy sin gestión
+          ('🛒 Vendido hoy' / '✓ Visitado hoy'). jornadaPintarStats usa el
+          mismo criterio que el body.
+
+     NO SE TOCÓ: tomador, anti-dup v14.45.0, Apps Script, flujo de
+     check-in/checkout, Mi Ronda UI.
+     ═══════════════════════════════════════════════════════════════════ -->
+<!-- ═══════════════════════════════════════════════════════════════════════
      TCK VENTAS — v14.45.0 — 05/06/2026
      ──────────────────────────────────────────────────────────────────────
      FIX DUPLICADO CHECK-IN — barrera de fingerprint en el GUARDADO real
@@ -26774,6 +26822,12 @@ async function gpsConfirmarCheckin(nombreCliente, localidadCliente, xubioId, xub
       };
       gpsActualizarEstado(_gpsCheckinActivo);
       toast('✅ Check-in: ' + nombreCliente, 'ok');
+      // v14.46.0: el check-in de hoy cuenta como HECHO HOY en Jornada —
+      // marcarlo en el cache local sin esperar al próximo fetch a `visitas`.
+      try {
+        var _kJor = mrNormNombre(nombreCliente);
+        if (_kJor) _jornadaCheckinsHoy[_kJor] = true;
+      } catch(e) { /* mrNormNombre siempre existe; defensa por orden de carga */ }
       // Llamadas en background no críticas (mantener silenciosas)
       gpsGuardarUbicacionCliente(nombreCliente, coords, vendedorId);
       // v14.13.2 N42-C: gpsBuscarMatchMaster() removida. Era no-op desde misma versión.
@@ -27251,6 +27305,10 @@ function _mrMarcarVendidoDesdeTomador(nombreCliente) {
       if (typeof miRondaRenderCards === 'function') miRondaRenderCards();
     } catch(e) { console.warn('[Opción D vendido] Error refrescando Mi Ronda:', e); }
   }
+  // v14.46.0: si el vendedor está en la Jornada, sacarlo de pendientes ya
+  if (_tabActual === 'jornada' && typeof jornadaRender === 'function') {
+    try { jornadaRender(); } catch(e) { console.warn('[Jornada] re-render post-venta:', e); }
+  }
   console.log('[Opción D] ✅ Cliente "' + cliente.nombre + '" marcado como vendido en Mi Ronda');
 }
 
@@ -27362,12 +27420,18 @@ async function _mrSincronizarDesdeCheckout(nombreClienteVisita, motivoCheckout) 
       fecha_ronda:  fechaRonda,
       ruta_key:     rutaKey
     };
+    // v14.46.0: la gestión se creó AHORA → cuenta como hecho hoy en Jornada
+    _jornadaGestionesHoy[cliente.cliente_id] = true;
     // Si Mi Ronda está visible, recalcular para que se refleje
     if (typeof miRondaRecalcularRuta === 'function') {
       try {
         miRondaRecalcularRuta(rutaKey);
         if (typeof miRondaRenderCards === 'function') miRondaRenderCards();
       } catch(e) { console.warn('[Opción D] Error refrescando Mi Ronda:', e); }
+    }
+    // v14.46.0: si está en Jornada, sacarlo de pendientes ya
+    if (_tabActual === 'jornada' && typeof jornadaRender === 'function') {
+      try { jornadaRender(); } catch(e) { console.warn('[Jornada] re-render post-checkout:', e); }
     }
     console.log('[Opción D] ✅ Sincronizado: ' + cliente.nombre + ' → gestionado como "' + mapeado.motivo + '"');
   });
@@ -37983,6 +38047,7 @@ var MR_RUTAS_CONFIG = {
     nombre: 'Lunes · Martes',
     descCorta: 'Viaje Lunes',
     diaSalida: 1, // 0=dom, 1=lun, 2=mar, ...
+    duracionDias: 2, // v14.46.0: el viaje ocupa lunes Y martes
     colorBase: '#8B0000',
     tipo: 'viaje'
   },
@@ -37990,6 +38055,7 @@ var MR_RUTAS_CONFIG = {
     nombre: 'Martes · América',
     descCorta: 'Viaje Martes',
     diaSalida: 2,
+    duracionDias: 1,
     colorBase: '#8B0000',
     tipo: 'viaje'
   },
@@ -37997,6 +38063,7 @@ var MR_RUTAS_CONFIG = {
     nombre: 'Jueves · Viernes',
     descCorta: 'Viaje Jueves',
     diaSalida: 4,
+    duracionDias: 2, // v14.46.0: el viaje ocupa jueves Y viernes
     colorBase: '#8B0000',
     tipo: 'viaje'
   },
@@ -38372,6 +38439,37 @@ function mrRenderKPIs() {
 // ── Cálculo de próximo viaje ─────────────────────────────────────
 // Dada una ruta y la fecha de hoy, devuelve la fecha del próximo viaje.
 // Si hoy es el día del viaje, devuelve el de la próxima semana.
+// ── Viaje de la ronda actual ─────────────────────────────────────
+// v14.46.0: fuente única del "viaje al que pertenece la ronda de HOY".
+// Devuelve:
+//   - HOY, si hoy es el día de salida;
+//   - la fecha de SALIDA del viaje EN CURSO, si la ruta dura más de un
+//     día y hoy cae dentro del viaje (ej: martes para LUNES_MARTES);
+//   - la fecha del PRÓXIMO viaje en cualquier otro caso.
+// Antes, el día de salida (y el día 2 de las rutas de 2 días) la ronda
+// "saltaba" a la semana siguiente y todo lo hecho en el viaje dejaba de
+// matchear → los clientes visitados/vendidos reaparecían como pendientes.
+function mrViajeDeRonda(rutaKey, hoy) {
+  hoy = hoy ? new Date(hoy) : new Date();
+  hoy.setHours(0,0,0,0);
+  var cfg = MR_RUTAS_CONFIG[rutaKey];
+  if (!cfg || cfg.diaSalida == null) return null;
+  var dur = cfg.duracionDias || 1;
+  var dSem = hoy.getDay();
+  var dif = (cfg.diaSalida - dSem + 7) % 7;
+  if (dif === 0) return new Date(hoy); // hoy ES el día de salida
+  var diasDesdeSalida = 7 - dif;       // hace cuántos días salió el último viaje
+  if (diasDesdeSalida < dur) {
+    // Estamos en pleno viaje multi-día (ej: martes de LUNES_MARTES)
+    var enCurso = new Date(hoy);
+    enCurso.setDate(hoy.getDate() - diasDesdeSalida);
+    return enCurso;
+  }
+  var prox = new Date(hoy);
+  prox.setDate(hoy.getDate() + dif);
+  return prox;
+}
+
 function mrProximoViaje(rutaKey, hoy) {
   hoy = hoy || new Date();
   hoy.setHours(0,0,0,0);
@@ -38404,7 +38502,9 @@ function mrVentanaPreparacion(rutaKey, hoy) {
   var cfg = MR_RUTAS_CONFIG[rutaKey];
   if (!cfg) return null;
 
-  if (cfg.tipo === 'local' || cfg.tipo === 'mostrador') {
+  // v14.46.0: SIN_RUTA y cualquier ruta sin día de salida usan la semana
+  // corriente. Antes devolvían null → ningún pedido las marcaba verde nunca.
+  if (cfg.tipo === 'local' || cfg.tipo === 'mostrador' || cfg.diaSalida == null) {
     // Semana corriente: lunes a domingo
     var dSem = hoy.getDay(); // 0=dom
     var diasAlLunes = dSem === 0 ? 6 : dSem - 1;
@@ -38416,17 +38516,23 @@ function mrVentanaPreparacion(rutaKey, hoy) {
     return { inicio: inicio, fin: fin };
   }
 
-  // Para viajes: desde el día después del viaje anterior
-  var prox = mrProximoViaje(rutaKey, hoy);
-  if (!prox) return null;
-  var viajeAnterior = new Date(prox);
-  viajeAnterior.setDate(prox.getDate() - 7);
-  var inicio = new Date(viajeAnterior);
-  inicio.setDate(viajeAnterior.getDate() + 1); // día después del viaje anterior
-  var fin = new Date(prox);
-  fin.setDate(prox.getDate() - 1); // día antes del próximo
-  fin.setHours(23,59,59,999);
-  return { inicio: inicio, fin: fin };
+  // v14.46.0: para viajes, la ventana es de la RONDA actual e INCLUYE los
+  // días del viaje. Antes terminaba el día ANTES de la salida, así que todo
+  // lo vendido durante el viaje (el día de más ventas) quedaba fuera y los
+  // clientes reaparecían como pendientes.
+  //   inicio = día siguiente al ÚLTIMO día del viaje anterior
+  //   fin    = ÚLTIMO día del viaje de esta ronda, 23:59
+  var viaje = mrViajeDeRonda(rutaKey, hoy);
+  if (!viaje) return null;
+  var dur = cfg.duracionDias || 1;
+  var finViajeAnterior = new Date(viaje);
+  finViajeAnterior.setDate(viaje.getDate() - 7 + (dur - 1));
+  var inicioV = new Date(finViajeAnterior);
+  inicioV.setDate(finViajeAnterior.getDate() + 1);
+  var finV = new Date(viaje);
+  finV.setDate(viaje.getDate() + (dur - 1));
+  finV.setHours(23,59,59,999);
+  return { inicio: inicioV, fin: finV };
 }
 
 // ── Estado visual según días restantes ───────────────────────────
@@ -39940,14 +40046,12 @@ function mrFechaRonda(rutaKey) {
   hoy.setHours(0, 0, 0, 0);
 
   if (cfg && cfg.tipo === 'viaje' && cfg.diaSalida !== null) {
-    // Buscar el próximo día de salida
-    var diaHoy = hoy.getDay();
-    var diaSalida = cfg.diaSalida; // 1=lunes, 2=martes, etc
-    var dif = (diaSalida - diaHoy + 7) % 7;
-    if (dif === 0) dif = 0; // hoy mismo
-    var fechaViaje = new Date(hoy);
-    fechaViaje.setDate(hoy.getDate() + dif);
-    return mrFormatoFechaISO(fechaViaje);
+    // v14.46.0: usar el viaje DE LA RONDA (hoy si es día de salida, el viaje
+    // en curso si la ruta dura 2 días, o el próximo). Antes, el día 2 de un
+    // viaje de 2 días la fecha saltaba a la semana siguiente y las gestiones
+    // del día 1 dejaban de matchear → los clientes reaparecían.
+    var viaje = mrViajeDeRonda(rutaKey, hoy);
+    if (viaje) return mrFormatoFechaISO(viaje);
   }
 
   // Para Trenque y demás: lunes de la semana actual
@@ -40364,13 +40468,21 @@ function mrSupabaseCargarGestiones(cb) {
   var path = 'mironda_gestiones' +
     '?vendedor=eq.' + encodeURIComponent(vendedor) +
     '&fecha_ronda=gte.' + desde +
-    '&select=cliente_id,estado,motivo,motivo_texto,fecha_ronda,ruta_key';
+    '&select=cliente_id,estado,motivo,motivo_texto,fecha_ronda,ruta_key,created_at';
   sbFetch(path).then(function(rows) {
     _miRondaGestiones = {};
     _miRondaVentasManuales = {};
+    _jornadaGestionesHoy = {}; // v14.46.0: cliente_id con gestión CREADA hoy
     // Cargo ambos tipos: sin_venta → _miRondaGestiones | venta → _miRondaVentasManuales
     // Solo las gestiones de la ronda ACTUAL de cada ruta (fecha_ronda coincide)
     (rows || []).forEach(function(r) {
+      // v14.46.0: cualquier gestión creada HOY cuenta como "hecho hoy" en
+      // Jornada, sin importar a qué fecha_ronda quedó asociada. Esto cubre
+      // gestiones que la lógica de rondas dejaba afuera (SIN_RUTA, rutas
+      // mal asignadas, etc.).
+      if (_jorEsFechaDeHoy(r.created_at)) {
+        _jornadaGestionesHoy[r.cliente_id] = true;
+      }
       var fechaRondaActual = mrFechaRonda(r.ruta_key);
       if (r.fecha_ronda !== fechaRondaActual) return;
       if (r.estado === 'sin_venta') {
@@ -40560,6 +40672,86 @@ function jornadaLeerCiudadGuardada() {
 
 // v14.22.2: distancia GPS del vendedor a un cliente, en km.
 // Retorna null si falta alguno de los datos.
+// ── v14.46.0: criterio "HECHO HOY" ───────────────────────────────
+// La Jornada es la vista del DÍA: un cliente está hecho si HOY tiene
+// (a) pedido cargado (cualquier estado salvo Cancelado), (b) gestión
+// creada, o (c) check-in en `visitas`. Es un overlay sobre el criterio
+// de ronda de Mi Ronda (verde/gestionado), que se mantiene.
+var _jornadaGestionesHoy = {};        // cliente_id → true (gestión creada hoy)
+var _jornadaCheckinsHoy = {};         // mrNormNombre(nombre) → true (check-in hoy)
+var _jornadaCheckinsCargadosAt = 0;   // throttle del fetch a `visitas` (60s)
+
+// ¿El ISO/timestamp cae en el día de HOY (hora local del celular)?
+function _jorEsFechaDeHoy(iso) {
+  if (!iso) return false;
+  var d = new Date(iso);
+  if (isNaN(d.getTime())) return false;
+  var hoy = new Date();
+  return d.getFullYear() === hoy.getFullYear() &&
+         d.getMonth() === hoy.getMonth() &&
+         d.getDate() === hoy.getDate();
+}
+
+// Set de nombres (normalizados) de clientes con pedido de HOY del vendedor.
+// Se recalcula en cada pintado: recorrer todosLosPedidos es barato (~1500).
+function jornadaPedidosHoySet() {
+  var set = {};
+  var vendNorm = mrNormVendedor(vendedorActual);
+  if (!vendNorm) return set;
+  var hoy = new Date(); hoy.setHours(0,0,0,0);
+  (todosLosPedidos || []).forEach(function(p) {
+    if (!mrPedidoCuenta(p)) return; // excluye Cancelado
+    if (mrNormVendedor(p.vendedor) !== vendNorm) return;
+    var fp = fechaPedido(p);
+    if (!fp || isNaN(fp.getTime())) return;
+    fp = new Date(fp); fp.setHours(0,0,0,0);
+    if (fp.getTime() !== hoy.getTime()) return;
+    var k = mrNormNombre(p.cliente);
+    if (k) set[k] = true;
+  });
+  return set;
+}
+
+// ¿Este cliente está "hecho hoy"? pedidosHoySet viene precalculado.
+// Marca el motivo en c._jorHechoHoy ('pedido'|'gestion'|'checkin') para
+// que jornadaRenderVisitado pueda etiquetarlo.
+function jornadaClienteHechoHoy(c, pedidosHoySet) {
+  if (!c) return false;
+  var k = mrNormNombre(c.nombre);
+  if (k && pedidosHoySet && pedidosHoySet[k]) { c._jorHechoHoy = 'pedido'; return true; }
+  if (_jornadaGestionesHoy[c.cliente_id])     { c._jorHechoHoy = 'gestion'; return true; }
+  if (k && _jornadaCheckinsHoy[k])            { c._jorHechoHoy = 'checkin'; return true; }
+  c._jorHechoHoy = null;
+  return false;
+}
+
+// Cargar check-ins de HOY del vendedor desde `visitas` (throttle 60s).
+// cb(huboNuevos) — si aparecieron nombres nuevos, el caller repinta.
+function jornadaCargarCheckinsHoy(cb) {
+  var ahora = Date.now();
+  if (ahora - _jornadaCheckinsCargadosAt < 60000) { if (cb) cb(false); return; }
+  _jornadaCheckinsCargadosAt = ahora;
+  gpsObtenerVendedorId().then(function(vid) {
+    if (!vid) { if (cb) cb(false); return null; }
+    var hoy0 = new Date(); hoy0.setHours(0,0,0,0);
+    var path = 'visitas?vendedor_id=eq.' + encodeURIComponent(vid) +
+      '&tipo=eq.checkin' +
+      '&created_at=gte.' + encodeURIComponent(hoy0.toISOString()) +
+      '&select=nombre_cliente&limit=500';
+    return sbFetch(path).then(function(rows) {
+      var antes = Object.keys(_jornadaCheckinsHoy).length;
+      (rows || []).forEach(function(r) {
+        var k = mrNormNombre(r.nombre_cliente);
+        if (k) _jornadaCheckinsHoy[k] = true;
+      });
+      if (cb) cb(Object.keys(_jornadaCheckinsHoy).length !== antes);
+    });
+  }).catch(function(e) {
+    console.warn('[Jornada] No se pudieron cargar check-ins de hoy:', e);
+    if (cb) cb(false);
+  });
+}
+
 function jornadaDistanciaACliente(cliente) {
   if (!cliente || !cliente._coords) return null;
   if (!_lastTrackPos || !_lastTrackPos.lat) return null;
@@ -40630,6 +40822,16 @@ function jornadaRender() {
 
   // Pintar body (lista de stops)
   jornadaPintarBody();
+
+  // v14.46.0: cargar check-ins de HOY en background (throttle 60s) y
+  // repintar si aparecieron nuevos — así un check-in hecho desde otro
+  // flujo también saca al cliente de los pendientes.
+  jornadaCargarCheckinsHoy(function(huboNuevos) {
+    if (huboNuevos && _tabActual === 'jornada') {
+      jornadaPintarStats();
+      jornadaPintarBody();
+    }
+  });
 
   // Mostrar acciones si hay ciudad activa
   var acciones = document.getElementById('jor-acciones');
@@ -40710,8 +40912,12 @@ function jornadaPintarStats() {
   var clientesCiudad = _miRondaClientes.filter(function(c) {
     return (c.localidad || '').trim() === _jornadaCiudadActiva;
   });
+  // v14.46.0: mismo criterio que jornadaPintarBody (incluye HECHO HOY)
+  var _pedidosHoyStats = jornadaPedidosHoySet();
   var visitados = clientesCiudad.filter(function(c) {
-    return !!(_miRondaGestiones && _miRondaGestiones[c.cliente_id]) || c._mr_estado === 'verde';
+    return !!(_miRondaGestiones && _miRondaGestiones[c.cliente_id]) ||
+           c._mr_estado === 'verde' ||
+           jornadaClienteHechoHoy(c, _pedidosHoyStats);
   });
   var ventasMonto = 0;
   visitados.forEach(function(c) {
@@ -40773,10 +40979,18 @@ function jornadaPintarBody() {
   var inactivos = [];   // v14.22.2: sin compras hace 90d+ (oculto por default)
   var visitados = [];
 
+  // v14.46.0: precalcular pedidos de HOY una sola vez por pintado
+  var _pedidosHoy = jornadaPedidosHoySet();
+
   clientes.forEach(function(c) {
     var esGestionado = !!(_miRondaGestiones && _miRondaGestiones[c.cliente_id]);
     var esVendido = c._mr_estado === 'verde';
-    if (esGestionado || esVendido) {
+    // v14.46.0: overlay HECHO HOY — pedido de hoy ∪ gestión de hoy ∪
+    // check-in de hoy. Cubre los casos que la lógica de rondas perdía
+    // (venta el día de salida, día 2 de rutas de 2 días, SIN_RUTA, datos
+    // sin refrescar).
+    var hechoHoy = jornadaClienteHechoHoy(c, _pedidosHoy);
+    if (esGestionado || esVendido || hechoHoy) {
       visitados.push(c);
       return;
     }
@@ -41145,6 +41359,13 @@ function jornadaRenderVisitado(c) {
     detalle = total ? '✓ ' + total + ' vendido' : '✓ Vendido';
   } else if (g) {
     detalle = '✕ ' + mrMotivoLabel(g.motivo, g.motivo_texto);
+  } else if (c._jorHechoHoy === 'pedido') {
+    // v14.46.0: tiene pedido de HOY aunque la ronda todavía no lo marque verde
+    detalle = '🛒 Vendido hoy';
+  } else if (c._jorHechoHoy === 'gestion') {
+    detalle = '✕ Gestionado hoy';
+  } else if (c._jorHechoHoy === 'checkin') {
+    detalle = '✓ Visitado hoy';
   }
   return '<div class="jor-visitado">'
     + '<div class="jor-visitado-icon">✓</div>'
@@ -41258,6 +41479,12 @@ var _miRondaOrigCargarPedidos = null;
       var r = await _miRondaOrigCargarPedidos(silencioso, _reintentos);
       if (_tabActual === 'mironda' && vendedorActual && vendedorActual !== 'ADMIN') {
         miRondaRender();
+      }
+      // v14.46.0: la Jornada también depende de los pedidos (criterio HECHO
+      // HOY + verdes). Antes solo se recalculaba Mi Ronda y la Jornada
+      // quedaba congelada con los estados de la apertura de la app.
+      if (_tabActual === 'jornada' && vendedorActual && vendedorActual !== 'ADMIN') {
+        try { jornadaRender(); } catch(e) { console.warn('[Jornada] re-render post-pedidos:', e); }
       }
       return r;
     };
