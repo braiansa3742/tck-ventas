@@ -2,6 +2,61 @@
 <html lang="es">
 <head>
 <!-- ═══════════════════════════════════════════════════════════════════════
+     TCK VENTAS — v14.49.0 — 09/06/2026
+     ──────────────────────────────────────────────────────────────────────
+     MI RUTA PARA TODOS — Miguel a campo, visibilidad total y mapa de ciudad
+
+     PEDIDO (Braian, 09/06): (1) habilitar a Miguel en Mi Ruta (sale a
+     campo); (2) que Mi Ruta muestre TODAS las ciudades con TODOS los
+     clientes sin importar de qué vendedor son (cada vendedor se hace
+     cargo de una ciudad completa); (3) mapa real por ciudad con todos
+     los puntos de venta. Decidido: visibilidad total con badge de
+     cartera; la reasignación territorial (ciudad→vendedor en datos)
+     queda como tarea aparte con Ariel/Francisco.
+
+     CAMBIOS:
+       1. MIGUEL = CAMPO: entra al grupo esCampo → ve Mi Ruta con el flujo
+          completo (check-in, visita, Xubio). Su nav: Pedidos · Mi día ·
+          Mi Ronda · Mi Ruta · Más. Reportes sale de su nav y queda en el
+          menú Más para todos. El wrap de vistas lo incluye.
+       2. VISIBILIDAD TOTAL: miRondaCargarClientes carga TODOS los
+          clientes activos (sin filtro de vendedor), PAGINADO de a 1000
+          (PostgREST corta en 1000 y los activos son 1029). Coords de
+          clientes_ubicaciones también paginadas. Mi Ruta (plan/ciudad/
+          visita/mapa) trabaja sobre el total.
+          · MI RONDA NO CAMBIA DE ALCANCE: nuevo helper mrClientesPropios()
+            scopea miRondaCalcular y mrCalcVIPSet a la cartera propia.
+          · Umbral Tipo A "sugerido" pasa a ser GLOBAL (top 20% de toda la
+            cartera) — documentado.
+          · Badge "CARTERA" en cards de ciudad y header de visita cuando
+            el cliente es de otro vendedor (jor2BadgeCartera).
+          · Cobertura cross-vendedor completada: gestiones creadas HOY por
+            CUALQUIER vendedor (fetch extra liviano en
+            mrSupabaseCargarGestiones → _jornadaGestionesHoy) y check-ins
+            de HOY de TODOS (jornadaCargarCheckinsHoy sin filtro de
+            vendedor_id). Los pedidos de cualquier vendedor en ventana ya
+            cubrían desde v14.47.0.
+       3. MAPA DE CIUDAD (Leaflet + OpenStreetMap, ya cargados en la app —
+          sin API key): botón "📍 VER MAPA DE <CIUDAD>" en la vista
+          ciudad → overlay full-screen con pines por estado (rojo
+          pendiente / amarillo Tipo A pendiente / verde cubierto / gris
+          inactivo 90d+ / azul = vendedor con pulso). El número del pin =
+          parada en la ruta optimizada (mismo orden que el botón de Maps).
+          Tap en pin → popup con IR / CHECK-IN (check-in cierra el mapa y
+          abre la visita). Filtros Todos / Pendientes / Tipo A.
+          Cobertura actual de coordenadas: 711 de 1029 (~70%) — crece con
+          cada check-in; los sin coords no aparecen en el mapa pero sí en
+          la lista y en Maps por dirección.
+
+     NO SE TOCÓ: Mi Ronda (KPIs por vendedor), tomador, Xubio, anti-dup,
+     checkout, vista admin de Visitas, Apps Script.
+
+     PENDIENTE RELACIONADO (datos, no app): reasignación territorial
+     ciudad→vendedor en clientes_activos (incluye ~190 MOSTRADOR/HUERFANO/
+     REVISAR_TRENQUE) — definir mapa con Ariel/Francisco y se genera el
+     SQL para ejecutar en Supabase.
+     ═══════════════════════════════════════════════════════════════════ -->
+<!-- ═══════════════════════════════════════════════════════════════════════
      TCK VENTAS — v14.48.0 — 09/06/2026
      ──────────────────────────────────────────────────────────────────────
      MI RUTA — tab unificado Jornada + Visitas
@@ -12387,6 +12442,52 @@ body {
   border-radius:12px; font-family:'Barlow Condensed',sans-serif; font-size:14px; font-weight:900;
   cursor:pointer; touch-action:manipulation; }
 /* ═══ fin Mi Ruta CSS ════════════════════════════════════════════ */
+
+/* ═══ v14.49.0 — visibilidad total + mapa de ciudad ══════════════ */
+.jor2-cartera { display:inline-block; background:var(--cream2,#F1E8D8); color:var(--text2,#5C3A1E);
+  font-size:9px; font-weight:800; border-radius:6px; padding:1.5px 6px; margin-left:6px;
+  vertical-align:2px; letter-spacing:.3px; }
+.jor2-vh-nom .jor2-cartera { background:rgba(255,255,255,.2); color:#fff; vertical-align:4px; }
+
+.jor2-btn-mapa { display:block; width:100%; background:#fff; border:2px solid #0F9D58;
+  color:#0a7c44; border-radius:15px; padding:12px 13px; margin-bottom:11px;
+  font-family:'Barlow Condensed',sans-serif; font-size:15px; font-weight:900; letter-spacing:.3px;
+  text-align:left; cursor:pointer; touch-action:manipulation; }
+.jor2-btn-mapa small { display:block; font-family:'Barlow',sans-serif; font-size:11px;
+  font-weight:700; opacity:.8; margin-top:2px; letter-spacing:0; }
+
+.jor2-mapa-overlay { position:fixed; inset:0; z-index:9000; background:var(--cream,#FBF6EE);
+  display:flex; flex-direction:column; }
+.jor2-mapa-top { display:flex; align-items:center; gap:10px; padding:10px 12px;
+  padding-top:calc(10px + env(safe-area-inset-top)); background:#fff;
+  border-bottom:1px solid var(--cream3,#E8DCC8); }
+#jor2-mapa { flex:1; width:100%; }
+.jor2-mapa-filtros { display:flex; gap:8px; padding:10px 12px;
+  padding-bottom:calc(10px + env(safe-area-inset-bottom)); background:#fff;
+  border-top:1px solid var(--cream3,#E8DCC8); }
+.jor2-mf { flex:1; border:1.5px solid var(--cream3,#E8DCC8); background:var(--cream,#FBF6EE);
+  border-radius:18px; padding:8px 0; font-size:12px; font-weight:900; color:var(--text2,#5C3A1E);
+  cursor:pointer; touch-action:manipulation; }
+.jor2-mf.on { background:#8B0000; border-color:#8B0000; color:#fff; }
+
+.jor2-pin { width:26px; height:26px; border-radius:50% 50% 50% 0; transform:rotate(-45deg);
+  border:2.5px solid #fff; box-shadow:0 3px 8px rgba(0,0,0,.35); }
+.jor2-pin i { position:absolute; inset:0; display:flex; align-items:center; justify-content:center;
+  transform:rotate(45deg); font-size:11px; color:#fff; font-weight:900; font-style:normal; }
+.jor2-pin-pend     { background:#c62828; }
+.jor2-pin-tipoa    { background:#e6a700; }
+.jor2-pin-cubierto { background:#2E7D32; }
+.jor2-pin-inactivo { background:#9a9a9a; }
+.jor2-pin-yo { width:18px; height:18px; border-radius:50%; background:#0d47a1;
+  border:3px solid #fff; box-shadow:0 0 0 0 rgba(13,71,161,.45); animation:jor2pulse 1.6s infinite; }
+@keyframes jor2pulse { 0%{box-shadow:0 0 0 0 rgba(13,71,161,.45);} 70%{box-shadow:0 0 0 14px rgba(13,71,161,0);} 100%{box-shadow:0 0 0 0 rgba(13,71,161,0);} }
+
+.jor2-pop { font-family:'Barlow',system-ui,sans-serif; min-width:200px; }
+.jor2-pop-n { font-size:13px; font-weight:900; color:#2b2118; }
+.jor2-pop-d { font-size:11px; color:#9a8d7c; margin-top:2px; }
+.jor2-pop-b { display:flex; gap:6px; margin-top:8px; }
+.jor2-pop-b .jor2-cb { padding:8px 0; font-size:11px; }
+/* ═══ fin v14.49.0 CSS ═══════════════════════════════════════════ */
 /* ═══════════════════════════════════════════════════════════════════ */
 
 .mr-wrap { padding: 14px 14px 20px; }
@@ -21846,7 +21947,8 @@ function mostrarTabs() {
   var nav = document.getElementById('tab-nav');
   if (nav) nav.classList.add('visible');
   var esAdmin    = vendedorActual === 'ADMIN';
-  var esCampo    = vendedorActual === 'Juan' || vendedorActual === 'Lisandro';
+  // v14.49.0: Miguel sale a campo → entra al grupo con Mi Ruta
+  var esCampo    = vendedorActual === 'Juan' || vendedorActual === 'Lisandro' || vendedorActual === 'Miguel';
   var esChofer   = vendedorActual === 'Joan' || vendedorActual === 'Luis' || vendedorActual === 'Juan Pablo';
   var esVendedor = !esAdmin && !esChofer;
 
@@ -21902,10 +22004,10 @@ function mostrarTabs() {
   var tabGps = document.getElementById('tab-btn-gps');
   if (tabGps) tabGps.style.display = esAdmin ? '' : 'none';
 
-  // Tab Reportes — solo Miguel (toma el slot 4 que dejó Visitas)
-  // Para Juan/Lisandro/Admin queda en el menú Más
+  // v14.49.0: Reportes ya no va en el nav de Miguel (su slot 4 ahora es
+  // Mi Ruta). Reportes queda en el menú Más para todos.
   var tabReportes = document.getElementById('tab-btn-reportes');
-  if (tabReportes) tabReportes.style.display = (vendedorActual === 'Miguel') ? '' : 'none';
+  if (tabReportes) tabReportes.style.display = 'none';
 
   // Tab Mapa — solo Admin (vendedores no ven mapa en el nav)
   var tabMapa = document.getElementById('tab-btn-mapa');
@@ -21926,7 +22028,7 @@ function mostrarTabs() {
 
   // Reportes en menú Más: visible para todos EXCEPTO Miguel (que lo tiene en el nav)
   var menuRep = document.getElementById('menu-mas-reportes');
-  if (menuRep) menuRep.style.display = (vendedorActual === 'Miguel') ? 'none' : 'flex';
+  if (menuRep) menuRep.style.display = 'flex'; // v14.49.0: también para Miguel
 
   if (_tabActual === 'gps' && !esCampo && !esAdmin) cambiarTab('pedidos');
   if (_tabActual === 'mapa' && !esAdmin) cambiarTab('pedidos');
@@ -38287,7 +38389,7 @@ async function dupUnirPedidos() {
 // pendientes en la ventana de preparación del próximo viaje.
 // ═══════════════════════════════════════════════════════════════════
 
-var _miRondaClientes = [];         // Lista completa desde Supabase (solo los del vendedor)
+var _miRondaClientes = [];         // v14.49.0: TODOS los clientes activos (Mi Ronda filtra propios)
 var _miRondaData     = null;       // Datos calculados por ruta
 // v14.21.0: Tipo A — umbral de facturación para considerar "sugerido automático"
 // Se recalcula al cargar la lista de clientes. Si un cliente factura >= umbral
@@ -38927,18 +39029,28 @@ async function miRondaCargarClientes(force) {
 
   _miRondaCargando = true;
   try {
-    var vend = mrNormVendedor(vendedorActual);
-    // Filtro: solo clientes activos del vendedor logueado
-    // En Supabase usamos PostgREST: activo_en_ronda=eq.true & vendedor=eq.MIGUEL
-    // v14.21.0: traer también tipo_a y facturacion_90d para clasificación Tipo A
-    var path = 'clientes_activos?' +
-      'activo_en_ronda=eq.true' +
-      '&vendedor=eq.' + encodeURIComponent(vend) +
-      '&select=cliente_id,nombre,telefono,localidad,direccion,vendedor,ruta_viaje,ritmo,ultimo_pedido,dias_desde_ult_pedido,frec_dias_prom,notas,tipo_a,facturacion_90d,xubio_id,cuit_dni,dias_visita' +
-      '&order=nombre.asc' +
-      '&limit=2000';
-    var data = await sbFetch(path);
-    _miRondaClientes = Array.isArray(data) ? data : [];
+    // v14.49.0 VISIBILIDAD TOTAL: se cargan TODOS los clientes activos
+    // (todas las ciudades, todos los vendedores). Mi Ruta trabaja sobre el
+    // total (cada vendedor puede cubrir cualquier ciudad); Mi Ronda se
+    // scopea a los propios vía mrClientesPropios().
+    // PostgREST corta en 1000 filas por request → paginamos con offset
+    // sobre un orden estable (cliente_id).
+    var _todos = [];
+    var _off = 0, _PAGE = 1000;
+    while (true) {
+      var path = 'clientes_activos?' +
+        'activo_en_ronda=eq.true' +
+        '&select=cliente_id,nombre,telefono,localidad,direccion,vendedor,ruta_viaje,ritmo,ultimo_pedido,dias_desde_ult_pedido,frec_dias_prom,notas,tipo_a,facturacion_90d,xubio_id,cuit_dni,dias_visita' +
+        '&order=cliente_id.asc' +
+        '&limit=' + _PAGE + '&offset=' + _off;
+      var pagina = await sbFetch(path);
+      if (!Array.isArray(pagina) || pagina.length === 0) break;
+      _todos = _todos.concat(pagina);
+      if (pagina.length < _PAGE) break;
+      _off += _PAGE;
+      if (_off > 20000) break; // tope de sanidad
+    }
+    _miRondaClientes = _todos;
 
     // v14.22.2: precargar coords GPS de los clientes para uso en Jornada.
     // Las coords están en `clientes_ubicaciones` indexadas por nombre.
@@ -38946,9 +39058,20 @@ async function miRondaCargarClientes(force) {
     // Esto se hace una sola vez al cargar la lista; no se reconsulta luego.
     if (_miRondaClientes.length > 0) {
       try {
-        var coordsPath = 'clientes_ubicaciones?select=nombre_cliente,lat,lng'
-                       + '&lat=not.is.null&limit=2000';
-        var coordsData = await sbFetch(coordsPath);
+        // v14.49.0: paginado (mismo motivo: tope de 1000 de PostgREST)
+        var coordsData = [];
+        var _cOff = 0;
+        while (true) {
+          var coordsPath = 'clientes_ubicaciones?select=nombre_cliente,lat,lng'
+                         + '&lat=not.is.null&order=nombre_cliente.asc'
+                         + '&limit=1000&offset=' + _cOff;
+          var cPag = await sbFetch(coordsPath);
+          if (!Array.isArray(cPag) || cPag.length === 0) break;
+          coordsData = coordsData.concat(cPag);
+          if (cPag.length < 1000) break;
+          _cOff += 1000;
+          if (_cOff > 20000) break;
+        }
         if (Array.isArray(coordsData)) {
           var byName = {};
           coordsData.forEach(function(r) {
@@ -38974,6 +39097,8 @@ async function miRondaCargarClientes(force) {
     // v14.21.0: calcular umbral del top 20% por facturación para sugerir Tipo A.
     // Solo se computan los que tienen facturación > 0 (sino, todos los ceros
     // empatarían y serían todos "sugeridos").
+    // v14.49.0: con visibilidad total el umbral Tipo A sugerido pasa a ser
+    // GLOBAL (top 20% de facturación de toda la cartera, no solo la propia).
     _miRondaTipoAUmbral = _calcularUmbralTipoA(_miRondaClientes);
   } catch(e) {
     console.error('Mi Ronda — error cargando clientes:', e);
@@ -38987,6 +39112,16 @@ async function miRondaCargarClientes(force) {
 // ── Calcular estado por ruta ─────────────────────────────────────
 // Agrupa los clientes por ruta, cruza con pedidos para determinar
 // verdes (cubiertos) vs grises (pendientes) en la ventana de preparación.
+// v14.49.0: Mi Ronda sigue siendo POR VENDEDOR. Con la carga total,
+// este helper devuelve solo los clientes de la cartera propia.
+function mrClientesPropios() {
+  var v = mrNormVendedor(vendedorActual);
+  if (!v) return [];
+  return _miRondaClientes.filter(function(c) {
+    return mrNormVendedor(c.vendedor) === v;
+  });
+}
+
 function miRondaCalcular() {
   var hoy = new Date(); hoy.setHours(0,0,0,0);
   var vendNorm = mrNormVendedor(vendedorActual);
@@ -38998,8 +39133,9 @@ function miRondaCalcular() {
   _miRondaDerivCache = null;
 
   // Agrupar clientes por ruta_viaje
+  // v14.49.0: SOLO los de la cartera propia (Mi Ronda no cambia de alcance)
   var porRuta = {};
-  _miRondaClientes.forEach(function(c) {
+  mrClientesPropios().forEach(function(c) {
     var r = c.ruta_viaje || 'SIN_RUTA';
     if (!porRuta[r]) porRuta[r] = [];
     porRuta[r].push(c);
@@ -39576,8 +39712,9 @@ function mrCalcVIPSet() {
   if (_miRondaVIPSet) return _miRondaVIPSet;
 
   // Facturación total de cada cliente con el vendedor actual
+  // v14.49.0: scope propio (VIP es un concepto de Mi Ronda)
   var totalPorCliente = [];
-  (_miRondaClientes || []).forEach(function(c) {
+  mrClientesPropios().forEach(function(c) {
     var h = mrCalcHistoricoCliente(c);
     if (!h) return;
     var total = h.tickets.reduce(function(a, b) { return a + b; }, 0);
@@ -40799,6 +40936,25 @@ function mrSupabaseCargarGestiones(cb) {
     });
     _miRondaGestionesCargadas = true;
     if (cb) cb();
+
+    // v14.49.0 VISIBILIDAD TOTAL: las gestiones creadas HOY por CUALQUIER
+    // vendedor también cuentan como "hecho" en Mi Ruta (si Juan visitó sin
+    // venta, a Miguel no le tiene que aparecer pendiente). Fetch liviano
+    // (volumen diario < 100 filas) en background; repinta si corresponde.
+    try {
+      var _hoy0 = new Date(); _hoy0.setHours(0, 0, 0, 0);
+      sbFetch('mironda_gestiones?created_at=gte.' + encodeURIComponent(_hoy0.toISOString())
+        + '&select=cliente_id&limit=1000')
+        .then(function(rs) {
+          var antes = Object.keys(_jornadaGestionesHoy).length;
+          (rs || []).forEach(function(r) { _jornadaGestionesHoy[r.cliente_id] = true; });
+          if (Object.keys(_jornadaGestionesHoy).length !== antes &&
+              typeof _tabActual !== 'undefined' && _tabActual === 'jornada' &&
+              typeof jornadaRender === 'function') {
+            jornadaRender();
+          }
+        }).catch(function() {});
+    } catch (e) { /* sin red: la cobertura propia sigue funcionando */ }
   }).catch(function(err) {
     console.error('mrSupabaseCargarGestiones error:', err);
     if (cb) cb();
@@ -41027,23 +41183,21 @@ function jornadaCargarCheckinsHoy(cb) {
   var ahora = Date.now();
   if (ahora - _jornadaCheckinsCargadosAt < 60000) { if (cb) cb(false); return; }
   _jornadaCheckinsCargadosAt = ahora;
-  gpsObtenerVendedorId().then(function(vid) {
-    if (!vid) { if (cb) cb(false); return null; }
-    var hoy0 = new Date(); hoy0.setHours(0,0,0,0);
-    var path = 'visitas?vendedor_id=eq.' + encodeURIComponent(vid) +
-      '&tipo=eq.checkin' +
-      '&created_at=gte.' + encodeURIComponent(hoy0.toISOString()) +
-      '&select=nombre_cliente&limit=500';
-    return sbFetch(path).then(function(rows) {
-      var antes = Object.keys(_jornadaCheckinsHoy).length;
-      (rows || []).forEach(function(r) {
-        var k = mrNormNombre(r.nombre_cliente);
-        if (k) _jornadaCheckinsHoy[k] = true;
-      });
-      if (cb) cb(Object.keys(_jornadaCheckinsHoy).length !== antes);
+  // v14.49.0: check-ins de HOY de TODOS los vendedores (visibilidad total:
+  // si otro ya pasó por el local hoy, acá figura cubierto).
+  var hoy0 = new Date(); hoy0.setHours(0,0,0,0);
+  var path = 'visitas?tipo=eq.checkin' +
+    '&created_at=gte.' + encodeURIComponent(hoy0.toISOString()) +
+    '&select=nombre_cliente&limit=1000';
+  sbFetch(path).then(function(rows) {
+    var antes = Object.keys(_jornadaCheckinsHoy).length;
+    (rows || []).forEach(function(r) {
+      var k = mrNormNombre(r.nombre_cliente);
+      if (k) _jornadaCheckinsHoy[k] = true;
     });
+    if (cb) cb(Object.keys(_jornadaCheckinsHoy).length !== antes);
   }).catch(function(e) {
-    console.warn('[Jornada] No se pudieron cargar check-ins de hoy:', e);
+    console.warn('[Mi Ruta] No se pudieron cargar check-ins de hoy:', e);
     if (cb) cb(false);
   });
 }
@@ -41355,6 +41509,18 @@ function jor2Optimizar(clientes) {
     cur = sig._coords;
   }
   return orden.concat(sinC);
+}
+
+// v14.49.0: badge "cartera: X" cuando el cliente es de otro vendedor
+function jor2EsDeOtraCartera(c) {
+  var v = mrNormVendedor(vendedorActual);
+  var cv = mrNormVendedor(c && c.vendedor);
+  return !!(cv && v && cv !== v);
+}
+function jor2BadgeCartera(c) {
+  return jor2EsDeOtraCartera(c)
+    ? '<span class="jor2-cartera">' + escapeHtml(mrNormVendedor(c.vendedor)) + '</span>'
+    : '';
 }
 
 function jor2ClientePorId(cid) {
@@ -41676,6 +41842,11 @@ function jor2RenderCiudad(ctx) {
       + ' · orden por cercanía</small></button>';
   }
 
+  // v14.49.0: mapa real de la ciudad (Leaflet) con todos los puntos de venta
+  var conCoordsCiudad = clientesCiudad.filter(function(c) { return c._coords; }).length;
+  html += '<button class="jor2-btn-mapa" onclick="jor2MapaAbrir()">📍 VER MAPA DE ' + escapeHtml(loc.toUpperCase())
+    + '<small>' + conCoordsCiudad + ' de ' + clientesCiudad.length + ' puntos con ubicación</small></button>';
+
   if (pendTotal === 0) {
     html += '<div class="jor-empty"><div class="jor-empty-icon">🎉</div>'
       + '<div class="jor-empty-txt"><strong>' + escapeHtml(loc) + ' completa.</strong><br>No quedan clientes pendientes acá.</div></div>';
@@ -41720,7 +41891,7 @@ function jor2RenderCliCard(c, orden, destacado) {
     + (destacado ? '<div class="jor2-cli-tag">▶ MÁS CERCANO</div>' : '')
     + '<div class="jor2-cli-top">'
     +   '<div class="jor2-cli-info">'
-    +     '<div class="jor2-cli-nom"><span class="jor2-orden">' + orden + '</span>' + estrella + escapeHtml(c.nombre || '—') + '</div>'
+    +     '<div class="jor2-cli-nom"><span class="jor2-orden">' + orden + '</span>' + estrella + escapeHtml(c.nombre || '—') + jor2BadgeCartera(c) + '</div>'
     +     '<div class="jor2-cli-dir">' + escapeHtml(c.direccion || '') + (ult ? (c.direccion ? ' · ' : '') + ult : '') + '</div>'
     +   '</div>'
     +   (distTxt ? '<div class="jor2-cli-dist' + pillAlerta + '">' + escapeHtml(distTxt) + '</div>' : '')
@@ -41789,7 +41960,7 @@ function jor2RenderVisita(ctx) {
   var html = '<div class="jor2-vh">'
     + '<div class="jor2-vh-crono" id="jor2-crono">' + jor2CronoTxt() + '</div>'
     + '<div class="jor2-vh-tag">VISITA EN CURSO</div>'
-    + '<div class="jor2-vh-nom">' + escapeHtml(nombre) + '</div>'
+    + '<div class="jor2-vh-nom">' + escapeHtml(nombre) + (c ? jor2BadgeCartera(c) : '') + '</div>'
     + '<div class="jor2-vh-meta">' + escapeHtml([loc, (c && c.direccion) || ''].filter(Boolean).join(' · '))
     + (horaCheckin ? ' · check-in ' + horaCheckin + ' ✅' : '') + '</div>'
     + '</div>';
@@ -41958,6 +42129,140 @@ function jor2RepetirUltimo() {
   jor2Vender();
 }
 
+// ── v14.49.0: MAPA DE CIUDAD (Leaflet, ya cargado en la app) ─────
+// Overlay full-screen con todos los puntos de venta de la ciudad activa.
+// Pines por estado: pendiente (rojo), Tipo A pendiente (amarillo),
+// cubierto (verde), inactivo 90d+ (gris), vendedor (azul pulsante).
+// El número del pin = parada en la ruta optimizada (mismo orden que el
+// botón de Maps). Tap en pin → popup con IR / CHECK-IN.
+var _jor2MapaInst = null;
+var _jor2MapaCapa = null;
+var _jor2MapaFiltro = 'todos';
+
+function jor2MapaAbrir() {
+  if (!_jor2SelCiudad) return;
+  if (typeof L === 'undefined') {
+    toast('El mapa no cargó (Leaflet sin conexión). Probá de nuevo con señal.', 'err');
+    return;
+  }
+  var prev = document.getElementById('jor2-mapa-overlay');
+  if (prev) prev.remove();
+  var ov = document.createElement('div');
+  ov.id = 'jor2-mapa-overlay';
+  ov.className = 'jor2-mapa-overlay';
+  ov.innerHTML = '<div class="jor2-mapa-top">'
+    + '<button class="jor2-back" onclick="jor2MapaCerrar()">✕ Cerrar</button>'
+    + '<div class="jor2-subnav-tit">MAPA · ' + escapeHtml(_jor2SelCiudad) + '</div>'
+    + '</div>'
+    + '<div id="jor2-mapa"></div>'
+    + '<div class="jor2-mapa-filtros">'
+    + '<button class="jor2-mf on" data-f="todos" onclick="jor2MapaFiltrar(this)">Todos</button>'
+    + '<button class="jor2-mf" data-f="pend" onclick="jor2MapaFiltrar(this)">Pendientes</button>'
+    + '<button class="jor2-mf" data-f="tipoa" onclick="jor2MapaFiltrar(this)">⭐ Tipo A</button>'
+    + '</div>';
+  document.body.appendChild(ov);
+  _jor2MapaFiltro = 'todos';
+  _jor2MapaInst = null; // instancia nueva por apertura (el div es nuevo)
+  setTimeout(jor2MapaRender, 60);
+}
+
+function jor2MapaCerrar() {
+  if (_jor2MapaInst) { try { _jor2MapaInst.remove(); } catch (e) {} _jor2MapaInst = null; }
+  _jor2MapaCapa = null;
+  var ov = document.getElementById('jor2-mapa-overlay');
+  if (ov) ov.remove();
+}
+
+function jor2MapaFiltrar(btn) {
+  _jor2MapaFiltro = btn.getAttribute('data-f') || 'todos';
+  document.querySelectorAll('.jor2-mf').forEach(function(b) {
+    b.classList.toggle('on', b === btn);
+  });
+  jor2MapaRender();
+}
+
+function jor2MapaEstado(c, ctx) {
+  if (jor2ClienteCubierto(c, ctx)) return 'cubierto';
+  if (jor2Prioridad(c) <= 2) return 'tipoa';
+  var d = c.dias_desde_ult_pedido;
+  if (d != null && d >= 90) return 'inactivo';
+  return 'pend';
+}
+
+function jor2MapaRender() {
+  var cont = document.getElementById('jor2-mapa');
+  if (!cont) return;
+  var ctx = jor2Ctx();
+  var clientes = _miRondaClientes.filter(function(c) {
+    return (c.localidad || '').trim() === _jor2SelCiudad;
+  });
+
+  // Numerar pendientes según la ruta optimizada (mismo orden que Maps)
+  var pend = jor2Optimizar(clientes.filter(function(c) { return !jor2ClienteCubierto(c, ctx); }));
+  var ordenPorId = {};
+  pend.forEach(function(c, i) { ordenPorId[c.cliente_id] = i + 1; });
+
+  if (!_jor2MapaInst) {
+    _jor2MapaInst = L.map('jor2-mapa', { zoomControl: true });
+    L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+      maxZoom: 19,
+      attribution: '© OpenStreetMap'
+    }).addTo(_jor2MapaInst);
+    _jor2MapaCapa = L.layerGroup().addTo(_jor2MapaInst);
+  } else {
+    _jor2MapaCapa.clearLayers();
+  }
+
+  var bounds = [];
+  clientes.forEach(function(c) {
+    if (!c._coords) return;
+    var est = jor2MapaEstado(c, ctx);
+    if (_jor2MapaFiltro === 'pend' && est !== 'pend' && est !== 'tipoa') return;
+    if (_jor2MapaFiltro === 'tipoa' && est !== 'tipoa') return;
+    var num = ordenPorId[c.cliente_id] || (est === 'cubierto' ? '✓' : '·');
+    var icon = L.divIcon({
+      className: '',
+      html: '<div class="jor2-pin jor2-pin-' + est + '"><i>' + num + '</i></div>',
+      iconSize: [26, 26], iconAnchor: [13, 26], popupAnchor: [0, -24]
+    });
+    var mk = L.marker([c._coords.lat, c._coords.lng], { icon: icon });
+    var cid = encodeURIComponent(c.cliente_id || '');
+    var dirEnc = encodeURIComponent(((c.direccion || '') + ' ' + (c.localidad || '')).trim());
+    mk.bindPopup('<div class="jor2-pop">'
+      + '<div class="jor2-pop-n">' + (jor2Prioridad(c) <= 2 ? '⭐ ' : '')
+      +   escapeHtml(c.nombre || '—') + ' ' + jor2BadgeCartera(c) + '</div>'
+      + '<div class="jor2-pop-d">' + escapeHtml(c.direccion || '')
+      +   (c.dias_desde_ult_pedido != null ? ' · últ. ' + c.dias_desde_ult_pedido + 'd' : '')
+      +   (ordenPorId[c.cliente_id] ? ' · parada N° ' + ordenPorId[c.cliente_id] : '') + '</div>'
+      + (est !== 'cubierto'
+        ? '<div class="jor2-pop-b">'
+          + '<button class="jor2-cb jor2-cb-ir" onclick="jornadaAbrirMapa(&quot;' + dirEnc + '&quot;)">🧭 IR</button>'
+          + '<button class="jor2-cb jor2-cb-ci" onclick="jor2MapaCerrar();jor2CheckIn(&quot;' + cid + '&quot;)">📍 CHECK-IN</button>'
+          + '</div>'
+        : '<div class="jor2-pop-d" style="margin-top:4px;">' + escapeHtml(jor2CubLabel(c)) + '</div>')
+      + '</div>');
+    mk.addTo(_jor2MapaCapa);
+    bounds.push([c._coords.lat, c._coords.lng]);
+  });
+
+  // Posición del vendedor
+  if (_lastTrackPos && _lastTrackPos.lat) {
+    L.marker([_lastTrackPos.lat, _lastTrackPos.lng], {
+      icon: L.divIcon({ className: '', html: '<div class="jor2-pin-yo"></div>', iconSize: [18, 18], iconAnchor: [9, 9] })
+    }).addTo(_jor2MapaCapa);
+    bounds.push([_lastTrackPos.lat, _lastTrackPos.lng]);
+  }
+
+  if (bounds.length > 0) {
+    _jor2MapaInst.fitBounds(bounds, { padding: [36, 36] });
+  } else {
+    toast('Esta ciudad todavía no tiene puntos con ubicación. Se van sumando con cada check-in.', 'info');
+    jor2MapaCerrar();
+    return;
+  }
+  setTimeout(function() { try { _jor2MapaInst.invalidateSize(); } catch (e) {} }, 150);
+}
+
 // ── Wrap de gpsActualizarEstado: mueve las vistas de Mi Ruta ─────
 // check-in registrado → vista VISITA · checkout → vista CIUDAD (con el
 // siguiente más cercano arriba). Solo para vendedores de campo.
@@ -41967,7 +42272,7 @@ function jor2RepetirUltimo() {
     window.gpsActualizarEstado = function(chk) {
       window._jor2GpsEstadoOrig(chk);
       try {
-        var esCampo = (vendedorActual === 'Juan' || vendedorActual === 'Lisandro');
+        var esCampo = (vendedorActual === 'Juan' || vendedorActual === 'Lisandro' || vendedorActual === 'Miguel');
         if (!esCampo) return;
         if (chk) {
           _jor2Vista = 'visita';
