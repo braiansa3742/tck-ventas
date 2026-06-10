@@ -2,6 +2,72 @@
 <html lang="es">
 <head>
 <!-- ═══════════════════════════════════════════════════════════════════════
+     TCK VENTAS — v14.48.0 — 09/06/2026
+     ──────────────────────────────────────────────────────────────────────
+     MI RUTA — tab unificado Jornada + Visitas
+
+     PEDIDO (Braian, 09/06): los tabs Visitas y Jornada cumplían casi la
+     misma función. Un solo tab: ciudades → clientes con IR/WA/CHECK-IN en
+     la misma pantalla → check-in vincula directo con Xubio para vender →
+     confirmar venta o checkout sin venta. Sin buscador como camino
+     principal. Diseño iterado en mockups (visita activa con inteligencia,
+     NO tomador automático; Maps del día protagonista; tandas de 10).
+
+     NUEVO FLUJO (3 vistas dentro del tab, renombrado "Mi Ruta" 📍):
+       1. PLAN DE HOY — ciudades del día (dias_visita) con objetivo y
+          progreso + botón "🗺️ MI RUTA DEL DÍA EN MAPS" (todas las paradas
+          pendientes del día, orden nearest-neighbor encadenando ciudades,
+          tandas de 10 = límite de Google Maps: 9 waypoints + destino;
+          pines = coords reales de clientes_ubicaciones) + ciudades fuera
+          de plan + historial "Hoy en campo" (reutiliza gpsCargarHistorial,
+          HTML copiado de #gps-historial).
+       2. CIUDAD — botón "🗺️ RUTA DE <CIUDAD> EN MAPS" + clientes
+          pendientes ordenados por cercanía y NUMERADOS (mismo orden que
+          la navegación de Maps), primero destacado "▶ MÁS CERCANO"; cada
+          card: IR · WA · CHECK-IN. "➕ Cliente nuevo / fuera de lista"
+          (gpsIniciarCheckin, el buscador Xubio queda como excepción).
+          Cubiertos abajo con motivo.
+       3. VISITA ACTIVA — el check-in NO cambia de tab (jor2CheckIn llama
+          gpsConfirmarCheckin directo, con el xubio_id y CUIT del cliente
+          de la lista → presupuesto Xubio automático al confirmar, flujo
+          v14.20.0 intacto). Pantalla: cronómetro vivo (30s), header azul,
+          alerta "⚠️ ya tiene pedido para este viaje" (de CUALQUIER
+          vendedor, con quién/cuándo/monto — guard anti doble venta),
+          card 🎯 inteligencia (ticket promedio, facturación 90d, "siempre
+          lleva" = top productos parseados del detalle de sus pedidos),
+          info del cliente REUTILIZADA de gpsRenderInfoCliente (Llamar/WA,
+          alerta de días vs frecuencia, notas editables, últimos pedidos
+          con popup) renderizada en #jor2-visita-info, botón "🔁 REPETIR
+          ÚLTIMO PEDIDO" (precarga el tomador: parser propio de los 2
+          formatos vivos del detalle, validado contra TOMADOR_CAT con
+          remap de calibre vía _editarSepararCalibre; promos/combos no se
+          repiten), CTA "📦 VENDER" (tomadorAbrir normal) y "✕ NO COMPRÓ"
+          (gpsCheckoutConMotivo normal).
+
+     CIERRE AUTOMÁTICO: los modales existentes ya hacían auto-checkout
+     (¡VENTA CERRADA! 4s con Xubio / Pedido registrado 6s sin Xubio) — NO
+     se tocaron. Lo nuevo: wrap de gpsActualizarEstado → al registrarse el
+     check-in la vista pasa a VISITA; al checkout vuelve a CIUDAD con el
+     siguiente más cercano destacado.
+
+     NAV: tab Visitas queda SOLO para admin (auditoría intacta). Campo
+     (Juan/Lisandro): Pedidos · Mi día · Mi Ronda · Mi Ruta · Más.
+     Miguel: sin cambios.
+
+     CAMBIOS TÉCNICOS:
+       · gpsRenderInfoCliente/Final: destino parametrizable vía
+         _gpsInfoTarget (param opcional targetId; los re-renders internos
+         sin param mantienen el último destino).
+       · _tomadorAbrirInterno: aplica window._tomadorPrecargaQtys tras el
+         reset (Repetir último pedido).
+       · Eliminado el wizard armar/ruta/resumen de v14.47.0 (reemplazado
+         por ciudad + Maps; ya no hay estado de ruta en localStorage).
+       · Se mantienen: cobertura HECHO HOY (v14.46.0) + pedido de cualquier
+         vendedor en ventana (v14.47.0), fixes de rondas/ventanas, hooks de
+         re-render, jornadaAbrirMapa, gpsIniciarCheckin, tomador completo,
+         anti-dup v14.45.0, sucursales, motivos de checkout.
+     ═══════════════════════════════════════════════════════════════════ -->
+<!-- ═══════════════════════════════════════════════════════════════════════
      TCK VENTAS — v14.47.0 — 09/06/2026
      ──────────────────────────────────────────────────────────────────────
      JORNADA 2.0 — plan del día, armar ruta, modo guiado y resumen
@@ -12248,6 +12314,79 @@ body {
 .jor2-res-sub { font-size:12px; color:var(--text3,#9a8d7c); margin-top:4px; }
 .jor2-res-nota { font-size:11px; color:var(--text3,#9a8d7c); margin:6px 2px 12px; line-height:1.4; }
 /* ═══ fin Jornada 2.0 CSS ═════════════════════════════════════════ */
+
+/* ═══ v14.48.0 — MI RUTA (tab unificado) ═════════════════════════ */
+.jor2-btn-maps { display:block; width:100%; background:linear-gradient(135deg,#0F9D58,#34A853);
+  color:#fff; border:none; border-radius:15px; padding:14px 13px; margin-bottom:11px;
+  font-family:'Barlow Condensed',sans-serif; font-size:16px; font-weight:900; letter-spacing:.3px;
+  text-align:left; cursor:pointer; box-shadow:0 5px 14px rgba(15,157,88,.3); touch-action:manipulation; }
+.jor2-btn-maps small { display:block; font-family:'Barlow',sans-serif; font-size:11px;
+  font-weight:700; opacity:.92; margin-top:3px; letter-spacing:0; }
+
+.jor2-cli { background:#fff; border:1.5px solid var(--cream3,#E8DCC8); border-radius:13px;
+  padding:10px 12px; margin-bottom:8px; }
+.jor2-cli-destacado { border-color:#0d47a1; box-shadow:0 4px 12px rgba(13,71,161,.16); }
+.jor2-cli-tag { display:inline-block; background:#0d47a1; color:#fff; font-size:9.5px;
+  font-weight:900; border-radius:6px; padding:2px 8px; letter-spacing:.6px; margin-bottom:6px; }
+.jor2-cli-top { display:flex; justify-content:space-between; align-items:flex-start; gap:8px; }
+.jor2-cli-info { flex:1; min-width:0; }
+.jor2-cli-nom { font-size:13.5px; font-weight:900; color:var(--text,#2b2118); }
+.jor2-cli-dir { font-size:11px; color:var(--text3,#9a8d7c); margin-top:1px;
+  overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.jor2-cli-dist { font-size:11px; font-weight:800; color:var(--text2,#5C3A1E);
+  background:var(--cream2,#F1E8D8); border-radius:8px; padding:3px 8px; flex:none; }
+.jor2-dist-alerta { background:#ffe2e2; color:#b00; }
+.jor2-orden { display:inline-flex; width:20px; height:20px; background:var(--cream2,#F1E8D8);
+  color:var(--text2,#5C3A1E); border-radius:50%; align-items:center; justify-content:center;
+  font-size:11px; font-weight:900; margin-right:6px; vertical-align:-3px; }
+.jor2-cli-btns { display:flex; gap:7px; margin-top:9px; }
+.jor2-cb { flex:1; border:none; border-radius:10px; padding:10px 0; font-size:12px;
+  font-weight:900; cursor:pointer; font-family:'Barlow Condensed',sans-serif; letter-spacing:.3px;
+  touch-action:manipulation; }
+.jor2-cb-ir { background:#e8f0fe; color:#0d47a1; }
+.jor2-cb-wa { background:#e6f7eb; color:#1f8a3b; }
+.jor2-cb-off { opacity:.35; }
+.jor2-cb-ci { background:#FFD400; color:#5a4500; flex:1.6; }
+
+/* Visita activa */
+.jor2-vh { background:linear-gradient(135deg,#0d47a1,#1565c0); border-radius:16px; color:#fff;
+  padding:13px 14px; margin-bottom:10px; position:relative; box-shadow:0 6px 18px rgba(13,71,161,.3); }
+.jor2-vh-crono { position:absolute; top:12px; right:13px; background:rgba(255,255,255,.16);
+  border-radius:10px; padding:5px 10px; font-size:12px; font-weight:900; }
+.jor2-vh-tag { display:inline-block; background:#FFD400; color:#5a4500; font-size:9.5px;
+  font-weight:900; border-radius:6px; padding:2px 8px; letter-spacing:.6px; }
+.jor2-vh-nom { font-family:'Barlow Condensed',sans-serif; font-size:20px; font-weight:900;
+  margin-top:6px; line-height:1.1; padding-right:78px; }
+.jor2-vh-meta { font-size:11px; opacity:.9; margin-top:3px; }
+
+.jor2-alerta-pedido { background:#fff7e0; border:1.5px solid #f0d27a; border-radius:13px;
+  padding:10px 12px; margin-bottom:9px; font-size:12px; color:#7a5c00; font-weight:700; line-height:1.45; }
+.jor2-alerta-pedido b { color:#5d4600; }
+
+.jor2-intel { background:#fff; border:1.5px solid var(--cream3,#E8DCC8); border-left:4px solid #FFD400;
+  border-radius:13px; padding:10px 12px; margin-bottom:9px; }
+.jor2-intel-t { font-size:10.5px; font-weight:900; color:var(--text3,#9a8d7c);
+  text-transform:uppercase; letter-spacing:.6px; margin-bottom:5px; }
+.jor2-intel-row { font-size:12.5px; color:var(--text,#2b2118); padding:2.5px 0; }
+.jor2-chips { display:flex; flex-wrap:wrap; gap:6px; margin-top:5px; }
+.jor2-chip { background:var(--cream2,#F1E8D8); border-radius:14px; padding:4px 10px;
+  font-size:11px; font-weight:800; color:var(--text2,#5C3A1E); }
+
+.jor2-btn-repetir { display:block; width:100%; background:var(--cream2,#F1E8D8);
+  border:1.5px dashed var(--text2,#5C3A1E); border-radius:12px; padding:11px; margin-bottom:9px;
+  font-family:'Barlow Condensed',sans-serif; font-size:14px; font-weight:900; color:var(--text2,#5C3A1E);
+  cursor:pointer; touch-action:manipulation; }
+.jor2-btn-repetir small { display:block; font-family:'Barlow',sans-serif; font-size:10.5px;
+  font-weight:600; margin-top:2px; opacity:.8; }
+
+.jor2-btn-vender { flex:1.7; padding:14px; background:linear-gradient(135deg,#1B5E20,#2E7D32);
+  color:#fff; border:none; border-radius:12px; font-family:'Barlow Condensed',sans-serif;
+  font-size:16px; font-weight:900; letter-spacing:.4px; cursor:pointer; touch-action:manipulation;
+  box-shadow:0 4px 12px rgba(27,94,32,.3); }
+.jor2-btn-nocompro { flex:1; padding:14px; background:#fff; color:#b00; border:2px solid #f3c9c9;
+  border-radius:12px; font-family:'Barlow Condensed',sans-serif; font-size:14px; font-weight:900;
+  cursor:pointer; touch-action:manipulation; }
+/* ═══ fin Mi Ruta CSS ════════════════════════════════════════════ */
 /* ═══════════════════════════════════════════════════════════════════ */
 
 .mr-wrap { padding: 14px 14px 20px; }
@@ -15879,7 +16018,7 @@ body {
       <div class="jor-hdr">
         <div class="jor-hdr-icon">📍</div>
         <div class="jor-hdr-text">
-          <div class="jor-hdr-titulo">MI JORNADA</div>
+          <div class="jor-hdr-titulo">MI RUTA</div>
           <div class="jor-hdr-sub" id="jor-fecha-actual">—</div>
         </div>
         <!-- v14.22.2: indicador GPS activo -->
@@ -15949,7 +16088,7 @@ body {
   <!-- v14.22.0: tab Jornada — lista del día por ciudad -->
   <button class="tab-btn" id="tab-btn-jornada" onclick="cambiarTab('jornada')">
     <span class="tab-icon">📍</span>
-    <span class="tab-label">Jornada</span>
+    <span class="tab-label">Mi Ruta</span>
   </button>
   <button class="tab-btn" id="tab-btn-reportes" onclick="cambiarTab('reportes')">
     <span class="tab-icon">📈</span>
@@ -21746,7 +21885,7 @@ function mostrarTabs() {
   if (tabBot) tabBot.style.display = 'none'; // siempre oculto en nav, accesible vía console
 
   // ── NAV PRO: 5 tabs visibles + Más ──
-  // Juan/Lisandro (campo): Pedidos · Mi día · Mi Ronda (centro) · Visitas · Más
+  // Juan/Lisandro (campo): Pedidos · Mi día · Mi Ronda (centro) · Mi Ruta · Más  [v14.48.0]
   // Miguel (no campo): Pedidos · Mi día · Mi Ronda (centro) · Reportes · Más
   // Admin: Pedidos · Mi día · — · Mapa · Más
 
@@ -21758,10 +21897,10 @@ function mostrarTabs() {
   var tabMr = document.getElementById('tab-btn-mironda');
   if (tabMr) tabMr.style.display = esVendedor ? '' : 'none';
 
-  // Tab Visitas — vendedores de campo (Juan/Lisandro) y admin
-  // Miguel NO ve Visitas (no visita clientes en campo)
+  // v14.48.0: Tab Visitas — SOLO admin (auditoría). Los vendedores de
+  // campo ahora tienen todo (check-in, visita, historial) dentro de Mi Ruta.
   var tabGps = document.getElementById('tab-btn-gps');
-  if (tabGps) tabGps.style.display = (esCampo || esAdmin) ? '' : 'none';
+  if (tabGps) tabGps.style.display = esAdmin ? '' : 'none';
 
   // Tab Reportes — solo Miguel (toma el slot 4 que dejó Visitas)
   // Para Juan/Lisandro/Admin queda en el menú Más
@@ -26009,8 +26148,10 @@ function gpsActualizarEstado(checkinActivo) {
 // Se llena al hacer check-in y se invalida al hacer checkout
 var _gpsClienteActivoData = null;  // { cliente_id, nombre, notas }
 
-function gpsRenderInfoCliente(nombreCliente) {
-  var contenedor = document.getElementById('gps-info-cliente');
+var _gpsInfoTarget = 'gps-info-cliente'; // v14.48.0: contenedor destino (Mi Ruta lo redirige)
+function gpsRenderInfoCliente(nombreCliente, targetId) {
+  if (targetId) _gpsInfoTarget = targetId; // sin param: mantiene el último destino
+  var contenedor = document.getElementById(_gpsInfoTarget);
   if (!contenedor || !nombreCliente) return;
 
   // Pintar placeholder mientras carga
@@ -26146,7 +26287,7 @@ function gpsBuscarPedidosCliente(nombreCliente) {
 
 // Render final con datos cargados
 function gpsRenderInfoClienteFinal(nombreCliente, pedidos) {
-  var contenedor = document.getElementById('gps-info-cliente');
+  var contenedor = document.getElementById(_gpsInfoTarget || 'gps-info-cliente');
   if (!contenedor) return;
 
   // ── v14.19.0: Card de acciones rápidas (Llamar / WhatsApp) ────
@@ -29273,6 +29414,14 @@ function tomadorAbrir() {
 // Se llama desde tomadorAbrir() después de resolver la sucursal.
 function _tomadorAbrirInterno() {
   _tomadorQtys = {};
+  // v14.48.0: precarga de "Repetir último pedido" (Mi Ruta). Los nombres ya
+  // vienen validados contra TOMADOR_CAT por jor2RepetirUltimo.
+  if (window._tomadorPrecargaQtys) {
+    Object.keys(window._tomadorPrecargaQtys).forEach(function(n) {
+      _tomadorQtys[n] = window._tomadorPrecargaQtys[n];
+    });
+    window._tomadorPrecargaQtys = null;
+  }
   _tomadorCompetencia = {};
   _tomadorDescuentos = {};
   _tomadorCombos = {}; // v9.2: reset combos del pedido
@@ -40929,34 +41078,25 @@ function jornadaEstimarTiempo(distKm) {
 }
 
 // ════════════════════════════════════════════════════════════════════════
-// v14.47.0 — JORNADA 2.0: plan del día → armar ruta → modo guiado → resumen
+// v14.48.0 — MI RUTA: tab unificado Jornada + Visitas
 // ────────────────────────────────────────────────────────────────────────
-// Flujo: PLAN (ciudades que tocan hoy según clientes_activos.dias_visita,
-// con objetivo y progreso) → ARMAR (selección de paradas, pendientes del
-// plan pre-tildados) → RUTA (orden optimizado por cercanía, parada por
-// parada, avance automático al cubrir, ruta completa en Google Maps por
-// tandas) → RESUMEN (cierre del recorrido).
+// Vistas: PLAN (ciudades del día + Maps del día + historial) → CIUDAD
+// (clientes por cercanía, IR/WA/CHECK-IN por card, Maps de la ciudad,
+// cliente nuevo) → VISITA (check-in activo: cronómetro, inteligencia,
+// info del cliente reutilizada de gpsRenderInfoCliente, VENDER/NO COMPRÓ).
 //
-// Cobertura ("¿lo visito o no?"): un cliente NO se visita si está cubierto:
-//   · hecho HOY (pedido / gestión / check-in — v14.46.0), o
-//   · gestionado en la ronda actual, o
-//   · verde de Mi Ronda (pedido propio en la ventana), o
-//   · pedido de CUALQUIER vendedor dentro de la ventana de la ronda de su
-//     ruta (v14.47.0 — si Miguel le vendió por teléfono para este viaje,
-//     a Lisandro ya no le aparece).
-// Los KPIs de Mi Ronda siguen siendo por vendedor; esto es solo cobertura.
-//
-// La ruta armada persiste en localStorage (estado efímero del día, no es
-// base de datos): si se recarga la PWA, el vendedor retoma donde estaba.
+// El check-in NO cambia de tab: llama gpsConfirmarCheckin directo y la
+// vista VISITA se muestra acá. El wrap de gpsActualizarEstado (al final
+// de este bloque) mueve las vistas: check-in → visita; checkout → ciudad.
+// El tomador, sucursales, Xubio, anti-dup y los modales de cierre de
+// venta NO se tocan — solo cambia quién los abre y a dónde se vuelve.
 // ════════════════════════════════════════════════════════════════════════
 
-var _jor2Vista = 'plan';        // 'plan' | 'armar' | 'ruta' | 'resumen'
-var _jor2Sel = {};              // cliente_id → true (selección en ARMAR)
-var _jor2SelCiudad = null;      // ciudad a la que pertenece la selección
-var _jor2Ruta = null;           // { fecha:'YYYY-MM-DD', ciudad, ids:[] }
+var _jor2Vista = 'plan';        // 'plan' | 'ciudad' | 'visita'
+var _jor2SelCiudad = null;      // ciudad activa
 var _jor2FueraPlanAbierto = false;
-var _jor2AutoIrARuta = true;    // one-shot: saltar a la ruta activa solo al cargar
-var JOR2_LS_RUTA = 'tck_jor2_ruta_v1';
+var _jor2HistorialAbierto = false;
+var _jor2CronoTimer = null;
 var JOR2_DIAS = ['domingo','lunes','martes','miercoles','jueves','viernes','sabado'];
 var JOR2_MAPS_MAX_STOPS = 10;   // límite de Google Maps: 9 waypoints + destino
 
@@ -40970,16 +41110,12 @@ function jor2DiaHoyKey() {
   return JOR2_DIAS[new Date().getDay()];
 }
 
-// ¿El vendedor tiene plan semanal cargado? (algún cliente con dias_visita)
 function jor2HayPlanSemanal() {
   return _miRondaClientes.some(function(c) {
     return Array.isArray(c.dias_visita) && c.dias_visita.length > 0;
   });
 }
 
-// ¿A este cliente le toca visita HOY según su plan semanal?
-// Si el vendedor no tiene plan cargado, todos "tocan" (fallback al modelo
-// viejo de elegir ciudad libremente).
 function jor2ClienteTocaHoy(c, hayPlan) {
   if (!hayPlan) return true;
   if (!Array.isArray(c.dias_visita) || c.dias_visita.length === 0) return false;
@@ -41014,7 +41150,6 @@ function jor2PedidosVentanaSets() {
   return sets;
 }
 
-// Contexto de cobertura: se arma UNA vez por render y se pasa a todo.
 function jor2Ctx() {
   return {
     pedidosHoy: jornadaPedidosHoySet(),
@@ -41033,7 +41168,6 @@ function jor2ClienteCubierto(c, ctx) {
                : (c._jorHechoHoy === 'checkin') ? 'visita' : 'gestion';
     return true;
   }
-  // v14.47.0: pedido de cualquier vendedor en la ventana de SU ruta
   var rk = c.ruta_viaje || 'SIN_RUTA';
   var nom = mrNormNombre(c.nombre);
   if (nom && ctx.ventanaSets[rk] && ctx.ventanaSets[rk][nom]) {
@@ -41050,7 +41184,10 @@ function jor2CubLabel(c) {
     var total = c._mr_total ? '$' + Math.round(Number(c._mr_total) / 1000) + 'k ' : '';
     return '🛒 ' + total + 'Vendido';
   }
-  if (c._jor2Cub === 'venta_otro') return '🛒 Ya tiene pedido para este viaje';
+  if (c._jor2Cub === 'venta_otro') {
+    var info = jor2PedidoVentanaInfo(c);
+    return '🛒 Ya tiene pedido' + (info && info.vendedor ? ' (' + info.vendedor + ')' : ' para este viaje');
+  }
   if (c._jor2Cub === 'gestion') {
     return g ? ('✕ ' + mrMotivoLabel(g.motivo, g.motivo_texto)) : '✕ Gestionado hoy';
   }
@@ -41058,9 +41195,97 @@ function jor2CubLabel(c) {
   return '✓ Hecho';
 }
 
-// ── Ventas de HOY del vendedor (monto) ───────────────────────────
-// Suma los pedidos PROPIOS de hoy. Si se pasa nombresSet (Set de nombres
-// normalizados), filtra a esos clientes (scope ciudad / ruta).
+// Último pedido del cliente DENTRO de la ventana de su ruta (de cualquier
+// vendedor). Para la alerta "ya tiene pedido de este viaje".
+function jor2PedidoVentanaInfo(c) {
+  if (!c) return null;
+  var rk = c.ruta_viaje || 'SIN_RUTA';
+  var v = mrVentanaPreparacion(rk, new Date());
+  if (!v) return null;
+  var nom = mrNormNombre(c.nombre);
+  if (!nom) return null;
+  var mejor = null;
+  (todosLosPedidos || []).forEach(function(p) {
+    if (!mrPedidoCuenta(p)) return;
+    if (mrNormNombre(p.cliente) !== nom) return;
+    var fp = fechaPedido(p);
+    if (!fp || isNaN(fp.getTime())) return;
+    var fpDia = new Date(fp); fpDia.setHours(12, 0, 0, 0);
+    if (fpDia < v.inicio || fpDia > v.fin) return;
+    if (!mejor || fp > mejor._fp) {
+      mejor = { vendedor: (p.vendedor || '').toString().toUpperCase(), fecha: fp,
+                total: Number(p.total) || 0, _fp: fp };
+    }
+  });
+  return mejor;
+}
+
+// Último pedido del cliente (cualquier fecha, no cancelado) — para Repetir.
+function jor2UltimoPedidoDe(nombre) {
+  var nom = mrNormNombre(nombre);
+  if (!nom) return null;
+  var mejor = null;
+  (todosLosPedidos || []).forEach(function(p) {
+    if (!mrPedidoCuenta(p)) return;
+    if (mrNormNombre(p.cliente) !== nom) return;
+    var fp = fechaPedido(p);
+    if (!fp || isNaN(fp.getTime())) return;
+    if (!mejor || fp > mejor._fp) { mejor = p; mejor._fp = fp; }
+  });
+  return mejor;
+}
+
+// ── Inteligencia de venta ────────────────────────────────────────
+// Top productos del cliente a partir del detalle de sus últimos pedidos.
+function jor2TopProductos(nombre, maxPedidos, maxProds) {
+  maxPedidos = maxPedidos || 6;
+  maxProds = maxProds || 3;
+  var nom = mrNormNombre(nombre);
+  if (!nom) return [];
+  var pedidos = (todosLosPedidos || []).filter(function(p) {
+    return mrPedidoCuenta(p) && mrNormNombre(p.cliente) === nom && (p.detalle || '');
+  }).slice(0, maxPedidos);
+  var conteo = {};
+  var emojiProducto = /^(?:🎁|🔥|🍗|🍖|🐔|🍟|🥚|🥦|🍔|🍝)\s*\*([^*]+)\*\s*$/;
+  pedidos.forEach(function(p) {
+    var lineas = (p.detalle || '').replace(/\|/g, '\n').split('\n')
+      .map(function(s) { return s.trim(); }).filter(Boolean);
+    var vistos = {};
+    lineas.forEach(function(linea) {
+      var nombreProd = null;
+      var mE = linea.match(emojiProducto);
+      if (mE) nombreProd = mE[1].trim();
+      else {
+        var m = linea.match(/^(\d+)x?\s+(.+?)(?:\s+→|\s+\(|\s*$)/);
+        if (m && !/^(cajas?|kgs?|kilos?|paquetes?|bolsas?|unidad(es)?|pcs?)$/i.test(m[2].trim())) {
+          nombreProd = m[2].trim();
+        }
+      }
+      if (nombreProd && !vistos[nombreProd]) {
+        vistos[nombreProd] = true;
+        conteo[nombreProd] = (conteo[nombreProd] || 0) + 1;
+      }
+    });
+  });
+  return Object.keys(conteo)
+    .sort(function(a, b) { return conteo[b] - conteo[a]; })
+    .slice(0, maxProds);
+}
+
+function jor2TicketPromedio(nombre) {
+  var nom = mrNormNombre(nombre);
+  if (!nom) return null;
+  var tot = 0, n = 0;
+  (todosLosPedidos || []).forEach(function(p) {
+    if (!mrPedidoCuenta(p)) return;
+    if (mrNormNombre(p.cliente) !== nom) return;
+    var t = Number(p.total) || 0;
+    if (t > 0) { tot += t; n++; }
+  });
+  return n > 0 ? Math.round(tot / n) : null;
+}
+
+// Ventas de HOY del vendedor (monto), opcionalmente filtrado a un set de nombres.
 function jor2VentasHoyMonto(nombresSet) {
   var vendNorm = mrNormVendedor(vendedorActual);
   if (!vendNorm) return 0;
@@ -41080,7 +41305,7 @@ function jor2VentasHoyMonto(nombresSet) {
   return monto;
 }
 
-// ── Prioridad y optimización de ruta ─────────────────────────────
+// ── Prioridad y orden por cercanía ───────────────────────────────
 function jor2Prioridad(c) {
   var r = _calcularRiesgoTipoA(c);
   if (r && r.nivel === 'alto') { c._jorRiesgo = r; return 0; }
@@ -41089,7 +41314,7 @@ function jor2Prioridad(c) {
   if (_esTipoAConfirmado(c)) return 2;
   if (_esTipoASugerido(c)) return 3;
   var d = c.dias_desde_ult_pedido;
-  if (d != null && d >= 90) return 5; // inactivos al final
+  if (d != null && d >= 90) return 5;
   return 4;
 }
 
@@ -41097,23 +41322,20 @@ function jor2CompararPrioridad(a, b) {
   var pa = jor2Prioridad(a), pb = jor2Prioridad(b);
   if (pa !== pb) return pa - pb;
   var da = a.dias_desde_ult_pedido, db = b.dias_desde_ult_pedido;
-  return (db || 0) - (da || 0); // más días sin pedido primero
+  return (db || 0) - (da || 0);
 }
 
-// Nearest-neighbor desde la posición GPS actual (o desde el más
-// prioritario si no hay GPS). Clientes sin coords van al final, por
-// prioridad. Se calcula UNA vez al armar la ruta; después el orden es fijo.
+// Nearest-neighbor desde el GPS actual (o desde el más prioritario si no
+// hay GPS). Sin coords van al final, por prioridad.
 function jor2Optimizar(clientes) {
   var conC = clientes.filter(function(c) { return c._coords; });
   var sinC = clientes.filter(function(c) { return !c._coords; });
   sinC.sort(jor2CompararPrioridad);
   if (conC.length === 0) return sinC;
-
   var orden = [];
   var pool = conC.slice();
   var cur = (_lastTrackPos && _lastTrackPos.lat)
-    ? { lat: _lastTrackPos.lat, lng: _lastTrackPos.lng }
-    : null;
+    ? { lat: _lastTrackPos.lat, lng: _lastTrackPos.lng } : null;
   if (!cur) {
     pool.sort(jor2CompararPrioridad);
     var primero = pool.shift();
@@ -41127,48 +41349,20 @@ function jor2Optimizar(clientes) {
       if (d < mejorD) { mejorD = d; mejorI = i; }
     }
     var sig = pool.splice(mejorI, 1)[0];
+    sig._jorDist = (orden.length === 0 && _lastTrackPos && _lastTrackPos.lat)
+      ? mejorD : sig._jorDist;
     orden.push(sig);
     cur = sig._coords;
   }
   return orden.concat(sinC);
 }
 
-// ── Persistencia de la ruta del día ──────────────────────────────
-function jor2HoyISO() {
-  return mrFormatoFechaISO(new Date());
-}
-
-function jor2GuardarRuta() {
-  try {
-    if (_jor2Ruta) localStorage.setItem(JOR2_LS_RUTA, JSON.stringify(_jor2Ruta));
-    else localStorage.removeItem(JOR2_LS_RUTA);
-  } catch (e) { /* storage lleno o bloqueado: la ruta vive en memoria */ }
-}
-
-function jor2RestaurarRuta() {
-  if (_jor2Ruta) return;
-  try {
-    var raw = localStorage.getItem(JOR2_LS_RUTA);
-    if (!raw) return;
-    var r = JSON.parse(raw);
-    if (!r || r.fecha !== jor2HoyISO() || !Array.isArray(r.ids) || r.ids.length === 0) {
-      localStorage.removeItem(JOR2_LS_RUTA);
-      return;
-    }
-    _jor2Ruta = r;
-  } catch (e) {
-    try { localStorage.removeItem(JOR2_LS_RUTA); } catch (e2) {}
-  }
-}
-
 function jor2ClientePorId(cid) {
   return _miRondaClientes.find(function(x) { return x.cliente_id === cid; }) || null;
 }
 
-// ── Render principal (router) ────────────────────────────────────
+// ── Router ───────────────────────────────────────────────────────
 function jornadaRender() {
-  // Asegurar que los datos de Mi Ronda estén cargados (la Jornada usa
-  // _miRondaClientes que es la fuente única).
   if (!Array.isArray(_miRondaClientes) || _miRondaClientes.length === 0) {
     if (typeof miRondaRender === 'function') {
       miRondaRender().then(function() {
@@ -41179,23 +41373,22 @@ function jornadaRender() {
   }
 
   jornadaPintarFecha();
-  jor2RestaurarRuta();
 
-  // Auto-salto a la ruta activa SOLO en el primer render tras cargar la app
-  // (si fuera en cada render, el botón "‹ Plan" rebotaría de vuelta a ruta).
-  if (_jor2AutoIrARuta && _jor2Ruta && _jor2Vista === 'plan') _jor2Vista = 'ruta';
-  _jor2AutoIrARuta = false;
-  // Si la ruta murió (otro día / vacía), volver al plan
-  if (!_jor2Ruta && (_jor2Vista === 'ruta')) _jor2Vista = 'plan';
+  // Si hay un check-in activo, la vista es VISITA (pase lo que pase)
+  if (_gpsCheckinActivo) _jor2Vista = 'visita';
+  else if (_jor2Vista === 'visita') _jor2Vista = _jor2SelCiudad ? 'ciudad' : 'plan';
+
+  // Cronómetro: solo vive en la vista visita
+  if (_jor2Vista !== 'visita' && _jor2CronoTimer) {
+    clearInterval(_jor2CronoTimer);
+    _jor2CronoTimer = null;
+  }
 
   var ctx = jor2Ctx();
-  if (_jor2Vista === 'armar')        jor2RenderArmar(ctx);
-  else if (_jor2Vista === 'ruta')    jor2RenderRuta(ctx);
-  else if (_jor2Vista === 'resumen') jor2RenderResumen(ctx);
-  else                               jor2RenderPlan(ctx);
+  if (_jor2Vista === 'visita')      jor2RenderVisita(ctx);
+  else if (_jor2Vista === 'ciudad') jor2RenderCiudad(ctx);
+  else                              jor2RenderPlan(ctx);
 
-  // v14.46.0: cargar check-ins de HOY en background (throttle 60s) y
-  // repintar si aparecieron nuevos.
   jornadaCargarCheckinsHoy(function(huboNuevos) {
     if (huboNuevos && _tabActual === 'jornada') jornadaRender();
   });
@@ -41208,7 +41401,6 @@ function jornadaPintarFecha() {
   var dias = ['Domingo','Lunes','Martes','Miércoles','Jueves','Viernes','Sábado'];
   var meses = ['enero','febrero','marzo','abril','mayo','junio','julio','agosto','septiembre','octubre','noviembre','diciembre'];
   el.textContent = dias[d.getDay()] + ' ' + d.getDate() + ' de ' + meses[d.getMonth()];
-
   var gpsEl = document.getElementById('jor-gps-status');
   if (gpsEl) {
     var activo = !!(_lastTrackPos && _lastTrackPos.lat);
@@ -41218,11 +41410,8 @@ function jornadaPintarFecha() {
   }
 }
 
-// Stats bar (ids existentes): visitados X/Y, ventas $, Tipo A urgentes.
-// clientesScope = lista de clientes sobre la que se mide.
 function jor2PintarStats(clientesScope, ctx) {
-  var cubiertos = 0;
-  var urgentes = 0;
+  var cubiertos = 0, urgentes = 0;
   var nombres = {};
   clientesScope.forEach(function(c) {
     var k = mrNormNombre(c.nombre);
@@ -41247,7 +41436,23 @@ function jor2SetAcciones(html) {
   bar.style.display = html ? 'flex' : 'none';
 }
 
+function jor2IrA(vista) {
+  _jor2Vista = vista;
+  jornadaRender();
+  var v = document.getElementById('view-jornada');
+  if (v) v.scrollTop = 0;
+}
+
+function jor2VolverPlan() { _jor2SelCiudad = null; jor2IrA('plan'); }
+
 // ── VISTA 1: PLAN DE HOY ─────────────────────────────────────────
+function jor2PendientesDelDia(ctx) {
+  var hayPlan = jor2HayPlanSemanal();
+  return _miRondaClientes.filter(function(c) {
+    return jor2ClienteTocaHoy(c, hayPlan) && !jor2ClienteCubierto(c, ctx);
+  });
+}
+
 function jor2RenderPlan(ctx) {
   var body = document.getElementById('jor-body');
   if (!body) return;
@@ -41255,7 +41460,6 @@ function jor2RenderPlan(ctx) {
   var hayPlan = jor2HayPlanSemanal();
   var hoyNombre = ['domingo','lunes','martes','miércoles','jueves','viernes','sábado'][new Date().getDay()];
 
-  // Agrupar por ciudad
   var ciudades = {}; // loc → { hoy:[], otros:[] }
   _miRondaClientes.forEach(function(c) {
     var loc = (c.localidad || '').trim();
@@ -41265,27 +41469,23 @@ function jor2RenderPlan(ctx) {
     else ciudades[loc].otros.push(c);
   });
 
-  // Scope del plan: todos los clientes que tocan hoy
   var scopeHoy = [];
-  Object.keys(ciudades).forEach(function(loc) {
-    scopeHoy = scopeHoy.concat(ciudades[loc].hoy);
-  });
+  Object.keys(ciudades).forEach(function(loc) { scopeHoy = scopeHoy.concat(ciudades[loc].hoy); });
   jor2PintarStats(scopeHoy, ctx);
 
+  var pendDia = jor2PendientesDelDia(ctx);
   var html = '';
 
-  // Ruta activa → banner para continuar
-  if (_jor2Ruta) {
-    var pendRuta = _jor2Ruta.ids.map(jor2ClientePorId).filter(function(c) {
-      return c && !jor2ClienteCubierto(c, ctx);
-    }).length;
-    html += '<button class="jor2-continuar" onclick="jor2IrA(\'ruta\')">'
-      + '▶ CONTINUAR RUTA EN ' + escapeHtml(_jor2Ruta.ciudad.toUpperCase())
-      + '<small>' + pendRuta + ' parada' + (pendRuta === 1 ? '' : 's') + ' pendiente' + (pendRuta === 1 ? '' : 's') + '</small>'
-      + '</button>';
+  // Botón Maps del DÍA (todas las ciudades, tandas de 10)
+  if (pendDia.length > 0) {
+    var conUbic = pendDia.filter(function(c) { return c._coords || (c.direccion || '').trim(); }).length;
+    var tandas = Math.ceil(Math.min(conUbic, 9999) / JOR2_MAPS_MAX_STOPS) || 1;
+    html += '<button class="jor2-btn-maps" onclick="jor2MapsDia()">🗺️ MI RUTA DEL DÍA EN MAPS'
+      + '<small>' + pendDia.length + ' pendientes'
+      + (tandas > 1 ? ' · Tanda 1 de ' + tandas + ' (' + JOR2_MAPS_MAX_STOPS + ' paradas)' : '')
+      + ' · orden por cercanía</small></button>';
   }
 
-  // Ciudades del plan de hoy
   var cardsPlan = Object.keys(ciudades)
     .filter(function(loc) { return ciudades[loc].hoy.length > 0; })
     .map(function(loc) {
@@ -41320,7 +41520,6 @@ function jor2RenderPlan(ctx) {
       + '<div class="jor-empty-txt"><strong>Hoy no tenés clientes en el plan.</strong><br>Podés trabajar ciudades fuera de plan abajo.</div></div>';
   }
 
-  // Fuera de plan (colapsable)
   var cardsOtros = Object.keys(ciudades)
     .map(function(loc) {
       var pend = ciudades[loc].otros.filter(function(c) { return !jor2ClienteCubierto(c, ctx); }).length;
@@ -41331,7 +41530,7 @@ function jor2RenderPlan(ctx) {
 
   if (hayPlan && cardsOtros.length > 0) {
     html += '<button class="jor2-toggle" onclick="jor2ToggleFueraPlan(this)">'
-      + (_jor2FueraPlanAbierto ? '− Ocultar' : '+ Ver') + ' ciudades fuera de plan (' + cardsOtros.length + ')'
+      + (_jor2FueraPlanAbierto ? '−' : '+') + ' Ciudades fuera de plan (' + cardsOtros.length + ')'
       + '</button>';
     html += '<div id="jor2-fueraplan" style="display:' + (_jor2FueraPlanAbierto ? 'block' : 'none') + ';">';
     cardsOtros.forEach(function(card) {
@@ -41340,325 +41539,59 @@ function jor2RenderPlan(ctx) {
         + '<div class="jor2-city-top">'
         +   '<div class="jor2-city-nombre">' + escapeHtml(card.loc) + '</div>'
         +   '<div class="jor2-city-num">' + card.pend + ' fuera de plan</div>'
-        + '</div>'
-        + '</div>';
+        + '</div></div>';
     });
     html += '</div>';
   }
 
+  // Historial "Hoy en campo" (reutiliza gpsCargarHistorial, render copiado)
+  html += '<button class="jor2-toggle" onclick="jor2ToggleHistorial()">'
+    + (_jor2HistorialAbierto ? '−' : '+') + ' 📅 Hoy en campo — historial de visitas</button>'
+    + '<div id="jor2-historial" style="display:' + (_jor2HistorialAbierto ? 'block' : 'none') + ';">'
+    + '<div class="jor-empty" style="padding:14px;"><div class="jor-empty-txt">⏳ Cargando…</div></div>'
+    + '</div>';
+
   body.innerHTML = html;
   jor2SetAcciones('');
+  if (_jor2HistorialAbierto) jor2CargarHistorialCopia();
 }
 
 function jor2ToggleFueraPlan(btn) {
   _jor2FueraPlanAbierto = !_jor2FueraPlanAbierto;
   var w = document.getElementById('jor2-fueraplan');
   if (w) w.style.display = _jor2FueraPlanAbierto ? 'block' : 'none';
-  if (btn) btn.textContent = (_jor2FueraPlanAbierto ? '− Ocultar' : '+ Ver') + btn.textContent.slice(btn.textContent.indexOf(' ciudades'));
+  if (btn) btn.textContent = (_jor2FueraPlanAbierto ? '−' : '+') + btn.textContent.slice(1);
 }
 
-function jor2IrA(vista) {
-  _jor2Vista = vista;
-  jornadaRender();
-  var v = document.getElementById('view-jornada');
-  if (v) v.scrollTop = 0;
+function jor2ToggleHistorial() {
+  _jor2HistorialAbierto = !_jor2HistorialAbierto;
+  var w = document.getElementById('jor2-historial');
+  if (w) w.style.display = _jor2HistorialAbierto ? 'block' : 'none';
+  if (_jor2HistorialAbierto) jor2CargarHistorialCopia();
 }
 
-// ── VISTA 2: ARMAR RUTA ──────────────────────────────────────────
-function jor2AbrirCiudad(locEnc) {
-  var loc = decodeURIComponent(locEnc || '');
-  if (!loc) return;
-  // Selección nueva solo si cambió la ciudad (si vuelve a entrar, mantener)
-  if (_jor2SelCiudad !== loc) {
-    _jor2SelCiudad = loc;
-    _jor2Sel = null; // se preselecciona en el render
-  }
-  _jornadaCiudadActiva = loc;
-  jornadaGuardarCiudad(loc);
-  jor2IrA('armar');
+// Carga el historial con la función existente (que renderiza en
+// #gps-historial, dentro del view oculto de Visitas) y copia el HTML acá.
+function jor2CargarHistorialCopia() {
+  var dest = document.getElementById('jor2-historial');
+  if (!dest) return;
+  try { gpsCargarHistorial(); } catch (e) { /* sin red: queda el último */ }
+  setTimeout(function() {
+    var src = document.getElementById('gps-historial');
+    var d2 = document.getElementById('jor2-historial');
+    if (src && d2 && src.innerHTML.trim()) d2.innerHTML = src.innerHTML;
+  }, 1800);
 }
 
-function jor2RenderArmar(ctx) {
-  var body = document.getElementById('jor-body');
-  if (!body) return;
-  var loc = _jor2SelCiudad || _jornadaCiudadActiva;
-  if (!loc) { _jor2Vista = 'plan'; jor2RenderPlan(ctx); return; }
-
-  var hayPlan = jor2HayPlanSemanal();
-  var clientesCiudad = _miRondaClientes.filter(function(c) {
-    return (c.localidad || '').trim() === loc;
-  });
-  jor2PintarStats(clientesCiudad, ctx);
-
-  // Clasificar
-  var delPlan = [], fueraPlan = [], cubiertos = [];
-  clientesCiudad.forEach(function(c) {
-    c._jorDist = jornadaDistanciaACliente(c);
-    if (jor2ClienteCubierto(c, ctx)) { cubiertos.push(c); return; }
-    if (jor2ClienteTocaHoy(c, hayPlan)) delPlan.push(c);
-    else fueraPlan.push(c);
-  });
-  delPlan.sort(jor2CompararPrioridad);
-  fueraPlan.sort(jor2CompararPrioridad);
-
-  // Preselección: TODOS los pendientes del plan (objetivo: nadie sin visitar)
-  if (_jor2Sel == null) {
-    _jor2Sel = {};
-    delPlan.forEach(function(c) { _jor2Sel[c.cliente_id] = true; });
-  }
-  // Limpiar de la selección clientes que se cubrieron mientras tanto
-  cubiertos.forEach(function(c) { delete _jor2Sel[c.cliente_id]; });
-
-  var html = '<div class="jor2-subnav">'
-    + '<button class="jor2-back" onclick="jor2VolverPlan()">‹ Plan</button>'
-    + '<div class="jor2-subnav-tit">' + escapeHtml(loc) + ' · armá tu ruta</div>'
-    + '</div>';
-
-  if (delPlan.length === 0 && fueraPlan.length === 0) {
-    html += '<div class="jor-empty"><div class="jor-empty-icon">🎉</div>'
-      + '<div class="jor-empty-txt"><strong>' + escapeHtml(loc) + ' completa.</strong><br>No quedan clientes pendientes acá.</div></div>';
-  }
-
-  if (delPlan.length > 0) {
-    html += '<div class="jor-section-hdr normal">📅 DEL PLAN DE HOY (' + delPlan.length + ')</div>';
-    delPlan.forEach(function(c) { html += jor2RenderSelCard(c); });
-  }
-  if (fueraPlan.length > 0) {
-    html += '<div class="jor-section-hdr normal">➕ OTROS PENDIENTES EN ' + escapeHtml(loc.toUpperCase()) + ' (' + fueraPlan.length + ')</div>';
-    fueraPlan.forEach(function(c) { html += jor2RenderSelCard(c); });
-  }
-  if (cubiertos.length > 0) {
-    html += '<div class="jor-section-hdr visitado">✓ YA CUBIERTOS (' + cubiertos.length + ')</div>';
-    cubiertos.forEach(function(c) {
-      html += '<div class="jor-visitado"><div class="jor-visitado-icon">✓</div>'
-        + '<div class="jor-visitado-txt">' + escapeHtml(c.nombre || '—') + ' · ' + escapeHtml(jor2CubLabel(c)) + '</div></div>';
-    });
-  }
-
-  body.innerHTML = html;
-  jor2PintarAccionesArmar();
-}
-
-function jor2RenderSelCard(c) {
-  var sel = !!_jor2Sel[c.cliente_id];
-  var cidEnc = encodeURIComponent(c.cliente_id || '');
-  var pri = jor2Prioridad(c);
-  var pill = '';
-  if (c._jorRiesgo) {
-    pill = '<span class="jor-pill jor-pill-' + c._jorRiesgo.nivel + '">' + c._jorRiesgo.diasAtraso + 'd</span>';
-  } else if (c.dias_desde_ult_pedido != null) {
-    pill = '<span class="jor-pill jor-pill-neutral">' + c.dias_desde_ult_pedido + 'd</span>';
-  }
-  var estrella = (pri <= 2) ? '⭐ ' : (pri === 3 ? '☆ ' : '');
-  var dist = (c._jorDist != null) ? '<span class="jor-stop-dist">' + jornadaFormatearDistancia(c._jorDist) + '</span>' : '';
-  return '<div class="jor2-selcard' + (sel ? ' sel' : '') + '" id="jor2sc-' + cidEnc + '" '
-    + 'onclick="jor2ToggleSel(&quot;' + cidEnc + '&quot;)">'
-    + '<div class="jor2-check">' + (sel ? '✓' : '') + '</div>'
-    + '<div class="jor2-selinfo">'
-    +   '<div class="jor2-selnombre">' + estrella + escapeHtml(c.nombre || '—') + '</div>'
-    +   '<div class="jor2-seldir">' + escapeHtml(c.direccion || '') + (pill ? ' ' : '') + '</div>'
-    + '</div>'
-    + pill + dist
-    + '</div>';
-}
-
-function jor2ToggleSel(cidEnc) {
-  var cid = decodeURIComponent(cidEnc || '');
-  if (!cid) return;
-  if (_jor2Sel[cid]) delete _jor2Sel[cid];
-  else _jor2Sel[cid] = true;
-  var card = document.getElementById('jor2sc-' + cidEnc);
-  if (card) {
-    card.classList.toggle('sel', !!_jor2Sel[cid]);
-    var chk = card.querySelector('.jor2-check');
-    if (chk) chk.textContent = _jor2Sel[cid] ? '✓' : '';
-  }
-  jor2PintarAccionesArmar();
-}
-
-function jor2SelCantidad() {
-  return Object.keys(_jor2Sel || {}).length;
-}
-
-function jor2PintarAccionesArmar() {
-  var n = jor2SelCantidad();
-  jor2SetAcciones(
-    '<button class="jor-btn-secundario" onclick="jor2SelNada()">Ninguno</button>'
-    + '<button class="jor2-btn-armar' + (n === 0 ? ' off' : '') + '" onclick="jor2ArmarRuta()">'
-    + '🚀 ARMAR RUTA (' + n + ')</button>'
-  );
-}
-
-function jor2SelNada() {
-  _jor2Sel = {};
-  jornadaRender();
-}
-
-function jor2VolverPlan() {
-  _jor2Vista = 'plan';
-  jornadaRender();
-  var v = document.getElementById('view-jornada');
-  if (v) v.scrollTop = 0;
-}
-
-// ── VISTA 3: EN RUTA (modo guiado) ───────────────────────────────
-function jor2ArmarRuta() {
-  var ids = Object.keys(_jor2Sel || {});
-  if (ids.length === 0) { toast('Tildá al menos un cliente para armar la ruta', 'err'); return; }
-  var clientes = ids.map(jor2ClientePorId).filter(Boolean);
-  var orden = jor2Optimizar(clientes);
-  _jor2Ruta = {
-    fecha: jor2HoyISO(),
-    ciudad: _jor2SelCiudad || _jornadaCiudadActiva || '',
-    ids: orden.map(function(c) { return c.cliente_id; })
-  };
-  jor2GuardarRuta();
-  var sinCoords = orden.filter(function(c) { return !c._coords; }).length;
-  if (sinCoords > 0) toast('📍 ' + sinCoords + ' parada(s) sin ubicación quedaron al final', 'info');
-  jor2IrA('ruta');
-}
-
-function jor2RenderRuta(ctx) {
-  var body = document.getElementById('jor-body');
-  if (!body) return;
-  if (!_jor2Ruta) { _jor2Vista = 'plan'; jor2RenderPlan(ctx); return; }
-
-  var clientes = _jor2Ruta.ids.map(jor2ClientePorId).filter(Boolean);
-  clientes.forEach(function(c) { c._jorDist = jornadaDistanciaACliente(c); });
-  var pendientes = clientes.filter(function(c) { return !jor2ClienteCubierto(c, ctx); });
-  var hechos = clientes.length - pendientes.length;
-  jor2PintarStats(clientes, ctx);
-
-  var html = '<div class="jor2-subnav">'
-    + '<button class="jor2-back" onclick="jor2VolverPlan()">‹ Plan</button>'
-    + '<div class="jor2-subnav-tit">EN RUTA · ' + escapeHtml(_jor2Ruta.ciudad) + '</div>'
-    + '<button class="jor2-back" onclick="jor2EditarParadas()">± Paradas</button>'
-    + '</div>';
-
-  // Progreso
-  var pct = clientes.length > 0 ? Math.round(hechos * 100 / clientes.length) : 0;
-  html += '<div class="jor2-prog">'
-    + '<div class="jor2-prog-row">'
-    +   '<div class="jor2-prog-num">' + (pendientes.length === 0 ? '🏁 Ruta completa' : ('Parada ' + (hechos + 1) + ' de ' + clientes.length)) + '</div>'
-    +   '<div class="jor2-prog-lbl">✅ ' + hechos + ' hechas</div>'
-    + '</div>'
-    + '<div class="jor2-bar"><i style="width:' + pct + '%"></i></div>'
-    + '</div>';
-
-  if (pendientes.length === 0) {
-    html += '<div class="jor-empty"><div class="jor-empty-icon">🎉</div>'
-      + '<div class="jor-empty-txt"><strong>Terminaste todas las paradas.</strong><br>Cerrá la ruta para ver el resumen del recorrido.</div></div>';
-  } else {
-    // Parada actual
-    var actual = pendientes[0];
-    var aCid = encodeURIComponent(actual.cliente_id || '');
-    var aDir = encodeURIComponent(((actual.direccion || '') + ' ' + (actual.localidad || '')).trim());
-    var aTel = (actual.telefono || '').toString().replace(/\D/g, '');
-    var aTelOk = aTel.length >= 8;
-    var aNomEnc = encodeURIComponent(actual.nombre || '');
-    var distTxt = (actual._jorDist != null)
-      ? ('📍 ' + jornadaFormatearDistancia(actual._jorDist) + ' · ' + jornadaEstimarTiempo(actual._jorDist))
-      : (actual._coords ? '' : '📍 sin ubicación registrada');
-    var ult = (actual.dias_desde_ult_pedido != null) ? (' · últ. pedido hace ' + actual.dias_desde_ult_pedido + 'd') : '';
-    html += '<div class="jor2-actual">'
-      + '<div class="jor2-actual-tag">▶ AHORA</div>'
-      + '<div class="jor2-actual-nom">' + escapeHtml(actual.nombre || '—') + '</div>'
-      + (actual.direccion ? '<div class="jor2-actual-dir">' + escapeHtml(actual.direccion) + '</div>' : '')
-      + '<div class="jor2-actual-meta">' + escapeHtml(distTxt + ult) + '</div>'
-      + '<div class="jor2-actual-btns">'
-      +   '<button class="jor2-abtn jor2-abtn-ir" onclick="jornadaAbrirMapa(&quot;' + aDir + '&quot;)">🧭 IR</button>'
-      +   '<button class="jor2-abtn jor2-abtn-ci" onclick="jornadaArrancarCheckin(&quot;' + aCid + '&quot;)">CHECK-IN</button>'
-      + '</div>'
-      + '<div class="jor2-actual-btns">'
-      +   (aTelOk
-          ? '<button class="jor2-abtn jor2-abtn-mini" onclick="miRondaAbrirWa(\'' + aTel + '\', &quot;' + aNomEnc + '&quot;)">💬 WA</button>'
-            + '<button class="jor2-abtn jor2-abtn-mini" onclick="miRondaAbrirLlamar(\'' + aTel + '\', &quot;' + aNomEnc + '&quot;)">📞 Llamar</button>'
-          : '')
-      +   '<button class="jor2-abtn jor2-abtn-mini" onclick="jor2Saltar()">⏭ Saltar</button>'
-      + '</div>'
-      + '</div>';
-
-    // Siguientes
-    if (pendientes.length > 1) {
-      html += '<div class="jor-section-hdr normal">DESPUÉS (' + (pendientes.length - 1) + ')</div>';
-      pendientes.slice(1).forEach(function(c, i) {
-        var dTxt = (c._jorDist != null) ? jornadaFormatearDistancia(c._jorDist) : (c._coords ? '' : 'sin ubic.');
-        html += '<div class="jor2-sig">'
-          + '<div class="jor2-sig-orden">' + (hechos + i + 2) + '</div>'
-          + '<div class="jor2-sig-info">'
-          +   '<div class="jor2-sig-nom">' + escapeHtml(c.nombre || '—') + '</div>'
-          +   (c.direccion ? '<div class="jor2-sig-dir">' + escapeHtml(c.direccion) + '</div>' : '')
-          + '</div>'
-          + (dTxt ? '<div class="jor2-sig-dist">' + escapeHtml(dTxt) + '</div>' : '')
-          + '</div>';
-      });
-    }
-  }
-
-  // Hechos de la ruta
-  var hechosLista = clientes.filter(function(c) { return c._jor2Cub; });
-  if (hechosLista.length > 0) {
-    html += '<div class="jor-section-hdr visitado">✓ HECHOS (' + hechosLista.length + ')</div>';
-    hechosLista.forEach(function(c) {
-      html += '<div class="jor-visitado"><div class="jor-visitado-icon">✓</div>'
-        + '<div class="jor-visitado-txt">' + escapeHtml(c.nombre || '—') + ' · ' + escapeHtml(jor2CubLabel(c)) + '</div></div>';
-    });
-  }
-
-  body.innerHTML = html;
-  jor2SetAcciones(
-    '<button class="jor-btn-secundario" onclick="jor2RutaEnMaps()">🗺️ Ruta en Maps</button>'
-    + '<button class="jor-btn-cerrar" onclick="jor2TerminarRuta()">🏁 TERMINAR</button>'
-  );
-}
-
-function jor2Saltar() {
-  if (!_jor2Ruta) return;
-  var ctx = jor2Ctx();
-  var clientes = _jor2Ruta.ids.map(jor2ClientePorId).filter(Boolean);
-  var actual = clientes.find(function(c) { return !jor2ClienteCubierto(c, ctx); });
-  if (!actual) return;
-  var ids = _jor2Ruta.ids.filter(function(id) { return id !== actual.cliente_id; });
-  ids.push(actual.cliente_id);
-  _jor2Ruta.ids = ids;
-  jor2GuardarRuta();
-  toast('⏭ ' + (actual.nombre || 'Parada') + ' pasó al final', 'info');
-  jornadaRender();
-}
-
-function jor2EditarParadas() {
-  if (!_jor2Ruta) return;
-  // Volver a ARMAR con la selección = paradas aún pendientes de la ruta
-  var ctx = jor2Ctx();
-  _jor2SelCiudad = _jor2Ruta.ciudad;
-  _jornadaCiudadActiva = _jor2Ruta.ciudad;
-  _jor2Sel = {};
-  _jor2Ruta.ids.map(jor2ClientePorId).filter(Boolean).forEach(function(c) {
-    if (!jor2ClienteCubierto(c, ctx)) _jor2Sel[c.cliente_id] = true;
-  });
-  _jor2Ruta = null;
-  jor2GuardarRuta();
-  jor2IrA('armar');
-}
-
-// Abre Google Maps con la ruta completa de pendientes (tandas de 10:
-// 9 waypoints + destino). Usa coords si hay; si no, dirección + ciudad.
-function jor2RutaEnMaps() {
-  if (!_jor2Ruta) return;
-  var ctx = jor2Ctx();
-  var pend = _jor2Ruta.ids.map(jor2ClientePorId).filter(function(c) {
-    return c && !jor2ClienteCubierto(c, ctx);
-  });
+// ── Google Maps multi-parada ─────────────────────────────────────
+function jor2AbrirMapsLista(pendientes) {
   var stops = [];
   var sinDato = 0;
-  pend.forEach(function(c) {
-    if (c._coords) {
-      stops.push(c._coords.lat + ',' + c._coords.lng);
-    } else if ((c.direccion || '').trim()) {
+  pendientes.forEach(function(c) {
+    if (c._coords) stops.push(c._coords.lat + ',' + c._coords.lng);
+    else if ((c.direccion || '').trim()) {
       stops.push((c.direccion || '').trim() + ', ' + (c.localidad || '').trim() + ', Argentina');
-    } else {
-      sinDato++;
-    }
+    } else sinDato++;
   });
   if (stops.length === 0) {
     toast('Ninguna parada pendiente tiene ubicación ni dirección', 'err');
@@ -41672,90 +41605,385 @@ function jor2RutaEnMaps() {
     + (waypoints.length > 0 ? '&waypoints=' + encodeURIComponent(waypoints.join('|')) : '');
   window.open(url, '_blank');
   if (stops.length > JOR2_MAPS_MAX_STOPS) {
-    toast('🗺️ Tanda 1: ' + JOR2_MAPS_MAX_STOPS + ' paradas. Al terminarlas, tocá de nuevo para la siguiente.', 'info');
+    toast('🗺️ Cargadas las primeras ' + JOR2_MAPS_MAX_STOPS + ' paradas. Cuando las cubras, tocá de nuevo y siguen las próximas.', 'info');
   }
-  if (sinDato > 0) {
-    toast('⚠️ ' + sinDato + ' parada(s) sin dirección no entraron en Maps', 'err');
-  }
+  if (sinDato > 0) toast('⚠️ ' + sinDato + ' parada(s) sin dirección no entraron en Maps', 'err');
 }
 
-// ── VISTA 4: RESUMEN ─────────────────────────────────────────────
-function jor2TerminarRuta() {
-  if (!_jor2Ruta) { jor2VolverPlan(); return; }
-  jor2IrA('resumen');
+function jor2MapsDia() {
+  var ctx = jor2Ctx();
+  jor2AbrirMapsLista(jor2Optimizar(jor2PendientesDelDia(ctx)));
 }
 
-function jor2RenderResumen(ctx) {
+function jor2MapsCiudad() {
+  if (!_jor2SelCiudad) return;
+  var ctx = jor2Ctx();
+  var hayPlan = jor2HayPlanSemanal();
+  var pend = _miRondaClientes.filter(function(c) {
+    return (c.localidad || '').trim() === _jor2SelCiudad && !jor2ClienteCubierto(c, ctx);
+  });
+  // Priorizar los del plan en el armado de la tanda
+  var delPlan = pend.filter(function(c) { return jor2ClienteTocaHoy(c, hayPlan); });
+  var resto = pend.filter(function(c) { return !jor2ClienteTocaHoy(c, hayPlan); });
+  jor2AbrirMapsLista(jor2Optimizar(delPlan).concat(jor2Optimizar(resto)));
+}
+
+// ── VISTA 2: CIUDAD ──────────────────────────────────────────────
+function jor2AbrirCiudad(locEnc) {
+  var loc = decodeURIComponent(locEnc || '');
+  if (!loc) return;
+  _jor2SelCiudad = loc;
+  _jornadaCiudadActiva = loc;
+  jornadaGuardarCiudad(loc);
+  jor2IrA('ciudad');
+}
+
+function jor2RenderCiudad(ctx) {
   var body = document.getElementById('jor-body');
   if (!body) return;
-  if (!_jor2Ruta) { _jor2Vista = 'plan'; jor2RenderPlan(ctx); return; }
+  var loc = _jor2SelCiudad;
+  if (!loc) { _jor2Vista = 'plan'; jor2RenderPlan(ctx); return; }
 
-  var clientes = _jor2Ruta.ids.map(jor2ClientePorId).filter(Boolean);
-  var ventas = [], gestiones = [], visitas = [], sinVisitar = [];
-  var nombres = {};
-  clientes.forEach(function(c) {
-    var k = mrNormNombre(c.nombre);
-    if (k) nombres[k] = true;
-    if (!jor2ClienteCubierto(c, ctx)) { sinVisitar.push(c); return; }
-    if (c._jor2Cub === 'venta' || c._jor2Cub === 'venta_otro') ventas.push(c);
-    else if (c._jor2Cub === 'gestion') gestiones.push(c);
-    else visitas.push(c);
+  var hayPlan = jor2HayPlanSemanal();
+  var clientesCiudad = _miRondaClientes.filter(function(c) {
+    return (c.localidad || '').trim() === loc;
   });
-  var monto = jor2VentasHoyMonto(nombres);
-  jor2PintarStats(clientes, ctx);
+  jor2PintarStats(clientesCiudad, ctx);
+
+  var delPlan = [], fueraPlan = [], cubiertos = [];
+  clientesCiudad.forEach(function(c) {
+    c._jorDist = jornadaDistanciaACliente(c);
+    if (jor2ClienteCubierto(c, ctx)) { cubiertos.push(c); return; }
+    if (jor2ClienteTocaHoy(c, hayPlan)) delPlan.push(c);
+    else fueraPlan.push(c);
+  });
+
+  // Orden por cercanía (el mismo que usa el botón de Maps)
+  delPlan = jor2Optimizar(delPlan);
+  fueraPlan = jor2Optimizar(fueraPlan);
 
   var html = '<div class="jor2-subnav">'
-    + '<button class="jor2-back" onclick="jor2IrA(\'ruta\')">‹ Ruta</button>'
-    + '<div class="jor2-subnav-tit">RESUMEN · ' + escapeHtml(_jor2Ruta.ciudad) + '</div>'
+    + '<button class="jor2-back" onclick="jor2VolverPlan()">‹ Plan</button>'
+    + '<div class="jor2-subnav-tit">' + escapeHtml(loc) + ' · ' + (delPlan.length + fueraPlan.length) + ' pendientes</div>'
     + '</div>';
 
-  html += '<div class="jor2-res">'
-    + '<div class="jor2-res-big">🛒 ' + ventas.length + ' venta' + (ventas.length === 1 ? '' : 's')
-    + (monto > 0 ? ' · $' + Math.round(monto / 1000) + 'k' : '') + '</div>'
-    + '<div class="jor2-res-sub">' + (clientes.length - sinVisitar.length) + ' de ' + clientes.length + ' paradas cubiertas</div>'
-    + '</div>';
+  var pendTotal = delPlan.length + fueraPlan.length;
+  if (pendTotal > 0) {
+    var conUbic = delPlan.concat(fueraPlan).filter(function(c) { return c._coords || (c.direccion || '').trim(); }).length;
+    var tandas = Math.ceil(conUbic / JOR2_MAPS_MAX_STOPS) || 1;
+    html += '<button class="jor2-btn-maps" onclick="jor2MapsCiudad()">🗺️ RUTA DE ' + escapeHtml(loc.toUpperCase()) + ' EN MAPS'
+      + '<small>' + pendTotal + ' paradas' + (tandas > 1 ? ' · ' + tandas + ' tandas de ' + JOR2_MAPS_MAX_STOPS : ' · 1 sola tanda')
+      + ' · orden por cercanía</small></button>';
+  }
 
-  if (gestiones.length > 0) {
-    html += '<div class="jor-section-hdr normal">✕ SIN VENTA (' + gestiones.length + ')</div>';
-    gestiones.forEach(function(c) {
-      html += '<div class="jor-visitado"><div class="jor-visitado-icon">✕</div>'
+  if (pendTotal === 0) {
+    html += '<div class="jor-empty"><div class="jor-empty-icon">🎉</div>'
+      + '<div class="jor-empty-txt"><strong>' + escapeHtml(loc) + ' completa.</strong><br>No quedan clientes pendientes acá.</div></div>';
+  }
+
+  if (delPlan.length > 0) {
+    html += '<div class="jor-section-hdr normal">📅 DEL PLAN DE HOY (' + delPlan.length + ')</div>';
+    delPlan.forEach(function(c, i) { html += jor2RenderCliCard(c, i + 1, i === 0); });
+  }
+  if (fueraPlan.length > 0) {
+    html += '<div class="jor-section-hdr normal">➕ OTROS PENDIENTES (' + fueraPlan.length + ')</div>';
+    fueraPlan.forEach(function(c, i) { html += jor2RenderCliCard(c, delPlan.length + i + 1, false); });
+  }
+
+  html += '<button class="jor2-toggle" onclick="gpsIniciarCheckin()">➕ Cliente nuevo / fuera de lista (buscar en Xubio)</button>';
+
+  if (cubiertos.length > 0) {
+    html += '<div class="jor-section-hdr visitado">✓ YA CUBIERTOS (' + cubiertos.length + ')</div>';
+    cubiertos.forEach(function(c) {
+      html += '<div class="jor-visitado"><div class="jor-visitado-icon">✓</div>'
         + '<div class="jor-visitado-txt">' + escapeHtml(c.nombre || '—') + ' · ' + escapeHtml(jor2CubLabel(c)) + '</div></div>';
     });
   }
-  if (visitas.length > 0) {
-    html += '<div class="jor-section-hdr normal">✓ VISITADOS (' + visitas.length + ')</div>';
-    visitas.forEach(function(c) {
-      html += '<div class="jor-visitado"><div class="jor-visitado-icon">✓</div>'
-        + '<div class="jor-visitado-txt">' + escapeHtml(c.nombre || '—') + '</div></div>';
-    });
+
+  body.innerHTML = html;
+  jor2SetAcciones('');
+}
+
+function jor2RenderCliCard(c, orden, destacado) {
+  var cidEnc = encodeURIComponent(c.cliente_id || '');
+  var pri = jor2Prioridad(c);
+  var estrella = (pri <= 2) ? '⭐ ' : (pri === 3 ? '☆ ' : '');
+  var tel = (c.telefono || '').toString().replace(/\D/g, '');
+  var telOk = tel.length >= 8;
+  var nomEnc = encodeURIComponent(c.nombre || '');
+  var dirEnc = encodeURIComponent(((c.direccion || '') + ' ' + (c.localidad || '')).trim());
+  var distTxt = (c._jorDist != null) ? jornadaFormatearDistancia(c._jorDist) : '';
+  var ult = (c.dias_desde_ult_pedido != null) ? ('últ. ' + c.dias_desde_ult_pedido + 'd') : '';
+  var pillAlerta = c._jorRiesgo ? ' jor2-dist-alerta' : '';
+
+  return '<div class="jor2-cli' + (destacado ? ' jor2-cli-destacado' : '') + '">'
+    + (destacado ? '<div class="jor2-cli-tag">▶ MÁS CERCANO</div>' : '')
+    + '<div class="jor2-cli-top">'
+    +   '<div class="jor2-cli-info">'
+    +     '<div class="jor2-cli-nom"><span class="jor2-orden">' + orden + '</span>' + estrella + escapeHtml(c.nombre || '—') + '</div>'
+    +     '<div class="jor2-cli-dir">' + escapeHtml(c.direccion || '') + (ult ? (c.direccion ? ' · ' : '') + ult : '') + '</div>'
+    +   '</div>'
+    +   (distTxt ? '<div class="jor2-cli-dist' + pillAlerta + '">' + escapeHtml(distTxt) + '</div>' : '')
+    + '</div>'
+    + '<div class="jor2-cli-btns">'
+    +   '<button class="jor2-cb jor2-cb-ir" onclick="jornadaAbrirMapa(&quot;' + dirEnc + '&quot;)">🧭 IR</button>'
+    +   (telOk
+        ? '<button class="jor2-cb jor2-cb-wa" onclick="miRondaAbrirWa(\'' + tel + '\', &quot;' + nomEnc + '&quot;)">💬 WA</button>'
+        : '<button class="jor2-cb jor2-cb-wa jor2-cb-off">💬 WA</button>')
+    +   '<button class="jor2-cb jor2-cb-ci" onclick="jor2CheckIn(&quot;' + cidEnc + '&quot;)">📍 CHECK-IN</button>'
+    + '</div>'
+    + '</div>';
+}
+
+// ── CHECK-IN desde la card (sin cambiar de tab) ──────────────────
+function jor2CheckIn(cidEnc) {
+  var cid = decodeURIComponent(cidEnc || '');
+  if (!cid) return;
+  var c = jor2ClientePorId(cid);
+  if (!c) { toast('Cliente no encontrado', 'err'); return; }
+
+  if (_gpsCheckinActivo && _gpsCheckinActivo.nombre_cliente !== c.nombre) {
+    var ok = confirm('Ya hay una visita activa con ' + _gpsCheckinActivo.nombre_cliente +
+      '\n\n¿Cerrarla y arrancar con ' + c.nombre + '?');
+    if (!ok) return;
+    if (typeof gpsCheckoutFinal === 'function') gpsCheckoutFinal('Cambio de cliente');
   }
-  if (sinVisitar.length > 0) {
-    html += '<div class="jor-section-hdr alerta">⚠️ QUEDARON SIN VISITAR (' + sinVisitar.length + ')</div>';
-    sinVisitar.forEach(function(c) {
-      html += '<div class="jor-visitado"><div class="jor-visitado-icon">·</div>'
-        + '<div class="jor-visitado-txt">' + escapeHtml(c.nombre || '—') + '</div></div>';
-    });
-    html += '<div class="jor2-res-nota">Estos siguen pendientes: van a aparecer la próxima vez que armes ruta en ' + escapeHtml(_jor2Ruta.ciudad) + '.</div>';
+
+  if (typeof gpsConfirmarCheckin === 'function') {
+    gpsConfirmarCheckin(c.nombre || '', c.localidad || '', c.xubio_id || '', c.cuit_dni || '');
+    // El wrap de gpsActualizarEstado nos lleva a la vista VISITA cuando
+    // el check-in queda registrado. Mientras tanto, feedback inmediato:
+    _jor2Vista = 'visita';
+    jornadaRender();
+  } else {
+    toast('No se pudo iniciar el check-in', 'err');
+  }
+}
+
+// ── VISTA 3: VISITA ACTIVA ───────────────────────────────────────
+function jor2CronoTxt() {
+  if (!_gpsCheckinActivo || !_gpsCheckinActivo.fecha) return '';
+  var ms = Date.now() - new Date(_gpsCheckinActivo.fecha).getTime();
+  if (isNaN(ms) || ms < 0) return '';
+  var min = Math.floor(ms / 60000);
+  if (min < 60) return '⏱ ' + min + ' min';
+  return '⏱ ' + Math.floor(min / 60) + 'h ' + (min % 60) + 'm';
+}
+
+function jor2RenderVisita(ctx) {
+  var body = document.getElementById('jor-body');
+  if (!body) return;
+  if (!_gpsCheckinActivo) { _jor2Vista = _jor2SelCiudad ? 'ciudad' : 'plan'; jornadaRender(); return; }
+
+  var nombre = _gpsCheckinActivo.nombre_cliente || 'Cliente';
+  var c = _miRondaClientes.find(function(x) { return mrNormNombre(x.nombre) === mrNormNombre(nombre); }) || null;
+  var loc = (c && c.localidad) || _gpsCheckinActivo.localidad || '';
+  if (loc && !_jor2SelCiudad) _jor2SelCiudad = loc.trim();
+
+  var horaCheckin = '';
+  try {
+    var f = new Date(_gpsCheckinActivo.fecha);
+    horaCheckin = f.getHours() + ':' + String(f.getMinutes()).padStart(2, '0');
+  } catch (e) {}
+
+  var html = '<div class="jor2-vh">'
+    + '<div class="jor2-vh-crono" id="jor2-crono">' + jor2CronoTxt() + '</div>'
+    + '<div class="jor2-vh-tag">VISITA EN CURSO</div>'
+    + '<div class="jor2-vh-nom">' + escapeHtml(nombre) + '</div>'
+    + '<div class="jor2-vh-meta">' + escapeHtml([loc, (c && c.direccion) || ''].filter(Boolean).join(' · '))
+    + (horaCheckin ? ' · check-in ' + horaCheckin + ' ✅' : '') + '</div>'
+    + '</div>';
+
+  // Alerta: ya tiene pedido para este viaje (de cualquier vendedor)
+  if (c) {
+    var infoP = jor2PedidoVentanaInfo(c);
+    if (infoP) {
+      var cuando = '';
+      try {
+        var hoy0 = new Date(); hoy0.setHours(0,0,0,0);
+        var fp0 = new Date(infoP.fecha); fp0.setHours(0,0,0,0);
+        var difD = Math.round((hoy0 - fp0) / 86400000);
+        cuando = difD === 0 ? 'hoy' : (difD === 1 ? 'ayer' : 'hace ' + difD + 'd');
+      } catch (e) {}
+      html += '<div class="jor2-alerta-pedido">⚠️ <b>Ya tiene pedido para este viaje</b>'
+        + (infoP.vendedor ? ' — lo tomó ' + escapeHtml(infoP.vendedor) : '')
+        + (cuando ? ' ' + cuando : '')
+        + (infoP.total ? ' ($' + Math.round(infoP.total / 1000) + 'k)' : '')
+        + '. Podés ampliarlo o solo cobrar — ojo con duplicar.</div>';
+    }
+
+    // Inteligencia: ticket promedio + facturación 90d + "siempre lleva"
+    var ticket = jor2TicketPromedio(c.nombre);
+    var fact90 = Number(c.facturacion_90d) || 0;
+    var tops = jor2TopProductos(c.nombre);
+    if (ticket || fact90 || tops.length) {
+      html += '<div class="jor2-intel">'
+        + '<div class="jor2-intel-t">🎯 PARA ESTA VISITA</div>'
+        + (ticket ? '<div class="jor2-intel-row">💵 Ticket promedio <b>$' + Math.round(ticket / 1000) + 'k</b>'
+            + (fact90 ? ' · últimos 90d: $' + Math.round(fact90 / 1000) + 'k' : '') + '</div>' : '')
+        + (tops.length ? '<div class="jor2-intel-row">🛒 Siempre lleva:</div>'
+            + '<div class="jor2-chips">' + tops.map(function(t) {
+                return '<span class="jor2-chip">' + escapeHtml(t) + '</span>';
+              }).join('') + '</div>' : '')
+        + '</div>';
+    }
+  }
+
+  // Info del cliente reutilizada (Llamar/WA, alerta días, notas, pedidos)
+  html += '<div id="jor2-visita-info"></div>';
+
+  // Repetir último pedido
+  var ultimo = jor2UltimoPedidoDe(nombre);
+  if (ultimo && (ultimo.detalle || '').trim()) {
+    html += '<button class="jor2-btn-repetir" onclick="jor2RepetirUltimo()">🔁 REPETIR ÚLTIMO PEDIDO'
+      + '<small>abre el tomador precargado con lo del ' + escapeHtml(jor2FechaCorta(ultimo)) + '</small></button>';
   }
 
   body.innerHTML = html;
+
+  // Info del cliente: render asíncrono dentro de #jor2-visita-info
+  try { gpsRenderInfoCliente(nombre, 'jor2-visita-info'); } catch (e) { console.warn('[MiRuta] info cliente:', e); }
+
+  // Cronómetro vivo
+  if (_jor2CronoTimer) clearInterval(_jor2CronoTimer);
+  _jor2CronoTimer = setInterval(function() {
+    var el = document.getElementById('jor2-crono');
+    if (el) el.textContent = jor2CronoTxt();
+    else { clearInterval(_jor2CronoTimer); _jor2CronoTimer = null; }
+  }, 30000);
+
   jor2SetAcciones(
-    '<button class="jor-btn-secundario" onclick="jor2IrA(\'ruta\')">‹ Seguir en ruta</button>'
-    + '<button class="jor2-btn-armar" onclick="jor2CerrarRutaDefinitivo()">✅ CERRAR Y VOLVER AL PLAN</button>'
+    '<button class="jor2-btn-nocompro" onclick="jor2NoCompro()">✕ NO COMPRÓ</button>'
+    + '<button class="jor2-btn-vender" onclick="jor2Vender()">📦 VENDER</button>'
   );
 }
 
-function jor2CerrarRutaDefinitivo() {
-  _jor2Ruta = null;
-  _jor2Sel = null;
-  _jor2SelCiudad = null;
-  jor2GuardarRuta();
-  jor2VolverPlan();
+function jor2FechaCorta(p) {
+  try {
+    var f = fechaPedido(p);
+    return f.getDate() + '/' + (f.getMonth() + 1);
+  } catch (e) { return 'último pedido'; }
 }
 
-// Compat: botones viejos que pudieran quedar referenciados
-function jornadaAgregarStop() { jor2EditarParadas(); }
-function jornadaCerrarDia() { jor2TerminarRuta(); }
+function jor2Vender() {
+  if (!_gpsCheckinActivo) { toast('No hay visita activa', 'err'); return; }
+  if (typeof tomadorAbrir === 'function') tomadorAbrir();
+}
+
+function jor2NoCompro() {
+  if (!_gpsCheckinActivo) { toast('No hay visita activa', 'err'); return; }
+  if (typeof gpsCheckoutConMotivo === 'function') gpsCheckoutConMotivo();
+}
+
+// ── Repetir último pedido: precarga del tomador ──────────────────
+// Parsea el detalle del último pedido a cantidades. Soporta los 2 formatos
+// vivos del Sheet: "🍗 *Nombre*" + línea siguiente con cantidad (catálogo/
+// tomador) y "1x Nombre → $..." (WhatsApp legacy). Promos/combos NO se
+// repiten (se avisa). Valida contra TOMADOR_CAT; nombres con calibre se
+// remapean al producto base con _editarSepararCalibre (misma lógica que
+// el editor de pedidos).
+var _tomadorPrecargaQtys = null;
+
+function jor2ParsearDetalleQtys(detalle) {
+  var qtys = {};
+  if (!detalle) return qtys;
+  var lineas = detalle.replace(/\|/g, '\n').split('\n')
+    .map(function(s) { return s.trim(); }).filter(Boolean);
+  var emojiProducto = /^(?:🎁|🔥|🍗|🍖|🐔|🍟|🥚|🥦|🍔|🍝)\s*\*([^*]+)\*\s*$/;
+  var emojiIgnorar = /^(💰|✓|—|\-\-)/;
+  var soloUnidad = /^(cajas?|kgs?|kilos?|paquetes?|bolsas?|unidad(es)?|pcs?)$/i;
+  for (var i = 0; i < lineas.length; i++) {
+    var linea = lineas[i];
+    if (emojiIgnorar.test(linea)) continue;
+    var mE = linea.match(emojiProducto);
+    if (mE) {
+      var nombre = mE[1].trim();
+      // No repetir promos/combos
+      if (/^(PROMO|COMBO)/i.test(nombre)) continue;
+      var sig = (i + 1 < lineas.length) ? lineas[i + 1] : '';
+      var mC = sig.match(/^(\d+)\s+(?:cajas?|kgs?|kilos?|paquetes?|bolsas?|unidad(?:es)?|pcs?|x?)\b/i);
+      if (mC) { qtys[nombre] = parseInt(mC[1]) || 1; i++; }
+      else qtys[nombre] = 1;
+      continue;
+    }
+    if (/^(🎁|🔥|🍗|🍖|🐔|🍟|🥚|🥦|🍔|🍝)/.test(linea)) continue;
+    var m = linea.match(/^(\d+)x?\s+(.+?)(?:\s+→|\s+\(|\s*$)/);
+    if (m) {
+      var nom2 = m[2].trim();
+      if (soloUnidad.test(nom2)) continue;
+      qtys[nom2] = parseInt(m[1]) || 1;
+    }
+  }
+  return qtys;
+}
+
+function jor2RepetirUltimo() {
+  if (!_gpsCheckinActivo) { toast('No hay visita activa', 'err'); return; }
+  var ultimo = jor2UltimoPedidoDe(_gpsCheckinActivo.nombre_cliente);
+  if (!ultimo || !(ultimo.detalle || '').trim()) {
+    toast('No encontré el detalle del último pedido', 'err');
+    return;
+  }
+  var parseados = jor2ParsearDetalleQtys(ultimo.detalle);
+  var nombres = Object.keys(parseados);
+  if (nombres.length === 0) {
+    toast('El último pedido no tiene productos repetibles', 'err');
+    return;
+  }
+  // Validar contra el catálogo (con remap de calibre al producto base)
+  var existeEnCat = function(n) {
+    var ok = false;
+    TOMADOR_CAT.forEach(function(sec) {
+      sec.items.forEach(function(it) { if (it.n === n) ok = true; });
+    });
+    return ok;
+  };
+  var precarga = {};
+  var saltados = 0;
+  nombres.forEach(function(n) {
+    if (existeEnCat(n)) { precarga[n] = parseados[n]; return; }
+    var sep = (typeof _editarSepararCalibre === 'function') ? _editarSepararCalibre(n) : null;
+    if (sep && existeEnCat(sep.base)) {
+      precarga[sep.base] = (precarga[sep.base] || 0) + parseados[n];
+      return;
+    }
+    saltados++;
+  });
+  if (Object.keys(precarga).length === 0) {
+    toast('Los productos del último pedido ya no están en el catálogo', 'err');
+    return;
+  }
+  _tomadorPrecargaQtys = precarga;
+  if (saltados > 0) toast('⚠️ ' + saltados + ' producto(s) del pedido anterior ya no están en catálogo', 'info');
+  jor2Vender();
+}
+
+// ── Wrap de gpsActualizarEstado: mueve las vistas de Mi Ruta ─────
+// check-in registrado → vista VISITA · checkout → vista CIUDAD (con el
+// siguiente más cercano arriba). Solo para vendedores de campo.
+(function() {
+  if (typeof gpsActualizarEstado === 'function' && !window._jor2GpsEstadoOrig) {
+    window._jor2GpsEstadoOrig = gpsActualizarEstado;
+    window.gpsActualizarEstado = function(chk) {
+      window._jor2GpsEstadoOrig(chk);
+      try {
+        var esCampo = (vendedorActual === 'Juan' || vendedorActual === 'Lisandro');
+        if (!esCampo) return;
+        if (chk) {
+          _jor2Vista = 'visita';
+          if (chk.localidad && !_jor2SelCiudad) _jor2SelCiudad = String(chk.localidad).trim();
+        } else if (_jor2Vista === 'visita') {
+          _jor2Vista = _jor2SelCiudad ? 'ciudad' : 'plan';
+        }
+        if (_tabActual === 'jornada') jornadaRender();
+      } catch (e) { console.warn('[MiRuta] wrap estado:', e); }
+    };
+  }
+})();
+
+// Compat: alias de botones viejos
+function jornadaAgregarStop() { jor2VolverPlan(); }
+function jornadaCerrarDia() { jor2VolverPlan(); }
 
 // Abrir un stop = redirigir al flujo de Mi Ronda con ese cliente.
 // Por ahora hacemos lo más simple: navegar a Mi Ronda, abrir su ruta
