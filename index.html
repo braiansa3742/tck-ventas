@@ -2,6 +2,50 @@
 <html lang="es">
 <head>
 <!-- ═══════════════════════════════════════════════════════════════════════
+     TCK VENTAS — v14.51.0 — 09/06/2026
+     ──────────────────────────────────────────────────────────────────────
+     MI RONDA → COBERTURA DE VIAJE
+
+     PEDIDO (Braian, 09/06, aprobado): con la visibilidad total, Mi Ronda
+     (cartera por cliente) pierde sentido. Lo que importa es: "¿qué
+     ciudades faltan cubrir ANTES de que salga cada camión?" — entre
+     todos los vendedores. Para Juan (reparto local TL): la semana.
+
+     LA VISTA NUEVA (tab Mi Ronda, solo vendedores):
+       · HOME: una card por cada CAMIÓN próximo, ordenadas por urgencia
+         ("🚨 SALE HOY" / "⏳ Sale en 2 días (jueves)" / "🚛 Salió ayer"),
+         con barra de cobertura total y filas por CIUDAD: "Casbas 14/22 ·
+         faltan 8 (3 inact.)". Cobertura CROSS-VENDEDOR con la MISMA
+         maquinaria de Mi Ruta (jor2Ctx/jor2ClienteCubierto): pedidos de
+         cualquiera en ventana, gestiones (con reintentos v14.50),
+         check-ins, bisemanales. Lo cubierto en Mi Ruta está cubierto acá.
+         + Card "📅 TRENQUE LAUQUEN — SEMANA" (rutas locales): barras por
+         día del plan (lunes 28/38…), HOY resaltado, fila "sin día".
+         + Card "⚠️ SIN RUTA" para que nadie quede invisible.
+         MOSTRADOR excluido (no se gestiona).
+       · DETALLE (tap en ciudad o día): pendientes ordenados por prioridad
+         (riesgo Tipo A → atraso), con badge de cartera y de reintento
+         ("🚪 cerrado — reintentar"), y acciones: 📞 LLAMAR (tel:) ·
+         💬 WA · ✕ SIN VENTA (abre el modal de motivos EXISTENTE vía
+         mrGestionSinVenta, seteando _miRondaRutaSel para que la gestión
+         quede en la ronda correcta — gate de "camión ya salió" incluido).
+         Botón "📍 Abrir <ciudad> en Mi Ruta" salta al tab de visitas con
+         esa ciudad activa. Cubiertos abajo con su motivo.
+
+     IMPLEMENTACIÓN (sin demoler nada):
+       · La vista se monta ENCIMA del DOM viejo de Mi Ronda (#mrcob-root
+         dentro de .mr-wrap) y oculta kpi-strip/felicitaciones/cards.
+         miRondaRender/miRondaCalcular siguen corriendo igual (badge del
+         tab, _mr_estado, felicitaciones internas, targets).
+       · Hook de montaje al final de miRondaRender + wrap de
+         miRondaRenderCards: cada refresco de datos (gestión guardada,
+         pedidos recargados) repinta la cobertura.
+       · El modal de gestión, mrMotivoGuardar, mrSupabaseGuardarGestion y
+         toda la telemetría quedan intactos.
+
+     NO SE TOCÓ: Mi Ruta (v14.49/50), tomador, Xubio, checkout, mapas.
+     ═══════════════════════════════════════════════════════════════════ -->
+<!-- ═══════════════════════════════════════════════════════════════════════
      TCK VENTAS — v14.50.0 — 09/06/2026
      ──────────────────────────────────────────────────────────────────────
      BLINDAJE TRENQUE LAUQUEN — reintentos, días editables, bisemanales
@@ -12552,6 +12596,32 @@ body {
   border-radius:10px; font-family:'Barlow Condensed',sans-serif; font-size:14px;
   font-weight:900; cursor:pointer; touch-action:manipulation; }
 /* ═══ fin v14.50.0 CSS ═══════════════════════════════════════════ */
+
+/* ═══ v14.51.0 — Cobertura de viaje (Mi Ronda) ═══════════════════ */
+.mrcob-card { background:#fff; border:1.5px solid var(--cream3,#E8DCC8); border-radius:15px;
+  padding:13px 14px; margin-bottom:11px; }
+.mrcob-card-urgente { border-color:#E65100; box-shadow:0 4px 14px rgba(230,81,0,.15); }
+.mrcob-card-warn { border-color:#f0d27a; background:#FFFDF5; }
+.mrcob-card-top { display:flex; justify-content:space-between; align-items:flex-start; gap:8px; }
+.mrcob-card-tit { font-family:'Barlow Condensed',sans-serif; font-size:17px; font-weight:900;
+  color:var(--text,#2b2118); letter-spacing:.3px; }
+.mrcob-card-sale { font-size:11px; font-weight:800; color:#E65100; background:#FFF3E0;
+  border-radius:8px; padding:3px 9px; flex:none; }
+.mrcob-card-sale.hoy { background:#E65100; color:#fff; animation:mrcobPulso 1.4s infinite; }
+@keyframes mrcobPulso { 0%,100%{opacity:1;} 50%{opacity:.6;} }
+.mrcob-card-sub { font-size:12px; color:var(--text3,#9a8d7c); margin:4px 0 6px; }
+.mrcob-rows { margin-top:9px; }
+.mrcob-row { display:flex; justify-content:space-between; align-items:center; gap:8px;
+  padding:9px 10px; border-top:0.5px solid var(--cream2,#F1E8D8); cursor:pointer; }
+.mrcob-row:active { background:var(--cream,#FBF6EE); }
+.mrcob-row-loc { font-size:13px; font-weight:800; color:var(--text,#2b2118); }
+.mrcob-row-num { font-size:12px; color:var(--text2,#5C3A1E); }
+.mrcob-row-num b { color:#b00; }
+.mrcob-row.done .mrcob-row-loc, .mrcob-row.done .mrcob-row-num { color:#1f8a3b; }
+.mrcob-row.hoydia { background:#FFF8E1; border-radius:8px; }
+.mrcob-inact { color:var(--text3,#9a8d7c); font-weight:600; }
+.jor2-cb-gest { background:#fdecec; color:#b00; flex:1.4; }
+/* ═══ fin v14.51.0 CSS ═══════════════════════════════════════════ */
 /* ═══════════════════════════════════════════════════════════════════ */
 
 .mr-wrap { padding: 14px 14px 20px; }
@@ -39366,6 +39436,13 @@ async function miRondaRender() {
 
   // Renderizar cards
   miRondaRenderCards();
+
+  // v14.51.0: montar la vista COBERTURA DE VIAJE encima (vendedores).
+  // miRondaRenderCards ya quedó wrapeada para repintarla en refrescos,
+  // pero el primer montaje necesita este llamado directo.
+  try { if (typeof mrCobRender === 'function') mrCobRender(); } catch (e) {
+    console.warn('[Cobertura] montaje:', e);
+  }
 }
 
 // ── Render de cards por ruta (v6 — 5 estados + orden por prioridad) ──
@@ -42515,6 +42592,380 @@ function jor2MapaRender() {
         }
         if (_tabActual === 'jornada') jornadaRender();
       } catch (e) { console.warn('[MiRuta] wrap estado:', e); }
+    };
+  }
+})();
+
+// ════════════════════════════════════════════════════════════════════════
+// v14.51.0 — COBERTURA DE VIAJE (vista nueva del tab Mi Ronda)
+// ────────────────────────────────────────────────────────────────────────
+// Reemplaza la vista de cartera-por-cliente por la pregunta operativa real:
+// "¿qué ciudades faltan cubrir ANTES de que salga cada camión?" — con
+// cobertura CROSS-VENDEDOR (la misma maquinaria de Mi Ruta: pedidos de
+// cualquiera en ventana, gestiones, check-ins, reintentos, bisemanales).
+// Para Trenque Lauquen (reparto local) la card muestra LA SEMANA por día.
+// El registro de gestiones reusa el modal existente (mrGestionSinVenta →
+// mrMotivoGuardar) seteando _miRondaRutaSel. miRondaCalcular y todo lo
+// que alimenta (badge, felicitaciones, _mr_estado) sigue corriendo igual;
+// esta vista se monta encima del DOM viejo y lo oculta.
+// ════════════════════════════════════════════════════════════════════════
+
+var _mrCobVista = null;    // null = home · {rk, loc} · {rk:'<local>', dia}
+var _mrCobActiva = false;
+var MRCOB_DIAS = [
+  { k: 'lunes', l: 'Lunes' }, { k: 'martes', l: 'Martes' },
+  { k: 'miercoles', l: 'Miércoles' }, { k: 'jueves', l: 'Jueves' },
+  { k: 'viernes', l: 'Viernes' }, { k: 'sabado', l: 'Sábado' }
+];
+
+function mrCobClientesScope() {
+  // Todos los activos menos MOSTRADOR (vienen al local, no se gestionan)
+  return _miRondaClientes.filter(function(c) {
+    return mrNormVendedor(c.vendedor) !== 'MOSTRADOR';
+  });
+}
+
+function mrCobEsInactivo(c) {
+  return c.dias_desde_ult_pedido == null || c.dias_desde_ult_pedido >= 90;
+}
+
+// ── Cálculo ──────────────────────────────────────────────────────
+function mrCobCalcular() {
+  var ctx = jor2Ctx();
+  var scope = mrCobClientesScope();
+  var porRuta = {}; // rk → { loc → { tot, cub, inact } }
+  scope.forEach(function(c) {
+    var rk = c.ruta_viaje || 'SIN_RUTA';
+    var loc = (c.localidad || '').trim() || '(sin ciudad)';
+    if (!porRuta[rk]) porRuta[rk] = {};
+    if (!porRuta[rk][loc]) porRuta[rk][loc] = { tot: 0, cub: 0, inact: 0 };
+    var b = porRuta[rk][loc];
+    b.tot++;
+    if (mrCobEsInactivo(c)) b.inact++;
+    if (jor2ClienteCubierto(c, ctx)) b.cub++;
+  });
+
+  var hoy0 = new Date(); hoy0.setHours(0, 0, 0, 0);
+  var viajes = [], locales = [], sinRuta = null;
+
+  Object.keys(porRuta).forEach(function(rk) {
+    var cfg = MR_RUTAS_CONFIG[rk];
+    var ciudades = Object.keys(porRuta[rk]).map(function(loc) {
+      var b = porRuta[rk][loc];
+      return { loc: loc, tot: b.tot, cub: b.cub, inact: b.inact, faltan: b.tot - b.cub };
+    }).sort(function(a, b) { return b.faltan - a.faltan; });
+    var tot = ciudades.reduce(function(a, x) { return a + x.tot; }, 0);
+    var cub = ciudades.reduce(function(a, x) { return a + x.cub; }, 0);
+
+    if (rk === 'SIN_RUTA' || !cfg) {
+      sinRuta = { rk: 'SIN_RUTA', nombre: 'Sin ruta asignada', ciudades: ciudades, tot: tot, cub: cub };
+      return;
+    }
+    if (jor2RutaEsLocal(rk)) {
+      // Reparto local (TL): la cobertura útil es POR DÍA del plan semanal
+      var dias = MRCOB_DIAS.map(function(d) { return { dia: d.k, label: d.l, tot: 0, cub: 0 }; });
+      var sinDia = { tot: 0, cub: 0 };
+      var ctx2 = ctx;
+      scope.forEach(function(c) {
+        if ((c.ruta_viaje || 'SIN_RUTA') !== rk) return;
+        var cubierto = jor2ClienteCubierto(c, ctx2);
+        var tieneDia = false;
+        if (Array.isArray(c.dias_visita)) {
+          c.dias_visita.forEach(function(dv) {
+            var dn = jor2NormTexto(dv);
+            var slot = dias.find(function(x) { return x.dia === dn; });
+            if (slot) { slot.tot++; if (cubierto) slot.cub++; tieneDia = true; }
+          });
+        }
+        if (!tieneDia) { sinDia.tot++; if (cubierto) sinDia.cub++; }
+      });
+      locales.push({ rk: rk, nombre: (cfg.nombre || rk), dias: dias, sinDia: sinDia, tot: tot, cub: cub });
+      return;
+    }
+    // Ruta de camión
+    var salida = mrViajeDeRonda(rk, new Date(hoy0));
+    var diasHasta = salida ? Math.round((salida - hoy0) / 86400000) : null;
+    viajes.push({ rk: rk, nombre: (cfg.nombre || rk), salida: salida, diasHasta: diasHasta,
+                  ciudades: ciudades, tot: tot, cub: cub });
+  });
+
+  // Orden: el que sale más pronto primero; los que ya salieron al final
+  viajes.sort(function(a, b) {
+    var da = (a.diasHasta == null) ? 999 : (a.diasHasta < 0 ? 500 - a.diasHasta : a.diasHasta);
+    var db = (b.diasHasta == null) ? 999 : (b.diasHasta < 0 ? 500 - b.diasHasta : b.diasHasta);
+    return da - db;
+  });
+  return { viajes: viajes, locales: locales, sinRuta: sinRuta };
+}
+
+function mrCobSalidaLabel(v) {
+  if (v.diasHasta == null) return '';
+  if (v.diasHasta < 0) return '🚛 Salió ' + (v.diasHasta === -1 ? 'ayer' : 'hace ' + (-v.diasHasta) + 'd');
+  if (v.diasHasta === 0) return '🚨 SALE HOY';
+  var dias = ['domingo','lunes','martes','miércoles','jueves','viernes','sábado'];
+  var nombreDia = v.salida ? dias[v.salida.getDay()] : '';
+  return '⏳ Sale en ' + v.diasHasta + (v.diasHasta === 1 ? ' día' : ' días') + (nombreDia ? ' (' + nombreDia + ')' : '');
+}
+
+// ── Montaje sobre el DOM del tab ─────────────────────────────────
+function mrCobMontarRoot() {
+  var wrap = document.querySelector('#view-mironda .mr-wrap');
+  if (!wrap) return null;
+  ['mr-kpi-strip', 'mr-felicitacion-banner', 'mr-section-title', 'mr-cards-container'].forEach(function(id) {
+    var el = document.getElementById(id);
+    if (el) el.style.display = 'none';
+  });
+  var nombreEl = document.getElementById('mr-hdr-nombre');
+  if (nombreEl) nombreEl.textContent = 'Cobertura de viajes';
+  var subEl = document.getElementById('mr-hdr-sub');
+  if (subEl) subEl.textContent = 'Qué falta cubrir antes de que salga cada camión — entre todos';
+  var root = document.getElementById('mrcob-root');
+  if (!root) {
+    root = document.createElement('div');
+    root.id = 'mrcob-root';
+    var hdr = wrap.querySelector('.mr-hdr');
+    if (hdr && hdr.nextSibling) wrap.insertBefore(root, hdr.nextSibling);
+    else wrap.appendChild(root);
+  }
+  return root;
+}
+
+function mrCobRender() {
+  var esAdmin = vendedorActual === 'ADMIN';
+  var esChofer = vendedorActual === 'Joan' || vendedorActual === 'Luis' || vendedorActual === 'Juan Pablo';
+  if (esAdmin || esChofer) return;
+  if (!Array.isArray(_miRondaClientes) || _miRondaClientes.length === 0) return;
+  var root = mrCobMontarRoot();
+  if (!root) return;
+  _mrCobActiva = true;
+
+  if (_mrCobVista && _mrCobVista.rk) {
+    root.innerHTML = mrCobHtmlDetalle();
+  } else {
+    _mrCobVista = null;
+    root.innerHTML = mrCobHtmlHome();
+  }
+}
+
+// ── HOME ─────────────────────────────────────────────────────────
+function mrCobHtmlHome() {
+  var data = mrCobCalcular();
+  var html = '';
+
+  // Locales primero para Juan; camiones primero para el resto
+  var bloques = (vendedorActual === 'Juan')
+    ? [['locales', data.locales], ['viajes', data.viajes]]
+    : [['viajes', data.viajes], ['locales', data.locales]];
+
+  bloques.forEach(function(par) {
+    var tipo = par[0], lista = par[1];
+    lista.forEach(function(v) {
+      if (tipo === 'viajes') html += mrCobCardViaje(v);
+      else html += mrCobCardLocal(v);
+    });
+  });
+
+  if (data.sinRuta && data.sinRuta.tot > 0) {
+    html += '<div class="mrcob-card mrcob-card-warn">'
+      + '<div class="mrcob-card-top"><div class="mrcob-card-tit">⚠️ SIN RUTA ASIGNADA</div>'
+      + '<div class="mrcob-card-sub">' + data.sinRuta.tot + ' clientes</div></div>'
+      + data.sinRuta.ciudades.map(function(c) { return mrCobFilaCiudad('SIN_RUTA', c); }).join('')
+      + '</div>';
+  }
+
+  if (!html) {
+    html = '<div class="jor-empty"><div class="jor-empty-icon">🗺️</div>'
+      + '<div class="jor-empty-txt">Sin datos de rutas todavía.</div></div>';
+  }
+  return html;
+}
+
+function mrCobCardViaje(v) {
+  var pct = v.tot > 0 ? Math.round(v.cub * 100 / v.tot) : 0;
+  var urgente = v.diasHasta != null && v.diasHasta >= 0 && v.diasHasta <= 1;
+  return '<div class="mrcob-card' + (urgente ? ' mrcob-card-urgente' : '') + '">'
+    + '<div class="mrcob-card-top">'
+    +   '<div class="mrcob-card-tit">🚚 ' + escapeHtml(v.nombre.toUpperCase()) + '</div>'
+    +   '<div class="mrcob-card-sale' + (v.diasHasta === 0 ? ' hoy' : '') + '">' + mrCobSalidaLabel(v) + '</div>'
+    + '</div>'
+    + '<div class="mrcob-card-sub">' + v.cub + ' de ' + v.tot + ' cubiertos (' + pct + '%) · faltan ' + (v.tot - v.cub) + '</div>'
+    + '<div class="jor2-bar"><i style="width:' + pct + '%"></i></div>'
+    + '<div class="mrcob-rows">'
+    + v.ciudades.map(function(c) { return mrCobFilaCiudad(v.rk, c); }).join('')
+    + '</div></div>';
+}
+
+function mrCobFilaCiudad(rk, c) {
+  var listo = c.faltan === 0;
+  return '<div class="mrcob-row' + (listo ? ' done' : '') + '" '
+    + 'onclick="mrCobAbrir(&quot;' + encodeURIComponent(rk) + '&quot;,&quot;' + encodeURIComponent(c.loc) + '&quot;,null)">'
+    + '<div class="mrcob-row-loc">' + escapeHtml(c.loc) + '</div>'
+    + '<div class="mrcob-row-num">' + (listo
+        ? '✅ ' + c.cub + '/' + c.tot
+        : c.cub + '/' + c.tot + ' · <b>faltan ' + c.faltan + '</b>'
+          + (c.inact > 0 ? ' <span class="mrcob-inact">(' + c.inact + ' inact.)</span>' : ''))
+    + '</div></div>';
+}
+
+function mrCobCardLocal(v) {
+  var pct = v.tot > 0 ? Math.round(v.cub * 100 / v.tot) : 0;
+  var hoyKey = jor2DiaHoyKey();
+  var html = '<div class="mrcob-card">'
+    + '<div class="mrcob-card-top">'
+    +   '<div class="mrcob-card-tit">📅 ' + escapeHtml(v.nombre.toUpperCase()) + ' — SEMANA</div>'
+    +   '<div class="mrcob-card-sale">reparto local</div>'
+    + '</div>'
+    + '<div class="mrcob-card-sub">' + v.cub + ' de ' + v.tot + ' cubiertos esta semana (' + pct + '%)</div>'
+    + '<div class="jor2-bar"><i style="width:' + pct + '%"></i></div>'
+    + '<div class="mrcob-rows">';
+  v.dias.forEach(function(d) {
+    if (d.tot === 0) return;
+    var faltan = d.tot - d.cub;
+    var esHoy = d.dia === hoyKey;
+    html += '<div class="mrcob-row' + (faltan === 0 ? ' done' : '') + (esHoy ? ' hoydia' : '') + '" '
+      + 'onclick="mrCobAbrir(&quot;' + encodeURIComponent(v.rk) + '&quot;,null,&quot;' + d.dia + '&quot;)">'
+      + '<div class="mrcob-row-loc">' + d.label + (esHoy ? ' · HOY' : '') + '</div>'
+      + '<div class="mrcob-row-num">' + (faltan === 0 ? '✅ ' + d.cub + '/' + d.tot
+          : d.cub + '/' + d.tot + ' · <b>faltan ' + faltan + '</b>') + '</div></div>';
+  });
+  if (v.sinDia.tot > 0) {
+    html += '<div class="mrcob-row" onclick="mrCobAbrir(&quot;' + encodeURIComponent(v.rk) + '&quot;,null,&quot;__sindia__&quot;)">'
+      + '<div class="mrcob-row-loc">Sin día asignado</div>'
+      + '<div class="mrcob-row-num">' + v.sinDia.cub + '/' + v.sinDia.tot + '</div></div>';
+  }
+  return html + '</div></div>';
+}
+
+// ── DETALLE ──────────────────────────────────────────────────────
+function mrCobAbrir(rkEnc, locEnc, dia) {
+  _mrCobVista = {
+    rk: decodeURIComponent(rkEnc || ''),
+    loc: locEnc ? decodeURIComponent(locEnc) : null,
+    dia: dia || null
+  };
+  mrCobRender();
+  var v = document.getElementById('view-mironda');
+  if (v) v.scrollTop = 0;
+}
+
+function mrCobVolver() { _mrCobVista = null; mrCobRender(); }
+
+function mrCobClientesDetalle() {
+  var vis = _mrCobVista;
+  if (!vis) return [];
+  return mrCobClientesScope().filter(function(c) {
+    if ((c.ruta_viaje || 'SIN_RUTA') !== vis.rk) return false;
+    if (vis.loc != null) return ((c.localidad || '').trim() || '(sin ciudad)') === vis.loc;
+    if (vis.dia === '__sindia__') {
+      return !Array.isArray(c.dias_visita) || c.dias_visita.length === 0 ||
+        !c.dias_visita.some(function(d) { return MRCOB_DIAS.some(function(x) { return x.k === jor2NormTexto(d); }); });
+    }
+    if (vis.dia) {
+      return Array.isArray(c.dias_visita) && c.dias_visita.some(function(d) { return jor2NormTexto(d) === vis.dia; });
+    }
+    return true;
+  });
+}
+
+function mrCobHtmlDetalle() {
+  var vis = _mrCobVista;
+  var ctx = jor2Ctx();
+  var clientes = mrCobClientesDetalle();
+  var pend = [], cubiertos = [];
+  clientes.forEach(function(c) {
+    if (jor2ClienteCubierto(c, ctx)) cubiertos.push(c); else pend.push(c);
+  });
+  pend.sort(jor2CompararPrioridad);
+
+  var cfg = MR_RUTAS_CONFIG[vis.rk] || {};
+  var titulo = vis.loc || (vis.dia === '__sindia__' ? 'Sin día asignado'
+    : (MRCOB_DIAS.find(function(x) { return x.k === vis.dia; }) || { l: vis.dia }).l + ' · ' + (cfg.nombre || vis.rk));
+
+  var html = '<div class="jor2-subnav">'
+    + '<button class="jor2-back" onclick="mrCobVolver()">‹ Viajes</button>'
+    + '<div class="jor2-subnav-tit">' + escapeHtml(titulo) + ' · faltan ' + pend.length + '</div>'
+    + '</div>';
+
+  if (vis.loc) {
+    html += '<button class="jor2-toggle" onclick="mrCobIrAMiRuta(&quot;' + encodeURIComponent(vis.loc) + '&quot;)">📍 Abrir ' + escapeHtml(vis.loc) + ' en Mi Ruta (para salir a visitar)</button>';
+  }
+
+  if (pend.length === 0) {
+    html += '<div class="jor-empty"><div class="jor-empty-icon">🎉</div>'
+      + '<div class="jor-empty-txt"><strong>Todo cubierto acá.</strong></div></div>';
+  }
+  pend.forEach(function(c) { html += mrCobCardCliente(c, vis.rk); });
+
+  if (cubiertos.length > 0) {
+    html += '<div class="jor-section-hdr visitado">✓ YA CUBIERTOS (' + cubiertos.length + ')</div>';
+    cubiertos.forEach(function(c) {
+      html += '<div class="jor-visitado"><div class="jor-visitado-icon">✓</div>'
+        + '<div class="jor-visitado-txt">' + escapeHtml(c.nombre || '—') + ' · ' + escapeHtml(jor2CubLabel(c)) + '</div></div>';
+    });
+  }
+  return html;
+}
+
+function mrCobCardCliente(c, rk) {
+  var cidEnc = encodeURIComponent(c.cliente_id || '');
+  var rkEnc = encodeURIComponent(rk || '');
+  var pri = jor2Prioridad(c);
+  var estrella = (pri <= 2) ? '⭐ ' : (pri === 3 ? '☆ ' : '');
+  var tel = (c.telefono || '').toString().replace(/\D/g, '');
+  var telOk = tel.length >= 8;
+  var nomEnc = encodeURIComponent(c.nombre || '');
+  var ult = (c.dias_desde_ult_pedido != null) ? ('últ. ' + c.dias_desde_ult_pedido + 'd') : 'sin compras';
+  var frec = parseFloat(c.frec_dias_prom);
+  var gRe = jor2GestionReintento(c);
+
+  return '<div class="jor2-cli">'
+    + '<div class="jor2-cli-top"><div class="jor2-cli-info">'
+    +   '<div class="jor2-cli-nom">' + estrella + escapeHtml(c.nombre || '—') + jor2BadgeCartera(c) + '</div>'
+    +   '<div class="jor2-cli-dir">' + escapeHtml((c.localidad || '').trim()) + ' · ' + ult
+    +     (frec ? ' · compra c/' + Math.round(frec) + 'd' : '') + '</div>'
+    +   (gRe ? '<div class="jor2-reintento">🚪 ' + escapeHtml(mrMotivoLabel(gRe.motivo, gRe.motivo_texto)) + ' — reintentar</div>' : '')
+    + '</div></div>'
+    + '<div class="jor2-cli-btns">'
+    +   (telOk
+        ? '<a class="jor2-cb jor2-cb-ir" style="text-decoration:none;display:flex;align-items:center;justify-content:center;" href="' + _gpsTelefonoParaTel(c.telefono) + '">📞 LLAMAR</a>'
+        : '<button class="jor2-cb jor2-cb-ir jor2-cb-off">📞</button>')
+    +   (telOk
+        ? '<button class="jor2-cb jor2-cb-wa" onclick="miRondaAbrirWa(\'' + tel + '\', &quot;' + nomEnc + '&quot;)">💬 WA</button>'
+        : '<button class="jor2-cb jor2-cb-wa jor2-cb-off">💬</button>')
+    +   '<button class="jor2-cb jor2-cb-gest" onclick="mrCobGestionar(&quot;' + rkEnc + '&quot;,&quot;' + cidEnc + '&quot;)">✕ SIN VENTA</button>'
+    + '</div></div>';
+}
+
+function mrCobGestionar(rkEnc, cidEnc) {
+  var rk = decodeURIComponent(rkEnc || '');
+  var cid = decodeURIComponent(cidEnc || '');
+  if (!cid) return;
+  _miRondaRutaSel = rk; // el modal existente asocia la gestión a esta ronda
+  if (typeof mrGestionSinVenta === 'function') mrGestionSinVenta(cid);
+}
+
+function mrCobIrAMiRuta(locEnc) {
+  var loc = decodeURIComponent(locEnc || '');
+  if (!loc) return;
+  _jor2SelCiudad = loc;
+  _jornadaCiudadActiva = loc;
+  if (typeof jornadaGuardarCiudad === 'function') jornadaGuardarCiudad(loc);
+  _jor2Vista = 'ciudad';
+  cambiarTab('jornada');
+}
+
+// ── Hooks de refresco: cada vez que la vista vieja repinta (datos
+// nuevos: gestión guardada, pedidos recargados), repintar la nuestra.
+(function() {
+  if (typeof miRondaRenderCards === 'function' && !window._mrCobCardsOrig) {
+    window._mrCobCardsOrig = miRondaRenderCards;
+    window.miRondaRenderCards = function() {
+      window._mrCobCardsOrig.apply(this, arguments);
+      try {
+        if (_mrCobActiva && typeof _tabActual !== 'undefined' && _tabActual === 'mironda') {
+          mrCobRender();
+        }
+      } catch (e) { console.warn('[Cobertura] re-render:', e); }
     };
   }
 })();
