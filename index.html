@@ -2,7 +2,34 @@
 <html lang="es">
 <head>
 <!-- ═══════════════════════════════════════════════════════════════════════
-     TCK VENTAS — v14.53.0 — 10/06/2026
+     TCK VENTAS — v14.54.0 — 10/06/2026
+     ──────────────────────────────────────────────────────────────────
+     PEDIDO VIVO — aviso de pedido Confirmado viejo sin entregar (v14.54.0)
+
+     CASO (rendición de Luis, 10/06): 9 entregas 'pendiente' por $2.126.940
+     colgadas en su viaje — pedidos de campo de Lisandro del 4-5/06 que el
+     cliente cambió y se RE-TOMARON por WA el 6/06 con otro monto (Carrizo,
+     Gómez, Casella). El nuevo viajó; el viejo quedó Confirmado para siempre.
+
+     CAMBIOS:
+       1. Módulo PEDIDO VIVO (pedidoVivoDispararChequeo / Pendiente /
+          ModalAbrir / CancelarViejo): al elegir cliente (check-in GPS o
+          autocomplete manualWA) se consulta ASYNC pedidos_zona por pedidos
+          Confirmado de días anteriores. Al confirmar, si hay uno y no se
+          decidió: modal REEMPLAZA (cancela el viejo post-guardado vía
+          cambiarEstado — anula Xubio + cancela entrega con AS v25.43.0) /
+          ES UN PEDIDO MÁS / Volver. CERO red en el guardado (lección
+          v14.32.0): solo se mira el cache; fail-open siempre.
+       2. Intercepción pre-lock en tomadorConfirmarFinal y manualWAConfirmar
+          (re-llamado con debounce reseteado tras decidir).
+       3. Cancelación del reemplazado post-guardado-OK en
+          tomadorConfirmarConEntrega y manualWAGuardar (fire-and-forget,
+          con toast de éxito/fallo).
+     REQUIERE: Apps Script v25.43.0 deployado (barrido al cerrar viaje +
+     cancelación de entregas en cambiarEstado). Sin v25.43.0 el reemplazo
+     cancela el pedido pero la entrega vieja queda colgada igual.
+     ──────────────────────────────────────────────────────────────────
+     TCK VENTAS — v14.53.0 — 10/06/2026 (versión anterior)
      ──────────────────────────────────────────────────────────────────────
      CIERRE DE VENTA EN CAMPO — feedback en la espera + salida honesta
 
@@ -27478,6 +27505,9 @@ async function gpsConfirmarCheckin(nombreCliente, localidadCliente, xubioId, xub
       };
       gpsActualizarEstado(_gpsCheckinActivo);
       toast('✅ Check-in: ' + nombreCliente, 'ok');
+      // v14.54.0 PEDIDO VIVO: consulta async (fire-and-forget) de pedidos
+      // Confirmado viejos del cliente. El resultado se usa al confirmar.
+      pedidoVivoDispararChequeo(nombreCliente, _gpsCheckinActivo.xubio_id || '');
       // v14.46.0: el check-in de hoy cuenta como HECHO HOY en Jornada —
       // marcarlo en el cache local sin esperar al próximo fetch a `visitas`.
       try {
@@ -30421,6 +30451,139 @@ function _tomadorFingerprint() {
   } catch (e) { return ''; }
 }
 
+// ═══════════════════════════════════════════════════════════
+// v14.54.0 — PEDIDO VIVO: aviso de pedido Confirmado viejo sin entregar
+// ═══════════════════════════════════════════════════════════
+// Caso real (rendición de Luis, 10/06/2026): Lisandro tomó pedidos de campo
+// el 4-5/06 (Carrizo $165k, Gómez $483k, Casella $499k…), el cliente cambió
+// el pedido y el vendedor lo RE-TOMÓ por WA el 6/06 con otro monto. El nuevo
+// viajó; el viejo quedó Confirmado con su entrega 'pendiente' colgada para
+// siempre en el viaje del chofer. Acá se ataca la causa raíz: al confirmar un
+// pedido para un cliente que YA tiene un pedido Confirmado de días anteriores
+// sin entregar, el vendedor decide en un modal: ¿este lo REEMPLAZA (cancela
+// el viejo, que además anula su presupuesto Xubio y cancela su entrega —
+// Apps Script v25.43.0) o es un pedido ADICIONAL?
+//
+// DISEÑO (lección v14.32.0 — cero red en el camino del guardado): la
+// consulta a pedidos_zona se dispara ASYNC al elegir cliente (check-in GPS /
+// autocomplete de manualWA) y el resultado queda en cache local. Al confirmar
+// solo se mira el cache: si la consulta no terminó, falló, o el cliente no
+// coincide → FAIL-OPEN (guarda normal; este aviso jamás bloquea una venta).
+// Solo mira pedidos Confirmado de DÍAS ANTERIORES: los del mismo día ya los
+// cubren el fingerprint client-side y el anti-dup server (v25.42.0).
+var _pedidoVivoCache = { cliente: '', pedidos: [] };
+window._pedidoVivoDecidido   = false;  // true cuando el vendedor ya eligió para este cliente
+window._pedidoVivoReemplazar = null;   // pedidoId viejo a cancelar después del guardado OK
+
+function pedidoVivoDispararChequeo(nombreCliente, xubioId) {
+  window._pedidoVivoDecidido   = false;
+  window._pedidoVivoReemplazar = null;
+  var n = (nombreCliente || '').trim();
+  _pedidoVivoCache = { cliente: n, pedidos: [] };
+  if (!n) return;
+  (async function() {
+    try {
+      var hoy0 = new Date(); hoy0.setHours(0, 0, 0, 0);
+      var filtroCliente = xubioId
+        ? 'cliente_xubio_id=eq.' + encodeURIComponent(xubioId)
+        : 'cliente=ilike.' + encodeURIComponent(n);
+      var rows = await sbFetch(
+        'pedidos_zona?' + filtroCliente +
+        '&estado=eq.Confirmado' +
+        '&creado_at=lt.' + encodeURIComponent(hoy0.toISOString()) +
+        '&select=pedido_id,total,creado_at,salida_planificada' +
+        '&order=creado_at.desc&limit=3'
+      );
+      // Solo poblar si el cache sigue siendo de este cliente (el vendedor
+      // pudo haber cambiado de cliente mientras la consulta viajaba).
+      if (rows && rows.length && _pedidoVivoCache.cliente === n) {
+        _pedidoVivoCache.pedidos = rows;
+        console.log('[pedidoVivo] ' + n + ': ' + rows.length + ' pedido(s) Confirmado sin entregar de días anteriores');
+      }
+    } catch (e) {
+      console.warn('[pedidoVivo] consulta falló (fail-open, no bloquea):', e);
+    }
+  })();
+}
+
+// Devuelve el pedido vivo más reciente si hay uno pendiente de decisión
+// para ESTE cliente; null en cualquier otro caso (fail-open).
+function pedidoVivoPendiente(nombreCliente) {
+  if (window._pedidoVivoDecidido) return null;
+  var n = (nombreCliente || '').trim();
+  if (!n || _pedidoVivoCache.cliente !== n) return null;
+  if (!_pedidoVivoCache.pedidos.length) return null;
+  return _pedidoVivoCache.pedidos[0];
+}
+
+// Modal de decisión. onContinuar() se llama solo si el vendedor eligió
+// REEMPLAZA o ADICIONAL (con _pedidoVivoDecidido ya seteado). Volver cierra.
+function pedidoVivoModalAbrir(pv, nombreCliente, onContinuar) {
+  var viejo = document.getElementById('pedido-vivo-overlay');
+  if (viejo) viejo.remove();
+  var fechaStr = '';
+  try { fechaStr = new Date(pv.creado_at).toLocaleDateString('es-AR'); } catch (e) {}
+  var totalStr = '$' + (Number(pv.total) || 0).toLocaleString('es-AR');
+  var ov = document.createElement('div');
+  ov.id = 'pedido-vivo-overlay';
+  ov.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,.82);z-index:100000;display:flex;align-items:center;justify-content:center;padding:18px;';
+  ov.innerHTML =
+    '<div style="background:#1a1a2e;border:1px solid rgba(255,180,60,.4);border-radius:16px;padding:20px 16px;max-width:420px;width:100%;">' +
+      '<div style="font-size:17px;font-weight:800;color:#ffb43c;margin-bottom:10px;">⚠️ PEDIDO ANTERIOR SIN ENTREGAR</div>' +
+      '<div style="font-size:14px;line-height:1.45;color:#e8e8f0;margin-bottom:6px;"><b>' + nombreCliente + '</b> ya tiene un pedido confirmado que todavía no se entregó:</div>' +
+      '<div style="font-size:13px;color:#9ad1ff;background:rgba(80,140,255,.12);border-radius:10px;padding:10px 12px;margin-bottom:14px;">' +
+        pv.pedido_id + '<br>' + (fechaStr ? fechaStr + ' · ' : '') + '<b>' + totalStr + '</b>' +
+      '</div>' +
+      '<div style="font-size:14px;color:#e8e8f0;margin-bottom:12px;">¿Qué hacemos con el anterior?</div>' +
+      '<button id="pv-btn-reemplaza" style="display:block;width:100%;padding:14px;margin-bottom:10px;border:none;border-radius:12px;background:#c0392b;color:#fff;font-size:15px;font-weight:800;">🔄 ESTE LO REEMPLAZA<br><span style="font-weight:500;font-size:12px;opacity:.85;">se cancela el anterior al guardar este</span></button>' +
+      '<button id="pv-btn-adicional" style="display:block;width:100%;padding:14px;margin-bottom:10px;border:none;border-radius:12px;background:#1f6f43;color:#fff;font-size:15px;font-weight:800;">➕ ES UN PEDIDO MÁS<br><span style="font-weight:500;font-size:12px;opacity:.85;">quedan los dos vigentes</span></button>' +
+      '<button id="pv-btn-volver" style="display:block;width:100%;padding:12px;border:1px solid rgba(255,255,255,.25);border-radius:12px;background:transparent;color:#cfcfe0;font-size:14px;font-weight:600;">← Volver</button>' +
+    '</div>';
+  document.body.appendChild(ov);
+  document.getElementById('pv-btn-reemplaza').onclick = function() {
+    window._pedidoVivoDecidido   = true;
+    window._pedidoVivoReemplazar = pv.pedido_id;
+    ov.remove();
+    onContinuar();
+  };
+  document.getElementById('pv-btn-adicional').onclick = function() {
+    window._pedidoVivoDecidido   = true;
+    window._pedidoVivoReemplazar = null;
+    ov.remove();
+    onContinuar();
+  };
+  document.getElementById('pv-btn-volver').onclick = function() {
+    ov.remove(); // sin decidir: el modal vuelve a aparecer en el próximo confirmar
+  };
+}
+
+// Cancela el pedido reemplazado vía Apps Script cambiarEstado (que anula el
+// presupuesto Xubio si tiene y, desde v25.43.0, cancela su entrega también).
+// Fire-and-forget post-guardado: nunca frena el flujo del pedido nuevo.
+function pedidoVivoCancelarViejo(pedidoIdViejo, pedidoIdNuevo) {
+  (async function() {
+    try {
+      var params = new URLSearchParams({
+        accion:   'cambiarEstado',
+        pedidoId: pedidoIdViejo,
+        fila:     '0',
+        estado:   'Cancelado',
+        motivo:   '🔄 Reemplazado por ' + pedidoIdNuevo
+      });
+      var r = await appsScriptFetch(params, { timeout: 30000 });
+      if (r && r.data && r.data.status === 'error') {
+        console.error('[pedidoVivo] cambiarEstado error:', r.data);
+        toast('⚠️ El pedido nuevo se guardó, pero NO se pudo cancelar el anterior\n(' + pedidoIdViejo + '). Avisá a Francisco para cancelarlo a mano.', 'warn');
+        return;
+      }
+      toast('🔄 Pedido anterior cancelado (reemplazado)\n' + pedidoIdViejo, 'ok');
+    } catch (e) {
+      console.error('[pedidoVivo] cancelar viejo falló:', e);
+      toast('⚠️ El pedido nuevo se guardó, pero NO se pudo cancelar el anterior\n(' + pedidoIdViejo + '). Avisá a Francisco.', 'warn');
+    }
+  })();
+}
+
 async function tomadorConfirmarFinal() {
   // v14.17.1 ANTI-DOBLE-TAP: debounce de 1800ms (primera barrera).
   var _ahoraTap = Date.now();
@@ -30456,6 +30619,21 @@ async function tomadorConfirmarFinal() {
     var _segFp = Math.round((Date.now() - _fpUlt.ts) / 1000);
     console.warn('[ANTI-DUP fingerprint] re-envío idéntico bloqueado (' + _segFp + 's, id ' + _fpUlt.pedidoId + ')');
     toast('⚠️ Este pedido ya se registró hace ' + _segFp + 's.\nID: ' + _fpUlt.pedidoId + '\nNo se duplicó. Para cargar otro igual, esperá unos minutos.', 'warn');
+    return;
+  }
+
+  // ── v14.54.0 PEDIDO VIVO — antes del lock, sin red (mira solo el cache) ─
+  // Si el cliente tiene un pedido Confirmado de días anteriores sin entregar
+  // y el vendedor todavía no decidió, modal REEMPLAZA / ADICIONAL / Volver.
+  // El callback re-llama tomadorConfirmarFinal() con la decisión tomada
+  // (reseteando el debounce para que el re-llamado inmediato no se ignore).
+  var _pvCliente = _gpsCheckinActivo ? _gpsCheckinActivo.nombre_cliente : '';
+  var _pvPend = pedidoVivoPendiente(_pvCliente);
+  if (_pvPend) {
+    pedidoVivoModalAbrir(_pvPend, _pvCliente, function() {
+      window._tomadorUltimoTap = 0;
+      tomadorConfirmarFinal();
+    });
     return;
   }
 
@@ -30901,6 +31079,14 @@ async function tomadorConfirmarConEntrega(entregaData) {
       total:                total,
       fingerprint:          _tomadorFingerprint()
     });
+
+    // v14.54.0 PEDIDO VIVO: el vendedor eligió REEMPLAZA → cancelar el pedido
+    // viejo ahora que el nuevo quedó guardado OK (fire-and-forget; si falla,
+    // toast con aviso para resolverlo a mano — el nuevo nunca se pierde).
+    if (window._pedidoVivoReemplazar) {
+      pedidoVivoCancelarViejo(window._pedidoVivoReemplazar, pedidoId);
+      window._pedidoVivoReemplazar = null;
+    }
 
     // v9.2: Descontar stock de combos en Supabase (fire-and-forget)
     if (combosAplicados.length > 0) {
@@ -35896,6 +36082,10 @@ function manualWAElegirCliente(nombre, localidad) {
   _manualWACliente = nombre;
   _manualWALocalidad = locInp && locInp.value ? locInp.value : '';
 
+  // v14.54.0 PEDIDO VIVO: consulta async al elegir cliente del autocomplete.
+  // Sin xubio_id acá → match por nombre (mismo string del maestro).
+  pedidoVivoDispararChequeo(nombre, '');
+
   // v14.15.2: removido canalClienteChequearYAbrir opcional al elegir cliente.
   // El modal de canal aparece SOLO en manualWAConfirmar (obligatorio).
   // Razón: si el vendedor se equivocó de cliente del autocomplete, abrir modal
@@ -36120,6 +36310,18 @@ function manualWAConfirmar() {
   // v14.17.2 ANTI-DUP: chequear lock ANTES de cualquier acción.
   if (window._mwaEnviando) {
     console.warn('[ANTI-DUP] manualWAConfirmar bloqueado por lock activo');
+    return;
+  }
+
+  // ── v14.54.0 PEDIDO VIVO — antes del lock, sin red (mira solo el cache) ─
+  var _pvInpWA = document.getElementById('manual-wa-cliente-input');
+  var _pvClienteWA = _pvInpWA ? _pvInpWA.value.trim() : '';
+  var _pvPendWA = pedidoVivoPendiente(_pvClienteWA);
+  if (_pvPendWA) {
+    pedidoVivoModalAbrir(_pvPendWA, _pvClienteWA, function() {
+      window._mwaUltimoTap = 0;
+      manualWAConfirmar();
+    });
     return;
   }
 
@@ -36388,6 +36590,12 @@ async function manualWAGuardar(cliente, localidad, entrega, sucursal) {
     console.error('[F9 manualWAGuardar] Error fetch:', errFetch);
     toast('❌ Error de conexión — el pedido no se guardó', 'err');
     return;
+  }
+
+  // v14.54.0 PEDIDO VIVO: REEMPLAZA → cancelar el pedido viejo (ver tomador).
+  if (window._pedidoVivoReemplazar) {
+    pedidoVivoCancelarViejo(window._pedidoVivoReemplazar, pedidoId);
+    window._pedidoVivoReemplazar = null;
   }
 
   // v9.2: Descontar stock de combos en Supabase
