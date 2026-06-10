@@ -2,6 +2,52 @@
 <html lang="es">
 <head>
 <!-- ═══════════════════════════════════════════════════════════════════════
+     TCK VENTAS — v14.52.0 — 10/06/2026
+     ──────────────────────────────────────────────────────────────────────
+     PARTICULARES FUERA DEL CIRCUITO DE VISITAS + FIX BAJA POR "CERRÓ"
+
+     PEDIDO (Braian, 10/06, tras feedback de Juan): muchos clientes son
+     particulares (viandas, comida casera) que compran por WhatsApp y no
+     tienen local — no hay que visitarlos, pero igual aparecían como
+     pendientes. Además: dar de baja desde la app a los que ya no existen.
+
+     DECISIONES (confirmadas): botón en la card · baja automática con
+     registro de quién/cuándo · particulares en sección colapsada con WA.
+
+     CAMBIOS:
+       1. CANAL EN LA CARGA: miRondaCargarClientes ahora trae `canal`.
+          El sistema de canalización (13 rubros, incluido
+          cliente_particular) existía desde v14.13 pero Mi Ruta/Mi Ronda/
+          Cobertura NO lo leían: 65 particulares ya marcados aparecían
+          como visitas pendientes.
+       2. EXCLUSIÓN TOTAL de canal='cliente_particular' (helper
+          jor2EsParticular) en: Plan de Hoy (conteos por ciudad), lista de
+          ciudad, Maps del día y de ciudad, pines del mapa Leaflet,
+          Cobertura de viaje (mrCobClientesScope cubre home + detalle) y
+          Mi Ronda (mrClientesPropios → KPIs, targets, VIP set y BADGE del
+          tab — el "80" de Juan baja solo). Las ventas de particulares
+          siguen contando normal en Pedidos / Mi día / Reportes.
+       3. BOTÓN 🏠 EN LA CARD (jor2RenderCliCard): marca al cliente como
+          particular SIN check-in. Confirm → PATCH canal +
+          canal_asignado_por/at con verificación anti-RLS (patrón
+          jor2DiasGuardar: return=representation + validar fila).
+       4. SECCIÓN "🏠 PARTICULARES — POR WA (N)" colapsada al pie de la
+          vista ciudad: nombre + últ. compra + botón WA + botón ↩ revertir
+          (vuelve a visitas; el rubro se re-pide en el próximo pedido).
+       5. FIX BAJA POR "CERRÓ DEFINITIVAMENTE": mrSupabaseArchivarCliente
+          filtraba por `id` (bigint) pasándole un TCKxxxx (text) →
+          PostgREST 400 silencioso y el cliente NUNCA se archivaba. Ahora:
+          cliente_id + columnas de auditoría ya existentes
+          (cerrado_definitivamente/cerrado_por/cerrado_at/motivo_cierre) +
+          verificación de escritura + feedback de error si falla.
+
+     NO SE TOCÓ: tomador, Xubio, checkout, anti-dup, zonificación,
+     canalización al confirmar pedido (sigue igual).
+
+     PENDIENTE RELACIONADO (tck-admin): la vista equipo de Mi Ronda en
+     admin todavía cuenta particulares en sus KPIs — patch aparte.
+     ═══════════════════════════════════════════════════════════════════ -->
+<!-- ═══════════════════════════════════════════════════════════════════════
      TCK VENTAS — v14.51.0 — 09/06/2026
      ──────────────────────────────────────────────────────────────────────
      MI RONDA → COBERTURA DE VIAJE
@@ -12492,6 +12538,17 @@ body {
 .jor2-cb-wa { background:#e6f7eb; color:#1f8a3b; }
 .jor2-cb-off { opacity:.35; }
 .jor2-cb-ci { background:#FFD400; color:#5a4500; flex:1.6; }
+.jor2-cb-part { flex:0 0 auto; min-width:44px; max-width:48px; background:#FFF3E0; color:#B25B00;
+  border:1.5px solid #FFD9A8; font-size:15px; }
+/* v14.52.0 — Particulares (compran por WA, no se visitan) */
+.jor2-part-row { display:flex; align-items:center; gap:8px; background:#fff;
+  border:1.5px dashed var(--cream3,#E8DCC8); border-radius:13px; padding:9px 11px; margin-bottom:7px; }
+.jor2-part-info { flex:1; min-width:0; }
+.jor2-part-nom { font-family:'Barlow Condensed',sans-serif; font-size:14.5px; font-weight:800;
+  color:var(--text,#2b2118); white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+.jor2-part-sub { font-size:11px; color:var(--text3,#9a8d7c); }
+.jor2-part-btn { flex:0 0 auto; padding:8px 11px; }
+.jor2-part-rev { background:#F3EEE6; color:#7a6a55; border:1.5px solid var(--cream3,#E8DCC8); min-width:40px; }
 
 /* Visita activa */
 .jor2-vh { background:linear-gradient(135deg,#0d47a1,#1565c0); border-radius:16px; color:#fff;
@@ -16083,7 +16140,7 @@ body {
       <button class="mr-motivo-btn danger" onclick="mrMotivoElegir('cerro')">
         <span class="mr-motivo-btn-icon">❌</span>
         <span class="mr-motivo-btn-txt">Cerró definitivamente
-          <div class="mr-motivo-btn-desc">No aparecerá más en Mi Ronda</div>
+          <div class="mr-motivo-btn-desc">Se da de baja — no aparece más para visitar</div>
         </span>
       </button>
     </div>
@@ -39174,7 +39231,7 @@ async function miRondaCargarClientes(force) {
     while (true) {
       var path = 'clientes_activos?' +
         'activo_en_ronda=eq.true' +
-        '&select=cliente_id,nombre,telefono,localidad,direccion,vendedor,ruta_viaje,ritmo,ultimo_pedido,dias_desde_ult_pedido,frec_dias_prom,notas,tipo_a,facturacion_90d,xubio_id,cuit_dni,dias_visita' +
+        '&select=cliente_id,nombre,telefono,localidad,direccion,vendedor,ruta_viaje,ritmo,ultimo_pedido,dias_desde_ult_pedido,frec_dias_prom,notas,tipo_a,facturacion_90d,xubio_id,cuit_dni,dias_visita,canal' +
         '&order=cliente_id.asc' +
         '&limit=' + _PAGE + '&offset=' + _off;
       var pagina = await sbFetch(path);
@@ -39248,11 +39305,79 @@ async function miRondaCargarClientes(force) {
 // verdes (cubiertos) vs grises (pendientes) en la ventana de preparación.
 // v14.49.0: Mi Ronda sigue siendo POR VENDEDOR. Con la carga total,
 // este helper devuelve solo los clientes de la cartera propia.
+// ═══ v14.52.0 — PARTICULARES (canal = 'cliente_particular') ═════════
+// Un particular no tiene local: compra por WhatsApp. No se lo visita,
+// no cuenta en pendientes/objetivos/cobertura/badge. Sus ventas siguen
+// contando normal en Pedidos / Mi día / Reportes.
+function jor2EsParticular(c) {
+  return !!c && c.canal === 'cliente_particular';
+}
+
+var _jor2PartAbierto = false;
+function jor2TogglePart(btn) {
+  _jor2PartAbierto = !_jor2PartAbierto;
+  var w = document.getElementById('jor2-part');
+  if (w) w.style.display = _jor2PartAbierto ? 'block' : 'none';
+  if (btn) btn.textContent = (_jor2PartAbierto ? '−' : '+') + btn.textContent.slice(1);
+}
+
+// PATCH compartido con verificación anti-RLS (mismo patrón que
+// jor2DiasGuardar v14.50: Prefer return=representation + validar fila).
+async function _jor2ParticularPatch(cid, esParticular) {
+  var resp = await sbFetch('clientes_activos?cliente_id=eq.' + encodeURIComponent(cid), {
+    method: 'PATCH',
+    body: JSON.stringify({
+      canal: esParticular ? 'cliente_particular' : null,
+      canal_asignado_por: mrNormVendedor(vendedorActual),
+      canal_asignado_at: new Date().toISOString()
+    }),
+    prefer: 'return=representation'
+  });
+  var fila = Array.isArray(resp) ? resp[0] : null;
+  var ok = fila && (esParticular ? fila.canal === 'cliente_particular' : fila.canal == null);
+  if (!ok) throw new Error('sin permiso de escritura — avisar a Braian');
+  return fila;
+}
+
+async function jor2ParticularMarcar(cidEnc) {
+  var cid = decodeURIComponent(cidEnc || '');
+  var c = jor2ClientePorId(cid);
+  if (!c) { toast('Cliente no encontrado', 'err'); return; }
+  if (!confirm('🏠 ¿Marcar a ' + (c.nombre || '—') + ' como PARTICULAR?\n\nNo aparece más para visitar. Le vendés por WhatsApp cuando te escriba.')) return;
+  try {
+    await _jor2ParticularPatch(cid, true);
+    c.canal = 'cliente_particular';
+    toast('🏠 ' + (c.nombre || 'Cliente') + ' marcado como particular', 'ok');
+    try { jornadaRender(); } catch (e) {}
+    try { if (typeof miRondaRender === 'function') miRondaRender(); } catch (e) {}
+  } catch (e) {
+    console.error('[Particular] marcar:', e);
+    toast('No se pudo guardar: ' + (e.message || 'error de red'), 'err');
+  }
+}
+
+async function jor2ParticularRevertir(cidEnc) {
+  var cid = decodeURIComponent(cidEnc || '');
+  var c = jor2ClientePorId(cid);
+  if (!c) { toast('Cliente no encontrado', 'err'); return; }
+  if (!confirm('↩ ¿' + (c.nombre || '—') + ' vuelve a las visitas?\n\nEl rubro se le vuelve a pedir en el próximo pedido.')) return;
+  try {
+    await _jor2ParticularPatch(cid, false);
+    c.canal = null;
+    toast('↩ ' + (c.nombre || 'Cliente') + ' vuelve a las visitas', 'ok');
+    try { jornadaRender(); } catch (e) {}
+    try { if (typeof miRondaRender === 'function') miRondaRender(); } catch (e) {}
+  } catch (e) {
+    console.error('[Particular] revertir:', e);
+    toast('No se pudo guardar: ' + (e.message || 'error de red'), 'err');
+  }
+}
+
 function mrClientesPropios() {
   var v = mrNormVendedor(vendedorActual);
   if (!v) return [];
   return _miRondaClientes.filter(function(c) {
-    return mrNormVendedor(c.vendedor) === v;
+    return mrNormVendedor(c.vendedor) === v && !jor2EsParticular(c); // v14.52.0
   });
 }
 
@@ -40555,7 +40680,8 @@ function mrMotivoGuardar(motivo, motivoTexto) {
     // Caso especial: CERRÓ → auto-archivar en clientes_activos
     if (motivo === 'cerro') {
       mrSupabaseArchivarCliente(c.cliente_id, function(ok2) {
-        if (ok2) mrFeedback('🗂 Cliente archivado — no vuelve a aparecer');
+        if (ok2) mrFeedback('🗂 Cliente dado de baja — no vuelve a aparecer');
+        else mrFeedback('⚠️ La gestión se guardó pero la BAJA falló — avisar a Braian', true);
       });
     }
 
@@ -40709,11 +40835,29 @@ function mrSupabaseEliminarGestion(clienteId, cb) {
 }
 
 function mrSupabaseArchivarCliente(clienteId, cb) {
-  sbFetch('clientes_activos?id=eq.' + clienteId, {
+  // v14.52.0 FIX: filtraba por `id` (bigint) con un TCKxxxx (text) →
+  // PostgREST 400 silencioso y el archivado NUNCA se ejecutaba. La clave
+  // es `cliente_id`. Además: registra quién/cuándo (columnas de auditoría
+  // ya existentes) y verifica la escritura (anti-RLS-silencioso).
+  sbFetch('clientes_activos?cliente_id=eq.' + encodeURIComponent(clienteId), {
     method: 'PATCH',
-    body: JSON.stringify({ activo_en_ronda: false }),
-    prefer: 'return=minimal'
-  }).then(function() {
+    body: JSON.stringify({
+      activo_en_ronda: false,
+      cerrado_definitivamente: true,
+      cerrado_por: mrNormVendedor(vendedorActual),
+      cerrado_at: new Date().toISOString(),
+      motivo_cierre: 'cerro — gestión de ronda'
+    }),
+    prefer: 'return=representation'
+  }).then(function(resp) {
+    var fila = Array.isArray(resp) ? resp[0] : null;
+    if (!fila || fila.activo_en_ronda !== false) {
+      console.error('mrSupabaseArchivarCliente: escritura no verificada (¿RLS?)', resp);
+      if (cb) cb(false);
+      return;
+    }
+    var c = _miRondaClientes.find(function(x) { return x.cliente_id == clienteId; });
+    if (c) c.activo_en_ronda = false;
     if (cb) cb(true);
   }).catch(function(err) {
     console.error('mrSupabaseArchivarCliente error:', err);
@@ -41827,7 +41971,7 @@ function jor2VolverPlan() { _jor2SelCiudad = null; jor2IrA('plan'); }
 function jor2PendientesDelDia(ctx) {
   var hayPlan = jor2HayPlanSemanal();
   return _miRondaClientes.filter(function(c) {
-    return jor2ClienteTocaHoy(c, hayPlan) && !jor2ClienteCubierto(c, ctx);
+    return !jor2EsParticular(c) && jor2ClienteTocaHoy(c, hayPlan) && !jor2ClienteCubierto(c, ctx);
   });
 }
 
@@ -41840,6 +41984,7 @@ function jor2RenderPlan(ctx) {
 
   var ciudades = {}; // loc → { hoy:[], otros:[] }
   _miRondaClientes.forEach(function(c) {
+    if (jor2EsParticular(c)) return; // v14.52.0: por WA, no se visitan
     var loc = (c.localidad || '').trim();
     if (!loc) return;
     if (!ciudades[loc]) ciudades[loc] = { hoy: [], otros: [] };
@@ -42026,10 +42171,13 @@ function jor2RenderCiudad(ctx) {
   var clientesCiudad = _miRondaClientes.filter(function(c) {
     return (c.localidad || '').trim() === loc;
   });
-  jor2PintarStats(clientesCiudad, ctx);
+  // v14.52.0: particulares fuera del circuito de visitas (sección propia)
+  var particulares = clientesCiudad.filter(jor2EsParticular);
+  var clientesGestion = clientesCiudad.filter(function(c) { return !jor2EsParticular(c); });
+  jor2PintarStats(clientesGestion, ctx);
 
   var delPlan = [], fueraPlan = [], cubiertos = [];
-  clientesCiudad.forEach(function(c) {
+  clientesGestion.forEach(function(c) {
     c._jorDist = jornadaDistanciaACliente(c);
     if (jor2ClienteCubierto(c, ctx)) { cubiertos.push(c); return; }
     if (jor2ClienteTocaHoy(c, hayPlan)) delPlan.push(c);
@@ -42055,9 +42203,9 @@ function jor2RenderCiudad(ctx) {
   }
 
   // v14.49.0: mapa real de la ciudad (Leaflet) con todos los puntos de venta
-  var conCoordsCiudad = clientesCiudad.filter(function(c) { return c._coords; }).length;
+  var conCoordsCiudad = clientesGestion.filter(function(c) { return c._coords; }).length;
   html += '<button class="jor2-btn-mapa" onclick="jor2MapaAbrir()">📍 VER MAPA DE ' + escapeHtml(loc.toUpperCase())
-    + '<small>' + conCoordsCiudad + ' de ' + clientesCiudad.length + ' puntos con ubicación</small></button>';
+    + '<small>' + conCoordsCiudad + ' de ' + clientesGestion.length + ' puntos con ubicación</small></button>';
 
   if (pendTotal === 0) {
     html += '<div class="jor-empty"><div class="jor-empty-icon">🎉</div>'
@@ -42081,6 +42229,28 @@ function jor2RenderCiudad(ctx) {
       html += '<div class="jor-visitado"><div class="jor-visitado-icon">✓</div>'
         + '<div class="jor-visitado-txt">' + escapeHtml(c.nombre || '—') + ' · ' + escapeHtml(jor2CubLabel(c)) + '</div></div>';
     });
+  }
+
+  // v14.52.0: particulares de la ciudad — solo WA, sin visita
+  if (particulares.length > 0) {
+    particulares.sort(function(a, b) { return (a.nombre || '').localeCompare(b.nombre || ''); });
+    html += '<button class="jor2-toggle" onclick="jor2TogglePart(this)">'
+      + (_jor2PartAbierto ? '−' : '+') + ' 🏠 Particulares — se manejan por WA (' + particulares.length + ')</button>';
+    html += '<div id="jor2-part" style="display:' + (_jor2PartAbierto ? 'block' : 'none') + ';">';
+    particulares.forEach(function(c) {
+      var telP = (c.telefono || '').toString().replace(/\D/g, '');
+      var cidP = encodeURIComponent(c.cliente_id || '');
+      var nomP = encodeURIComponent(c.nombre || '');
+      html += '<div class="jor2-part-row">'
+        + '<div class="jor2-part-info"><div class="jor2-part-nom">' + escapeHtml(c.nombre || '—') + '</div>'
+        + '<div class="jor2-part-sub">' + (c.dias_desde_ult_pedido != null ? 'últ. ' + c.dias_desde_ult_pedido + 'd' : 'sin compras recientes') + '</div></div>'
+        + (telP.length >= 8
+          ? '<button class="jor2-cb jor2-cb-wa jor2-part-btn" onclick="miRondaAbrirWa(\'' + telP + '\', &quot;' + nomP + '&quot;)">💬 WA</button>'
+          : '<button class="jor2-cb jor2-cb-wa jor2-cb-off jor2-part-btn">💬 WA</button>')
+        + '<button class="jor2-cb jor2-part-btn jor2-part-rev" onclick="jor2ParticularRevertir(&quot;' + cidP + '&quot;)" title="Volver a visitas">↩</button>'
+        + '</div>';
+    });
+    html += '</div>';
   }
 
   body.innerHTML = html;
@@ -42130,6 +42300,7 @@ function jor2RenderCliCard(c, orden, destacado) {
         ? '<button class="jor2-cb jor2-cb-wa" onclick="miRondaAbrirWa(\'' + tel + '\', &quot;' + nomEnc + '&quot;)">💬 WA</button>'
         : '<button class="jor2-cb jor2-cb-wa jor2-cb-off">💬 WA</button>')
     +   '<button class="jor2-cb jor2-cb-ci" onclick="jor2CheckIn(&quot;' + cidEnc + '&quot;)">📍 CHECK-IN</button>'
+    +   '<button class="jor2-cb jor2-cb-part" onclick="jor2ParticularMarcar(&quot;' + cidEnc + '&quot;)" title="Es particular — compra por WA">🏠</button>'
     + '</div>'
     + '</div>';
 }
@@ -42504,7 +42675,7 @@ function jor2MapaRender() {
   if (!cont) return;
   var ctx = jor2Ctx();
   var clientes = _miRondaClientes.filter(function(c) {
-    return (c.localidad || '').trim() === _jor2SelCiudad;
+    return (c.localidad || '').trim() === _jor2SelCiudad && !jor2EsParticular(c); // v14.52.0
   });
 
   // Numerar pendientes según la ruta optimizada (mismo orden que Maps)
@@ -42620,8 +42791,9 @@ var MRCOB_DIAS = [
 
 function mrCobClientesScope() {
   // Todos los activos menos MOSTRADOR (vienen al local, no se gestionan)
+  // v14.52.0: particulares tampoco — compran por WA, no se visitan
   return _miRondaClientes.filter(function(c) {
-    return mrNormVendedor(c.vendedor) !== 'MOSTRADOR';
+    return mrNormVendedor(c.vendedor) !== 'MOSTRADOR' && !jor2EsParticular(c);
   });
 }
 
