@@ -2,6 +2,52 @@
 <html lang="es">
 <head>
 <!-- ═══════════════════════════════════════════════════════════════════════
+     TCK VENTAS — v14.50.0 — 09/06/2026
+     ──────────────────────────────────────────────────────────────────────
+     BLINDAJE TRENQUE LAUQUEN — reintentos, días editables, bisemanales
+
+     PEDIDO (Braian, 09/06): (1) que Juan pueda marcar qué clientes
+     visitar más de una vez por semana y qué días; (2) ¿"local cerrado"
+     cuenta como visita o se reintenta?; (3) blindar el sistema de TL
+     para no perder ventas.
+
+     DECISIONES + CAMBIOS:
+       1. CERRADO/AUSENTE = REINTENTO, NO COBERTURA. Las gestiones con
+          motivo 'no_atiende' ("Local cerrado" / "Cliente ausente" del
+          checkout de campo) cubren SOLO el día en que se hicieron. Al día
+          siguiente el cliente REAPARECE pendiente con badge
+          "🚪 Local cerrado ayer — reintentar". Los motivos definitivos
+          (tiene mercadería, más barato, ya compró, pide pasar después,
+          cerró definitivamente, otro) siguen cubriendo la ronda como
+          siempre. Implementación: jor2GestionCubre() +
+          JOR2_MOTIVOS_REINTENTO; _miRondaGestiones y _jornadaGestionesHoy
+          ahora cargan motivo/created_at (el mapa de hoy pasó de boolean a
+          {motivo} — jornadaClienteHechoHoy usa truthy, compatible).
+       2. EDITOR DE DÍAS DE VISITA en la Visita Activa: card "📅 DÍAS DE
+          VISITA" con chips L M X J V S tocables — el vendedor lo acuerda
+          con el cliente en el local y guarda (1, 2 o más días). Escribe
+          dias_visita / dias_visita_por / dias_visita_at en
+          clientes_activos vía PATCH (mismo mecanismo que las notas), con
+          verificación anti-RLS-silencioso (Prefer: return=representation;
+          si vuelve vacío avisa "sin permiso — avisar a Braian" y NO
+          confirma). Hint automático: si el cliente compra cada ≤4 días y
+          tiene 1 solo día marcado, sugiere marcarle 2.
+       3. BISEMANALES: en rutas locales (TRENQUE / SIN_RUTA) la cobertura
+          por venta EXPIRA según la frecuencia del cliente:
+          vida = clamp(round(frec*0.7), 2..7) días. El que compra cada ~3
+          días y compró el lunes REAPARECE el jueves para su 2ª visita.
+          Sin dato de frecuencia: semana completa (como antes). Rutas de
+          camión: sin cambios (un pedido cubre el viaje, correcto).
+          Implementación: jor2VentaVigente() + jor2PedidosVentanaSets
+          ahora guarda {fecha, vendedor, total} del pedido más reciente
+          por cliente (antes solo true) — de paso jor2ClienteCubierto ya
+          no escanea pedidos por cliente y el label de cubierto muestra
+          quién/cuánto sin costo extra.
+
+     NO SE TOCÓ: tomador, Xubio, checkout, Mi Ronda (transformación a
+     "Cobertura de viaje" viene en v14.51), mapa, zonificación.
+     ═══════════════════════════════════════════════════════════════════ -->
+<!-- ═══════════════════════════════════════════════════════════════════════
      TCK VENTAS — v14.49.0 — 09/06/2026
      ──────────────────────────────────────────────────────────────────────
      MI RUTA PARA TODOS — Miguel a campo, visibilidad total y mapa de ciudad
@@ -12488,6 +12534,24 @@ body {
 .jor2-pop-b { display:flex; gap:6px; margin-top:8px; }
 .jor2-pop-b .jor2-cb { padding:8px 0; font-size:11px; }
 /* ═══ fin v14.49.0 CSS ═══════════════════════════════════════════ */
+
+/* ═══ v14.50.0 — blindaje TL: reintento + editor de días ═════════ */
+.jor2-reintento { display:inline-block; background:#fff3e0; border:1px solid #ffb74d;
+  color:#b45f00; font-size:10.5px; font-weight:800; border-radius:7px;
+  padding:2.5px 8px; margin-top:4px; }
+.jor2-dias-chips { display:flex; gap:7px; margin-top:6px; }
+.jor2-dia-chip { flex:1; aspect-ratio:1; min-width:0; border:1.5px solid var(--cream3,#E8DCC8);
+  background:#fff; border-radius:10px; font-family:'Barlow Condensed',sans-serif;
+  font-size:15px; font-weight:900; color:var(--text3,#9a8d7c); cursor:pointer;
+  touch-action:manipulation; padding:8px 0; }
+.jor2-dia-chip.on { background:#0d47a1; border-color:#0d47a1; color:#fff; }
+.jor2-dias-hint { background:#FFF8E1; border-radius:8px; padding:7px 10px;
+  font-size:11px; color:#6D4C2D; font-weight:700; margin-top:8px; }
+.jor2-dias-guardar { display:block; width:100%; margin-top:9px; padding:11px;
+  background:linear-gradient(135deg,#0d47a1,#1565c0); color:#fff; border:none;
+  border-radius:10px; font-family:'Barlow Condensed',sans-serif; font-size:14px;
+  font-weight:900; cursor:pointer; touch-action:manipulation; }
+/* ═══ fin v14.50.0 CSS ═══════════════════════════════════════════ */
 /* ═══════════════════════════════════════════════════════════════════ */
 
 .mr-wrap { padding: 14px 14px 20px; }
@@ -27811,7 +27875,7 @@ async function _mrSincronizarDesdeCheckout(nombreClienteVisita, motivoCheckout) 
       ruta_key:     rutaKey
     };
     // v14.46.0: la gestión se creó AHORA → cuenta como hecho hoy en Jornada
-    _jornadaGestionesHoy[cliente.cliente_id] = true;
+    _jornadaGestionesHoy[cliente.cliente_id] = { motivo: mapeado.motivo }; // v14.50.0
     // Si Mi Ronda está visible, recalcular para que se refleje
     if (typeof miRondaRecalcularRuta === 'function') {
       try {
@@ -40914,7 +40978,7 @@ function mrSupabaseCargarGestiones(cb) {
       // gestiones que la lógica de rondas dejaba afuera (SIN_RUTA, rutas
       // mal asignadas, etc.).
       if (_jorEsFechaDeHoy(r.created_at)) {
-        _jornadaGestionesHoy[r.cliente_id] = true;
+        _jornadaGestionesHoy[r.cliente_id] = { motivo: r.motivo }; // v14.50.0
       }
       var fechaRondaActual = mrFechaRonda(r.ruta_key);
       if (r.fecha_ronda !== fechaRondaActual) return;
@@ -40924,7 +40988,8 @@ function mrSupabaseCargarGestiones(cb) {
           motivo: r.motivo,
           motivo_texto: r.motivo_texto,
           fecha_ronda: r.fecha_ronda,
-          ruta_key: r.ruta_key
+          ruta_key: r.ruta_key,
+          created_at: r.created_at // v14.50.0: para motivos de reintento
         };
       } else if (r.estado === 'venta') {
         // Marca de venta manual hecha desde el panel
@@ -40944,10 +41009,10 @@ function mrSupabaseCargarGestiones(cb) {
     try {
       var _hoy0 = new Date(); _hoy0.setHours(0, 0, 0, 0);
       sbFetch('mironda_gestiones?created_at=gte.' + encodeURIComponent(_hoy0.toISOString())
-        + '&select=cliente_id&limit=1000')
+        + '&select=cliente_id,motivo&limit=1000')
         .then(function(rs) {
           var antes = Object.keys(_jornadaGestionesHoy).length;
-          (rs || []).forEach(function(r) { _jornadaGestionesHoy[r.cliente_id] = true; });
+          (rs || []).forEach(function(r) { _jornadaGestionesHoy[r.cliente_id] = { motivo: r.motivo }; });
           if (Object.keys(_jornadaGestionesHoy).length !== antes &&
               typeof _tabActual !== 'undefined' && _tabActual === 'jornada' &&
               typeof jornadaRender === 'function') {
@@ -41278,8 +41343,10 @@ function jor2ClienteTocaHoy(c, hayPlan) {
 }
 
 // ── Cobertura ────────────────────────────────────────────────────
-// Por ruta: Set de nombres normalizados con pedido (no cancelado) de
-// CUALQUIER vendedor dentro de la ventana de la ronda de esa ruta.
+// Por ruta: mapa nombre normalizado → pedido MÁS RECIENTE (no cancelado,
+// de CUALQUIER vendedor) dentro de la ventana de la ronda de esa ruta.
+// v14.50.0: guarda {fecha, vendedor, total} (antes era solo true) para
+// poder aplicar vigencia por frecuencia en rutas locales.
 function jor2PedidosVentanaSets() {
   var sets = {};
   var ventanas = {};
@@ -41292,13 +41359,17 @@ function jor2PedidosVentanaSets() {
     if (!mrPedidoCuenta(p)) return; // excluye Cancelado
     var fp = fechaPedido(p);
     if (!fp || isNaN(fp.getTime())) return;
-    fp = new Date(fp); fp.setHours(12, 0, 0, 0);
+    var fpDia = new Date(fp); fpDia.setHours(12, 0, 0, 0);
     var nom = mrNormNombre(p.cliente);
     if (!nom) return;
     Object.keys(ventanas).forEach(function(rk) {
       var v = ventanas[rk];
       if (!v) return;
-      if (fp >= v.inicio && fp <= v.fin) sets[rk][nom] = true;
+      if (fpDia < v.inicio || fpDia > v.fin) return;
+      var prev = sets[rk][nom];
+      if (!prev || fp > prev.fecha) {
+        sets[rk][nom] = { fecha: fp, vendedor: mrNormVendedor(p.vendedor), total: Number(p.total) || 0 };
+      }
     });
   });
   return sets;
@@ -41311,23 +41382,85 @@ function jor2Ctx() {
   };
 }
 
+// v14.50.0: blindaje TL
+// Motivos que NO cubren la ronda: el cliente reaparece al día siguiente
+// para reintentar la venta (estaba cerrado / no atendía).
+var JOR2_MOTIVOS_REINTENTO = { 'no_atiende': true };
+
+function jor2RutaEsLocal(rk) {
+  var c = MR_RUTAS_CONFIG[rk];
+  return !c || c.diaSalida == null || c.tipo === 'local' || c.tipo === 'mostrador';
+}
+
+// ¿La venta sigue "tapando" al cliente?
+// Rutas de camión: sí durante toda la ventana del viaje (un pedido = ese viaje).
+// Rutas locales (TL): dura según la frecuencia del cliente, así los
+// bisemanales reaparecen para su 2ª visita de la semana.
+function jor2VentaVigente(c, fechaPed) {
+  if (!jor2RutaEsLocal(c.ruta_viaje || 'SIN_RUTA')) return true;
+  var frec = parseFloat(c.frec_dias_prom);
+  if (!frec || frec <= 0) return true; // sin dato: ventana completa, como antes
+  var vida = Math.min(7, Math.max(2, Math.round(frec * 0.7)));
+  var dias = Math.floor((Date.now() - fechaPed.getTime()) / 86400000);
+  return dias < vida;
+}
+
+// ¿La gestión cubre la ronda? Motivos definitivos sí; motivos de
+// reintento (cerrado/ausente) cubren SOLO el día en que se hicieron.
+function jor2GestionCubre(g) {
+  if (!g) return false;
+  if (!JOR2_MOTIVOS_REINTENTO[g.motivo]) return true;
+  return g.created_at ? _jorEsFechaDeHoy(g.created_at) : true;
+}
+
+// Gestión de reintento previa (cerrado/ausente, NO de hoy) → para el badge.
+function jor2GestionReintento(c) {
+  var g = _miRondaGestiones && _miRondaGestiones[c.cliente_id];
+  if (!g || !JOR2_MOTIVOS_REINTENTO[g.motivo]) return null;
+  if (g.created_at && _jorEsFechaDeHoy(g.created_at)) return null;
+  return g;
+}
+
 // ¿Cubierto? Marca el motivo en c._jor2Cub:
 //   'venta' | 'venta_otro' | 'gestion' | 'visita' | null
 function jor2ClienteCubierto(c, ctx) {
   if (!c) return false;
-  if (c._mr_estado === 'verde') { c._jor2Cub = 'venta'; return true; }
-  if (_miRondaGestiones && _miRondaGestiones[c.cliente_id]) { c._jor2Cub = 'gestion'; return true; }
+  var rk = c.ruta_viaje || 'SIN_RUTA';
+  var nom = mrNormNombre(c.nombre);
+  var vendNorm = mrNormVendedor(vendedorActual);
+
+  // 1) Venta dentro de la ventana del viaje (de CUALQUIER vendedor).
+  //    En rutas locales la cobertura expira por frecuencia (v14.50.0).
+  var info = (nom && ctx.ventanaSets[rk] && ctx.ventanaSets[rk][nom]) || null;
+  if (!info && c._mr_estado === 'verde') {
+    // Mi Ronda lo marcó verde (pedido propio) pero quedó fuera del set
+    // (p.ej. ruta sin ventana calculable): respetar el estado.
+    c._jor2Cub = 'venta';
+    return true;
+  }
+  if (info) {
+    if (jor2VentaVigente(c, info.fecha)) {
+      c._jor2VentaInfo = info;
+      c._jor2Cub = (info.vendedor === vendNorm) ? 'venta' : 'venta_otro';
+      return true;
+    }
+    // Venta vencida (bisemanal local): NO cubre — sigue evaluando.
+  }
+
+  // 2) Gestión de la ronda actual (si el motivo cubre)
+  if (jor2GestionCubre(_miRondaGestiones && _miRondaGestiones[c.cliente_id])) {
+    c._jor2Cub = 'gestion';
+    return true;
+  }
+
+  // 3) Hecho HOY: pedido propio hoy ∪ gestión creada hoy (incluye
+  //    cerrado/ausente: cubre el día, mañana reaparece) ∪ check-in de hoy
   if (jornadaClienteHechoHoy(c, ctx.pedidosHoy)) {
     c._jor2Cub = (c._jorHechoHoy === 'pedido') ? 'venta'
                : (c._jorHechoHoy === 'checkin') ? 'visita' : 'gestion';
     return true;
   }
-  var rk = c.ruta_viaje || 'SIN_RUTA';
-  var nom = mrNormNombre(c.nombre);
-  if (nom && ctx.ventanaSets[rk] && ctx.ventanaSets[rk][nom]) {
-    c._jor2Cub = 'venta_otro';
-    return true;
-  }
+
   c._jor2Cub = null;
   return false;
 }
@@ -41335,15 +41468,17 @@ function jor2ClienteCubierto(c, ctx) {
 function jor2CubLabel(c) {
   var g = _miRondaGestiones && _miRondaGestiones[c.cliente_id];
   if (c._jor2Cub === 'venta') {
-    var total = c._mr_total ? '$' + Math.round(Number(c._mr_total) / 1000) + 'k ' : '';
+    var t = (c._jor2VentaInfo && c._jor2VentaInfo.total) || c._mr_total;
+    var total = t ? '$' + Math.round(Number(t) / 1000) + 'k ' : '';
     return '🛒 ' + total + 'Vendido';
   }
   if (c._jor2Cub === 'venta_otro') {
-    var info = jor2PedidoVentanaInfo(c);
-    return '🛒 Ya tiene pedido' + (info && info.vendedor ? ' (' + info.vendedor + ')' : ' para este viaje');
+    var i = c._jor2VentaInfo || jor2PedidoVentanaInfo(c);
+    return '🛒 Ya tiene pedido' + (i && i.vendedor ? ' (' + i.vendedor + ')' : ' para este viaje');
   }
   if (c._jor2Cub === 'gestion') {
-    return g ? ('✕ ' + mrMotivoLabel(g.motivo, g.motivo_texto)) : '✕ Gestionado hoy';
+    var gh = g || (_jornadaGestionesHoy && _jornadaGestionesHoy[c.cliente_id]);
+    return gh && gh.motivo ? ('✕ ' + mrMotivoLabel(gh.motivo, gh.motivo_texto)) : '✕ Gestionado hoy';
   }
   if (c._jor2Cub === 'visita') return '✓ Visitado hoy';
   return '✓ Hecho';
@@ -41887,12 +42022,28 @@ function jor2RenderCliCard(c, orden, destacado) {
   var ult = (c.dias_desde_ult_pedido != null) ? ('últ. ' + c.dias_desde_ult_pedido + 'd') : '';
   var pillAlerta = c._jorRiesgo ? ' jor2-dist-alerta' : '';
 
+  // v14.50.0: estuvo cerrado/ausente en un intento anterior → reintentar
+  var gRe = jor2GestionReintento(c);
+  var reintentoHtml = '';
+  if (gRe) {
+    var cuandoRe = '';
+    try {
+      var d0 = new Date(); d0.setHours(0,0,0,0);
+      var g0 = new Date(gRe.created_at); g0.setHours(0,0,0,0);
+      var dd = Math.round((d0 - g0) / 86400000);
+      cuandoRe = dd === 1 ? 'ayer' : 'hace ' + dd + 'd';
+    } catch (e) {}
+    reintentoHtml = '<div class="jor2-reintento">🚪 ' + escapeHtml(mrMotivoLabel(gRe.motivo, gRe.motivo_texto))
+      + (cuandoRe ? ' ' + cuandoRe : '') + ' — reintentar' + (telOk ? ' (o consultá por WA)' : '') + '</div>';
+  }
+
   return '<div class="jor2-cli' + (destacado ? ' jor2-cli-destacado' : '') + '">'
     + (destacado ? '<div class="jor2-cli-tag">▶ MÁS CERCANO</div>' : '')
     + '<div class="jor2-cli-top">'
     +   '<div class="jor2-cli-info">'
     +     '<div class="jor2-cli-nom"><span class="jor2-orden">' + orden + '</span>' + estrella + escapeHtml(c.nombre || '—') + jor2BadgeCartera(c) + '</div>'
     +     '<div class="jor2-cli-dir">' + escapeHtml(c.direccion || '') + (ult ? (c.direccion ? ' · ' : '') + ult : '') + '</div>'
+    +     reintentoHtml
     +   '</div>'
     +   (distTxt ? '<div class="jor2-cli-dist' + pillAlerta + '">' + escapeHtml(distTxt) + '</div>' : '')
     + '</div>'
@@ -42003,6 +42154,12 @@ function jor2RenderVisita(ctx) {
   // Info del cliente reutilizada (Llamar/WA, alerta días, notas, pedidos)
   html += '<div id="jor2-visita-info"></div>';
 
+  // v14.50.0: editor de días de visita — Juan lo acuerda con el cliente
+  // en el local ("¿qué días te conviene que pase?") y queda guardado.
+  if (c && c.cliente_id) {
+    html += jor2DiasCardHtml(c);
+  }
+
   // Repetir último pedido
   var ultimo = jor2UltimoPedidoDe(nombre);
   if (ultimo && (ultimo.detalle || '').trim()) {
@@ -42044,6 +42201,82 @@ function jor2Vender() {
 function jor2NoCompro() {
   if (!_gpsCheckinActivo) { toast('No hay visita activa', 'err'); return; }
   if (typeof gpsCheckoutConMotivo === 'function') gpsCheckoutConMotivo();
+}
+
+// ── v14.50.0: Editor de días de visita (en la visita activa) ─────
+// Permite marcar 1, 2 o más días por semana por cliente. Escribe
+// dias_visita en clientes_activos (mismo mecanismo que las notas) y el
+// plan del día lo respeta al instante.
+var JOR2_DIAS_EDIT = [
+  { k: 'lunes', l: 'L' }, { k: 'martes', l: 'M' }, { k: 'miercoles', l: 'X' },
+  { k: 'jueves', l: 'J' }, { k: 'viernes', l: 'V' }, { k: 'sabado', l: 'S' }
+];
+var _jor2DiasSel = null;
+var _jor2DiasCid = null;
+
+function jor2DiasCardHtml(c) {
+  _jor2DiasCid = c.cliente_id;
+  _jor2DiasSel = (Array.isArray(c.dias_visita) ? c.dias_visita.slice() : [])
+    .map(function(d) { return jor2NormTexto(d); });
+  var frec = parseFloat(c.frec_dias_prom);
+  var hint = '';
+  if (frec && frec <= 4 && _jor2DiasSel.length < 2) {
+    hint = '<div class="jor2-dias-hint">💡 Compra cada ~' + Math.round(frec) + ' días — conviene marcarle 2 días</div>';
+  }
+  return '<div class="jor2-intel" id="jor2-dias-card">'
+    + '<div class="jor2-intel-t">📅 DÍAS DE VISITA <span id="jor2-dias-estado" style="text-transform:none;color:#1f8a3b;"></span></div>'
+    + '<div class="jor2-dias-chips">' + JOR2_DIAS_EDIT.map(function(d) {
+        var on = _jor2DiasSel.indexOf(d.k) >= 0;
+        return '<button class="jor2-dia-chip' + (on ? ' on' : '') + '" data-dia="' + d.k + '" onclick="jor2DiasToggle(this)">' + d.l + '</button>';
+      }).join('')
+    + '</div>'
+    + hint
+    + '<button class="jor2-dias-guardar" id="jor2-dias-guardar" onclick="jor2DiasGuardar()" style="display:none;">💾 Guardar días</button>'
+    + '</div>';
+}
+
+function jor2DiasToggle(btn) {
+  var d = btn.getAttribute('data-dia');
+  var i = _jor2DiasSel.indexOf(d);
+  if (i >= 0) _jor2DiasSel.splice(i, 1); else _jor2DiasSel.push(d);
+  btn.classList.toggle('on', i < 0);
+  var g = document.getElementById('jor2-dias-guardar');
+  if (g) g.style.display = 'block';
+  var est = document.getElementById('jor2-dias-estado');
+  if (est) est.textContent = '';
+}
+
+async function jor2DiasGuardar() {
+  if (!_jor2DiasCid) return;
+  if (_jor2DiasSel.length === 0) { toast('Marcá al menos un día', 'err'); return; }
+  var btn = document.getElementById('jor2-dias-guardar');
+  if (btn) { btn.disabled = true; btn.textContent = '⏳ Guardando...'; }
+  try {
+    var resp = await sbFetch('clientes_activos?cliente_id=eq.' + encodeURIComponent(_jor2DiasCid), {
+      method: 'PATCH',
+      body: JSON.stringify({
+        dias_visita: _jor2DiasSel,
+        dias_visita_por: mrNormVendedor(vendedorActual),
+        dias_visita_at: new Date().toISOString()
+      }),
+      prefer: 'return=representation'
+    });
+    // RLS sin política de UPDATE devuelve 200 con cuerpo vacío y NO guarda:
+    // verificar que la fila volvió con los días nuevos antes de confirmar.
+    var fila = Array.isArray(resp) ? resp[0] : null;
+    if (!fila || !Array.isArray(fila.dias_visita)) {
+      throw new Error('sin permiso de escritura — avisar a Braian');
+    }
+    var cli = jor2ClientePorId(_jor2DiasCid);
+    if (cli) cli.dias_visita = fila.dias_visita;
+    var est = document.getElementById('jor2-dias-estado');
+    if (est) est.textContent = '✓ guardado';
+    if (btn) { btn.style.display = 'none'; btn.disabled = false; btn.textContent = '💾 Guardar días'; }
+  } catch (e) {
+    console.error('[MiRuta] guardar días:', e);
+    if (btn) { btn.disabled = false; btn.textContent = '💾 Guardar días'; }
+    toast('No se pudo guardar: ' + (e.message || 'error de red'), 'err');
+  }
 }
 
 // ── Repetir último pedido: precarga del tomador ──────────────────
