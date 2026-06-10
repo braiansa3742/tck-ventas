@@ -2,6 +2,57 @@
 <html lang="es">
 <head>
 <!-- ═══════════════════════════════════════════════════════════════════════
+     TCK VENTAS — v14.53.0 — 10/06/2026
+     ──────────────────────────────────────────────────────────────────────
+     CIERRE DE VENTA EN CAMPO — feedback en la espera + salida honesta
+
+     REPORTE (Juan, 10/06): tras vender en la visita "te sigue adentro del
+     check-in y la única forma de salir es poniendo no compró".
+
+     DIAGNÓSTICO (con timestamps de visitas/pedidos_zona/tomador_eventos):
+     el flujo COMPLETO funciona — guardado, calibres, presupuesto Xubio
+     (front, ~18-20s) y checkout automático 4s después del éxito (checkouts
+     motivo null a +5-7s del Confirmado, al segundo). Lo que sufre Juan es
+     la VENTANA de ~20-26s: 14-18s del guardado (waitLock 20s del Apps
+     Script serializa TODOS los guardarPedido) durante los cuales el
+     tomador se cierra y vuelve a la VISITA sin ningún aviso, con un único
+     botón de salida que dice "✕ NO COMPRÓ" (que con _gpsHizoPedido=true
+     ya hacía checkout limpio motivo null — rótulo mentiroso, lógica sana).
+
+     CAMBIOS:
+       1. OVERLAY "GUARDANDO PEDIDO…" durante el guardado:
+          _tomadorMostrarProgreso acepta modo 'guardando' (paso 1 spinner,
+          resto pendiente). Se abre justo antes del await de guardarPedido
+          y se cierra en TODOS los caminos que no siguen a Xubio: duplicate
+          server, _antiDupHit, catch, rama sin xubio_id (modal 6s) y rama
+          sin check-in. La rama Xubio lo re-muestra (mismo id, idempotente).
+       2. VISITA POST-VENTA HONESTA (jor2RenderVisita): con
+          _gpsHizoPedido=true muestra banner "✅ Pedido tomado — generando
+          presupuesto…" y el CTA pasa de "✕ NO COMPRÓ" a "🚪 CERRAR
+          VISITA" (mismo handler jor2NoCompro → checkout directo). El
+          re-render llega vía el wrap de gpsActualizarEstado que el flujo
+          ya dispara al marcar el pedido.
+       3. FIX pedido_campo DUPLICADO en `visitas` (4/4 ventas de hoy, dos
+          inserts idénticos 5-19s aparte = doble corrida de
+          tomadorConfirmarConEntrega; el insert estaba ANTES de las
+          barreras anti-dup): el insert ahora se saltea si _gpsHizoPedido
+          ya es true (un marcador por visita alcanza). Mismo guard en el
+          marcador de manualWA-con-checkin. La causa raíz de la doble
+          invocación sigue abierta (v14.45 la persigue en el guardado).
+       4. gpsCheckoutFinal IDEMPOTENTE: early-return si no hay check-in
+          activo. Evita el checkout huérfano (cliente vacío) cuando el
+          vendedor cierra la visita a mano y el countdown del modal de
+          éxito dispara un segundo checkout.
+
+     PENDIENTES ANOTADOS (no en esta versión):
+       · Calibres en paralelo al guardado usando el carrito local (mata
+         casi toda la espera) — rediseño del orquestador, sesión aparte.
+       · Bajar el waitLock(20s) del Apps Script / lock por clave.
+
+     NO SE TOCÓ: guardado, anti-dup, Xubio, calibres, checkout con motivo,
+     particulares v14.52.0.
+     ═══════════════════════════════════════════════════════════════════ -->
+<!-- ═══════════════════════════════════════════════════════════════════════
      TCK VENTAS — v14.52.0 — 10/06/2026
      ──────────────────────────────────────────────────────────────────────
      PARTICULARES FUERA DEL CIRCUITO DE VISITAS + FIX BAJA POR "CERRÓ"
@@ -12588,6 +12639,14 @@ body {
 .jor2-btn-nocompro { flex:1; padding:14px; background:#fff; color:#b00; border:2px solid #f3c9c9;
   border-radius:12px; font-family:'Barlow Condensed',sans-serif; font-size:14px; font-weight:900;
   cursor:pointer; touch-action:manipulation; }
+/* v14.53.0 — visita con pedido ya tomado */
+.jor2-venta-ok { flex:1.4; display:flex; align-items:center; padding:10px 12px;
+  background:#E8F5E9; color:#1B5E20; border:2px solid #A5D6A7; border-radius:12px;
+  font-family:'Barlow Condensed',sans-serif; font-size:13px; font-weight:800; line-height:1.15; }
+.jor2-btn-cerrarvisita { flex:1; padding:14px; background:linear-gradient(135deg,#1B5E20,#2E7D32);
+  color:#fff; border:none; border-radius:12px; font-family:'Barlow Condensed',sans-serif;
+  font-size:14px; font-weight:900; cursor:pointer; touch-action:manipulation;
+  box-shadow:0 4px 12px rgba(27,94,32,.3); }
 /* ═══ fin Mi Ruta CSS ════════════════════════════════════════════ */
 
 /* ═══ v14.49.0 — visibilidad total + mapa de ciudad ══════════════ */
@@ -24773,9 +24832,36 @@ function _tomadorXubioFinalizar(pedidoId, fila, idHtml, calibres, fechaISO, clie
 }
 
 // Overlay de progreso mientras Xubio trabaja
-function _tomadorMostrarProgreso(clienteNombre) {
+function _tomadorMostrarProgreso(clienteNombre, modo) {
+  // v14.53.0: modo 'guardando' = el pedido todavía viaja al Apps Script
+  // (la espera larga, 14-18s con el lock del server). Sin modo = flujo
+  // Xubio como siempre (pedido y visita ya confirmados).
   var prev = document.getElementById('tomador-xubio-progreso');
   if (prev) prev.remove();
+  var guardando = (modo === 'guardando');
+  function _fila(estado, txtOk, txtPend) {
+    // estado: 'ok' | 'run' | 'pend'
+    if (estado === 'ok') {
+      return '<div style="display:flex;align-items:center;gap:10px;padding:8px 0;">'
+        + '<div style="width:24px;height:24px;background:#2E7D32;border-radius:50%;display:flex;align-items:center;justify-content:center;color:#fff;font-size:13px;font-weight:900;">✓</div>'
+        + '<div style="flex:1;font-size:13px;color:#2E7D32;font-weight:700;">' + txtOk + '</div></div>';
+    }
+    if (estado === 'run') {
+      return '<div style="display:flex;align-items:center;gap:10px;padding:8px 0;">'
+        + '<div style="width:24px;height:24px;background:#1565C0;border-radius:50%;display:flex;align-items:center;justify-content:center;color:#fff;font-size:13px;animation:spin 1s linear infinite;">⏳</div>'
+        + '<div style="flex:1;font-size:13px;color:#1565C0;font-weight:700;">' + (txtPend || txtOk) + '</div></div>';
+    }
+    return '<div style="display:flex;align-items:center;gap:10px;padding:8px 0;opacity:.45;">'
+      + '<div style="width:24px;height:24px;background:#cfc6b8;border-radius:50%;display:flex;align-items:center;justify-content:center;color:#fff;font-size:13px;">·</div>'
+      + '<div style="flex:1;font-size:13px;color:#7a6a55;font-weight:700;">' + (txtPend || txtOk) + '</div></div>';
+  }
+  var filas = guardando
+    ? _fila('run', '', 'Guardando pedido...')
+      + _fila('pend', '', 'Registrando visita')
+      + _fila('pend', '', 'Presupuesto Xubio')
+    : _fila('ok', 'Pedido guardado')
+      + _fila('ok', 'Visita registrada')
+      + _fila('run', '', 'Creando presupuesto Xubio...');
   var modal = document.createElement('div');
   modal.id = 'tomador-xubio-progreso';
   modal.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,.6);z-index:99999;display:flex;align-items:center;justify-content:center;padding:20px;';
@@ -24786,18 +24872,7 @@ function _tomadorMostrarProgreso(clienteNombre) {
     +   '</div>'
     +   '<div style="padding:18px 20px;">'
     +     '<div style="font-size:12px;color:#666;margin-bottom:12px;">' + _escapeHtml(clienteNombre || 'Cliente') + '</div>'
-    +     '<div style="display:flex;align-items:center;gap:10px;padding:8px 0;">'
-    +       '<div style="width:24px;height:24px;background:#2E7D32;border-radius:50%;display:flex;align-items:center;justify-content:center;color:#fff;font-size:13px;font-weight:900;">✓</div>'
-    +       '<div style="flex:1;font-size:13px;color:#2E7D32;font-weight:700;">Pedido guardado</div>'
-    +     '</div>'
-    +     '<div style="display:flex;align-items:center;gap:10px;padding:8px 0;">'
-    +       '<div style="width:24px;height:24px;background:#2E7D32;border-radius:50%;display:flex;align-items:center;justify-content:center;color:#fff;font-size:13px;font-weight:900;">✓</div>'
-    +       '<div style="flex:1;font-size:13px;color:#2E7D32;font-weight:700;">Visita registrada</div>'
-    +     '</div>'
-    +     '<div style="display:flex;align-items:center;gap:10px;padding:8px 0;">'
-    +       '<div style="width:24px;height:24px;background:#1565C0;border-radius:50%;display:flex;align-items:center;justify-content:center;color:#fff;font-size:13px;animation:spin 1s linear infinite;">⏳</div>'
-    +       '<div style="flex:1;font-size:13px;color:#1565C0;font-weight:700;">Creando presupuesto Xubio...</div>'
-    +     '</div>'
+    +     filas
     +   '</div>'
     + '</div>';
   document.body.appendChild(modal);
@@ -27823,6 +27898,10 @@ async function gpsCheckoutConPedidoExterno() {
 async function gpsCheckoutFinal(motivo) {
   var modal = document.getElementById('gps-modal-checkout');
   if (modal) modal.remove();
+  // v14.53.0: idempotente. Si el vendedor ya cerró la visita a mano y el
+  // countdown del modal de éxito dispara un 2do checkout, no hay check-in
+  // → no postear un checkout huérfano (cliente vacío) ni tostar de nuevo.
+  if (!_gpsCheckinActivo) { gpsActualizarEstado(null); return; }
   var cliente = _gpsCheckinActivo ? _gpsCheckinActivo.nombre_cliente : '';
 
   // Actualizar UI inmediatamente sin esperar GPS ni Supabase
@@ -30597,22 +30676,28 @@ async function tomadorConfirmarConEntrega(entregaData) {
   // v14.17.2 FIX BUG 3: setear _gpsHizoPedido DESPUÉS del insert exitoso.
   // Antes se seteaba antes y, si Supabase fallaba, quedaba en true engañoso
   // (el próximo checkout saltaba el modal "¿hubo pedido?" sin razón).
-  try {
-    var vendedorId = await gpsObtenerVendedorId();
-    var detalleStr = lineas.join(' | ');
-    await sbFetch('visitas', {
-      method: 'POST',
-      body: JSON.stringify({
-        vendedor_id:    vendedorId,
-        nombre_cliente: cliente,
-        tipo:           'pedido_campo',
-        observacion:    detalleStr + (compLineas.length ? ' | COMP: ' + compLineas.join(', ') : '')
-      })
-    });
-    // Recién acá marcamos que el check-in tuvo pedido
-    _gpsHizoPedido = true;
-    gpsActualizarEstado(_gpsCheckinActivo);
-  } catch(e) { console.warn('No se pudo guardar pedido campo:', e); }
+  // v14.53.0: si _gpsHizoPedido ya es true, este check-in YA tiene su
+  // marcador pedido_campo — no insertar otro. Mata el evento duplicado
+  // (4/4 ventas del 10/6 con doble insert por la doble corrida de esta
+  // función; el insert estaba antes de las barreras anti-dup).
+  if (!_gpsHizoPedido) {
+    try {
+      var vendedorId = await gpsObtenerVendedorId();
+      var detalleStr = lineas.join(' | ');
+      await sbFetch('visitas', {
+        method: 'POST',
+        body: JSON.stringify({
+          vendedor_id:    vendedorId,
+          nombre_cliente: cliente,
+          tipo:           'pedido_campo',
+          observacion:    detalleStr + (compLineas.length ? ' | COMP: ' + compLineas.join(', ') : '')
+        })
+      });
+      // Recién acá marcamos que el check-in tuvo pedido
+      _gpsHizoPedido = true;
+      gpsActualizarEstado(_gpsCheckinActivo);
+    } catch(e) { console.warn('No se pudo guardar pedido campo:', e); }
+  }
 
   // Registrar pedido en el Sheet (igual que el catálogo)
   try {
@@ -30764,6 +30849,11 @@ async function tomadorConfirmarConEntrega(entregaData) {
     // v14.44.0 ANTI-DUP-SERVER: capturamos la respuesta para detectar el
     // status:'duplicate' que devuelve el Apps Script cuando su anti-dup
     // server-side bloquea el guardado.
+    // v14.53.0: feedback durante la espera larga del guardado (waitLock
+    // 20s del Apps Script). Se cierra en duplicate/_antiDupHit/catch y en
+    // las ramas que no siguen a Xubio; la rama Xubio lo re-muestra.
+    _tomadorMostrarProgreso(cliente, 'guardando');
+
     var _respGuardar = await appsScriptFetch(params, { timeout: 35000 });
 
     // v14.44.0 FIX CRÍTICO — chequeo server-side anti-dup.
@@ -30782,6 +30872,7 @@ async function tomadorConfirmarConEntrega(entregaData) {
       // carrito en los próximos 3 min se bloquearán client-side antes de
       // llegar al server.
       window._tomadorUltimoPedidoFP = { fp: _tomadorFingerprint(), ts: Date.now(), pedidoId: _idExistente };
+      _tomadorCerrarProgreso(); // v14.53.0
       toast('⚠️ Este pedido ya estaba registrado.\nID: ' + _idExistente + '\nNo se duplicó.', 'warn');
       _telemetriaTomadorRegistrar({
         paso:                 'bloqueado_por_server',
@@ -30872,6 +30963,7 @@ async function tomadorConfirmarConEntrega(entregaData) {
     // tomado por check-in hasta el próximo recálculo manual.
     _mrMarcarVendidoDesdeTomador(cliente);
   } catch(e) {
+    _tomadorCerrarProgreso(); // v14.53.0: que la espera no quede colgada
     // v14.23.1: si fue el anti-dup el que lanzó el error, ya mostramos un
     // toast claro arriba ("Este pedido ya se cerró..."). No mostrar otro
     // toast genérico ni loguear como error.
@@ -30922,12 +31014,15 @@ async function tomadorConfirmarConEntrega(entregaData) {
   if (_pedidoGuardadoOK && _gpsCheckinActivo) {
     var tieneXubio = !!(_gpsCheckinActivo.xubio_id && _gpsCheckinActivo.xubio_id !== '');
     if (tieneXubio) {
-      // v14.20.0 flujo nuevo: Xubio directo
+      // v14.20.0 flujo nuevo: Xubio directo (re-muestra el progreso, mismo id)
       _tomadorEjecutarXubio(pedidoId, nuevoPedidoOpt.fila, entregaData, cliente);
     } else {
       // v14.17.3 flujo legacy: modal "checkout en 6s"
+      _tomadorCerrarProgreso(); // v14.53.0
       _gpsMostrarModalCheckoutAuto(cliente);
     }
+  } else {
+    _tomadorCerrarProgreso(); // v14.53.0: sin check-in no hay flujo Xubio acá
   }
   } finally {
     // v14.17.2: usar el helper centralizado que también limpia el timeout
@@ -36326,7 +36421,7 @@ async function manualWAGuardar(cliente, localidad, entrega, sucursal) {
   // pregunte "¿hubo pedido?" (ya sabemos que sí). Si no coincide cliente
   // o no hay check-in, no hace nada (caso típico: cliente que pidió por
   // WhatsApp sin que el vendedor esté presente).
-  if (_gpsCheckinActivo && _gpsCheckinActivo.nombre_cliente === cliente) {
+  if (_gpsCheckinActivo && _gpsCheckinActivo.nombre_cliente === cliente && !_gpsHizoPedido) {
     (async function _marcarPedidoEnCheckin() {
       try {
         var vid = await gpsObtenerVendedorId();
@@ -42428,10 +42523,20 @@ function jor2RenderVisita(ctx) {
     else { clearInterval(_jor2CronoTimer); _jor2CronoTimer = null; }
   }, 30000);
 
-  jor2SetAcciones(
-    '<button class="jor2-btn-nocompro" onclick="jor2NoCompro()">✕ NO COMPRÓ</button>'
-    + '<button class="jor2-btn-vender" onclick="jor2Vender()">📦 VENDER</button>'
-  );
+  // v14.53.0: con pedido ya tomado, la visita lo dice y la salida es honesta.
+  // jor2NoCompro → gpsCheckoutConMotivo, que con _gpsHizoPedido=true hace
+  // checkout directo (motivo null) sin modal de motivos.
+  if (_gpsHizoPedido) {
+    jor2SetAcciones(
+      '<div class="jor2-venta-ok">✅ Pedido tomado — generando presupuesto…</div>'
+      + '<button class="jor2-btn-cerrarvisita" onclick="jor2NoCompro()">🚪 CERRAR VISITA</button>'
+    );
+  } else {
+    jor2SetAcciones(
+      '<button class="jor2-btn-nocompro" onclick="jor2NoCompro()">✕ NO COMPRÓ</button>'
+      + '<button class="jor2-btn-vender" onclick="jor2Vender()">📦 VENDER</button>'
+    );
+  }
 }
 
 function jor2FechaCorta(p) {
