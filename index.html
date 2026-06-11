@@ -161,6 +161,52 @@
      particulares v14.52.0.
      ═══════════════════════════════════════════════════════════════════ -->
 <!-- ═══════════════════════════════════════════════════════════════════════
+     TCK VENTAS — v14.53.0 — 11/06/2026
+     ──────────────────────────────────────────────────────────────────────
+     ROL DEPÓSITO (Pancho) — Bloque A: Recepción de devoluciones
+
+     PEDIDO (Braian, 11/06, charla con Román/Valentina): usuario nuevo para
+     Pancho (encargado de depósito). Problema raíz: las NC en papel se
+     pierden entre venta/administración y el stock no concilia. Solución:
+     triple conformidad digital chofer → depósito → administración.
+
+     CAMBIOS:
+       1. LOGIN: botón "Pancho — Encargado de Depósito" (verde #2E7D32).
+          PIN server-side: alta en app_usuarios con rol 'deposito' (SQL
+          aparte, lo corre Braian — verificar_pin no cambia).
+       2. ROL DEPÓSITO en login()/mostrarTabs(): layout compacto
+          (chofer-mode), sin GPS/tracking/objetivos/pedidos del Sheet.
+          Solo ve el tab nuevo 📦 Depósito (badge = devoluciones por
+          recibir).
+       3. TAB DEPÓSITO (#view-deposito + módulo al pie): lista
+          devoluciones de los últimos 21 días en dos secciones (⏳ Por
+          recibir / ✅ Recibidas). Card expandible: parsea items del texto
+          del chofer ("2x Suprema"), steppers de cantidad RECIBIDA
+          (default = declarada), nota (obligatoria si hay diferencia),
+          botón RECIBIDO EN DEPÓSITO → PATCH devoluciones con
+          return=representation + validación (anti-RLS-silencioso):
+          estado='recibida_deposito', recibida_en/por, recibido_json,
+          recepcion_diferencia, recepcion_nota.
+       4. CHOFER (novedades de entrega): la card de devolución ahora
+          muestra el estado de recepción (✅ conforme / ⚠️ con diferencia
+          + nota / ⏳ pendiente) — comunicación chofer ↔ depósito.
+       5. FIX BONUS: el render de items de devolución en novedades hacía
+          JSON.parse de un texto plano y fallaba SIEMPRE (productos nunca
+          visibles). Ahora parsea el formato real con _depParseItems.
+
+     REQUIERE SQL (Braian, SQL Editor — archivo aparte):
+       · ALTER devoluciones: +recibida_en/por, recibido_json,
+         recepcion_diferencia, recepcion_nota; CHECK de estado ampliado
+         (+recibida_deposito, +nc_emitida).
+       · INSERT app_usuarios ('Pancho', rol 'deposito', PIN bcrypt).
+
+     ESTADOS devoluciones: registrada → recibida_deposito → nc_emitida.
+     ('revisada'/'archivada' siguen válidos por compat, sin uso).
+
+     NO SE TOCÓ: tomador, Xubio, checkout, anti-dup, entregas, viajes,
+     rendiciones, Mi Ruta/Ronda, particulares v14.52.0.
+     ═══════════════════════════════════════════════════════════════════ -->
+<!-- ═══════════════════════════════════════════════════════════════════════
      TCK VENTAS — v14.52.0 — 10/06/2026
      ──────────────────────────────────────────────────────────────────────
      PARTICULARES FUERA DEL CIRCUITO DE VISITAS + FIX BAJA POR "CERRÓ"
@@ -15372,6 +15418,10 @@ body {
         <div class="login-av" style="background:#1565C0;">JP</div>
         <div class="login-btn-name">Juampi<div class="login-btn-role">Chofer / Logística</div></div>
       </button>
+      <button class="login-btn" id="login-btn-pancho" onclick="seleccionarVendedor('Pancho','P','#2E7D32')">
+        <div class="login-av" style="background:#2E7D32;">P</div>
+        <div class="login-btn-name">Pancho<div class="login-btn-role">Encargado de Depósito</div></div>
+      </button>
     </div>
     <script>
       // Filtrar botones de login según el dominio — se ejecuta inmediatamente
@@ -15991,6 +16041,13 @@ body {
   </div>
 
   <!-- ═══ TAB MIS VIAJES (v14.0 - antes "Rendiciones") ═══ -->
+  <!-- ═══ TAB DEPÓSITO (solo Pancho — v14.53.0) ═══ -->
+  <div class="view" id="view-deposito">
+    <div id="dep-root" style="padding:12px 14px 90px;max-width:680px;margin:0 auto;">
+      <div style="text-align:center;padding:40px 16px;color:#9A8F85;font-size:14px;">Cargando devoluciones…</div>
+    </div>
+  </div>
+
   <div class="view" id="view-rendiciones">
     <div class="rend-tab-wrap">
 
@@ -16619,6 +16676,12 @@ body {
   <button class="tab-btn" id="tab-btn-rendiciones" onclick="cambiarTab('rendiciones')" style="display:none !important;">
     <span class="tab-icon">📜</span>
     <span class="tab-label">Mis Viajes</span>
+  </button>
+  <!-- v14.53.0: tab Depósito — solo Pancho (rol deposito) -->
+  <button class="tab-btn" id="tab-btn-deposito" onclick="cambiarTab('deposito')" style="display:none !important;">
+    <span class="tab-badge" id="tab-badge-deposito"></span>
+    <span class="tab-icon">📦</span>
+    <span class="tab-label">Depósito</span>
   </button>
   <button class="tab-btn" id="tab-btn-bot" onclick="cambiarTab('bot')" style="display:none !important;">
     <span class="tab-icon">🤖</span>
@@ -19940,12 +20003,14 @@ function login(nombre) {
   document.getElementById('paso2').style.display = 'none';
   var esAdmin  = nombre === 'ADMIN';
   var esChofer = nombre === 'Joan' || nombre === 'Luis' || nombre === 'Juan Pablo';
+  // v14.53.0: rol Depósito (Pancho) — layout compacto como chofer
+  var esDeposito = nombre === 'Pancho';
 
-  // Para choferes: ocultar bienvenida y agregar clase al panel
+  // Para choferes y depósito: ocultar bienvenida y agregar clase al panel
   const bienvenidaEl = document.querySelector('.bienvenida');
   const panelEl = document.getElementById('panel');
-  if (bienvenidaEl) bienvenidaEl.style.display = esChofer ? 'none' : '';
-  if (panelEl && esChofer) panelEl.classList.add('chofer-mode');
+  if (bienvenidaEl) bienvenidaEl.style.display = (esChofer || esDeposito) ? 'none' : '';
+  if (panelEl && (esChofer || esDeposito)) panelEl.classList.add('chofer-mode');
   else if (panelEl) panelEl.classList.remove('chofer-mode');
 
   document.getElementById('bienvenida-nombre').textContent = esAdmin ? '👑 Administración' : nombre;
@@ -19963,7 +20028,9 @@ function login(nombre) {
       ? 'Administración'
       : esChofer
         ? 'Logística — Ruta del día'
-        : 'Tus pedidos del día';
+        : esDeposito
+          ? 'Depósito — Devoluciones y carga'
+          : 'Tus pedidos del día';
   }
   if (btnSalirHdrEl) btnSalirHdrEl.style.display = 'flex';
 
@@ -19979,10 +20046,12 @@ function login(nombre) {
     ? 'Viendo todos los pedidos del día'
     : esChofer
       ? 'Ruta del día — ' + new Date().toLocaleDateString('es-AR')
-      : 'Tus pedidos de hoy — ' + new Date().toLocaleDateString('es-AR');
+      : esDeposito
+        ? 'Depósito — ' + new Date().toLocaleDateString('es-AR')
+        : 'Tus pedidos de hoy — ' + new Date().toLocaleDateString('es-AR');
   document.getElementById('filtros-vendedor').style.display = esAdmin ? 'flex' : 'none';
   setTimeout(function() {
-    if (!esChofer) {
+    if (!esChofer && !esDeposito) {
       _optimisticCargarLS(); // v14.40.0: recuperar pedidos optimistas persistidos (sobreviven a cerrar/reabrir la app)
       cargarPedidos();
     }
@@ -20004,16 +20073,16 @@ function login(nombre) {
   //   Vendedor real (Miguel/Juan/Lisandro) → Mi Ronda (es el flujo principal)
   //   Admin → Pedidos (resumen del día)
   //   Chofer → Entregas (ya se setea en mostrarTabs)
-  var _esVendedor = (nombre !== 'ADMIN' && !esChofer);
+  var _esVendedor = (nombre !== 'ADMIN' && !esChofer && !esDeposito);
   if (_esVendedor) {
     cambiarTab('mironda');
   }
-  // Iniciar tracking GPS continuo (solo vendedores, no Admin ni Choferes)
-  if (nombre !== 'ADMIN' && !esChofer) trackingIniciar();
+  // Iniciar tracking GPS continuo (solo vendedores, no Admin ni Choferes ni Depósito)
+  if (nombre !== 'ADMIN' && !esChofer && !esDeposito) trackingIniciar();
   // Cargar objetivos (solo vendedores)
-  if (!esChofer) objetivosCargar();
+  if (!esChofer && !esDeposito) objetivosCargar();
   // Restaurar checkin activo si existe (solo vendedores)
-  if (nombre !== 'ADMIN' && !esChofer) {
+  if (nombre !== 'ADMIN' && !esChofer && !esDeposito) {
     // v14.17.3 Cambio 3 (Bug A): cerrar checkins colgados de días anteriores
     // ANTES de cargar el historial. Caso: vendedor cerró la app sin hacer
     // checkout, al día siguiente al loguearse esos checkins quedaban
@@ -22253,7 +22322,7 @@ function cambiarTab(tab) {
 
   // Views — incluye entregas para choferes y mironda para vendedores
   // v14.22.0: agregada tab "jornada" (lista del día por ciudad)
-  ['pedidos','midia','clientes','gps','mapa','reportes','bot','entregas','mironda','jornada','rendiciones'].forEach(function(t) {
+  ['pedidos','midia','clientes','gps','mapa','reportes','bot','entregas','mironda','jornada','rendiciones','deposito'].forEach(function(t) {
     var v = document.getElementById('view-' + t);
     var b = document.getElementById('tab-btn-' + t);
     if (v) v.classList.toggle('active', t === tab);
@@ -22338,6 +22407,14 @@ function cambiarTab(tab) {
     document.body.scrollTop = 0;
   }
 
+  // v14.53.0: tab Depósito (Pancho) — recargar devoluciones al abrir
+  if (tab === 'deposito') {
+    if (typeof depositoRecargar === 'function') depositoRecargar();
+    window.scrollTo(0, 0);
+    document.documentElement.scrollTop = 0;
+    document.body.scrollTop = 0;
+  }
+
   // v14.0: tab Mis Viajes (antes Rendiciones) — cargar todo al abrir
   if (tab === 'rendiciones') {
     if (typeof misViajesRecargar === 'function') {
@@ -22358,7 +22435,30 @@ function mostrarTabs() {
   // v14.49.0: Miguel sale a campo → entra al grupo con Mi Ruta
   var esCampo    = vendedorActual === 'Juan' || vendedorActual === 'Lisandro' || vendedorActual === 'Miguel';
   var esChofer   = vendedorActual === 'Joan' || vendedorActual === 'Luis' || vendedorActual === 'Juan Pablo';
-  var esVendedor = !esAdmin && !esChofer;
+  // v14.53.0: rol Depósito (Pancho) — solo ve su tab
+  var esDeposito = vendedorActual === 'Pancho';
+  var esVendedor = !esAdmin && !esChofer && !esDeposito;
+
+  // Pancho: solo ve tab Depósito
+  if (esDeposito) {
+    ['pedidos','midia','clientes','gps','mapa','bot','reportes','mironda','jornada','mas','entregas','rendiciones'].forEach(function(t) {
+      var btn = document.getElementById('tab-btn-' + t);
+      if (btn) btn.style.display = 'none';
+    });
+    var tabDep = document.getElementById('tab-btn-deposito');
+    if (tabDep) tabDep.style.display = '';
+    cambiarTab('deposito');
+    // Si _tabActual ya era 'deposito' (re-login), cambiarTab hace early-return
+    // y no recarga — forzar recarga acá (idempotente, _depCargando lo protege).
+    if (typeof depositoRecargar === 'function') depositoRecargar();
+    window.scrollTo(0, 0);
+    document.documentElement.scrollTop = 0;
+    document.body.scrollTop = 0;
+    return;
+  }
+  // Tab Depósito — oculto para todos los demás roles
+  var tabDepNo = document.getElementById('tab-btn-deposito');
+  if (tabDepNo) tabDepNo.style.display = 'none';
 
   // Botón cargar pedido por WA — solo vendedores
   var btnWA = document.getElementById('btn-carga-wa');
@@ -33340,7 +33440,9 @@ async function _renderNovedadesGuardadas(e, entregado) {
       if (dev.items) {
         let itemsArr = dev.items;
         if (typeof itemsArr === 'string') {
-          try { itemsArr = JSON.parse(itemsArr); } catch(_) { itemsArr = []; }
+          // v14.53.0 FIX: la tabla guarda texto "2x Suprema, 1x Papa" (no JSON).
+          // El JSON.parse fallaba siempre y los productos NUNCA se mostraban.
+          itemsArr = _depParseItems(itemsArr);
         }
         if (Array.isArray(itemsArr) && itemsArr.length) {
           devHtml += '  <div class="novedad-fila"><span class="novedad-label">Productos:</span></div>';
@@ -33357,6 +33459,17 @@ async function _renderNovedadesGuardadas(e, entregado) {
       if (dev.motivo && String(dev.motivo).trim()) {
         devHtml += '  <div class="novedad-fila"><span class="novedad-label">Detalle:</span> ' +
           _escapeHtmlBasic(dev.motivo) + '</div>';
+      }
+      // v14.53.0: estado de recepción en depósito (comunicación chofer ↔ Pancho)
+      if (dev.estado === 'recibida_deposito' || dev.estado === 'nc_emitida') {
+        var depLbl = dev.recepcion_diferencia
+          ? '⚠️ Recibida en depósito CON DIFERENCIA' + (dev.recepcion_nota ? ' — ' + _escapeHtmlBasic(dev.recepcion_nota) : '')
+          : '✅ Recibida conforme en depósito';
+        if (dev.estado === 'nc_emitida') depLbl += ' · 🧾 NC emitida';
+        devHtml += '  <div class="novedad-fila" style="margin-top:6px;font-weight:800;color:' +
+          (dev.recepcion_diferencia ? '#C62828' : '#2E7D32') + ';">' + depLbl + '</div>';
+      } else {
+        devHtml += '  <div class="novedad-fila" style="margin-top:6px;color:#8A7E72;">⏳ Pendiente de recepción en depósito</div>';
       }
       // Monto devuelto
       if (parseFloat(dev.monto_devuelto) > 0) {
@@ -44278,6 +44391,314 @@ var _miRondaOrigCargarPedidos = null;
     </button>
   </div>
 </div>
+
+
+<!-- ═══════════════════════════════════════════════════════════════════
+     v14.53.0 — MÓDULO DEPÓSITO (rol Pancho) — Recepción de devoluciones
+     ─────────────────────────────────────────────────────────────────
+     Bloque A del rol Depósito. Flujo de estados de `devoluciones`:
+       registrada (chofer) → recibida_deposito (Pancho) → nc_emitida (admin)
+     Pancho confirma ítem por ítem lo que ENTRÓ físicamente al depósito.
+     Si lo recibido difiere de lo declarado por el chofer, queda marcado
+     (recepcion_diferencia=true + nota) y visible para chofer y admin.
+     Escrituras: PATCH a `devoluciones` con Prefer: return=representation
+     + validación de fila devuelta (patrón anti-RLS-silencioso).
+     ═══════════════════════════════════════════════════════════════════ -->
+<style>
+.dep-sec-title { font-family:'Barlow Condensed',sans-serif;font-size:15px;font-weight:900;letter-spacing:.8px;text-transform:uppercase;color:#5C3A1E;margin:18px 2px 10px; }
+.dep-card { background:#fff;border:1.5px solid #E8DFD5;border-radius:14px;margin-bottom:10px;overflow:hidden; }
+.dep-card.dep-pend { border-color:#FFB74D;background:#FFFDF7; }
+.dep-card-hdr { display:flex;align-items:center;gap:10px;padding:12px 14px;cursor:pointer;touch-action:manipulation; }
+.dep-card-info { flex:1;min-width:0; }
+.dep-card-cliente { font-family:'Barlow Condensed',sans-serif;font-size:17px;font-weight:900;color:#2A2018;line-height:1.15; }
+.dep-card-meta { font-size:12px;color:#8A7E72;margin-top:2px; }
+.dep-badge { flex-shrink:0;border-radius:20px;padding:3px 10px;font-size:11px;font-weight:800;white-space:nowrap; }
+.dep-badge-pend { background:#FFF3E0;color:#E65100;border:1.5px solid #FFB74D; }
+.dep-badge-ok { background:#E8F5E9;color:#2E7D32;border:1.5px solid #A5D6A7; }
+.dep-badge-dif { background:#FFEBEE;color:#C62828;border:1.5px solid #EF9A9A; }
+.dep-badge-nc { background:#E3F2FD;color:#1565C0;border:1.5px solid #90CAF9; }
+.dep-card-body { padding:0 14px 14px;border-top:1px dashed #E8DFD5; }
+.dep-motivo { background:#FFF8E1;border:1px solid #FFE082;border-radius:8px;padding:8px 10px;font-size:13px;color:#5C4400;margin:10px 0; }
+.dep-item-row { display:flex;align-items:center;gap:8px;padding:8px 10px;background:#FAF6F0;border:1px solid #E8DFD5;border-radius:8px;margin-bottom:6px; }
+.dep-item-nombre { flex:1;font-size:13px;font-weight:700;color:#2A2018;min-width:0; }
+.dep-item-decl { font-size:11px;color:#8A7E72;white-space:nowrap; }
+.dep-qty-btn { width:30px;height:30px;border-radius:50%;border:1.5px solid #A5D6A7;background:#E8F5E9;color:#2E7D32;font-size:16px;font-weight:900;cursor:pointer;display:flex;align-items:center;justify-content:center;touch-action:manipulation;flex-shrink:0; }
+.dep-qty-num { min-width:26px;text-align:center;font-family:'Barlow Condensed',sans-serif;font-size:18px;font-weight:900;color:#2E7D32; }
+.dep-qty-num.dif { color:#C62828; }
+.dep-nota { width:100%;margin-top:8px;padding:8px 10px;border:1.5px solid #E8DFD5;border-radius:8px;font-size:13px;resize:none;background:#fff;color:#2A2018;box-sizing:border-box; }
+.dep-btn-recibir { width:100%;margin-top:10px;background:linear-gradient(135deg,#1B5E20,#2E7D32);color:#fff;border:none;border-radius:10px;padding:12px;font-family:'Barlow Condensed',sans-serif;font-size:16px;font-weight:900;letter-spacing:.5px;cursor:pointer;touch-action:manipulation; }
+.dep-btn-recibir:disabled { opacity:.55; }
+.dep-dif-aviso { margin-top:8px;background:#FFEBEE;border:1.5px solid #EF9A9A;border-radius:8px;padding:8px 10px;font-size:12px;color:#C62828;font-weight:700;display:none; }
+.dep-empty { text-align:center;padding:28px 16px;color:#9A8F85;font-size:13px;background:#FAF6F0;border:1.5px dashed #E8DFD5;border-radius:14px; }
+.dep-refresh { background:#fff;border:1.5px solid #E8DFD5;border-radius:20px;padding:6px 14px;font-family:'Barlow Condensed',sans-serif;font-size:13px;font-weight:800;color:#5C3A1E;cursor:pointer;touch-action:manipulation; }
+</style>
+<script>
+// ═══ v14.53.0 — DEPÓSITO (Pancho) ═══════════════════════════════════
+var _depRows = [];
+var _depCargando = false;
+var _depExpandida = null;   // id de devolución con panel de recepción abierto
+var _depEdit = {};          // { devId: { items:[{nombre, declarado, recibido}], nota:'' } }
+var DEP_DIAS_VENTANA = 21;  // mirar devoluciones de los últimos 21 días
+
+// "2x Suprema, 1x Papa Bastón" → [{nombre, qty}]
+function _depParseItems(txt) {
+  if (!txt) return [];
+  // Si alguna vez viene como JSON array, soportarlo también
+  var t = String(txt).trim();
+  if (t.charAt(0) === '[') {
+    try {
+      var arr = JSON.parse(t);
+      if (Array.isArray(arr)) {
+        return arr.map(function(it) {
+          return { nombre: String(it.nombre || it.n || '').trim(), qty: parseInt(it.qty || it.cantidad, 10) || 1 };
+        }).filter(function(it) { return it.nombre; });
+      }
+    } catch(_) {}
+  }
+  return t.split(',').map(function(s) { return s.trim(); }).filter(Boolean).map(function(s) {
+    var m = s.match(/^(\d+)\s*[xX]\s*(.+)$/);
+    if (m) return { nombre: m[2].trim(), qty: parseInt(m[1], 10) || 1 };
+    return { nombre: s, qty: 1 };
+  });
+}
+
+var _DEP_CATS = {
+  sin_stock:    '🚫 Sin stock',
+  mal_estado:   '🤢 Mal estado',
+  vencido:      '📅 Vencido',
+  no_quiso:     '🙅 Cliente no quiso',
+  error_pedido: '❌ Error en el pedido',
+  otro:         '❓ Otro motivo'
+};
+
+function _depFmtFecha(iso) {
+  if (!iso) return '—';
+  try {
+    var d = new Date(iso);
+    var hoy = new Date(); hoy.setHours(0,0,0,0);
+    var dd = new Date(d); dd.setHours(0,0,0,0);
+    var diff = Math.round((hoy - dd) / 86400000);
+    var hora = d.toLocaleTimeString('es-AR', { hour: '2-digit', minute: '2-digit' });
+    if (diff === 0) return 'Hoy ' + hora;
+    if (diff === 1) return 'Ayer ' + hora;
+    return d.toLocaleDateString('es-AR', { day: '2-digit', month: '2-digit' }) + ' ' + hora;
+  } catch(_) { return String(iso).slice(0, 10); }
+}
+
+function _depEsc(s) {
+  return String(s == null ? '' : s)
+    .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;').replace(/'/g, '&#39;');
+}
+
+async function depositoRecargar() {
+  if (_depCargando) return;
+  _depCargando = true;
+  try {
+    var desde = new Date(Date.now() - DEP_DIAS_VENTANA * 86400000).toISOString();
+    var sel = 'id,pedido_id,entrega_id,cliente,comercio,ciudad,chofer,items,motivo,motivo_categoria,' +
+              'monto_devuelto,fecha_devolucion,estado,recibida_en,recibida_por,recibido_json,' +
+              'recepcion_diferencia,recepcion_nota';
+    _depRows = await sbFetch('devoluciones?select=' + sel +
+      '&fecha_devolucion=gte.' + encodeURIComponent(desde) +
+      '&order=fecha_devolucion.desc&limit=400') || [];
+  } catch(e) {
+    console.error('[depósito] cargar:', e);
+    var root0 = document.getElementById('dep-root');
+    if (root0) root0.innerHTML = '<div class="dep-empty">⚠️ No se pudieron cargar las devoluciones.<br>Revisá la conexión y tocá Actualizar.</div>' +
+      '<div style="text-align:center;margin-top:12px;"><button class="dep-refresh" onclick="depositoRecargar()">🔄 Actualizar</button></div>';
+    _depCargando = false;
+    return;
+  }
+  _depCargando = false;
+  depositoRender();
+}
+
+function _depBadgeTab() {
+  var b = document.getElementById('tab-badge-deposito');
+  if (!b) return;
+  var n = _depRows.filter(function(r) { return r.estado === 'registrada'; }).length;
+  b.textContent = n > 0 ? String(n) : '';
+  b.style.display = n > 0 ? '' : 'none';
+}
+
+function depositoRender() {
+  var root = document.getElementById('dep-root');
+  if (!root) return;
+  _depBadgeTab();
+
+  var pend = _depRows.filter(function(r) { return r.estado === 'registrada'; });
+  var hechas = _depRows.filter(function(r) { return r.estado === 'recibida_deposito' || r.estado === 'nc_emitida'; });
+
+  var h = '';
+  // Header
+  h += '<div style="display:flex;align-items:center;justify-content:space-between;gap:10px;margin:4px 2px 2px;">';
+  h += '  <div style="font-family:\'Barlow Condensed\',sans-serif;font-size:24px;font-weight:900;color:#2A2018;">📦 Depósito</div>';
+  h += '  <button class="dep-refresh" onclick="depositoRecargar()">🔄 Actualizar</button>';
+  h += '</div>';
+  h += '<div style="font-size:12px;color:#8A7E72;margin:0 2px;">Devoluciones de los últimos ' + DEP_DIAS_VENTANA + ' días</div>';
+
+  // ── Por recibir ──
+  h += '<div class="dep-sec-title">⏳ Por recibir (' + pend.length + ')</div>';
+  if (!pend.length) {
+    h += '<div class="dep-empty">No hay devoluciones pendientes de recepción. 👌</div>';
+  } else {
+    pend.forEach(function(r) { h += _depCardHtml(r, true); });
+  }
+
+  // ── Recibidas ──
+  h += '<div class="dep-sec-title">✅ Recibidas (' + hechas.length + ')</div>';
+  if (!hechas.length) {
+    h += '<div class="dep-empty">Todavía no recibiste ninguna devolución.</div>';
+  } else {
+    hechas.forEach(function(r) { h += _depCardHtml(r, false); });
+  }
+
+  root.innerHTML = h;
+}
+
+function _depCardHtml(r, esPend) {
+  var quien = r.comercio ? (r.comercio + ' — ' + (r.cliente || '')) : (r.cliente || 'Cliente s/nombre');
+  var badge;
+  if (r.estado === 'nc_emitida') {
+    badge = '<span class="dep-badge dep-badge-nc">🧾 NC emitida</span>';
+  } else if (r.estado === 'recibida_deposito') {
+    badge = r.recepcion_diferencia
+      ? '<span class="dep-badge dep-badge-dif">⚠️ Con diferencia</span>'
+      : '<span class="dep-badge dep-badge-ok">✅ Conforme</span>';
+  } else {
+    badge = '<span class="dep-badge dep-badge-pend">⏳ Por recibir</span>';
+  }
+  var abierta = _depExpandida === r.id;
+  var h = '<div class="dep-card' + (esPend ? ' dep-pend' : '') + '" id="dep-card-' + _depEsc(r.id) + '">';
+  h += '<div class="dep-card-hdr" onclick="depToggleCard(\'' + _depEsc(r.id) + '\')">';
+  h += '  <div class="dep-card-info">';
+  h += '    <div class="dep-card-cliente">' + _depEsc(quien) + '</div>';
+  h += '    <div class="dep-card-meta">' + _depEsc(r.ciudad || '—') + ' · 🚚 ' + _depEsc(r.chofer || '—') + ' · ' + _depFmtFecha(r.fecha_devolucion) + '</div>';
+  h += '  </div>' + badge;
+  h += '</div>';
+  if (abierta) h += '<div class="dep-card-body">' + (esPend ? _depBodyRecepcionHtml(r) : _depBodyDetalleHtml(r)) + '</div>';
+  h += '</div>';
+  return h;
+}
+
+// Panel de recepción (devolución pendiente): steppers por ítem + nota + botón
+function _depBodyRecepcionHtml(r) {
+  var ed = _depEdit[r.id];
+  if (!ed) {
+    var its = _depParseItems(r.items).map(function(it) {
+      return { nombre: it.nombre, declarado: it.qty, recibido: it.qty };
+    });
+    ed = _depEdit[r.id] = { items: its, nota: '' };
+  }
+  var cat = _DEP_CATS[r.motivo_categoria] || r.motivo_categoria || '—';
+  var h = '';
+  h += '<div class="dep-motivo"><strong>' + _depEsc(cat) + '</strong>' +
+       (r.motivo ? ' — ' + _depEsc(r.motivo) : '') +
+       (r.pedido_id ? '<br><span style="font-size:11px;color:#8A7E72;">Pedido ' + _depEsc(r.pedido_id) + '</span>' : '') + '</div>';
+  if (!ed.items.length) {
+    h += '<div class="dep-empty" style="padding:14px;">El chofer no detalló productos.<br>Confirmá la recepción igual y anotá lo que entró en la nota.</div>';
+  } else {
+    h += '<div style="font-size:11px;color:#8A7E72;margin-bottom:6px;text-transform:uppercase;letter-spacing:.6px;font-weight:800;">¿Cuánto entró físicamente?</div>';
+    ed.items.forEach(function(it, i) {
+      var dif = it.recibido !== it.declarado;
+      h += '<div class="dep-item-row">';
+      h += '  <div class="dep-item-nombre">' + _depEsc(it.nombre) + '<div class="dep-item-decl">Chofer declaró: ' + it.declarado + '</div></div>';
+      h += '  <button class="dep-qty-btn" onclick="depQty(\'' + _depEsc(r.id) + '\',' + i + ',-1)">−</button>';
+      h += '  <div class="dep-qty-num' + (dif ? ' dif' : '') + '">' + it.recibido + '</div>';
+      h += '  <button class="dep-qty-btn" onclick="depQty(\'' + _depEsc(r.id) + '\',' + i + ',1)">+</button>';
+      h += '</div>';
+    });
+  }
+  var hayDif = ed.items.some(function(it) { return it.recibido !== it.declarado; });
+  h += '<div class="dep-dif-aviso" id="dep-dif-' + _depEsc(r.id) + '" style="display:' + (hayDif ? 'block' : 'none') + ';">⚠️ Lo recibido NO coincide con lo que declaró el chofer. Quedará marcado para administración y el chofer.</div>';
+  h += '<textarea class="dep-nota" id="dep-nota-' + _depEsc(r.id) + '" rows="2" placeholder="Nota de recepción (opcional — obligatoria si hay diferencia)" oninput="depNota(\'' + _depEsc(r.id) + '\', this.value)">' + _depEsc(ed.nota) + '</textarea>';
+  h += '<button class="dep-btn-recibir" id="dep-btn-' + _depEsc(r.id) + '" onclick="depRecibir(\'' + _depEsc(r.id) + '\')">✅ RECIBIDO EN DEPÓSITO</button>';
+  return h;
+}
+
+// Detalle de una devolución ya recibida (solo lectura)
+function _depBodyDetalleHtml(r) {
+  var cat = _DEP_CATS[r.motivo_categoria] || r.motivo_categoria || '—';
+  var h = '<div class="dep-motivo"><strong>' + _depEsc(cat) + '</strong>' + (r.motivo ? ' — ' + _depEsc(r.motivo) : '') + '</div>';
+  var rec = r.recibido_json;
+  if (typeof rec === 'string') { try { rec = JSON.parse(rec); } catch(_) { rec = null; } }
+  if (Array.isArray(rec) && rec.length) {
+    rec.forEach(function(it) {
+      var dif = it.recibido !== it.declarado;
+      h += '<div class="dep-item-row" style="background:#fff;">';
+      h += '  <div class="dep-item-nombre">' + _depEsc(it.nombre) + '<div class="dep-item-decl">Declarado: ' + it.declarado + '</div></div>';
+      h += '  <div class="dep-qty-num' + (dif ? ' dif' : '') + '">' + it.recibido + '</div>';
+      h += '</div>';
+    });
+  } else if (r.items) {
+    h += '<div style="font-size:13px;color:#5C4A38;margin-bottom:6px;">Declarado: ' + _depEsc(r.items) + '</div>';
+  }
+  if (r.recepcion_nota) h += '<div style="font-size:12px;color:#8A7E72;margin-top:4px;">📝 ' + _depEsc(r.recepcion_nota) + '</div>';
+  h += '<div style="font-size:11px;color:#9A8F85;margin-top:8px;">Recibida por ' + _depEsc(r.recibida_por || '—') + ' · ' + _depFmtFecha(r.recibida_en) + '</div>';
+  return h;
+}
+
+function depToggleCard(id) {
+  _depExpandida = (_depExpandida === id) ? null : id;
+  depositoRender();
+}
+
+function depQty(id, idx, delta) {
+  var ed = _depEdit[id];
+  if (!ed || !ed.items[idx]) return;
+  var v = ed.items[idx].recibido + delta;
+  if (v < 0) v = 0;
+  ed.items[idx].recibido = v;
+  depositoRender();
+}
+
+function depNota(id, val) {
+  var ed = _depEdit[id];
+  if (ed) ed.nota = val;
+}
+
+async function depRecibir(id) {
+  var ed = _depEdit[id];
+  if (!ed) return;
+  var hayDif = ed.items.some(function(it) { return it.recibido !== it.declarado; });
+  var nota = (ed.nota || '').trim();
+  if (hayDif && !nota) {
+    if (typeof toast === 'function') toast('⚠️ Hay diferencia con lo declarado — anotá el motivo en la nota antes de confirmar', 'err');
+    var ta = document.getElementById('dep-nota-' + id);
+    if (ta) ta.focus();
+    return;
+  }
+  var btn = document.getElementById('dep-btn-' + id);
+  if (btn) { btn.disabled = true; btn.textContent = 'Guardando…'; }
+  try {
+    var payload = {
+      estado: 'recibida_deposito',
+      recibida_en: new Date().toISOString(),
+      recibida_por: vendedorActual || 'Pancho',
+      recibido_json: ed.items,
+      recepcion_diferencia: hayDif,
+      recepcion_nota: nota || null
+    };
+    // Patrón anti-RLS-silencioso: pedir la fila de vuelta y validar
+    var rows = await sbFetch('devoluciones?id=eq.' + encodeURIComponent(id), {
+      method: 'PATCH',
+      headers: { 'Prefer': 'return=representation' },
+      body: JSON.stringify(payload)
+    });
+    if (!rows || !rows.length) throw new Error('PATCH devolvió vacío (¿RLS?)');
+    if (typeof toast === 'function') toast(hayDif ? '⚠️ Recibida CON diferencia — quedó marcada' : '✅ Devolución recibida conforme', hayDif ? 'err' : 'ok');
+    delete _depEdit[id];
+    _depExpandida = null;
+    await depositoRecargar();
+  } catch(e) {
+    console.error('[depósito] recibir:', e);
+    if (typeof toast === 'function') toast('❌ No se pudo guardar — reintentá (avisar a Braian si sigue)', 'err');
+    if (btn) { btn.disabled = false; btn.textContent = '✅ RECIBIDO EN DEPÓSITO'; }
+  }
+}
+// ═══ Fin módulo Depósito v14.53.0 ═══════════════════════════════════
+</script>
 
 </body>
 </html>
