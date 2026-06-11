@@ -2,6 +2,20 @@
 <html lang="es">
 <head>
 <!-- ═══════════════════════════════════════════════════════════════════════
+     TCK VENTAS — v14.56.0 — 11/06/2026
+     ──────────────────────────────────────────────────────────────────
+     🆕 NUEVOS: VISIBILIDAD POR VENDEDOR (pedido de Braian post-deploy)
+       · JUAN → ve SOLO los prospectos de Trenque Lauquen.
+       · MIGUEL y LISANDRO → ven todas las ciudades MENOS Trenque Lauquen.
+       · Cualquier otro usuario que llegue al tab (admin/debug) → ve todo.
+       · Detección de TL robusta (sin acentos, case-insensitive, contiene
+         "TRENQUE") para tolerar variantes de localidad en la tabla.
+       · El filtro aplica en: badge del segmented, HOME (cards de ciudad
+         y contador de gestionados), vista CIUDAD (guard: si la ciudad no
+         está permitida vuelve al home) y ruta de Maps.
+     Sin cambios de datos ni de otras vistas. Base: v14.55.0.
+     ═══════════════════════════════════════════════════════════════════ -->
+<!-- ═══════════════════════════════════════════════════════════════════════
      TCK VENTAS — v14.55.0 — 11/06/2026
      ──────────────────────────────────────────────────────────────────
      FIX A (cobertura sin corte de lunes) + PESTAÑA 🆕 NUEVOS CLIENTES
@@ -42401,7 +42415,11 @@ function nvEsVisible(p) {
   return false;
 }
 
-function nvVisibles() { return _nvProspectos.filter(nvEsVisible); }
+function nvVisibles() {
+  return _nvProspectos.filter(function(p) {
+    return nvEsVisible(p) && nvCiudadPermitida(nvCiudadDe(p));
+  });
+}
 
 function nvCiudadDe(p) {
   var raw = (p.localidad || '').trim();
@@ -42409,6 +42427,23 @@ function nvCiudadDe(p) {
     var can = (typeof _ciudadCanonizar === 'function') ? _ciudadCanonizar(raw) : null;
     return can || raw || 'Sin ciudad';
   } catch (e) { return raw || 'Sin ciudad'; }
+}
+
+// v14.56.0: visibilidad por vendedor.
+// JUAN → solo Trenque Lauquen. MIGUEL/LISANDRO → todo menos TL.
+// Otro usuario (admin/debug) → todo. Detección de TL tolerante a
+// acentos/mayúsculas/variantes ("TRENQUE LAUQUEN", "trenque", etc.).
+function nvEsTL(ciudad) {
+  var s = (ciudad || '').toString();
+  try { s = s.normalize('NFD').replace(/[\u0300-\u036f]/g, ''); } catch (e) {}
+  return s.toUpperCase().indexOf('TRENQUE') >= 0;
+}
+
+function nvCiudadPermitida(ciudad) {
+  var v = mrNormVendedor(vendedorActual);
+  if (v === 'JUAN') return nvEsTL(ciudad);
+  if (v === 'MIGUEL' || v === 'LISANDRO') return !nvEsTL(ciudad);
+  return true;
 }
 
 function nvPintarSeg() {
@@ -42460,6 +42495,7 @@ function nvRenderHome(body) {
   _nvProspectos.forEach(function(p) {
     if (nvEsVisible(p)) return;
     var c = nvCiudadDe(p);
+    if (!nvCiudadPermitida(c)) return; // v14.56.0
     gestionadas[c] = (gestionadas[c] || 0) + 1;
   });
 
@@ -42505,6 +42541,8 @@ function nvVolverHome() {
 
 function nvRenderCiudad(body) {
   var loc = _nvSelCiudad;
+  // v14.56.0: defensa — si la ciudad no le corresponde al vendedor, al home
+  if (!nvCiudadPermitida(loc)) { _nvSelCiudad = null; nvRenderHome(body); return; }
   var deCiudad = _nvProspectos.filter(function(p) { return nvCiudadDe(p) === loc; });
   var pend = jor2Optimizar(deCiudad.filter(nvEsVisible));
   var hechos = deCiudad.filter(function(p) { return !nvEsVisible(p); });
