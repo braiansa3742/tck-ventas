@@ -2,6 +2,26 @@
 <html lang="es">
 <head>
 <!-- ═══════════════════════════════════════════════════════════════════════
+     TCK VENTAS — v14.57.0 — 11/06/2026
+     ──────────────────────────────────────────────────────────────────
+     🆕 NUEVOS: MÚLTIPLES COMPROBANTES DE TRANSFERENCIA (pedido choferes)
+       · Algunos clientes pagan con más de una billetera virtual → el
+         chofer ahora puede cargar N capturas en la misma entrega.
+       · UI: lista de comprobantes cargados (thumb + quitar c/u) y botón
+         "Agregar otro comprobante" después del primero.
+       · Validación igual de estricta: si hay transferencia > 0, exige
+         AL MENOS UN comprobante y que ninguno esté subiendo.
+       · Guardado: entregas.comprobante_transfer (misma columna text)
+         con las rutas separadas por salto de línea '\n'.
+         - 1 comprobante → idéntico a antes (compat total con admin).
+         - 2+ comprobantes → 'path1\npath2…'. ⚠️ El visor del admin
+           tiene que splitear por '\n' para mostrar todas (patch
+           pendiente en tck-admin).
+       · Estado interno: _comprobanteTransfer {path,...} pasa a
+         _comprobantesTransfer = [ {path, previewUrl, subiendo}, ... ].
+     Sin cambios en cheques ni en el resto del flujo. Base: v14.56.0.
+     ═══════════════════════════════════════════════════════════════════ -->
+<!-- ═══════════════════════════════════════════════════════════════════════
      TCK VENTAS — v14.56.0 — 11/06/2026
      ──────────────────────────────────────────────────────────────────
      🆕 NUEVOS: VISIBILIDAD POR VENDEDOR (pedido de Braian post-deploy)
@@ -16162,27 +16182,9 @@ body {
           <!-- v14.38.0 — Comprobante de transferencia (foto obligatoria si hay transferencia) -->
           <div id="comprobante-transfer-wrap" style="display:none;margin-top:12px;background:#E8F5E9;border:1.5px solid #2E7D32;border-radius:12px;padding:12px;">
             <div style="font-family:'Barlow Condensed',sans-serif;font-size:15px;font-weight:900;color:#1B5E20;margin-bottom:3px;">📲 Comprobante de la transferencia</div>
-            <div style="font-size:12px;color:#2E7D32;margin-bottom:10px;line-height:1.35;">Subí o sacá la captura del pago. <b>Sin comprobante, la transferencia queda como deuda tuya.</b></div>
-            <div id="comprobante-transfer-vacio">
-              <div style="display:flex;gap:8px;">
-                <button type="button" onclick="document.getElementById('compTransfer-cam').click()" style="flex:1;padding:13px 8px;background:#2E7D32;color:#fff;border:none;border-radius:10px;font-family:'Barlow Condensed',sans-serif;font-size:14px;font-weight:800;cursor:pointer;touch-action:manipulation;">📷 Tomar foto</button>
-                <button type="button" onclick="document.getElementById('compTransfer-gal').click()" style="flex:1;padding:13px 8px;background:#fff;color:#2E7D32;border:1.5px solid #2E7D32;border-radius:10px;font-family:'Barlow Condensed',sans-serif;font-size:14px;font-weight:800;cursor:pointer;touch-action:manipulation;">🖼️ Subir foto</button>
-              </div>
-            </div>
-            <div id="comprobante-transfer-cargando" style="display:none;align-items:center;gap:10px;padding:6px 2px;">
-              <div style="width:18px;height:18px;border:2.5px solid #C8E6C9;border-top-color:#2E7D32;border-radius:50%;animation:spin .8s linear infinite;flex-shrink:0;"></div>
-              <span style="font-size:13px;font-weight:700;color:#2E7D32;">Subiendo comprobante…</span>
-            </div>
-            <div id="comprobante-transfer-ok" style="display:none;">
-              <div style="display:flex;align-items:center;gap:10px;">
-                <img id="comprobante-transfer-thumb" src="" alt="comprobante" onclick="_verComprobanteTransfer()" style="width:54px;height:54px;border-radius:8px;object-fit:cover;border:1.5px solid #2E7D32;cursor:pointer;flex-shrink:0;">
-                <div style="flex:1;min-width:0;">
-                  <div style="font-size:13px;font-weight:800;color:#1B5E20;">✅ Comprobante cargado</div>
-                  <div style="font-size:11px;color:#2E7D32;">Tocá la foto para verla en grande</div>
-                </div>
-                <button type="button" onclick="_quitarComprobanteTransfer()" style="background:#FFEBEE;border:1.5px solid rgba(198,40,40,.3);color:#C62828;border-radius:8px;padding:8px 10px;font-family:'Barlow Condensed',sans-serif;font-size:12px;font-weight:800;cursor:pointer;touch-action:manipulation;flex-shrink:0;">Cambiar</button>
-              </div>
-            </div>
+            <div style="font-size:12px;color:#2E7D32;margin-bottom:10px;line-height:1.35;">Subí o sacá la captura del pago. Si el cliente pagó con <b>más de una billetera</b>, cargá todas las capturas. <b>Sin comprobante, la transferencia queda como deuda tuya.</b></div>
+            <!-- v14.57.0 — lista dinámica de comprobantes (soporta varios) -->
+            <div id="comprobante-transfer-lista"></div>
             <input type="file" id="compTransfer-cam" accept="image/*" capture="environment" style="display:none;" onchange="_comprobanteTransferSeleccionada(this)">
             <input type="file" id="compTransfer-gal" accept="image/*" style="display:none;" onchange="_comprobanteTransferSeleccionada(this)">
           </div>
@@ -33714,11 +33716,13 @@ async function confirmarEntregaModal() {
   // seguir. Sin comprobante, esa plata no se da por cobrada (queda como deuda
   // del chofer). Es la barrera que ataca el agujero de Trenque.
   if ((cobros.transferencia || 0) > 0) {
-    if (_comprobanteTransfer.subiendo) {
-      toast('⏳ Esperá: el comprobante se está subiendo', 'err');
+    // v14.57.0 — soporta varios comprobantes: ninguno puede estar
+    // subiendo y tiene que haber AL MENOS UNO ya subido.
+    if (_comprobantesTransfer.some(function(c) { return c.subiendo; })) {
+      toast('⏳ Esperá: hay un comprobante subiéndose', 'err');
       return;
     }
-    if (!_comprobanteTransfer.path) {
+    if (!_comprobantesTransfer.some(function(c) { return c.path; })) {
       toast('📲 Falta la foto del comprobante de la transferencia', 'err');
       var _w = document.getElementById('comprobante-transfer-wrap');
       if (_w) {
@@ -33881,11 +33885,14 @@ let _chequesData = [];  // v14.15.4: array de cheques cargados en el sub-modal
 // ═══════════════════════════════════════════════════════════════
 // v14.38.0 — COMPROBANTES (foto de transferencia y de cheque)
 // ═══════════════════════════════════════════════════════════════
-// Estado del comprobante de transferencia de la entrega actual.
+// Estado de LOS comprobantes de transferencia de la entrega actual.
+// v14.57.0: pasa de objeto único a ARRAY — algunos clientes pagan con
+// más de una billetera virtual y el chofer necesita subir N capturas.
+// Cada item: { path, previewUrl, subiendo }
 //   path      → ruta en Supabase Storage (lo que se guarda en BD)
 //   previewUrl→ blob local para mostrar la miniatura sin leer el bucket
 //   subiendo  → true mientras se sube (bloquea la confirmación)
-let _comprobanteTransfer = { path: null, previewUrl: null, subiendo: false };
+let _comprobantesTransfer = [];
 
 // Comprime y redimensiona una imagen en el celular antes de subirla.
 // Devuelve un Blob JPEG. Clave para que ande en red rural (una foto de
@@ -33977,60 +33984,95 @@ function _toggleComprobanteTransfer() {
 }
 
 function _renderComprobanteTransferEstado() {
-  var vacio = document.getElementById('comprobante-transfer-vacio');
-  var cargando = document.getElementById('comprobante-transfer-cargando');
-  var ok = document.getElementById('comprobante-transfer-ok');
-  var thumb = document.getElementById('comprobante-transfer-thumb');
-  if (!vacio || !cargando || !ok) return;
-  if (_comprobanteTransfer.subiendo) {
-    vacio.style.display = 'none'; ok.style.display = 'none'; cargando.style.display = 'flex';
-  } else if (_comprobanteTransfer.path) {
-    vacio.style.display = 'none'; cargando.style.display = 'none'; ok.style.display = 'block';
-    if (thumb && _comprobanteTransfer.previewUrl) thumb.src = _comprobanteTransfer.previewUrl;
-  } else {
-    cargando.style.display = 'none'; ok.style.display = 'none'; vacio.style.display = 'block';
+  var lista = document.getElementById('comprobante-transfer-lista');
+  if (!lista) return;
+  var N = _comprobantesTransfer.length;
+  var html = '';
+  _comprobantesTransfer.forEach(function(c, idx) {
+    var titulo = N > 1 ? ('Comprobante ' + (idx + 1)) : 'Comprobante';
+    if (c.subiendo) {
+      html += '<div style="display:flex;align-items:center;gap:10px;padding:6px 2px;margin-bottom:8px;">' +
+        '<div style="width:18px;height:18px;border:2.5px solid #C8E6C9;border-top-color:#2E7D32;border-radius:50%;animation:spin .8s linear infinite;flex-shrink:0;"></div>' +
+        '<span style="font-size:13px;font-weight:700;color:#2E7D32;">Subiendo ' + titulo.toLowerCase() + '…</span>' +
+      '</div>';
+    } else if (c.path) {
+      var prev = (c.previewUrl || '').replace(/'/g, '%27');
+      html += '<div style="display:flex;align-items:center;gap:10px;margin-bottom:8px;">' +
+        '<img src="' + (c.previewUrl || '') + '" alt="comprobante" onclick="_verComprobanteImg(\'' + prev + '\')" style="width:54px;height:54px;border-radius:8px;object-fit:cover;border:1.5px solid #2E7D32;cursor:pointer;flex-shrink:0;">' +
+        '<div style="flex:1;min-width:0;">' +
+          '<div style="font-size:13px;font-weight:800;color:#1B5E20;">✅ ' + titulo + ' cargado</div>' +
+          '<div style="font-size:11px;color:#2E7D32;">Tocá la foto para verla en grande</div>' +
+        '</div>' +
+        '<button type="button" onclick="_quitarComprobanteTransfer(' + idx + ')" style="background:#FFEBEE;border:1.5px solid rgba(198,40,40,.3);color:#C62828;border-radius:8px;padding:8px 10px;font-family:\'Barlow Condensed\',sans-serif;font-size:12px;font-weight:800;cursor:pointer;touch-action:manipulation;flex-shrink:0;">Quitar</button>' +
+      '</div>';
+    }
+  });
+  // Botones para agregar: grandes si todavía no hay ninguno,
+  // como "agregar otro" más chicos si ya hay al menos uno.
+  var subiendoAlguno = _comprobantesTransfer.some(function(c) { return c.subiendo; });
+  if (!subiendoAlguno) {
+    if (N === 0) {
+      html += '<div style="display:flex;gap:8px;">' +
+        '<button type="button" onclick="document.getElementById(\'compTransfer-cam\').click()" style="flex:1;padding:13px 8px;background:#2E7D32;color:#fff;border:none;border-radius:10px;font-family:\'Barlow Condensed\',sans-serif;font-size:14px;font-weight:800;cursor:pointer;touch-action:manipulation;">📷 Tomar foto</button>' +
+        '<button type="button" onclick="document.getElementById(\'compTransfer-gal\').click()" style="flex:1;padding:13px 8px;background:#fff;color:#2E7D32;border:1.5px solid #2E7D32;border-radius:10px;font-family:\'Barlow Condensed\',sans-serif;font-size:14px;font-weight:800;cursor:pointer;touch-action:manipulation;">🖼️ Subir foto</button>' +
+      '</div>';
+    } else {
+      html += '<div style="margin-top:2px;">' +
+        '<div style="font-size:11px;font-weight:700;color:#2E7D32;margin-bottom:6px;">¿El cliente pagó con otra billetera? Agregá ese comprobante también:</div>' +
+        '<div style="display:flex;gap:8px;">' +
+          '<button type="button" onclick="document.getElementById(\'compTransfer-cam\').click()" style="flex:1;padding:10px 6px;background:#fff;color:#2E7D32;border:1.5px dashed #2E7D32;border-radius:10px;font-family:\'Barlow Condensed\',sans-serif;font-size:13px;font-weight:800;cursor:pointer;touch-action:manipulation;">➕📷 Otra foto</button>' +
+          '<button type="button" onclick="document.getElementById(\'compTransfer-gal\').click()" style="flex:1;padding:10px 6px;background:#fff;color:#2E7D32;border:1.5px dashed #2E7D32;border-radius:10px;font-family:\'Barlow Condensed\',sans-serif;font-size:13px;font-weight:800;cursor:pointer;touch-action:manipulation;">➕🖼️ Otra captura</button>' +
+        '</div>' +
+      '</div>';
+    }
   }
+  lista.innerHTML = html;
 }
 
 async function _comprobanteTransferSeleccionada(input) {
   var file = input.files && input.files[0];
   input.value = ''; // permitir re-elegir el mismo archivo
   if (!file) return;
-  if (_comprobanteTransfer.previewUrl) { try { URL.revokeObjectURL(_comprobanteTransfer.previewUrl); } catch(e){} }
-  _comprobanteTransfer = { path: null, previewUrl: URL.createObjectURL(file), subiendo: true };
+  // v14.57.0 — cada selección AGREGA un comprobante a la lista (no pisa).
+  var item = { path: null, previewUrl: URL.createObjectURL(file), subiendo: true };
+  _comprobantesTransfer.push(item);
   _renderComprobanteTransferEstado();
   try {
     var e = _entregasCache.find(function(x) { return x.id === _entregaModalId; });
-    var base = (e && e.pedido_id) ? e.pedido_id : ('ent' + (_entregaModalId || ''));
+    var base = ((e && e.pedido_id) ? e.pedido_id : ('ent' + (_entregaModalId || ''))) +
+               '_t' + _comprobantesTransfer.length;
     var path = await _subirComprobante(file, 'transferencias', base);
-    _comprobanteTransfer.path = path;
-    _comprobanteTransfer.subiendo = false;
+    item.path = path;
+    item.subiendo = false;
     _renderComprobanteTransferEstado();
     toast('✅ Comprobante cargado', 'ok');
   } catch(err) {
     console.error('Error subiendo comprobante de transferencia:', err);
-    _comprobanteTransfer.subiendo = false;
-    _comprobanteTransfer.path = null;
+    // Si falló la subida, sacarlo de la lista para que no quede un
+    // item fantasma sin path bloqueando nada.
+    var i = _comprobantesTransfer.indexOf(item);
+    if (i !== -1) {
+      try { URL.revokeObjectURL(item.previewUrl); } catch(e2){}
+      _comprobantesTransfer.splice(i, 1);
+    }
     _renderComprobanteTransferEstado();
     toast('❌ No se pudo subir el comprobante. Probá de nuevo', 'err');
   }
 }
 
-function _quitarComprobanteTransfer() {
-  if (_comprobanteTransfer.previewUrl) { try { URL.revokeObjectURL(_comprobanteTransfer.previewUrl); } catch(e){} }
-  _comprobanteTransfer = { path: null, previewUrl: null, subiendo: false };
+function _quitarComprobanteTransfer(idx) {
+  var c = _comprobantesTransfer[idx];
+  if (!c) return;
+  if (c.previewUrl) { try { URL.revokeObjectURL(c.previewUrl); } catch(e){} }
+  _comprobantesTransfer.splice(idx, 1);
   _renderComprobanteTransferEstado();
 }
 
-function _verComprobanteTransfer() {
-  _verComprobanteImg(_comprobanteTransfer.previewUrl);
-}
-
 function _resetComprobanteTransfer() {
-  if (_comprobanteTransfer && _comprobanteTransfer.previewUrl) {
-    try { URL.revokeObjectURL(_comprobanteTransfer.previewUrl); } catch(e){}
-  }
-  _comprobanteTransfer = { path: null, previewUrl: null, subiendo: false };
+  _comprobantesTransfer.forEach(function(c) {
+    if (c && c.previewUrl) { try { URL.revokeObjectURL(c.previewUrl); } catch(e){} }
+  });
+  _comprobantesTransfer = [];
   var wrap = document.getElementById('comprobante-transfer-wrap');
   if (wrap) wrap.style.display = 'none';
 }
@@ -34296,8 +34338,16 @@ async function _ejecutarConfirmacionEntrega(cobros) {
   if (Object.keys(cobros).length > 1) payload.detalle_cobro = detalleCobroStr;
 
   // v14.38.0 — guardar la ruta del comprobante de transferencia en la entrega
-  if ((cobros.transferencia || 0) > 0 && _comprobanteTransfer.path) {
-    payload.comprobante_transfer = _comprobanteTransfer.path;
+  // v14.57.0 — pueden ser VARIOS (cliente paga con más de una billetera):
+  // se guardan en la misma columna text, separados por '\n'.
+  // Con un solo comprobante el valor queda idéntico al formato viejo.
+  if ((cobros.transferencia || 0) > 0) {
+    var _pathsComp = _comprobantesTransfer
+      .map(function(c) { return c.path; })
+      .filter(function(p) { return !!p; });
+    if (_pathsComp.length > 0) {
+      payload.comprobante_transfer = _pathsComp.join('\n');
+    }
   }
 
   // v14.0: si el chofer cobró menos y justificó, guardar el motivo y monto real
