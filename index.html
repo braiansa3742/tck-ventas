@@ -2,6 +2,51 @@
 <html lang="es">
 <head>
 <!-- ═══════════════════════════════════════════════════════════════════════
+     TCK VENTAS — v14.55.0 — 11/06/2026
+     ──────────────────────────────────────────────────────────────────
+     FIX A (cobertura sin corte de lunes) + PESTAÑA 🆕 NUEVOS CLIENTES
+
+     PARTE 1 — FIX A: la ventana de cobertura de TL (semana corriente)
+     olvidaba las ventas de la semana pasada: cada lunes resucitaba
+     quincenales a mitad de ciclo (27 falsos pendientes medidos el 11/6,
+     11 de ellos clientes telefónicos de Miguel). Cambio:
+       · jor2ClienteCubierto, paso 1b (solo rutas locales): si
+         dias_desde_ult_pedido < clamp(round(frec×0.7), 2..14) → CUBIERTO
+         con tipo 'venta_frec'. El techo sube de 7 a 14 (quincenales).
+       · La señal viene de clientes_activos (ya estaba en el select, cero
+         requests extra). Ventas de hoy/ayer las sigue tapando la señal en
+         vivo del Sheet, así que el delay del sync no afecta.
+       · Label nuevo en YA CUBIERTOS: "🛒 Compró hace Xd · le toca en ~Yd".
+       · Bisemanales v14.50 intactos (frec corta → la venta expira antes
+         del nuevo piso y reaparecen igual que ahora).
+
+     PARTE 2 — 🆕 NUEVOS CLIENTES (variante B aprobada por mockup):
+     segmented [📍 MI RUTA | 🆕 NUEVOS] arriba del cuerpo del tab, nav
+     intacto. Lee la tabla Supabase `prospectos` (censo Google Places
+     cruzado contra check-ins; TL + Pehuajó cargadas 11/6).
+       · HOME: cards por ciudad (canonizada) con contador; ciudad activa
+         primero. CIUDAD: pendientes ordenados por cercanía con
+         jor2Optimizar (numerados, ▶ MÁS CERCANO), chip de rubro,
+         horarios, IR / 📞 / 📍 CHECK-IN / ✓ RESULTADO, botón "🗺️ RUTA DE
+         NUEVOS EN MAPS" (jor2AbrirMapsLista, tandas de 10) y gestionados
+         colapsados al pie.
+       · CHECK-IN delega en gpsIniciarCheckin (flujo cliente nuevo
+         intacto) precargando el nombre en el buscador Xubio. Con
+         check-in activo manda la vista VISITA; al checkout el router
+         vuelve solo a NUEVOS.
+       · ✓ RESULTADO: modal propio → ✅ Vendí (convertido) · 📄 Interesado ·
+         🕐 Tiene proveedor (volver, oculta 30d vía ocultar_hasta) ·
+         🚪 Cerrado/no atendió (sigue pendiente, guarda motivo) ·
+         ❌ Descartar (confirm). PATCH con verificación anti-RLS
+         (return=representation + validar fila, patrón v14.52).
+       · Estados servidos: pendiente/interesado siempre visibles;
+         'volver' reaparece al vencer ocultar_hasta. Carga paginada de a
+         1000 (límite PostgREST).
+     REQUIERE: tabla `prospectos` creada (prospectos-setup-v1.sql, 11/6).
+     NO SE TOCÓ: tomador, Xubio, checkout, anti-dup, Mi Ronda, mapas,
+     plan de hoy, particulares, zonificación.
+     ═══════════════════════════════════════════════════════════════════ -->
+<!-- ═══════════════════════════════════════════════════════════════════════
      TCK VENTAS — v14.54.0 — 10/06/2026
      ──────────────────────────────────────────────────────────────────
      PEDIDO VIVO — aviso de pedido Confirmado viejo sin entregar (v14.54.0)
@@ -15137,6 +15182,66 @@ body {
 .vdes-tl-meta{font-size:10px;color:#9E9E9E;}
 .vdes-tl-res{font-size:10px;font-weight:700;margin-left:auto;white-space:nowrap;}
 .vdes-empty{text-align:center;padding:40px 20px;color:#999;font-size:13px;}
+
+/* ════ v14.55.0 — 🆕 NUEVOS CLIENTES (prospectos) ════ */
+.nv-seg-wrap{padding:10px 14px 0;}
+.nv-seg{display:flex;background:#efe6d8;border-radius:14px;padding:4px;gap:4px;}
+.nv-seg-btn{flex:1;border:none;border-radius:11px;padding:9px 4px;font-family:'Barlow Condensed',sans-serif;font-weight:700;font-size:15.5px;letter-spacing:.4px;background:transparent;color:#7a6a55;cursor:pointer;display:flex;align-items:center;justify-content:center;gap:6px;}
+.nv-seg-btn.on{background:var(--primary,#8B0000);color:#fff;box-shadow:0 2px 6px rgba(139,0,0,.3);}
+.nv-seg-btn.nuevos.on{background:#7B1FA2;box-shadow:0 2px 6px rgba(123,31,162,.35);}
+.nv-seg-badge{background:#7B1FA2;color:#fff;font-size:11px;font-weight:800;border-radius:20px;min-width:20px;height:20px;display:inline-flex;align-items:center;justify-content:center;padding:0 5px;}
+.nv-seg-btn.nuevos.on .nv-seg-badge{background:#fff;color:#7B1FA2;}
+.nv-hero{background:linear-gradient(135deg,#7B1FA2,#4A148C);border-radius:16px;padding:14px;color:#fff;margin-bottom:12px;}
+.nv-hero h2{font-family:'Barlow Condensed',sans-serif;font-size:20px;font-weight:800;letter-spacing:.5px;margin:0;}
+.nv-hero p{font-size:12.5px;color:#E1BEE7;margin:3px 0 0;line-height:1.45;}
+.nv-city{background:#fff;border:2px solid #E1BEE7;border-left:5px solid #7B1FA2;border-radius:14px;padding:12px 13px;margin-bottom:10px;display:flex;align-items:center;justify-content:space-between;cursor:pointer;}
+.nv-city.here{background:linear-gradient(180deg,#fff,#F8F0FB);border-color:#7B1FA2;}
+.nv-city-nom{font-family:'Barlow Condensed',sans-serif;font-size:18px;font-weight:800;letter-spacing:.4px;color:#4A148C;}
+.nv-city-sub{font-size:12px;color:#8a7a90;}
+.nv-city-num{text-align:center;flex-shrink:0;margin-left:10px;}
+.nv-city-num b{font-family:'Barlow Condensed',sans-serif;font-size:24px;font-weight:800;color:#7B1FA2;display:block;line-height:1;}
+.nv-city-num span{font-size:10px;color:#999;text-transform:uppercase;letter-spacing:.5px;}
+.nv-here-pill{background:#7B1FA2;color:#fff;font-size:10px;font-weight:700;border-radius:20px;padding:2px 8px;margin-left:6px;vertical-align:middle;}
+.nv-btn-maps{width:100%;border:none;border-radius:14px;background:linear-gradient(135deg,#7B1FA2,#6A1B9A);color:#fff;padding:13px;font-family:'Barlow Condensed',sans-serif;font-weight:800;font-size:16px;letter-spacing:.5px;cursor:pointer;margin-bottom:12px;box-shadow:0 3px 10px rgba(123,31,162,.3);}
+.nv-btn-maps small{display:block;font-family:'Barlow',sans-serif;font-weight:500;font-size:11.5px;color:#E1BEE7;margin-top:2px;letter-spacing:0;}
+.nv-card{background:#fff;border:2px solid #E1BEE7;border-radius:15px;padding:11px 12px;margin-bottom:10px;position:relative;}
+.nv-card.first{border-color:#7B1FA2;box-shadow:0 3px 12px rgba(123,31,162,.18);}
+.nv-first-tag{position:absolute;top:-9px;left:12px;background:#7B1FA2;color:#fff;font-family:'Barlow Condensed',sans-serif;font-weight:800;font-size:11px;letter-spacing:.8px;padding:2px 10px;border-radius:20px;}
+.nv-top{display:flex;align-items:flex-start;gap:9px;}
+.nv-num{width:26px;height:26px;border-radius:50%;background:#F3E5F5;color:#7B1FA2;font-family:'Barlow Condensed',sans-serif;font-weight:800;font-size:14px;display:flex;align-items:center;justify-content:center;flex-shrink:0;border:1.5px solid #CE93D8;margin-top:2px;}
+.nv-info{flex:1;min-width:0;}
+.nv-info b{font-family:'Barlow Condensed',sans-serif;font-size:17px;font-weight:800;color:#3a2a40;letter-spacing:.3px;display:block;line-height:1.1;}
+.nv-meta{font-size:12px;color:#7c6c84;margin-top:2px;}
+.nv-meta .nv-dist{color:#7B1FA2;font-weight:700;}
+.nv-chip{display:inline-block;background:#F3E5F5;color:#6A1B9A;font-size:10.5px;font-weight:700;border-radius:20px;padding:1.5px 8px;margin-top:4px;margin-right:4px;}
+.nv-actions{display:flex;gap:7px;margin-top:9px;}
+.nv-a{flex:1;border:none;border-radius:11px;padding:9px 2px;font-family:'Barlow Condensed',sans-serif;font-weight:800;font-size:13px;letter-spacing:.3px;cursor:pointer;}
+.nv-a.ir{background:#ECE3D6;color:#6b5638;}
+.nv-a.tel{background:#E3F2FD;color:#1565C0;}
+.nv-a.chk{background:linear-gradient(135deg,#8B0000,#6e0000);color:#fff;flex:1.3;}
+.nv-a.res{background:#F3E5F5;color:#6A1B9A;}
+.nv-a.off{opacity:.4;pointer-events:none;}
+.nv-sec-hdr{font-family:'Barlow Condensed',sans-serif;font-weight:800;font-size:14px;letter-spacing:.8px;color:#8a7a90;margin:14px 2px 8px;}
+.nv-done{background:#fff;border:1.5px solid #e8e0d4;border-radius:12px;padding:9px 12px;margin-bottom:7px;display:flex;align-items:center;gap:9px;font-size:12.5px;color:#6c5c74;}
+.nv-done b{color:#3a2a40;}
+.nv-toggle{width:100%;border:1.5px dashed #CE93D8;border-radius:12px;background:transparent;color:#7B1FA2;padding:10px;font-family:'Barlow Condensed',sans-serif;font-weight:700;font-size:14px;letter-spacing:.4px;cursor:pointer;margin:6px 0 10px;}
+.nv-hint{background:#FFF8E1;border:1.5px solid #FFB300;border-left:4px solid #FF8F00;border-radius:12px;padding:9px 12px;font-size:12px;color:#6d4c00;margin-bottom:12px;line-height:1.45;}
+.nv-back{background:#fff;border:1.5px solid #d8c9b8;border-radius:10px;padding:7px 12px;font-family:'Barlow Condensed',sans-serif;font-weight:700;font-size:14px;color:#7a5a3a;cursor:pointer;}
+.nv-subnav{display:flex;align-items:center;gap:8px;margin-bottom:10px;}
+.nv-subtit{font-family:'Barlow Condensed',sans-serif;font-weight:800;font-size:18px;color:#4A148C;letter-spacing:.4px;}
+.nv-modal-bg{position:fixed;inset:0;background:rgba(20,10,25,.55);display:flex;align-items:flex-end;z-index:9500;}
+.nv-modal{background:var(--cream,#FAF4EC);width:100%;max-width:520px;margin:0 auto;border-radius:22px 22px 0 0;padding:16px 14px calc(22px + env(safe-area-inset-bottom));max-height:80vh;overflow-y:auto;}
+.nv-modal h3{font-family:'Barlow Condensed',sans-serif;font-size:19px;font-weight:800;color:#4A148C;letter-spacing:.4px;margin:0 0 3px;}
+.nv-modal p{font-size:12px;color:#8a7a90;margin:0 0 12px;}
+.nv-mot{width:100%;display:flex;align-items:center;gap:10px;background:#fff;border:2px solid #e4d8e8;border-radius:13px;padding:12px;margin-bottom:8px;cursor:pointer;text-align:left;font-family:'Barlow',sans-serif;}
+.nv-mot .nv-mi{font-size:19px;}
+.nv-mot b{font-size:14px;color:#3a2a40;display:block;}
+.nv-mot span{font-size:11.5px;color:#9a8aa0;}
+.nv-mot.ok{border-color:#A5D6A7;}
+.nv-mot.warn{border-color:#FFCC80;}
+.nv-mot.bad{border-color:#EF9A9A;}
+.nv-empty{text-align:center;padding:36px 16px;color:#8a7a90;font-size:13px;line-height:1.5;}
+.nv-empty .nv-empty-ic{font-size:42px;margin-bottom:8px;}
 </style>
 <style id="perf-patch-v1444">
 /* ===== v14.44 — PARCHE DE PERFORMANCE (solo CSS, sin tocar logica) =====
@@ -16408,6 +16513,14 @@ body {
 
       <!-- v14.47.0: los chips de ciudad se reemplazaron por las cards del
            PLAN DE HOY que se renderizan dentro de jor-body -->
+
+      <!-- v14.55.0: pestaña 🆕 NUEVOS al lado de Mi Ruta (variante B) -->
+      <div class="nv-seg-wrap" id="nv-seg-wrap" style="display:none">
+        <div class="nv-seg">
+          <button type="button" class="nv-seg-btn on" id="nv-seg-ruta" onclick="nvSetVista('ruta')">📍 MI RUTA</button>
+          <button type="button" class="nv-seg-btn nuevos" id="nv-seg-nuevos" onclick="nvSetVista('nuevos')">🆕 NUEVOS <span class="nv-seg-badge" id="nv-seg-badge" style="display:none">0</span></button>
+        </div>
+      </div>
 
       <!-- Stats del día -->
       <div class="jor-stats" id="jor-stats">
@@ -41971,6 +42084,27 @@ function jor2ClienteCubierto(c, ctx) {
     // Venta vencida (bisemanal local): NO cubre — sigue evaluando.
   }
 
+  // 1b) v14.55.0 (fix A): cobertura por última compra REAL, sin el corte
+  //     del lunes. La ventana semanal olvidaba las ventas de la semana
+  //     pasada y resucitaba quincenales a mitad de ciclo (27 falsos
+  //     pendientes medidos el 11/6). Señal: dias_desde_ult_pedido
+  //     (clientes_activos, ya viene en el select; refresco por sync —
+  //     las ventas de hoy/ayer las tapa la señal en vivo de los pasos
+  //     1 y 3). Solo rutas locales; camión sigue con la ventana del viaje.
+  //     Techo 14 (vs 7 del paso 1) para que el quincenal no renazca.
+  if (jor2RutaEsLocal(c.ruta_viaje || 'SIN_RUTA')) {
+    var nvDUlt = parseFloat(c.dias_desde_ult_pedido);
+    var nvFrec = parseFloat(c.frec_dias_prom);
+    if (!isNaN(nvDUlt) && nvFrec > 0) {
+      var nvVida = Math.min(14, Math.max(2, Math.round(nvFrec * 0.7)));
+      if (nvDUlt < nvVida) {
+        c._jor2FrecInfo = { hace: Math.round(nvDUlt), faltan: Math.max(1, Math.round(nvFrec - nvDUlt)) };
+        c._jor2Cub = 'venta_frec';
+        return true;
+      }
+    }
+  }
+
   // 2) Gestión de la ronda actual (si el motivo cubre)
   if (jor2GestionCubre(_miRondaGestiones && _miRondaGestiones[c.cliente_id])) {
     c._jor2Cub = 'gestion';
@@ -41991,6 +42125,12 @@ function jor2ClienteCubierto(c, ctx) {
 
 function jor2CubLabel(c) {
   var g = _miRondaGestiones && _miRondaGestiones[c.cliente_id];
+  // v14.55.0 (fix A): cubierto por última compra real (sin corte de lunes)
+  if (c._jor2Cub === 'venta_frec') {
+    var fi = c._jor2FrecInfo || {};
+    return '🛒 Compró hace ' + (fi.hace != null ? fi.hace + 'd' : 'poco')
+      + (fi.faltan ? ' · le toca en ~' + fi.faltan + 'd' : '');
+  }
   if (c._jor2Cub === 'venta') {
     var t = (c._jor2VentaInfo && c._jor2VentaInfo.total) || c._mr_total;
     var total = t ? '$' + Math.round(Number(t) / 1000) + 'k ' : '';
@@ -42186,6 +42326,353 @@ function jor2ClientePorId(cid) {
   return _miRondaClientes.find(function(x) { return x.cliente_id === cid; }) || null;
 }
 
+// ════════════════════════════════════════════════════════════════════════
+// v14.55.0 — 🆕 NUEVOS CLIENTES (prospectos)
+// ────────────────────────────────────────────────────────────────────────
+// Pestaña al lado de Mi Ruta (variante B, mockup aprobado 11/6). Lee la
+// tabla Supabase `prospectos` (censo Google Places cruzado vs check-ins).
+// Estados servidos: pendiente / interesado (siempre visibles) / volver
+// (reaparece al vencer ocultar_hasta). convertido y descartado no se traen.
+// El check-in delega en gpsIniciarCheckin (flujo cliente nuevo intacto).
+// ════════════════════════════════════════════════════════════════════════
+var _nvVista = 'ruta';          // 'ruta' | 'nuevos'
+var _nvProspectos = [];
+var _nvCargado = false;
+var _nvCargando = false;
+var _nvSelCiudad = null;
+var _nvProspectoActivo = null;  // {id, nombre} al iniciar check-in desde un prospecto
+var _nvGestAbierto = false;     // sección gestionados expandida
+
+var NV_CANAL_LABELS = {
+  granja: 'Granja', carniceria: 'Carnicería', almacen_autoservicio: 'Autoservicio',
+  pescaderia: 'Pescadería', fiambreria: 'Fiambrería',
+  roticeria_casa_comida: 'Rotisería', restaurante_parrilla: 'Parrilla/Resto',
+  pizzeria_hamburgueseria: 'Pizzería', parripollo: 'Parripollo',
+  catering_eventos: 'Catering', comedor_institucional: 'Comedor',
+  cliente_particular: 'Particular', otros: 'Comercio'
+};
+
+function nvSetVista(v) {
+  _nvVista = v === 'nuevos' ? 'nuevos' : 'ruta';
+  if (_nvVista === 'nuevos' && !_nvCargado && !_nvCargando) nvCargarProspectos();
+  jornadaRender();
+}
+
+async function nvCargarProspectos() {
+  if (_nvCargando) return;
+  _nvCargando = true;
+  try {
+    var todos = [];
+    var offset = 0;
+    // Paginado de a 1000 (PostgREST corta en 1000)
+    for (var page = 0; page < 10; page++) {
+      var lote = await sbFetch('prospectos?estado=in.(pendiente,volver,interesado)'
+        + '&select=id,nombre,canal_sugerido,direccion,telefono,horarios,localidad,lat,lng,prioridad,estado,estado_motivo,ocultar_hasta,notas'
+        + '&order=id.asc&limit=1000&offset=' + offset);
+      if (!Array.isArray(lote)) break;
+      todos = todos.concat(lote);
+      if (lote.length < 1000) break;
+      offset += 1000;
+    }
+    todos.forEach(function(p) {
+      var la = parseFloat(p.lat), lo = parseFloat(p.lng);
+      if (!isNaN(la) && !isNaN(lo)) p._coords = { lat: la, lng: lo };
+    });
+    _nvProspectos = todos;
+    _nvCargado = true;
+  } catch (e) {
+    console.error('[Nuevos] carga:', e);
+    toast('No se pudieron cargar los prospectos', 'err');
+  } finally {
+    _nvCargando = false;
+    if (_tabActual === 'jornada') jornadaRender();
+  }
+}
+
+function nvEsVisible(p) {
+  if (!p) return false;
+  if (p.estado === 'pendiente' || p.estado === 'interesado') return true;
+  if (p.estado === 'volver') {
+    if (!p.ocultar_hasta) return true;
+    var hoy = new Date(); hoy.setHours(12, 0, 0, 0);
+    var h = new Date(p.ocultar_hasta + 'T00:00:00');
+    return h <= hoy;
+  }
+  return false;
+}
+
+function nvVisibles() { return _nvProspectos.filter(nvEsVisible); }
+
+function nvCiudadDe(p) {
+  var raw = (p.localidad || '').trim();
+  try {
+    var can = (typeof _ciudadCanonizar === 'function') ? _ciudadCanonizar(raw) : null;
+    return can || raw || 'Sin ciudad';
+  } catch (e) { return raw || 'Sin ciudad'; }
+}
+
+function nvPintarSeg() {
+  var wrap = document.getElementById('nv-seg-wrap');
+  if (!wrap) return;
+  wrap.style.display = 'block';
+  var bR = document.getElementById('nv-seg-ruta');
+  var bN = document.getElementById('nv-seg-nuevos');
+  if (bR) bR.className = 'nv-seg-btn' + (_nvVista === 'ruta' ? ' on' : '');
+  if (bN) bN.className = 'nv-seg-btn nuevos' + (_nvVista === 'nuevos' ? ' on' : '');
+  var badge = document.getElementById('nv-seg-badge');
+  if (badge) {
+    var n = _nvCargado ? nvVisibles().length : 0;
+    badge.textContent = n;
+    badge.style.display = n > 0 ? 'inline-flex' : 'none';
+  }
+}
+
+function nvProspectoPorId(id) {
+  return _nvProspectos.find(function(p) { return String(p.id) === String(id); }) || null;
+}
+
+// ── Render ───────────────────────────────────────────────────────
+function nvRender() {
+  var body = document.getElementById('jor-body');
+  if (!body) return;
+  if (typeof jor2SetAcciones === 'function') { try { jor2SetAcciones(''); } catch (e) {} }
+
+  if (!_nvCargado) {
+    body.innerHTML = '<div class="nv-empty"><div class="nv-empty-ic">⏳</div>'
+      + (_nvCargando ? 'Cargando prospectos…' : 'Tocá de nuevo para cargar')
+      + '</div>';
+    if (!_nvCargando) nvCargarProspectos();
+    return;
+  }
+  if (_nvSelCiudad) nvRenderCiudad(body);
+  else nvRenderHome(body);
+}
+
+function nvRenderHome(body) {
+  var vis = nvVisibles();
+  var porCiudad = {};
+  vis.forEach(function(p) {
+    var c = nvCiudadDe(p);
+    if (!porCiudad[c]) porCiudad[c] = 0;
+    porCiudad[c]++;
+  });
+  var gestionadas = {};
+  _nvProspectos.forEach(function(p) {
+    if (nvEsVisible(p)) return;
+    var c = nvCiudadDe(p);
+    gestionadas[c] = (gestionadas[c] || 0) + 1;
+  });
+
+  var ciudadActiva = (_jor2SelCiudad || _jornadaCiudadActiva || '').trim();
+  var ciudades = Object.keys(porCiudad).sort(function(a, b) {
+    if (a === ciudadActiva) return -1;
+    if (b === ciudadActiva) return 1;
+    return porCiudad[b] - porCiudad[a];
+  });
+
+  var html = '<div class="nv-hero"><h2>🆕 NUEVOS CLIENTES</h2>'
+    + '<p>Comercios relevados que todavía no nos compran. Terminá tu plan del día y sumá aperturas.</p></div>';
+
+  if (ciudades.length === 0) {
+    html += '<div class="nv-empty"><div class="nv-empty-ic">🎉</div><strong>No quedan prospectos pendientes.</strong><br>A medida que se carguen censos de más ciudades van a aparecer acá.</div>';
+  } else {
+    ciudades.forEach(function(c) {
+      var esAca = c === ciudadActiva;
+      var g = gestionadas[c] || 0;
+      html += '<div class="nv-city' + (esAca ? ' here' : '') + '" onclick="nvAbrirCiudad(\'' + encodeURIComponent(c) + '\')">'
+        + '<div><div class="nv-city-nom">' + escapeHtml(c.toUpperCase())
+        + (esAca ? ' <span class="nv-here-pill">📍 ESTÁS ACÁ</span>' : '') + '</div>'
+        + '<div class="nv-city-sub">' + porCiudad[c] + ' pendiente' + (porCiudad[c] === 1 ? '' : 's')
+        + (g > 0 ? ' · ' + g + ' gestionado' + (g === 1 ? '' : 's') : '') + '</div></div>'
+        + '<div class="nv-city-num"><b>' + porCiudad[c] + '</b><span>nuevos</span></div>'
+        + '</div>';
+    });
+    html += '<div class="nv-hint">💡 Los prospectos no reemplazan tu plan: son para cuando te sobra tiempo en la ciudad o el plan del día quedó corto.</div>';
+  }
+  body.innerHTML = html;
+}
+
+function nvAbrirCiudad(cEnc) {
+  _nvSelCiudad = decodeURIComponent(cEnc || '');
+  _nvGestAbierto = false;
+  jornadaRender();
+}
+
+function nvVolverHome() {
+  _nvSelCiudad = null;
+  jornadaRender();
+}
+
+function nvRenderCiudad(body) {
+  var loc = _nvSelCiudad;
+  var deCiudad = _nvProspectos.filter(function(p) { return nvCiudadDe(p) === loc; });
+  var pend = jor2Optimizar(deCiudad.filter(nvEsVisible));
+  var hechos = deCiudad.filter(function(p) { return !nvEsVisible(p); });
+
+  var html = '<div class="nv-subnav">'
+    + '<button class="nv-back" onclick="nvVolverHome()">‹ Ciudades</button>'
+    + '<div class="nv-subtit">' + escapeHtml(loc) + ' · ' + pend.length + ' nuevos</div>'
+    + '</div>';
+
+  if (pend.length > 0) {
+    var conUbic = pend.filter(function(p) { return p._coords || (p.direccion || '').trim(); }).length;
+    var tandas = Math.ceil(conUbic / JOR2_MAPS_MAX_STOPS) || 1;
+    html += '<button class="nv-btn-maps" onclick="nvMapsCiudad()">🗺️ RUTA DE NUEVOS EN MAPS'
+      + '<small>' + pend.length + ' parada' + (pend.length === 1 ? '' : 's')
+      + (tandas > 1 ? ' · ' + tandas + ' tandas de ' + JOR2_MAPS_MAX_STOPS : ' · 1 sola tanda')
+      + ' · orden por cercanía</small></button>';
+  } else {
+    html += '<div class="nv-empty"><div class="nv-empty-ic">🎉</div><strong>' + escapeHtml(loc) + ' al día.</strong><br>No quedan prospectos pendientes acá.</div>';
+  }
+
+  pend.forEach(function(p, i) { html += nvRenderCard(p, i + 1, i === 0); });
+
+  if (hechos.length > 0) {
+    html += '<button class="nv-toggle" onclick="nvToggleGest()">'
+      + (_nvGestAbierto ? '−' : '+') + ' ✓ Gestionados (' + hechos.length + ')</button>';
+    if (_nvGestAbierto) {
+      hechos.forEach(function(p) {
+        var ic = p.estado === 'convertido' ? '🎉' : p.estado === 'descartado' ? '❌' : '🕐';
+        var lbl = p.estado === 'convertido' ? 'convertido — ¡ya es cliente!'
+          : p.estado === 'descartado' ? 'descartado' + (p.estado_motivo ? ' — ' + p.estado_motivo : '')
+          : 'volver' + (p.ocultar_hasta ? ' (desde ' + p.ocultar_hasta + ')' : '');
+        html += '<div class="nv-done"><span>' + ic + '</span><div><b>' + escapeHtml(p.nombre || '—') + '</b> · ' + escapeHtml(lbl) + '</div></div>';
+      });
+    }
+  }
+  body.innerHTML = html;
+}
+
+function nvToggleGest() { _nvGestAbierto = !_nvGestAbierto; jornadaRender(); }
+
+function nvRenderCard(p, num, esPrimero) {
+  var dist = jornadaDistanciaACliente(p);
+  var distTxt = dist != null ? ' · <span class="nv-dist">' + jornadaFormatearDistancia(dist) + '</span>' : '';
+  var canal = NV_CANAL_LABELS[p.canal_sugerido] || (p.canal_sugerido || 'Comercio');
+  var tel = (p.telefono || '').toString().replace(/\D/g, '');
+  var reintento = (p.estado === 'pendiente' && p.estado_motivo)
+    ? '<span class="nv-chip" style="background:#FFF3E0;color:#E65100">🚪 ' + escapeHtml(p.estado_motivo) + ' — reintentar</span>' : '';
+  var interesado = p.estado === 'interesado'
+    ? '<span class="nv-chip" style="background:#E8F5E9;color:#2E7D32">📄 Interesado</span>' : '';
+  return '<div class="nv-card' + (esPrimero ? ' first' : '') + '">'
+    + (esPrimero ? '<div class="nv-first-tag">▶ MÁS CERCANO</div>' : '')
+    + '<div class="nv-top"><div class="nv-num">' + num + '</div>'
+    + '<div class="nv-info"><b>' + escapeHtml(p.nombre || '—') + '</b>'
+    + '<div class="nv-meta">' + escapeHtml(p.direccion || 'Sin dirección') + distTxt + '</div>'
+    + '<span class="nv-chip">' + escapeHtml(canal) + '</span>'
+    + (p.horarios ? '<span class="nv-chip">🕐 ' + escapeHtml(p.horarios) + '</span>' : '')
+    + interesado + reintento
+    + (p.notas ? '<div class="nv-meta" style="margin-top:3px">📝 ' + escapeHtml(p.notas) + '</div>' : '')
+    + '</div></div>'
+    + '<div class="nv-actions">'
+    + '<button class="nv-a ir" onclick="nvIr(' + p.id + ')">🧭 IR</button>'
+    + (tel.length >= 8
+      ? '<button class="nv-a tel" onclick="window.open(\'tel:' + tel + '\')">📞</button>'
+      : '<button class="nv-a tel off">📞</button>')
+    + '<button class="nv-a chk" onclick="nvCheckIn(' + p.id + ')">📍 CHECK-IN</button>'
+    + '<button class="nv-a res" onclick="nvAbrirGestion(' + p.id + ')">✓</button>'
+    + '</div></div>';
+}
+
+function nvIr(id) {
+  var p = nvProspectoPorId(id);
+  if (!p) return;
+  var q = p._coords ? (p._coords.lat + ',' + p._coords.lng)
+    : ((p.direccion || '') + ', ' + (p.localidad || '') + ', Argentina');
+  window.open('https://www.google.com/maps/search/?api=1&query=' + encodeURIComponent(q), '_blank');
+}
+
+function nvMapsCiudad() {
+  if (!_nvSelCiudad) return;
+  var pend = jor2Optimizar(_nvProspectos.filter(function(p) {
+    return nvCiudadDe(p) === _nvSelCiudad && nvEsVisible(p);
+  }));
+  jor2AbrirMapsLista(pend);
+}
+
+function nvCheckIn(id) {
+  var p = nvProspectoPorId(id);
+  if (!p) return;
+  _nvProspectoActivo = { id: p.id, nombre: p.nombre || '' };
+  gpsIniciarCheckin();
+  // Precargar el nombre del prospecto en el buscador Xubio del modal
+  setTimeout(function() {
+    var inp = document.getElementById('gps-input-cliente');
+    if (inp && _nvProspectoActivo) {
+      inp.value = _nvProspectoActivo.nombre;
+      try { gpsBuscarClienteXubio(_nvProspectoActivo.nombre); } catch (e) {}
+    }
+  }, 160);
+  toast('🆕 Prospecto: si no aparece en Xubio, usá "Ingresar nombre manualmente". Al salir, marcá el resultado con ✓.', 'info');
+}
+
+// ── Gestión de resultado ─────────────────────────────────────────
+function nvAbrirGestion(id) {
+  var p = nvProspectoPorId(id);
+  if (!p) return;
+  var old = document.getElementById('nv-modal-gestion');
+  if (old) old.remove();
+  var bg = document.createElement('div');
+  bg.className = 'nv-modal-bg';
+  bg.id = 'nv-modal-gestion';
+  bg.innerHTML = '<div class="nv-modal">'
+    + '<h3>✓ ' + escapeHtml(p.nombre || 'Prospecto') + ' — ¿cómo fue?</h3>'
+    + '<p>El resultado define si vuelve a aparecer o se archiva.</p>'
+    + '<button class="nv-mot ok" onclick="nvGuardarGestion(' + p.id + ',\'convertido\')"><span class="nv-mi">✅</span><div><b>Vendí — ya es cliente</b><span>Sale de prospectos; entra al circuito normal con su primer pedido</span></div></button>'
+    + '<button class="nv-mot ok" onclick="nvGuardarGestion(' + p.id + ',\'interesado\')"><span class="nv-mi">📄</span><div><b>Interesado — dejé lista / volver a pasar</b><span>Queda pendiente con marca de interesado</span></div></button>'
+    + '<button class="nv-mot warn" onclick="nvGuardarGestion(' + p.id + ',\'volver\')"><span class="nv-mi">🕐</span><div><b>Ya tiene proveedor — volver más adelante</b><span>Se oculta 30 días y reaparece solo</span></div></button>'
+    + '<button class="nv-mot warn" onclick="nvGuardarGestion(' + p.id + ',\'cerrado\')"><span class="nv-mi">🚪</span><div><b>Cerrado / no atendió</b><span>Queda pendiente para reintentar otro día</span></div></button>'
+    + '<button class="nv-mot bad" onclick="nvGuardarGestion(' + p.id + ',\'descartado\')"><span class="nv-mi">❌</span><div><b>Descartar definitivo</b><span>Cerró / no es del rubro / no califica</span></div></button>'
+    + '<button class="nv-mot" onclick="document.getElementById(\'nv-modal-gestion\').remove()"><span class="nv-mi">↩</span><div><b>Volver</b></div></button>'
+    + '</div>';
+  bg.addEventListener('click', function(ev) { if (ev.target === bg) bg.remove(); });
+  document.body.appendChild(bg);
+}
+
+async function nvGuardarGestion(id, accion) {
+  var p = nvProspectoPorId(id);
+  if (!p) return;
+  if (accion === 'descartado' && !confirm('❌ ¿Descartar a ' + (p.nombre || '—') + ' definitivamente?\n\nNo aparece nunca más.')) return;
+
+  var quien = mrNormVendedor(vendedorActual);
+  var ahora = new Date().toISOString();
+  var patch = { gestionado_por: quien, gestionado_at: ahora };
+  if (accion === 'convertido')      { patch.estado = 'convertido'; }
+  else if (accion === 'interesado') { patch.estado = 'interesado'; patch.estado_motivo = 'interesado — volver a pasar'; }
+  else if (accion === 'volver') {
+    var h = new Date(); h.setDate(h.getDate() + 30);
+    patch.estado = 'volver';
+    patch.estado_motivo = 'tiene proveedor';
+    patch.ocultar_hasta = h.toISOString().slice(0, 10);
+  }
+  else if (accion === 'cerrado')    { patch.estado = 'pendiente'; patch.estado_motivo = 'cerrado/no atendió ' + ahora.slice(0, 10); }
+  else if (accion === 'descartado') { patch.estado = 'descartado'; patch.estado_motivo = 'descartado por ' + quien; }
+  else return;
+
+  try {
+    var resp = await sbFetch('prospectos?id=eq.' + encodeURIComponent(id), {
+      method: 'PATCH',
+      body: JSON.stringify(patch),
+      prefer: 'return=representation'
+    });
+    var fila = Array.isArray(resp) ? resp[0] : null;
+    if (!fila || fila.estado !== patch.estado) throw new Error('sin permiso de escritura — avisar a Braian');
+    // Actualizar copia local
+    Object.keys(patch).forEach(function(k) { p[k] = patch[k]; });
+    var m = document.getElementById('nv-modal-gestion');
+    if (m) m.remove();
+    var lbl = { convertido: '🎉 ¡Prospecto convertido!', interesado: '📄 Marcado interesado',
+                volver: '🕐 Vuelve a aparecer en 30 días', pendiente: '🚪 Queda para reintentar',
+                descartado: '❌ Descartado' }[fila.estado] || '✓ Guardado';
+    toast(lbl, 'ok');
+    if (_nvProspectoActivo && String(_nvProspectoActivo.id) === String(id)) _nvProspectoActivo = null;
+    jornadaRender();
+  } catch (e) {
+    console.error('[Nuevos] gestión:', e);
+    toast('No se pudo guardar: ' + (e.message || 'error de red'), 'err');
+  }
+}
+
 // ── Router ───────────────────────────────────────────────────────
 function jornadaRender() {
   if (!Array.isArray(_miRondaClientes) || _miRondaClientes.length === 0) {
@@ -42198,6 +42685,18 @@ function jornadaRender() {
   }
 
   jornadaPintarFecha();
+
+  // v14.55.0: pestaña 🆕 NUEVOS (prospectos). Con check-in activo manda la
+  // vista VISITA de Mi Ruta; al checkout el router vuelve solo a NUEVOS.
+  nvPintarSeg();
+  if (_nvVista === 'nuevos' && !_gpsCheckinActivo) {
+    if (_jor2CronoTimer) { clearInterval(_jor2CronoTimer); _jor2CronoTimer = null; }
+    nvRender();
+    jornadaCargarCheckinsHoy(function(huboNuevos) {
+      if (huboNuevos && _tabActual === 'jornada') jornadaRender();
+    });
+    return;
+  }
 
   // Si hay un check-in activo, la vista es VISITA (pase lo que pase)
   if (_gpsCheckinActivo) _jor2Vista = 'visita';
