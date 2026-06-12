@@ -2,6 +2,25 @@
 <html lang="es">
 <head>
 <!-- ═══════════════════════════════════════════════════════════════════════
+     TCK VENTAS — v14.67.0 — 12/06/2026
+     ──────────────────────────────────────────────────────────────────
+     🆕 NUEVOS: LA GESTIÓN DE PROSPECTOS AHORA CUENTA COMO VISITA
+       · BUG (reportado por Braian): Juan gestionaba prospectos desde la
+         tilde ✓ de NUEVOS (interesado / volver / cerrado / descartado)
+         y eso solo hacía PATCH a `prospectos` — sin fila en `visitas`,
+         sin GPS, sin presencia en reportes. Parecía que "no hizo nada".
+       · FIX: nvGuardarGestion ahora también inserta en `visitas` con
+         tipo='visita_sin_pedido', motivo legible, lat/lng del momento y
+         vendedor_id (background, fire-and-forget — no bloquea la UI ni
+         rompe la gestión si el GPS falla).
+       · Acciones que generan visita: interesado, volver, cerrado,
+         descartado. NO genera visita 'convertido' (la venta ya queda
+         registrada por el flujo check-in/pedido — evita doble conteo).
+       · Guard anti-duplicado: si hay check-in activo sobre el mismo
+         prospecto, NO inserta (el checkout va a registrar esa visita).
+     Sin cambios de datos ni de otras vistas. Base: v14.66.0.
+     ═══════════════════════════════════════════════════════════════════ -->
+<!-- ═══════════════════════════════════════════════════════════════════════
      TCK VENTAS — v14.65.0 — 12/06/2026
      v14.65.0: PRECIOS DINÁMICOS DESDE productos_canonicos (bug Miguel).
        · BUG: los precios de TOMADOR_CAT solo se actualizaban en el boot
@@ -43197,6 +43216,59 @@ function nvAbrirGestion(id) {
   document.body.appendChild(bg);
 }
 
+// ── v14.67.0: la gestión de un prospecto ES una visita ───────────────
+// Inserta en `visitas` (tipo='visita_sin_pedido') con GPS + vendedor_id
+// para que la recorrida de NUEVOS cuente en reportes igual que un
+// check-in. Fire-and-forget: si falla GPS o Supabase, la gestión del
+// prospecto ya quedó guardada y solo se loguea el error.
+var NV_VISITA_MOTIVOS = {
+  interesado: 'Prospecto interesado — dejó lista',
+  volver:     'Tiene proveedor — volver en 30 días',
+  cerrado:    'Local cerrado',
+  descartado: 'Prospecto descartado'
+};
+
+function nvRegistrarVisitaProspecto(p, accion) {
+  // 'convertido' NO genera visita: la venta ya queda registrada por el
+  // flujo check-in/pedido de campo (evita doble conteo).
+  var motivo = NV_VISITA_MOTIVOS[accion];
+  if (!motivo || !p || !p.nombre) return;
+
+  // Guard anti-duplicado: si hay check-in activo sobre este mismo
+  // cliente, el checkout va a registrar la visita — no duplicar.
+  try {
+    if (_gpsCheckinActivo && _gpsCheckinActivo.nombre_cliente &&
+        mrNormNombre(_gpsCheckinActivo.nombre_cliente) === mrNormNombre(p.nombre)) {
+      console.log('[Nuevos] check-in activo sobre ' + p.nombre + ' — visita la registra el checkout');
+      return;
+    }
+  } catch (e) { /* mrNormNombre no disponible: seguir igual */ }
+
+  Promise.all([gpsGetCoords(), gpsObtenerVendedorId()])
+    .then(function(results) {
+      var coords = results[0] || {};
+      var vendedorId = results[1];
+      return sbFetch('visitas', {
+        method: 'POST',
+        prefer: 'return=minimal',
+        body: JSON.stringify({
+          vendedor_id:      vendedorId,
+          nombre_cliente:   p.nombre,
+          tipo:             'visita_sin_pedido',
+          motivo_no_compra: motivo,
+          lat:              coords.lat || null,
+          lng:              coords.lng || null
+        })
+      });
+    })
+    .then(function() {
+      console.log('[Nuevos] ✅ Visita registrada: ' + p.nombre + ' (' + motivo + ')');
+    })
+    .catch(function(e) {
+      console.warn('[Nuevos] No se pudo registrar la visita (la gestión SÍ quedó guardada):', e);
+    });
+}
+
 async function nvGuardarGestion(id, accion) {
   var p = nvProspectoPorId(id);
   if (!p) return;
@@ -43227,6 +43299,8 @@ async function nvGuardarGestion(id, accion) {
     if (!fila || fila.estado !== patch.estado) throw new Error('sin permiso de escritura — avisar a Braian');
     // Actualizar copia local
     Object.keys(patch).forEach(function(k) { p[k] = patch[k]; });
+    // v14.67.0: registrar la gestión como visita (background, no bloquea)
+    nvRegistrarVisitaProspecto(p, accion);
     var m = document.getElementById('nv-modal-gestion');
     if (m) m.remove();
     var lbl = { convertido: '🎉 ¡Prospecto convertido!', interesado: '📄 Marcado interesado',
