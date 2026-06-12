@@ -200,6 +200,22 @@
      particulares v14.52.0.
      ═══════════════════════════════════════════════════════════════════ -->
 <!-- ═══════════════════════════════════════════════════════════════════════
+     TCK VENTAS — v14.65.0 — 12/06/2026
+     ──────────────────────────────────────────────────────────────────────
+     CÓDIGO DE RETIRO — 4 dígitos pelados (pedido Braian 12/06)
+       · ANTES: 'R-' + 4 dígitos (R-9376). Braian: el prefijo molesta;
+         4 dígitos random está bien (correlativo 1,2,3 descartado por
+         truchable — cualquiera adivina el siguiente).
+       · AHORA: _mostGenerarCodigo devuelve 4 dígitos solos ('9376').
+         Se muestran tal cual en pantalla post-venta, lista de ventas
+         y cards de Pancho. Validación de entrega sin cambios (ya era
+         tolerante a prefijo R- y guiones — códigos viejos R-XXXX
+         siguen validando con los 4 dígitos).
+     SIN CAMBIOS: Xubio (sigue presupuesto — factura en próxima versión
+       junto con Apps Script crearFacturaXubio), cobros, stock, Pancho.
+     Base: v14.63.0.
+     ═══════════════════════════════════════════════════════════════════ -->
+<!-- ═══════════════════════════════════════════════════════════════════════
      TCK VENTAS — v14.63.0 — 11/06/2026
      ──────────────────────────────────────────────────────────────────────
      FIX Cargas de Pancho — refresco en vivo (auditoría post-v14.62)
@@ -45417,8 +45433,10 @@ function mostradorCobroConfirmar() {
 }
 
 // ── GUARDADO DE LA VENTA MOSTRADOR ──────────────────────────────────
+// v14.65.0 — 4 dígitos pelados, fáciles de dictar ("9376"). El UNIQUE(codigo)
+// de mostrador_retiros + el retry de mostradorGuardar cubren choques.
 function _mostGenerarCodigo() {
-  return 'R-' + String(Math.floor(1000 + Math.random() * 9000));
+  return String(Math.floor(1000 + Math.random() * 9000));
 }
 
 async function mostradorGuardar(cliente, cobro) {
