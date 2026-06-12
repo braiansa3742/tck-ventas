@@ -2,6 +2,23 @@
 <html lang="es">
 <head>
 <!-- ═══════════════════════════════════════════════════════════════════════
+     TCK VENTAS — v14.64.0 — 12/06/2026
+     v14.64.0: IDENTIDAD JWT DEL VENDEDOR (Fase A, riesgo cero) + FIX visitas.
+       · Login: rpc/login_vendedor (misma validación bcrypt que verificar_pin)
+         devuelve además un JWT firmado (HS256, exp 30 días = SESSION_HORAS).
+         Fallback automático a verificar_pin si la RPC no existe todavía.
+       · sbFetch manda Authorization: Bearer <JWT del vendedor> (fallback a la
+         key anon si no hay token). Si el token es rechazado (401), reintenta
+         1 vez con anon y limpia el token — imposible romper la operación.
+       · Token en localStorage (tck_jwt); se limpia con limpiarSesion().
+       · Las POLICIES NO CAMBIAN en esta fase: todo sigue accesible con anon.
+         El cierre tabla por tabla es la Fase B (fin de semana).
+       · FIX: visitas?created_at → fecha (la columna real). Era un 400
+         silencioso dentro de un .catch() desde hace semanas.
+       · REQUIERE (para emitir tokens): tck_jwt_fase_a_v1.sql corrido con el
+         JWT secret legacy pegado. Sin eso, el login sigue andando igual
+         (sin token, todo por anon).
+     ──────────────────────────────────────────────────────────────────
      TCK VENTAS — v14.58.0 — 11/06/2026
      v14.58.0: PRODUCTO NUEVO — "Barritas de Mozzarella" (El Shaddai · x 6 Kg ·
        $66.000) en TOMADOR_CAT (REBOZADOS) + IMGMAP.
@@ -17148,7 +17165,20 @@ function recuperarSesion() {
 
 function limpiarSesion() {
   try { localStorage.removeItem(SESSION_KEY); } catch(e) {}
+  jwtLimpiar(); // v14.64.0: el token muere con la sesión
 }
+
+// ── v14.64.0: IDENTIDAD JWT DEL VENDEDOR (Fase A) ────────────────
+// El login (rpc/login_vendedor) devuelve un JWT firmado con la identidad
+// del vendedor. sbFetch lo manda como Authorization; PostgREST lo acepta
+// como rol "authenticated". En esta fase las policies no cambian (anon
+// sigue pudiendo todo); la Fase B cierra tabla por tabla.
+const JWT_KEY = 'tck_jwt';
+var _JWT = null;
+function jwtGuardar(t) { _JWT = t || null; try { if (t) localStorage.setItem(JWT_KEY, t); } catch(e) {} }
+function jwtLeer() { try { return localStorage.getItem(JWT_KEY) || null; } catch(e) { return null; } }
+function jwtLimpiar() { _JWT = null; try { localStorage.removeItem(JWT_KEY); } catch(e) {} }
+_JWT = jwtLeer();
 
 
 // ── SUPABASE CONFIG ──────────────────────────────────────────────
@@ -17659,12 +17689,20 @@ async function sbFetch(path, options = {}) {
   const url = SUPABASE_URL + '/rest/v1/' + path;
   const headers = {
     'apikey': SUPABASE_KEY,
-    'Authorization': 'Bearer ' + SUPABASE_KEY,
+    'Authorization': 'Bearer ' + (_JWT || SUPABASE_KEY), // v14.64.0: identidad del vendedor
     'Content-Type': 'application/json',
     'Prefer': options.prefer || 'return=representation',
     ...options.headers
   };
-  const resp = await fetch(url, { ...options, headers });
+  let resp = await fetch(url, { ...options, headers });
+  // v14.64.0: token vencido/rechazado → limpiar y reintentar 1 vez con anon.
+  // En Fase A esto garantiza que un token malo JAMÁS rompe la operación.
+  if (resp.status === 401 && _JWT) {
+    console.warn('[sbFetch] JWT rechazado (401): limpio token y reintento con anon');
+    jwtLimpiar();
+    headers['Authorization'] = 'Bearer ' + SUPABASE_KEY;
+    resp = await fetch(url, { ...options, headers });
+  }
   if (!resp.ok) {
     const err = await resp.text();
     throw new Error('Supabase error: ' + resp.status + ' ' + err);
@@ -20078,11 +20116,24 @@ async function verificarPin() {
   var errEl = document.getElementById('pin-error');
   errEl.textContent = 'Verificando…';
   try {
-    var data = await sbFetch('rpc/verificar_pin', {
-      method: 'POST',
-      body: JSON.stringify({ p_nombre: nombre, p_pin: pin })
-    });
+    // v14.64.0: login_vendedor = misma validación + JWT. Si la RPC todavía
+    // no existe en Supabase (deploy desfasado), cae al verificar_pin viejo.
+    var data;
+    try {
+      data = await sbFetch('rpc/login_vendedor', {
+        method: 'POST',
+        body: JSON.stringify({ p_nombre: nombre, p_pin: pin })
+      });
+    } catch (eRpc) {
+      if (String(eRpc).indexOf('404') !== -1) {
+        data = await sbFetch('rpc/verificar_pin', {
+          method: 'POST',
+          body: JSON.stringify({ p_nombre: nombre, p_pin: pin })
+        });
+      } else { throw eRpc; }
+    }
     if (data && data.ok) {
+      if (data.token) jwtGuardar(data.token); // v14.64.0: identidad JWT
       errEl.textContent = '';
       login(nombre);
     } else {
@@ -42293,7 +42344,7 @@ function jornadaCargarCheckinsHoy(cb) {
   // si otro ya pasó por el local hoy, acá figura cubierto).
   var hoy0 = new Date(); hoy0.setHours(0,0,0,0);
   var path = 'visitas?tipo=eq.checkin' +
-    '&created_at=gte.' + encodeURIComponent(hoy0.toISOString()) +
+    '&fecha=gte.' + encodeURIComponent(hoy0.toISOString()) + // v14.64.0 FIX: la columna es fecha, no created_at (era 400 silencioso)
     '&select=nombre_cliente&limit=1000';
   sbFetch(path).then(function(rows) {
     var antes = Object.keys(_jornadaCheckinsHoy).length;
