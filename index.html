@@ -161,6 +161,34 @@
      particulares v14.52.0.
      ═══════════════════════════════════════════════════════════════════ -->
 <!-- ═══════════════════════════════════════════════════════════════════════
+     TCK VENTAS — v14.62.0 — 11/06/2026
+     ──────────────────────────────────────────────────────────────────────
+     DEPÓSITO COMPLETO — Bloques B y C + validación de código de retiro
+
+     PEDIDO (Braian): cerrar todo lo de Pancho y mostrador, completo.
+
+     1. SEGMENTED en el tab Depósito: 🚚 Cargas | 📦 Recepción | 📋 Stock
+        (con contadores). Recepción = lo existente (retiros + devoluciones).
+     2. BLOQUE B — CONFORMIDAD DE CARGA (pata depósito de la triple
+        conformidad de Román): viajes de HOY con chofer/vehículo/entregas;
+        las entregas se listan en ORDEN DE CARGA (inverso al recorrido,
+        última parada primero, como la planilla) con el resumen de cada
+        pedido desde el cache del Sheet. Pancho firma "✅ CARGUÉ CONFORME"
+        o "⚠️ Con diferencia" (nota obligatoria) → upsert en
+        cargas_conformidad (1 por viaje, snapshot de entregas en
+        detalle_json). El detalle agregado por producto sigue siendo la
+        planilla impresa de Francisco — acá queda la FIRMA en sistema.
+     3. BLOQUE C — STOCK INTERNO: recuentos físicos. Modal con filas
+        producto (datalist desde TOMADOR_CAT) + cantidad, nota general →
+        deposito_recuentos. Historial de últimos 20 recuentos visible.
+     4. VALIDACIÓN DURA DEL CÓDIGO: para entregar un retiro, Pancho tipea
+        el código que le dicta el cliente (tolerante a "r-4827"/"4827");
+        si no coincide, NO se entrega.
+     REQUIERE: SQL sql_deposito_bloques_BC_v1.sql (2 tablas nuevas).
+     NO SE TOCÓ: mostrador, devoluciones, tomador, manualWA, Xubio.
+     Base: v14.61.0.
+     ═══════════════════════════════════════════════════════════════════ -->
+<!-- ═══════════════════════════════════════════════════════════════════════
      TCK VENTAS — v14.61.0 — 11/06/2026
      ──────────────────────────────────────────────────────────────────────
      HARDENING post-deploy del mostrador (reporte de Braian + auditoría)
@@ -44945,6 +44973,20 @@ async function depRecibir(id) {
 .dep-ret-card { background:#FFFDF2;border:1.5px solid #D9B44A;border-radius:14px;margin-bottom:10px;padding:12px 14px; }
 .dep-ret-cod { font-family:'Barlow Condensed',sans-serif;font-size:30px;font-weight:900;letter-spacing:2px;color:#7A5800; }
 .dep-ret-entregar { width:100%;margin-top:10px;background:linear-gradient(135deg,#7A5800,#B8860B);color:#fff;border:none;border-radius:10px;padding:12px;font-family:'Barlow Condensed',sans-serif;font-size:16px;font-weight:900;cursor:pointer;touch-action:manipulation; }
+/* v14.62.0 — segmented depósito + cargas + stock */
+.dep-seg { display:grid;grid-template-columns:repeat(3,1fr);gap:6px;margin:10px 0 12px; }
+.dep-seg button { padding:10px 4px;border:1.5px solid #E8DFD5;border-radius:10px;background:#FAF6F0;font-family:'Barlow Condensed',sans-serif;font-size:15px;font-weight:900;color:#5C4A38;cursor:pointer;touch-action:manipulation; }
+.dep-seg button.sel { background:#2E7D32;border-color:#2E7D32;color:#fff; }
+.dep-seg-n { background:#C62828;color:#fff;border-radius:10px;padding:0 6px;font-size:11px;margin-left:2px; }
+.dep-viaje-card { background:#fff;border:1.5px solid #E8DFD5;border-radius:14px;margin-bottom:12px;padding:12px 14px; }
+.dep-viaje-head { font-family:'Barlow Condensed',sans-serif;font-size:19px;font-weight:900;color:#2A2018; }
+.dep-viaje-ent { border-top:1px dashed #EDE5DA;padding:7px 0;font-size:12.5px;color:#5C4A38; }
+.dep-viaje-ent b { color:#2A2018; }
+.dep-conf-ok { width:100%;margin-top:8px;background:linear-gradient(135deg,#1B5E20,#2E7D32);color:#fff;border:none;border-radius:10px;padding:12px;font-family:'Barlow Condensed',sans-serif;font-size:16px;font-weight:900;cursor:pointer;touch-action:manipulation; }
+.dep-conf-dif { width:100%;margin-top:6px;background:#fff;border:1.5px solid #E65100;border-radius:10px;padding:10px;font-size:13px;font-weight:800;color:#E65100;cursor:pointer;touch-action:manipulation; }
+.dep-stock-row { display:grid;grid-template-columns:1fr 84px 34px;gap:6px;margin-bottom:6px; }
+.dep-stock-row input { padding:9px;border:1.5px solid #E8DFD5;border-radius:8px;font-size:13px;box-sizing:border-box;background:#fff;color:#2A2018; }
+.dep-stock-del { border:none;background:#FFEBEE;color:#C62828;border-radius:8px;font-size:15px;font-weight:900;cursor:pointer;touch-action:manipulation; }
 </style>
 <script>
 // ═══ v14.58.0 — MOSTRADOR ═══════════════════════════════════════════
@@ -45480,6 +45522,278 @@ async function mostradorReintentarPresupuesto(retiroId, btn) {
   }
 }
 
+// ═══ v14.62.0 — BLOQUE B: CONFORMIDAD DE CARGA ═════════════════════
+var _depSeccion = 'recepcion';            // cargas | recepcion | stock
+var _depViajesHoy = [];                   // viajes de hoy
+var _depEntregasViaje = {};               // viaje_id -> entregas[]
+var _depConformidades = {};               // viaje_id -> fila cargas_conformidad
+var _depCargasCargado = false;
+
+// Orden de carga = INVERSO al recorrido (la última parada se carga primero)
+var DEP_RUTA_ORDEN = ['trenque lauquen','pehuajo','henderson','carlos casares','daireaux',
+  'pellegrini','salliquelo','tres lomas','guamini','30 de agosto','lincoln','quemu quemu'];
+function _depRutaIdx(ciudad) {
+  var c = String(ciudad || '').toLowerCase()
+    .normalize('NFD').replace(/[\u0300-\u036f]/g, '');
+  for (var i = 0; i < DEP_RUTA_ORDEN.length; i++) {
+    if (c.indexOf(DEP_RUTA_ORDEN[i]) >= 0 || DEP_RUTA_ORDEN[i].indexOf(c) >= 0) return i;
+  }
+  return -1;
+}
+
+function depSeccionIr(sec) {
+  _depSeccion = sec;
+  depositoRender();
+  if (sec === 'cargas' && !_depCargasCargado) depCargasRecargar();
+  if (sec === 'stock' && !_depRecuentosCargado) depStockRecargar();
+}
+
+function _depCargasPendientes() {
+  return _depViajesHoy.filter(function(v) { return !_depConformidades[v.id]; }).length;
+}
+
+async function depCargasRecargar() {
+  try {
+    var hoyISO = (function() {
+      var d = new Date();
+      return d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0');
+    })();
+    _depViajesHoy = await sbFetch('viajes?select=id,zona,chofer,vehiculo,estado,total_pedidos,monto_total' +
+      '&fecha_salida=eq.' + hoyISO + '&order=created_at.asc&limit=30') || [];
+    _depEntregasViaje = {};
+    _depConformidades = {};
+    if (_depViajesHoy.length) {
+      var ids = _depViajesHoy.map(function(v) { return v.id; }).join(',');
+      var ents = await sbFetch('entregas?select=viaje_id,pedido_id,cliente,comercio,ciudad,monto,estado' +
+        '&viaje_id=in.(' + ids + ')&limit=1000') || [];
+      ents.forEach(function(e) {
+        (_depEntregasViaje[e.viaje_id] = _depEntregasViaje[e.viaje_id] || []).push(e);
+      });
+      var confs = await sbFetch('cargas_conformidad?select=*&viaje_id=in.(' + ids + ')&limit=50') || [];
+      confs.forEach(function(c) { _depConformidades[c.viaje_id] = c; });
+    }
+    _depCargasCargado = true;
+  } catch (e) {
+    console.error('[depósito cargas]', e);
+    if (typeof toast === 'function') toast('❌ No se pudieron cargar los viajes — reintentá', 'err');
+  }
+  depositoRender();
+}
+
+function _depZonaLabel(z) {
+  var m = { tl_manana: 'TL — mañana', tl_tarde: 'TL — tarde', tl: 'Trenque Lauquen' };
+  return m[z] || (z || 'Viaje');
+}
+
+// Resumen del pedido desde el cache del Sheet (Pancho carga pedidos al loguear)
+function _depResumenDe(pedidoId) {
+  if (!pedidoId || !Array.isArray(todosLosPedidos)) return '';
+  var p = todosLosPedidos.find(function(x) { return x.pedidoId === pedidoId; });
+  return p ? (p.resumenPedido || p.detalle || '') : '';
+}
+
+function _depCargasHtml() {
+  var h = '<div style="font-size:12px;color:#8A7E72;margin:0 2px 8px;">Viajes de HOY · entregas en ORDEN DE CARGA (última parada primero). El detalle por producto está en la planilla impresa.</div>';
+  if (!_depCargasCargado) return h + '<div class="dep-empty">Cargando viajes…</div>';
+  if (!_depViajesHoy.length) return h + '<div class="dep-empty">No hay viajes programados para hoy.</div>';
+  _depViajesHoy.forEach(function(v) {
+    var conf = _depConformidades[v.id];
+    var ents = (_depEntregasViaje[v.id] || []).slice().sort(function(a, b) {
+      return _depRutaIdx(b.ciudad) - _depRutaIdx(a.ciudad);   // inverso: última parada primero
+    });
+    h += '<div class="dep-viaje-card">';
+    h += '<div style="display:flex;align-items:center;justify-content:space-between;gap:8px;">';
+    h += '  <span class="dep-viaje-head">🚚 ' + _mostEsc(_depZonaLabel(v.zona)) + '</span>';
+    h += conf
+      ? (conf.estado === 'conforme'
+        ? '<span class="dep-badge dep-badge-ok">✅ Conforme</span>'
+        : '<span class="dep-badge dep-badge-dif">⚠️ Con diferencia</span>')
+      : '<span class="dep-badge dep-badge-pend">⏳ Sin conformar</span>';
+    h += '</div>';
+    h += '<div style="font-size:12px;color:#8A7E72;margin-top:2px;">' +
+      _mostEsc(v.chofer || 'Sin chofer') + ' · ' + _mostEsc(v.vehiculo || 'Sin vehículo') +
+      ' · ' + ents.length + ' entregas · ' + _mostFmt(v.monto_total) + '</div>';
+    if (ents.length) {
+      h += '<div style="margin-top:6px;">';
+      ents.forEach(function(e, i) {
+        var res = _depResumenDe(e.pedido_id);
+        h += '<div class="dep-viaje-ent">';
+        h += '<b>' + (i + 1) + '. ' + _mostEsc(e.cliente || '') + '</b> · ' + _mostEsc(e.ciudad || '');
+        if (res) h += '<br>' + _mostEsc(res);
+        h += '</div>';
+      });
+      h += '</div>';
+    }
+    if (conf) {
+      h += '<div style="font-size:11px;color:#9A8F85;margin-top:6px;">Firmado por ' + _mostEsc(conf.conformado_por || '—') +
+        ' · ' + _depFmtFecha(conf.conformado_en) + (conf.nota ? '<br>📝 ' + _mostEsc(conf.nota) : '') + '</div>';
+    } else {
+      h += '<button class="dep-conf-ok" onclick="depCargaConformar(\'' + _mostEsc(v.id) + '\', false)">✅ CARGUÉ CONFORME</button>';
+      h += '<button class="dep-conf-dif" onclick="depCargaConformar(\'' + _mostEsc(v.id) + '\', true)">⚠️ Cargué con diferencia (anotar)</button>';
+    }
+    h += '</div>';
+  });
+  return h;
+}
+
+async function depCargaConformar(viajeId, conDiferencia) {
+  var v = _depViajesHoy.find(function(x) { return x.id === viajeId; });
+  if (!v) return;
+  var nota = '';
+  if (conDiferencia) {
+    nota = prompt('⚠️ ¿Qué diferencia hubo en la carga?\n(obligatorio: producto, cantidad, qué pasó)');
+    if (nota === null) return;
+    nota = nota.trim();
+    if (!nota) { toast('La nota es obligatoria para conformar con diferencia', 'err'); return; }
+  } else {
+    if (!confirm('¿Confirmás que cargaste el viaje ' + _depZonaLabel(v.zona) + ' (' +
+      ((_depEntregasViaje[viajeId] || []).length) + ' entregas) COMPLETO y conforme?')) return;
+  }
+  try {
+    var hoyISO = (function() {
+      var d = new Date();
+      return d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0');
+    })();
+    var snapshot = (_depEntregasViaje[viajeId] || []).map(function(e) {
+      return { pedido_id: e.pedido_id, cliente: e.cliente, ciudad: e.ciudad, monto: e.monto };
+    });
+    var filas = await sbFetch('cargas_conformidad?on_conflict=viaje_id', {
+      method: 'POST',
+      headers: { 'Prefer': 'resolution=merge-duplicates,return=representation' },
+      body: JSON.stringify([{
+        viaje_id:       viajeId,
+        fecha:          hoyISO,
+        zona:           v.zona || null,
+        chofer:         v.chofer || null,
+        vehiculo:       v.vehiculo || null,
+        total_pedidos:  (_depEntregasViaje[viajeId] || []).length,
+        estado:         conDiferencia ? 'con_diferencia' : 'conforme',
+        nota:           nota || null,
+        detalle_json:   { entregas: snapshot },
+        conformado_por: vendedorActual || 'Pancho',
+        conformado_en:  new Date().toISOString()
+      }])
+    });
+    if (!filas || !filas.length) throw new Error('insert devolvió vacío (¿RLS?)');
+    _depConformidades[viajeId] = filas[0];
+    toast(conDiferencia ? '⚠️ Carga registrada CON diferencia' : '✅ Carga conforme registrada', 'ok');
+    depositoRender();
+  } catch (e) {
+    console.error('[depCargaConformar]', e);
+    toast('❌ No se pudo registrar la conformidad — reintentá', 'err');
+  }
+}
+
+// ═══ v14.62.0 — BLOQUE C: STOCK INTERNO (recuentos) ═════════════════
+var _depRecuentos = [];
+var _depRecuentosCargado = false;
+
+async function depStockRecargar() {
+  try {
+    _depRecuentos = await sbFetch('deposito_recuentos?select=*&order=creado_at.desc&limit=20') || [];
+    _depRecuentosCargado = true;
+  } catch (e) {
+    console.error('[depósito stock]', e);
+  }
+  depositoRender();
+}
+
+function _depStockHtml() {
+  var h = '<div style="font-size:12px;color:#8A7E72;margin:0 2px 8px;">Recuentos físicos del depósito. Lo que cargás acá lo ve administración.</div>';
+  h += '<button class="most-btn-nueva" style="font-size:19px;padding:14px;" onclick="depRecuentoAbrir()">➕ NUEVO RECUENTO</button>';
+  if (!_depRecuentosCargado) return h + '<div class="dep-empty">Cargando…</div>';
+  if (!_depRecuentos.length) return h + '<div class="dep-empty">Todavía no hay recuentos guardados.</div>';
+  _depRecuentos.forEach(function(r) {
+    var items = Array.isArray(r.items) ? r.items : [];
+    h += '<div class="most-ret-card">';
+    h += '<div style="display:flex;align-items:center;justify-content:space-between;">';
+    h += '  <b style="font-size:14px;color:#2A2018;">📋 ' + _mostEsc(r.fecha || '') + '</b>';
+    h += '  <span style="font-size:11px;color:#9A8F85;">' + items.length + ' productos · ' + _mostEsc(r.creado_por || '') + '</span>';
+    h += '</div>';
+    h += '<div style="font-size:12px;color:#5C4A38;margin-top:4px;">' +
+      items.map(function(it) { return _mostEsc(it.cantidad + '× ' + it.producto); }).join(' · ') + '</div>';
+    if (r.nota) h += '<div style="font-size:11px;color:#9A8F85;margin-top:3px;">📝 ' + _mostEsc(r.nota) + '</div>';
+    h += '</div>';
+  });
+  return h;
+}
+
+function _depProductosDatalist() {
+  var nombres = [];
+  try {
+    (TOMADOR_CAT || []).forEach(function(cat) {
+      (cat.items || []).forEach(function(it) { if (it.n) nombres.push(it.n); });
+    });
+  } catch (e) {}
+  return '<datalist id="dep-prods-dl">' + nombres.map(function(n) {
+    return '<option value="' + _mostEsc(n) + '">';
+  }).join('') + '</datalist>';
+}
+
+function depRecuentoAbrir() {
+  var h = '';
+  h += '<div class="most-ov" id="dep-rec-ov">';
+  h += ' <div class="most-card">';
+  h += '  <div class="most-h">📋 Recuento de depósito</div>';
+  h += _depProductosDatalist();
+  h += '  <div id="dep-rec-rows"></div>';
+  h += '  <button class="most-sec" onclick="depRecuentoFila()">➕ Agregar producto</button>';
+  h += '  <div class="most-lbl">Nota general</div>';
+  h += '  <input class="most-inp" id="dep-rec-nota" type="text" placeholder="Opcional">';
+  h += '  <div id="dep-rec-err" style="color:#C62828;font-size:12px;font-weight:700;min-height:16px;"></div>';
+  h += '  <button class="most-act" id="dep-rec-btn" onclick="depRecuentoGuardar()">💾 GUARDAR RECUENTO</button>';
+  h += '  <button class="most-sec" onclick="document.getElementById(\'dep-rec-ov\').remove()">Cancelar</button>';
+  h += ' </div>';
+  h += '</div>';
+  document.body.insertAdjacentHTML('beforeend', h);
+  depRecuentoFila(); depRecuentoFila(); depRecuentoFila();
+}
+
+function depRecuentoFila() {
+  var cont = document.getElementById('dep-rec-rows');
+  if (!cont) return;
+  var row = document.createElement('div');
+  row.className = 'dep-stock-row';
+  row.innerHTML =
+    '<input type="text" list="dep-prods-dl" placeholder="Producto…" class="dep-rec-prod">' +
+    '<input type="number" inputmode="decimal" placeholder="Cant." class="dep-rec-cant">' +
+    '<button type="button" class="dep-stock-del" onclick="this.parentNode.remove()">✕</button>';
+  cont.appendChild(row);
+}
+
+async function depRecuentoGuardar() {
+  var err = document.getElementById('dep-rec-err');
+  err.textContent = '';
+  var items = [];
+  document.querySelectorAll('#dep-rec-rows .dep-stock-row').forEach(function(row) {
+    var p = (row.querySelector('.dep-rec-prod').value || '').trim();
+    var c = parseFloat(row.querySelector('.dep-rec-cant').value);
+    if (p && !isNaN(c)) items.push({ producto: p, cantidad: c });
+  });
+  if (!items.length) { err.textContent = 'Cargá al menos un producto con cantidad.'; return; }
+  var btn = document.getElementById('dep-rec-btn');
+  btn.disabled = true; btn.textContent = 'Guardando…';
+  try {
+    var filas = await sbFetch('deposito_recuentos', {
+      method: 'POST',
+      headers: { 'Prefer': 'return=representation' },
+      body: JSON.stringify([{
+        items: items,
+        nota: (document.getElementById('dep-rec-nota').value || '').trim() || null,
+        creado_por: vendedorActual || 'Pancho'
+      }])
+    });
+    if (!filas || !filas.length) throw new Error('insert vacío (¿RLS?)');
+    document.getElementById('dep-rec-ov').remove();
+    toast('✅ Recuento guardado (' + items.length + ' productos)', 'ok');
+    depStockRecargar();
+  } catch (e) {
+    console.error('[depRecuentoGuardar]', e);
+    err.textContent = 'No se pudo guardar — reintentá.';
+    btn.disabled = false; btn.textContent = '💾 GUARDAR RECUENTO';
+  }
+}
+
 // ── PANCHO: cards de retiro + entrega ──────────────────────────────
 function _depRetiroCardHtml(r, esPend) {
   var h = '<div class="dep-ret-card">';
@@ -45504,7 +45818,18 @@ function _depRetiroCardHtml(r, esPend) {
 async function depRetiroEntregar(id) {
   var r = _depRetiros.find(function(x) { return x.id === id; });
   if (!r) return;
-  if (!confirm('¿Entregar ' + r.codigo + ' a ' + (r.cliente || 'cliente') + '?\n\n' + (r.items_resumen || ''))) return;
+  // v14.62.0 — VALIDACIÓN DURA: el cliente le dicta el código a Pancho y
+  // tiene que coincidir. Tolerante: mayúsculas/minúsculas, espacios y el
+  // prefijo "R-" opcional (puede tipear "4827" o "r-4827").
+  var ingresado = prompt('🛒 ' + (r.cliente || 'Cliente') + ' — ' + (r.items_resumen || '') +
+    '\n\nPedile el CÓDIGO al cliente y escribilo acá:');
+  if (ingresado === null) return; // canceló
+  var normIng = String(ingresado).toUpperCase().replace(/[\s-]/g, '').replace(/^R/, '');
+  var normCod = String(r.codigo || '').toUpperCase().replace(/[\s-]/g, '').replace(/^R/, '');
+  if (!normIng || normIng !== normCod) {
+    toast('❌ Código incorrecto — NO entregar. Verificá con el cliente.', 'err');
+    return;
+  }
   try {
     var filas = await sbFetch('mostrador_retiros?id=eq.' + encodeURIComponent(id), {
       method: 'PATCH',
