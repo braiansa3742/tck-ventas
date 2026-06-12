@@ -161,6 +161,55 @@
      particulares v14.52.0.
      ═══════════════════════════════════════════════════════════════════ -->
 <!-- ═══════════════════════════════════════════════════════════════════════
+     TCK VENTAS — v14.58.0 — 11/06/2026
+     ──────────────────────────────────────────────────────────────────────
+     VENTA MOSTRADOR (rol Mostrador) + RETIROS en panel de Pancho
+
+     NOTA DE NUMERACIÓN: el patch "v14.53.0 — 11/06 ROL DEPÓSITO" de más
+     abajo es en realidad el v14.57.0 de la secuencia (se etiquetó sin ver
+     que el archivo ya iba por v14.56.0). Esta versión retoma la cuenta.
+
+     PEDIDO (Braian, 11/06): venta de mostrador completa — Román/Valentina
+     crean el cliente en Xubio, venden, cobran en el acto y el sistema
+     genera un código de retiro; Pancho lo recibe en su panel y entrega.
+
+     CAMBIOS:
+       1. LOGIN: botón "Mostrador" (dorado). PIN server-side: alta en
+          app_usuarios rol 'mostrador' (sql_mostrador_fase1_v1.sql).
+       2. ROL MOSTRADOR: layout compacto, solo ve el tab 🛒 Mostrador
+          (home: botón NUEVA VENTA + ventas/retiros de hoy con estado).
+          Sin GPS/tracking/objetivos/ronda.
+       3. VENTA: reusa el modal manualWA en modo mostrador
+          (_mwaModoMostrador): banner, localidad fija Trenque Lauquen
+          (campo oculto), cliente Xubio OBLIGATORIO. El buscador ahora
+          propaga el id de clientes_xubio (data-xid) y al elegir se fija
+          en _mostradorClienteXubio (chip verde ✓). Si tipean a mano se
+          invalida la selección. Botón "➕ Cliente nuevo" → alta directa
+          vía accion=crearClienteXubio (CF/MT/RI, valida CUIT 11 díg).
+       4. COBRO EN EL ACTO: modal propio — Efectivo / Transf-MP / Cheque /
+          Mixto (suma validada). Cheque pide banco/n°/vto → insert en
+          cheques_recibidos (estado 'recibido', chofer 'Mostrador').
+       5. GUARDADO (mostradorGuardar): pedido origen='mostrador'
+          (AS v25.50.0 lo registra con zona='mostrador' SIN viaje ni
+          entrega) → presupuesto Xubio automático con el cliente elegido
+          (si falla: venta queda y avisa) → código R-XXXX único (5
+          reintentos anti-choque) → insert mostrador_retiros → pantalla
+          de CÓDIGO GIGANTE para el cliente.
+       6. PANCHO: sección "🛒 Retiros mostrador" arriba de devoluciones
+          en su tab — código grande, cliente, items, cobro. ENTREGADO →
+          PATCH anti-RLS + cambiarEstado del pedido a Entregado. Badge
+          del tab suma devoluciones por recibir + retiros pendientes.
+          Polling 60s con tono + vibración al entrar un retiro nuevo.
+
+     REQUIERE: SQL sql_mostrador_fase1_v1.sql (tabla + usuario) y
+     Apps Script v25.50.0 deployado ANTES de usar el mostrador.
+     FACTURA API: pendiente del CAE (Fase 3) — por ahora presupuesto;
+     Román factura en Xubio web como siempre.
+
+     NO SE TOCÓ: tomador, flujo manualWA normal (el desvío solo corre con
+     _mwaModoMostrador), Xubio presupuestos, anti-dup, entregas, viajes.
+     ═══════════════════════════════════════════════════════════════════ -->
+<!-- ═══════════════════════════════════════════════════════════════════════
      TCK VENTAS — v14.53.0 — 11/06/2026
      ──────────────────────────────────────────────────────────────────────
      ROL DEPÓSITO (Pancho) — Bloque A: Recepción de devoluciones
@@ -15422,6 +15471,10 @@ body {
         <div class="login-av" style="background:#2E7D32;">P</div>
         <div class="login-btn-name">Pancho<div class="login-btn-role">Encargado de Depósito</div></div>
       </button>
+      <button class="login-btn" id="login-btn-mostrador" onclick="seleccionarVendedor('Mostrador','V','#B8860B')">
+        <div class="login-av" style="background:#B8860B;">🛒</div>
+        <div class="login-btn-name">Mostrador<div class="login-btn-role">Venta en local (Román / Valentina)</div></div>
+      </button>
     </div>
     <script>
       // Filtrar botones de login según el dominio — se ejecuta inmediatamente
@@ -16041,6 +16094,13 @@ body {
   </div>
 
   <!-- ═══ TAB MIS VIAJES (v14.0 - antes "Rendiciones") ═══ -->
+  <!-- ═══ TAB MOSTRADOR (solo usuario Mostrador — v14.58.0) ═══ -->
+  <div class="view" id="view-mostrador">
+    <div id="most-root" style="padding:12px 14px 90px;max-width:680px;margin:0 auto;">
+      <div style="text-align:center;padding:40px 16px;color:#9A8F85;font-size:14px;">Cargando…</div>
+    </div>
+  </div>
+
   <!-- ═══ TAB DEPÓSITO (solo Pancho — v14.53.0) ═══ -->
   <div class="view" id="view-deposito">
     <div id="dep-root" style="padding:12px 14px 90px;max-width:680px;margin:0 auto;">
@@ -16682,6 +16742,11 @@ body {
     <span class="tab-badge" id="tab-badge-deposito"></span>
     <span class="tab-icon">📦</span>
     <span class="tab-label">Depósito</span>
+  </button>
+  <!-- v14.58.0: tab Mostrador — solo usuario Mostrador -->
+  <button class="tab-btn" id="tab-btn-mostrador" onclick="cambiarTab('mostrador')" style="display:none !important;">
+    <span class="tab-icon">🛒</span>
+    <span class="tab-label">Mostrador</span>
   </button>
   <button class="tab-btn" id="tab-btn-bot" onclick="cambiarTab('bot')" style="display:none !important;">
     <span class="tab-icon">🤖</span>
@@ -20005,12 +20070,14 @@ function login(nombre) {
   var esChofer = nombre === 'Joan' || nombre === 'Luis' || nombre === 'Juan Pablo';
   // v14.53.0: rol Depósito (Pancho) — layout compacto como chofer
   var esDeposito = nombre === 'Pancho';
+  // v14.58.0: rol Mostrador — layout compacto también
+  var esMostrador = nombre === 'Mostrador';
 
-  // Para choferes y depósito: ocultar bienvenida y agregar clase al panel
+  // Para choferes, depósito y mostrador: ocultar bienvenida y agregar clase al panel
   const bienvenidaEl = document.querySelector('.bienvenida');
   const panelEl = document.getElementById('panel');
-  if (bienvenidaEl) bienvenidaEl.style.display = (esChofer || esDeposito) ? 'none' : '';
-  if (panelEl && (esChofer || esDeposito)) panelEl.classList.add('chofer-mode');
+  if (bienvenidaEl) bienvenidaEl.style.display = (esChofer || esDeposito || esMostrador) ? 'none' : '';
+  if (panelEl && (esChofer || esDeposito || esMostrador)) panelEl.classList.add('chofer-mode');
   else if (panelEl) panelEl.classList.remove('chofer-mode');
 
   document.getElementById('bienvenida-nombre').textContent = esAdmin ? '👑 Administración' : nombre;
@@ -20030,7 +20097,9 @@ function login(nombre) {
         ? 'Logística — Ruta del día'
         : esDeposito
           ? 'Depósito — Devoluciones y carga'
-          : 'Tus pedidos del día';
+          : esMostrador
+            ? 'Mostrador — Venta en local'
+            : 'Tus pedidos del día';
   }
   if (btnSalirHdrEl) btnSalirHdrEl.style.display = 'flex';
 
@@ -20048,7 +20117,9 @@ function login(nombre) {
       ? 'Ruta del día — ' + new Date().toLocaleDateString('es-AR')
       : esDeposito
         ? 'Depósito — ' + new Date().toLocaleDateString('es-AR')
-        : 'Tus pedidos de hoy — ' + new Date().toLocaleDateString('es-AR');
+        : esMostrador
+          ? 'Mostrador — ' + new Date().toLocaleDateString('es-AR')
+          : 'Tus pedidos de hoy — ' + new Date().toLocaleDateString('es-AR');
   document.getElementById('filtros-vendedor').style.display = esAdmin ? 'flex' : 'none';
   setTimeout(function() {
     if (!esChofer && !esDeposito) {
@@ -20073,16 +20144,16 @@ function login(nombre) {
   //   Vendedor real (Miguel/Juan/Lisandro) → Mi Ronda (es el flujo principal)
   //   Admin → Pedidos (resumen del día)
   //   Chofer → Entregas (ya se setea en mostrarTabs)
-  var _esVendedor = (nombre !== 'ADMIN' && !esChofer && !esDeposito);
+  var _esVendedor = (nombre !== 'ADMIN' && !esChofer && !esDeposito && !esMostrador);
   if (_esVendedor) {
     cambiarTab('mironda');
   }
-  // Iniciar tracking GPS continuo (solo vendedores, no Admin ni Choferes ni Depósito)
-  if (nombre !== 'ADMIN' && !esChofer && !esDeposito) trackingIniciar();
+  // Iniciar tracking GPS continuo (solo vendedores, no Admin/Choferes/Depósito/Mostrador)
+  if (nombre !== 'ADMIN' && !esChofer && !esDeposito && !esMostrador) trackingIniciar();
   // Cargar objetivos (solo vendedores)
-  if (!esChofer && !esDeposito) objetivosCargar();
+  if (!esChofer && !esDeposito && !esMostrador) objetivosCargar();
   // Restaurar checkin activo si existe (solo vendedores)
-  if (nombre !== 'ADMIN' && !esChofer && !esDeposito) {
+  if (nombre !== 'ADMIN' && !esChofer && !esDeposito && !esMostrador) {
     // v14.17.3 Cambio 3 (Bug A): cerrar checkins colgados de días anteriores
     // ANTES de cargar el historial. Caso: vendedor cerró la app sin hacer
     // checkout, al día siguiente al loguearse esos checkins quedaban
@@ -22322,7 +22393,7 @@ function cambiarTab(tab) {
 
   // Views — incluye entregas para choferes y mironda para vendedores
   // v14.22.0: agregada tab "jornada" (lista del día por ciudad)
-  ['pedidos','midia','clientes','gps','mapa','reportes','bot','entregas','mironda','jornada','rendiciones','deposito'].forEach(function(t) {
+  ['pedidos','midia','clientes','gps','mapa','reportes','bot','entregas','mironda','jornada','rendiciones','deposito','mostrador'].forEach(function(t) {
     var v = document.getElementById('view-' + t);
     var b = document.getElementById('tab-btn-' + t);
     if (v) v.classList.toggle('active', t === tab);
@@ -22407,6 +22478,14 @@ function cambiarTab(tab) {
     document.body.scrollTop = 0;
   }
 
+  // v14.58.0: tab Mostrador — render al abrir
+  if (tab === 'mostrador') {
+    if (typeof mostradorTabRender === 'function') mostradorTabRender();
+    window.scrollTo(0, 0);
+    document.documentElement.scrollTop = 0;
+    document.body.scrollTop = 0;
+  }
+
   // v14.53.0: tab Depósito (Pancho) — recargar devoluciones al abrir
   if (tab === 'deposito') {
     if (typeof depositoRecargar === 'function') depositoRecargar();
@@ -22437,11 +22516,13 @@ function mostrarTabs() {
   var esChofer   = vendedorActual === 'Joan' || vendedorActual === 'Luis' || vendedorActual === 'Juan Pablo';
   // v14.53.0: rol Depósito (Pancho) — solo ve su tab
   var esDeposito = vendedorActual === 'Pancho';
-  var esVendedor = !esAdmin && !esChofer && !esDeposito;
+  // v14.58.0: rol Mostrador (Román/Valentina en el local)
+  var esMostrador = vendedorActual === 'Mostrador';
+  var esVendedor = !esAdmin && !esChofer && !esDeposito && !esMostrador;
 
   // Pancho: solo ve tab Depósito
   if (esDeposito) {
-    ['pedidos','midia','clientes','gps','mapa','bot','reportes','mironda','jornada','mas','entregas','rendiciones'].forEach(function(t) {
+    ['pedidos','midia','clientes','gps','mapa','bot','reportes','mironda','jornada','mas','entregas','rendiciones','mostrador'].forEach(function(t) {
       var btn = document.getElementById('tab-btn-' + t);
       if (btn) btn.style.display = 'none';
     });
@@ -22451,6 +22532,8 @@ function mostrarTabs() {
     // Si _tabActual ya era 'deposito' (re-login), cambiarTab hace early-return
     // y no recarga — forzar recarga acá (idempotente, _depCargando lo protege).
     if (typeof depositoRecargar === 'function') depositoRecargar();
+    // v14.58.0: polling de 60s — nuevas devoluciones/retiros suenan solos
+    if (typeof depPollIniciar === 'function') depPollIniciar();
     window.scrollTo(0, 0);
     document.documentElement.scrollTop = 0;
     document.body.scrollTop = 0;
@@ -22459,6 +22542,25 @@ function mostrarTabs() {
   // Tab Depósito — oculto para todos los demás roles
   var tabDepNo = document.getElementById('tab-btn-deposito');
   if (tabDepNo) tabDepNo.style.display = 'none';
+
+  // v14.58.0 — Mostrador: solo ve tab Mostrador
+  if (esMostrador) {
+    ['pedidos','midia','clientes','gps','mapa','bot','reportes','mironda','jornada','mas','entregas','rendiciones','deposito'].forEach(function(t) {
+      var btn = document.getElementById('tab-btn-' + t);
+      if (btn) btn.style.display = 'none';
+    });
+    var tabMost = document.getElementById('tab-btn-mostrador');
+    if (tabMost) tabMost.style.display = '';
+    cambiarTab('mostrador');
+    if (typeof mostradorTabRender === 'function') mostradorTabRender();
+    window.scrollTo(0, 0);
+    document.documentElement.scrollTop = 0;
+    document.body.scrollTop = 0;
+    return;
+  }
+  // Tab Mostrador — oculto para todos los demás roles
+  var tabMostNo = document.getElementById('tab-btn-mostrador');
+  if (tabMostNo) tabMostNo.style.display = 'none';
 
   // Botón cargar pedido por WA — solo vendedores
   var btnWA = document.getElementById('btn-carga-wa');
@@ -36255,7 +36357,8 @@ function manualWABuscarCliente(q) {
           todos.set(key, {
             nombre: nombre,
             loc: c.localidad || '',
-            fuente: 'xubio'
+            fuente: 'xubio',
+            xid: c.xid || null   // v14.58.0
           });
         }
       });
@@ -36287,7 +36390,7 @@ function manualWABuscarCliente(q) {
           ? '<span style="background:#E8F5E9;color:#2E7D32;border-radius:10px;padding:1px 6px;font-size:10px;font-weight:700;margin-left:4px;">Xubio</span>'
           : '';
         return '<button style="display:block;width:100%;padding:8px 12px;margin-bottom:4px;background:var(--cream2);border:1px solid var(--cream3);border-radius:8px;text-align:left;cursor:pointer;font-size:13px;" ' +
-          'data-nombre="' + c.nombre.replace(/"/g,'&quot;') + '" data-loc="' + (c.loc||'').replace(/"/g,'&quot;') + '" onclick="manualWAElegirClienteBtn(this)">' +
+          'data-nombre="' + c.nombre.replace(/"/g,'&quot;') + '" data-loc="' + (c.loc||'').replace(/"/g,'&quot;') + '" data-xid="' + (c.xid || '') + '" onclick="manualWAElegirClienteBtn(this)">' +
           '👤 ' + c.nombre + badge + (c.loc ? '<span style="color:var(--text3);"> · ' + c.loc + '</span>' : '') +
         '</button>';
       }).join('');
@@ -36334,7 +36437,8 @@ function manualWABuscarCliente(q) {
           return {
             nombre: c.nombre,
             loc:    c.localidad || '',
-            fuente: 'xubio'
+            fuente: 'xubio',
+            xid:    c.id || null   // v14.58.0: id Xubio para venta mostrador
           };
         });
         renderSugerencias(xubioClientes);
@@ -36350,6 +36454,12 @@ function manualWABuscarCliente(q) {
 function manualWAElegirClienteBtn(btn) {
   const nombre = btn.getAttribute('data-nombre');
   const loc    = btn.getAttribute('data-loc') || '';
+  // v14.58.0 — modo mostrador: capturar el id Xubio del cliente elegido
+  if (window._mwaModoMostrador) {
+    var xid = btn.getAttribute('data-xid') || '';
+    window._mostradorClienteXubio = xid ? { id: xid, nombre: nombre } : null;
+    mostradorPintarClienteSel();
+  }
   manualWAElegirCliente(nombre, loc);
 }
 
@@ -36672,6 +36782,33 @@ function manualWAConfirmar() {
   // v12: usar desglose para validar (acepta combos solos sin sueltos)
   var _dCheck = mwaCalcularDesglose();
   if (_dCheck.itemsCount === 0) { toast('Agregá al menos un producto', 'err'); _mwaLiberarLock(); return; }
+
+  // ════ v14.58.0 — VENTA MOSTRADOR: flujo propio ════════════════════
+  // Sin canal, sin sucursal, sin viajes, sin entrega del camión.
+  // Cliente Xubio OBLIGATORIO (elegido del buscador o creado con el alta).
+  // Sigue: modal de COBRO → mostradorGuardar (pedido + presupuesto +
+  // código de retiro + cola de Pancho).
+  if (window._mwaModoMostrador) {
+    if (!window._mostradorClienteXubio || !window._mostradorClienteXubio.id) {
+      toast('Elegí un cliente de la lista (con sello Xubio) o creálo con ➕ Cliente nuevo', 'err');
+      _mwaLiberarLock();
+      return;
+    }
+    var _nombreSel = window._mostradorClienteXubio.nombre || '';
+    if (_nombreSel && cliente && _nombreSel !== cliente) {
+      toast('El nombre escrito no coincide con el cliente elegido — volvé a elegirlo de la lista', 'err');
+      _mwaLiberarLock();
+      return;
+    }
+    mostradorCobroAbrir(_dCheck.total, function(cobro) {
+      if (!cobro) { _mwaLiberarLock(); return; } // canceló el cobro
+      var _btnM = document.getElementById('mwa-confirmar-btn');
+      if (_btnM) _btnM.textContent = 'Enviando...';
+      mostradorGuardar(cliente, cobro);
+    });
+    return;
+  }
+  // ════ fin desvío mostrador ════════════════════════════════════════
 
   // v14.13.5: bloqueo defensivo — si el cliente no tiene canal, abrir modal
   // y bloquear hasta completar. Cubre el caso donde el vendedor:
@@ -44510,6 +44647,24 @@ async function depositoRecargar() {
     _depCargando = false;
     return;
   }
+  // v14.58.0 — retiros de mostrador (cola de Pancho)
+  try {
+    var desdeRet = new Date(Date.now() - 7 * 86400000).toISOString();
+    var nuevos = await sbFetch('mostrador_retiros?select=*' +
+      '&creado_at=gte.' + encodeURIComponent(desdeRet) +
+      '&order=creado_at.desc&limit=200') || [];
+    var pendAntes = _depRetiros.filter(function(r){ return r.estado === 'pendiente'; }).length;
+    var pendAhora = nuevos.filter(function(r){ return r.estado === 'pendiente'; }).length;
+    if (_depRetirosCargadoUnaVez && pendAhora > pendAntes && typeof sonarTono === 'function') {
+      sonarTono([800, 1000], 0.2);
+      if (navigator.vibrate) navigator.vibrate([200, 100, 200]);
+      if (typeof toast === 'function') toast('🛒 Nuevo retiro de mostrador', 'ok');
+    }
+    _depRetiros = nuevos;
+    _depRetirosCargadoUnaVez = true;
+  } catch (eRet) {
+    console.error('[depósito] retiros:', eRet);
+  }
   _depCargando = false;
   depositoRender();
 }
@@ -44517,7 +44672,8 @@ async function depositoRecargar() {
 function _depBadgeTab() {
   var b = document.getElementById('tab-badge-deposito');
   if (!b) return;
-  var n = _depRows.filter(function(r) { return r.estado === 'registrada'; }).length;
+  var n = _depRows.filter(function(r) { return r.estado === 'registrada'; }).length
+        + _depRetiros.filter(function(r) { return r.estado === 'pendiente'; }).length;
   b.textContent = n > 0 ? String(n) : '';
   b.style.display = n > 0 ? '' : 'none';
 }
@@ -44536,7 +44692,21 @@ function depositoRender() {
   h += '  <div style="font-family:\'Barlow Condensed\',sans-serif;font-size:24px;font-weight:900;color:#2A2018;">📦 Depósito</div>';
   h += '  <button class="dep-refresh" onclick="depositoRecargar()">🔄 Actualizar</button>';
   h += '</div>';
-  h += '<div style="font-size:12px;color:#8A7E72;margin:0 2px;">Devoluciones de los últimos ' + DEP_DIAS_VENTANA + ' días</div>';
+  h += '<div style="font-size:12px;color:#8A7E72;margin:0 2px;">Devoluciones de los últimos ' + DEP_DIAS_VENTANA + ' días · Retiros de mostrador</div>';
+
+  // ── v14.58.0: RETIROS MOSTRADOR ──
+  var retPend = _depRetiros.filter(function(r) { return r.estado === 'pendiente'; });
+  var retHechos = _depRetiros.filter(function(r) { return r.estado === 'entregado'; });
+  h += '<div class="dep-sec-title">🛒 Retiros mostrador (' + retPend.length + ')</div>';
+  if (!retPend.length) {
+    h += '<div class="dep-empty">No hay retiros pendientes.</div>';
+  } else {
+    retPend.forEach(function(r) { h += _depRetiroCardHtml(r, true); });
+  }
+  if (retHechos.length) {
+    h += '<div class="dep-sec-title" style="font-size:13px;color:#8A7E72;">Entregados (últimos 7 días: ' + retHechos.length + ')</div>';
+    retHechos.slice(0, 10).forEach(function(r) { h += _depRetiroCardHtml(r, false); });
+  }
 
   // ── Por recibir ──
   h += '<div class="dep-sec-title">⏳ Por recibir (' + pend.length + ')</div>';
@@ -44698,6 +44868,581 @@ async function depRecibir(id) {
   }
 }
 // ═══ Fin módulo Depósito v14.53.0 ═══════════════════════════════════
+</script>
+
+
+<!-- ═══════════════════════════════════════════════════════════════════
+     v14.58.0 — MÓDULO MOSTRADOR (Román/Valentina) + Retiros para Pancho
+     ═══════════════════════════════════════════════════════════════════ -->
+<style>
+.most-btn-nueva { width:100%;background:linear-gradient(135deg,#7A5800,#B8860B);color:#fff;border:none;border-radius:14px;padding:20px;font-family:'Barlow Condensed',sans-serif;font-size:24px;font-weight:900;letter-spacing:.5px;cursor:pointer;touch-action:manipulation;margin:10px 0 16px; }
+.most-banner { background:#FFF8E1;border:1.5px solid #B8860B;border-radius:10px;padding:8px 12px;margin-bottom:10px;font-size:13px;font-weight:800;color:#7A5800; }
+.most-cli-sel { background:#E8F5E9;border:1.5px solid #A5D6A7;border-radius:8px;padding:7px 10px;margin-top:6px;font-size:13px;font-weight:800;color:#2E7D32;display:none; }
+.most-alta-btn { width:100%;margin-top:6px;background:#fff;border:1.5px dashed #B8860B;border-radius:8px;padding:9px;font-family:'Barlow Condensed',sans-serif;font-size:14px;font-weight:800;color:#7A5800;cursor:pointer;touch-action:manipulation; }
+.most-ov { position:fixed;inset:0;background:rgba(0,0,0,.55);z-index:9500;display:flex;align-items:center;justify-content:center;padding:14px; }
+.most-card { background:#fff;border-radius:16px;padding:18px;width:100%;max-width:440px;max-height:92vh;overflow-y:auto; }
+.most-h { font-family:'Barlow Condensed',sans-serif;font-size:20px;font-weight:900;color:#2A2018;margin-bottom:10px; }
+.most-inp { width:100%;padding:10px;border:1.5px solid #E8DFD5;border-radius:8px;font-size:14px;margin-bottom:8px;box-sizing:border-box;background:#fff;color:#2A2018; }
+.most-lbl { font-size:11px;font-weight:800;color:#8A7E72;text-transform:uppercase;letter-spacing:.6px;margin:6px 0 3px; }
+.most-seg { display:grid;grid-template-columns:repeat(3,1fr);gap:6px;margin-bottom:8px; }
+.most-seg button { padding:9px 4px;border:1.5px solid #E8DFD5;border-radius:8px;background:#FAF6F0;font-size:12px;font-weight:800;color:#5C4A38;cursor:pointer;touch-action:manipulation; }
+.most-seg button.sel { background:#B8860B;border-color:#B8860B;color:#fff; }
+.most-cobro-grid { display:grid;grid-template-columns:repeat(2,1fr);gap:8px;margin:10px 0; }
+.most-cobro-grid button { padding:14px 6px;border:1.5px solid #E8DFD5;border-radius:10px;background:#FAF6F0;font-family:'Barlow Condensed',sans-serif;font-size:16px;font-weight:900;color:#5C4A38;cursor:pointer;touch-action:manipulation; }
+.most-cobro-grid button.sel { background:#1B5E20;border-color:#1B5E20;color:#fff; }
+.most-act { width:100%;background:linear-gradient(135deg,#1B5E20,#2E7D32);color:#fff;border:none;border-radius:10px;padding:13px;font-family:'Barlow Condensed',sans-serif;font-size:17px;font-weight:900;cursor:pointer;touch-action:manipulation;margin-top:6px; }
+.most-act:disabled { opacity:.55; }
+.most-sec { width:100%;background:#fff;border:1.5px solid #E8DFD5;border-radius:10px;padding:11px;font-size:13px;font-weight:800;color:#8A7E72;cursor:pointer;touch-action:manipulation;margin-top:8px; }
+.most-cod-big { font-family:'Barlow Condensed',sans-serif;font-size:64px;font-weight:900;letter-spacing:4px;color:#7A5800;text-align:center;background:#FFF8E1;border:2px dashed #B8860B;border-radius:14px;padding:18px 10px;margin:12px 0; }
+.most-ret-card { background:#fff;border:1.5px solid #E8DFD5;border-radius:12px;padding:11px 13px;margin-bottom:8px; }
+.most-ret-card .cod { font-family:'Barlow Condensed',sans-serif;font-size:22px;font-weight:900;color:#7A5800; }
+.dep-ret-card { background:#FFFDF2;border:1.5px solid #D9B44A;border-radius:14px;margin-bottom:10px;padding:12px 14px; }
+.dep-ret-cod { font-family:'Barlow Condensed',sans-serif;font-size:30px;font-weight:900;letter-spacing:2px;color:#7A5800; }
+.dep-ret-entregar { width:100%;margin-top:10px;background:linear-gradient(135deg,#7A5800,#B8860B);color:#fff;border:none;border-radius:10px;padding:12px;font-family:'Barlow Condensed',sans-serif;font-size:16px;font-weight:900;cursor:pointer;touch-action:manipulation; }
+</style>
+<script>
+// ═══ v14.58.0 — MOSTRADOR ═══════════════════════════════════════════
+var _mostRetirosHoy = [];
+var _depRetiros = [];
+var _depRetirosCargadoUnaVez = false;
+var _depPollTimer = null;
+
+function _mostEsc(s) {
+  return String(s == null ? '' : s)
+    .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;').replace(/'/g, '&#39;');
+}
+function _mostFmt(n) { return '$' + Math.round(Number(n) || 0).toLocaleString('es-AR'); }
+
+// ── HOME del tab Mostrador ──────────────────────────────────────────
+async function mostradorTabRender() {
+  var root = document.getElementById('most-root');
+  if (!root) return;
+  try {
+    var hoy0 = new Date(); hoy0.setHours(0, 0, 0, 0);
+    _mostRetirosHoy = await sbFetch('mostrador_retiros?select=*' +
+      '&creado_at=gte.' + encodeURIComponent(hoy0.toISOString()) +
+      '&order=creado_at.desc&limit=100') || [];
+  } catch (e) { console.error('[mostrador] retiros hoy:', e); _mostRetirosHoy = []; }
+
+  var totalHoy = _mostRetirosHoy.reduce(function(s, r) { return s + (Number(r.total) || 0); }, 0);
+  var h = '';
+  h += '<div style="display:flex;align-items:center;justify-content:space-between;gap:10px;margin:4px 2px;">';
+  h += '  <div style="font-family:\'Barlow Condensed\',sans-serif;font-size:24px;font-weight:900;color:#2A2018;">🛒 Mostrador</div>';
+  h += '  <button class="dep-refresh" onclick="mostradorTabRender()">🔄</button>';
+  h += '</div>';
+  h += '<button class="most-btn-nueva" onclick="abrirCargaMostrador()">➕ NUEVA VENTA</button>';
+  h += '<div class="dep-sec-title">Ventas de hoy (' + _mostRetirosHoy.length + ' · ' + _mostFmt(totalHoy) + ')</div>';
+  if (!_mostRetirosHoy.length) {
+    h += '<div class="dep-empty">Todavía no hay ventas hoy.</div>';
+  } else {
+    _mostRetirosHoy.forEach(function(r) {
+      var badge = r.estado === 'entregado'
+        ? '<span class="dep-badge dep-badge-ok">✅ Retirado</span>'
+        : (r.estado === 'cancelado'
+          ? '<span class="dep-badge dep-badge-dif">✖ Cancelado</span>'
+          : '<span class="dep-badge dep-badge-pend">⏳ Esperando retiro</span>');
+      h += '<div class="most-ret-card">';
+      h += '  <div style="display:flex;align-items:center;justify-content:space-between;gap:8px;">';
+      h += '    <span class="cod">' + _mostEsc(r.codigo) + '</span>' + badge;
+      h += '  </div>';
+      h += '  <div style="font-size:13px;font-weight:800;color:#2A2018;margin-top:3px;">' + _mostEsc(r.cliente || '') + ' · ' + _mostFmt(r.total) + '</div>';
+      h += '  <div style="font-size:12px;color:#8A7E72;margin-top:2px;">' + _mostEsc(r.items_resumen || '') + '</div>';
+      h += '  <div style="font-size:11px;color:#9A8F85;margin-top:2px;">' + _mostEsc(r.forma_cobro || '') +
+           (r.xubio_nro ? ' · 📄 Presup. #' + _mostEsc(r.xubio_nro) : '') + '</div>';
+      h += '</div>';
+    });
+  }
+  root.innerHTML = h;
+}
+
+// ── Abrir el modal de venta (reusa el modal manualWA en modo mostrador) ──
+function abrirCargaMostrador() {
+  window._mwaModoMostrador = true;
+  window._mostradorClienteXubio = null;
+  abrirCargaManualWA();
+  setTimeout(function() {
+    // Banner de modo
+    var bar = document.getElementById('xubio-sync-bar-mwa');
+    if (bar) bar.insertAdjacentHTML('beforebegin',
+      '<div class="most-banner">🛒 VENTA MOSTRADOR — el cliente tiene que ser de Xubio (elegilo de la lista o crealo)</div>');
+    // Localidad fija Trenque Lauquen + campo oculto
+    var loc = document.getElementById('manual-wa-localidad-input');
+    if (loc) {
+      loc.value = 'Trenque Lauquen';
+      var campo = loc.closest('.manual-wa-campo');
+      if (campo) campo.style.display = 'none';
+    }
+    // Chip de cliente seleccionado + botón de alta
+    var sug = document.getElementById('mwa-sugerencias');
+    if (sug) sug.insertAdjacentHTML('afterend',
+      '<div class="most-cli-sel" id="most-cli-sel"></div>' +
+      '<button type="button" class="most-alta-btn" onclick="mostradorAltaAbrir()">➕ Cliente nuevo (alta en Xubio)</button>');
+  }, 120);
+}
+
+function mostradorPintarClienteSel() {
+  var chip = document.getElementById('most-cli-sel');
+  if (!chip) return;
+  var c = window._mostradorClienteXubio;
+  if (c && c.id) {
+    chip.textContent = '✓ Cliente Xubio: ' + c.nombre + ' (id ' + c.id + ')';
+    chip.style.display = 'block';
+  } else {
+    chip.style.display = 'none';
+  }
+}
+
+// Si la operadora escribe a mano después de elegir, invalidar la selección
+(function() {
+  document.addEventListener('input', function(ev) {
+    if (!window._mwaModoMostrador) return;
+    if (ev.target && ev.target.id === 'manual-wa-cliente-input') {
+      var c = window._mostradorClienteXubio;
+      if (c && c.nombre !== ev.target.value.trim()) {
+        window._mostradorClienteXubio = null;
+        mostradorPintarClienteSel();
+      }
+    }
+  });
+})();
+
+// Resetear modo mostrador al cerrar el modal (cubre todos los caminos)
+(function() {
+  var _origCerrar = window.cerrarCargaManualWA;
+  if (typeof _origCerrar === 'function') {
+    window.cerrarCargaManualWA = function() {
+      window._mwaModoMostrador = false;
+      window._mostradorClienteXubio = null;
+      return _origCerrar.apply(this, arguments);
+    };
+  }
+})();
+
+// ── ALTA DE CLIENTE (pega a crearClienteXubio del Apps Script) ─────
+var _mostAltaIva = 'CF';
+function mostradorAltaAbrir() {
+  _mostAltaIva = 'CF';
+  var h = '';
+  h += '<div class="most-ov" id="most-alta-ov">';
+  h += ' <div class="most-card">';
+  h += '  <div class="most-h">➕ Cliente nuevo</div>';
+  h += '  <div class="most-lbl">Nombre / Razón social *</div>';
+  h += '  <input class="most-inp" id="most-alta-nombre" type="text" placeholder="Nombre completo">';
+  h += '  <div class="most-lbl">Condición IVA</div>';
+  h += '  <div class="most-seg" id="most-alta-iva">';
+  h += '   <button type="button" class="sel" data-iva="CF" onclick="mostradorAltaIva(this)">Cons. Final</button>';
+  h += '   <button type="button" data-iva="MT" onclick="mostradorAltaIva(this)">Monotributo</button>';
+  h += '   <button type="button" data-iva="RI" onclick="mostradorAltaIva(this)">Resp. Inscripto</button>';
+  h += '  </div>';
+  h += '  <div class="most-lbl">DNI o CUIT <span id="most-alta-doc-req" style="color:#C62828;display:none;">* (obligatorio para RI/Mono)</span></div>';
+  h += '  <input class="most-inp" id="most-alta-doc" type="tel" placeholder="Sin puntos ni guiones">';
+  h += '  <div class="most-lbl">Teléfono</div>';
+  h += '  <input class="most-inp" id="most-alta-tel" type="tel" placeholder="Opcional">';
+  h += '  <div class="most-lbl">Dirección</div>';
+  h += '  <input class="most-inp" id="most-alta-dir" type="text" placeholder="Opcional">';
+  h += '  <div id="most-alta-err" style="color:#C62828;font-size:12px;font-weight:700;min-height:16px;margin-top:4px;"></div>';
+  h += '  <button class="most-act" id="most-alta-btn" onclick="mostradorAltaGuardar()">✅ CREAR CLIENTE EN XUBIO</button>';
+  h += '  <button class="most-sec" onclick="mostradorAltaCerrar()">Cancelar</button>';
+  h += ' </div>';
+  h += '</div>';
+  document.body.insertAdjacentHTML('beforeend', h);
+}
+function mostradorAltaIva(btn) {
+  _mostAltaIva = btn.getAttribute('data-iva');
+  document.querySelectorAll('#most-alta-iva button').forEach(function(b) { b.classList.toggle('sel', b === btn); });
+  var req = document.getElementById('most-alta-doc-req');
+  if (req) req.style.display = (_mostAltaIva === 'CF') ? 'none' : 'inline';
+}
+function mostradorAltaCerrar() {
+  var ov = document.getElementById('most-alta-ov');
+  if (ov) ov.remove();
+}
+async function mostradorAltaGuardar() {
+  var nombre = (document.getElementById('most-alta-nombre').value || '').trim();
+  var doc    = (document.getElementById('most-alta-doc').value || '').replace(/[^0-9]/g, '');
+  var tel    = (document.getElementById('most-alta-tel').value || '').trim();
+  var dir    = (document.getElementById('most-alta-dir').value || '').trim();
+  var errEl  = document.getElementById('most-alta-err');
+  errEl.textContent = '';
+  if (!nombre) { errEl.textContent = 'Falta el nombre.'; return; }
+  if ((_mostAltaIva === 'RI' || _mostAltaIva === 'MT') && !/^\d{11}$/.test(doc)) {
+    errEl.textContent = 'RI y Monotributo necesitan CUIT de 11 dígitos.'; return;
+  }
+  var btn = document.getElementById('most-alta-btn');
+  btn.disabled = true; btn.textContent = 'Creando en Xubio…';
+  try {
+    var params = new URLSearchParams({
+      accion:       'crearClienteXubio',
+      nombre:       nombre,
+      condicionIva: _mostAltaIva,
+      numeroDoc:    doc,
+      localidad:    'Trenque Lauquen',
+      telefono:     tel,
+      direccion:    dir,
+      vendedor:     'MOSTRADOR'
+    });
+    var resp = await fetch(APPS_SCRIPT_URL + '?' + params.toString());
+    var data = await resp.json();
+    if ((data.status === 'creado' || data.status === 'creado_sin_ronda' || data.status === 'duplicado') && data.cliente && data.cliente.id) {
+      window._mostradorClienteXubio = { id: String(data.cliente.id), nombre: data.cliente.nombre || nombre };
+      var inp = document.getElementById('manual-wa-cliente-input');
+      if (inp) inp.value = window._mostradorClienteXubio.nombre;
+      var sug = document.getElementById('mwa-sugerencias');
+      if (sug) sug.innerHTML = '';
+      mostradorPintarClienteSel();
+      mostradorAltaCerrar();
+      if (data.status === 'duplicado') {
+        toast('⚠️ Ese documento ya existía — se usa el cliente existente: ' + window._mostradorClienteXubio.nombre, 'warn');
+      } else {
+        toast('✅ Cliente creado en Xubio', 'ok');
+      }
+    } else {
+      errEl.textContent = data.message || 'No se pudo crear el cliente. Reintentá.';
+      btn.disabled = false; btn.textContent = '✅ CREAR CLIENTE EN XUBIO';
+    }
+  } catch (e) {
+    console.error('[mostrador alta]', e);
+    errEl.textContent = 'Error de conexión — reintentá.';
+    btn.disabled = false; btn.textContent = '✅ CREAR CLIENTE EN XUBIO';
+  }
+}
+
+// ── COBRO ───────────────────────────────────────────────────────────
+var _mostCobroForma = 'efectivo';
+function mostradorCobroAbrir(total, cb) {
+  _mostCobroForma = 'efectivo';
+  window._mostCobroCb = cb;
+  window._mostCobroTotal = Number(total) || 0;
+  var h = '';
+  h += '<div class="most-ov" id="most-cobro-ov">';
+  h += ' <div class="most-card">';
+  h += '  <div class="most-h">💵 Cobro en el acto</div>';
+  h += '  <div style="font-family:\'Barlow Condensed\',sans-serif;font-size:34px;font-weight:900;color:#1B5E20;text-align:center;margin-bottom:6px;">' + _mostFmt(total) + '</div>';
+  h += '  <div class="most-cobro-grid" id="most-cobro-grid">';
+  h += '   <button type="button" class="sel" data-f="efectivo" onclick="mostradorCobroForma(this)">💵 Efectivo</button>';
+  h += '   <button type="button" data-f="transferencia" onclick="mostradorCobroForma(this)">📱 Transf. / MP</button>';
+  h += '   <button type="button" data-f="cheque" onclick="mostradorCobroForma(this)">🧾 Cheque</button>';
+  h += '   <button type="button" data-f="mixto" onclick="mostradorCobroForma(this)">➗ Mixto</button>';
+  h += '  </div>';
+  h += '  <div id="most-cobro-mixto" style="display:none;">';
+  h += '   <div class="most-lbl">💵 Efectivo</div><input class="most-inp" id="most-mx-efectivo" type="number" inputmode="decimal" value="0" oninput="mostradorCobroMixtoCalc()">';
+  h += '   <div class="most-lbl">📱 Transferencia / MP</div><input class="most-inp" id="most-mx-transferencia" type="number" inputmode="decimal" value="0" oninput="mostradorCobroMixtoCalc()">';
+  h += '   <div class="most-lbl">🧾 Cheque</div><input class="most-inp" id="most-mx-cheque" type="number" inputmode="decimal" value="0" oninput="mostradorCobroMixtoCalc()">';
+  h += '   <div id="most-mx-resto" style="font-size:13px;font-weight:800;color:#C62828;min-height:18px;"></div>';
+  h += '  </div>';
+  h += '  <div id="most-cobro-cheque" style="display:none;">';
+  h += '   <div class="most-lbl">Banco *</div><input class="most-inp" id="most-ch-banco" type="text">';
+  h += '   <div class="most-lbl">N° de cheque *</div><input class="most-inp" id="most-ch-numero" type="text">';
+  h += '   <div class="most-lbl">Emisor</div><input class="most-inp" id="most-ch-emisor" type="text">';
+  h += '   <div class="most-lbl">Vencimiento *</div><input class="most-inp" id="most-ch-vto" type="date">';
+  h += '  </div>';
+  h += '  <div id="most-cobro-err" style="color:#C62828;font-size:12px;font-weight:700;min-height:16px;"></div>';
+  h += '  <button class="most-act" onclick="mostradorCobroConfirmar()">✅ COBRADO — EMITIR</button>';
+  h += '  <button class="most-sec" onclick="mostradorCobroCancelar()">Cancelar</button>';
+  h += ' </div>';
+  h += '</div>';
+  document.body.insertAdjacentHTML('beforeend', h);
+}
+function mostradorCobroForma(btn) {
+  _mostCobroForma = btn.getAttribute('data-f');
+  document.querySelectorAll('#most-cobro-grid button').forEach(function(b) { b.classList.toggle('sel', b === btn); });
+  document.getElementById('most-cobro-mixto').style.display = (_mostCobroForma === 'mixto') ? 'block' : 'none';
+  var chequeVisible = (_mostCobroForma === 'cheque') ||
+    (_mostCobroForma === 'mixto' && (parseFloat((document.getElementById('most-mx-cheque') || {}).value) || 0) > 0);
+  document.getElementById('most-cobro-cheque').style.display = chequeVisible ? 'block' : 'none';
+}
+function mostradorCobroMixtoCalc() {
+  var t = window._mostCobroTotal || 0;
+  var e = parseFloat(document.getElementById('most-mx-efectivo').value) || 0;
+  var tr = parseFloat(document.getElementById('most-mx-transferencia').value) || 0;
+  var ch = parseFloat(document.getElementById('most-mx-cheque').value) || 0;
+  var resto = t - e - tr - ch;
+  var el = document.getElementById('most-mx-resto');
+  el.textContent = Math.abs(resto) > 1 ? ('Falta cubrir: ' + _mostFmt(resto)) : '✓ Suma OK';
+  el.style.color = Math.abs(resto) > 1 ? '#C62828' : '#2E7D32';
+  document.getElementById('most-cobro-cheque').style.display = ch > 0 ? 'block' : (_mostCobroForma === 'cheque' ? 'block' : 'none');
+}
+function mostradorCobroCancelar() {
+  var ov = document.getElementById('most-cobro-ov');
+  if (ov) ov.remove();
+  var cb = window._mostCobroCb; window._mostCobroCb = null;
+  if (cb) cb(null);
+}
+function mostradorCobroConfirmar() {
+  var t = window._mostCobroTotal || 0;
+  var err = document.getElementById('most-cobro-err');
+  err.textContent = '';
+  var detalle = { efectivo: 0, transferencia: 0, cheque: 0 };
+  if (_mostCobroForma === 'mixto') {
+    detalle.efectivo      = parseFloat(document.getElementById('most-mx-efectivo').value) || 0;
+    detalle.transferencia = parseFloat(document.getElementById('most-mx-transferencia').value) || 0;
+    detalle.cheque        = parseFloat(document.getElementById('most-mx-cheque').value) || 0;
+    if (Math.abs(t - detalle.efectivo - detalle.transferencia - detalle.cheque) > 1) {
+      err.textContent = 'La suma del mixto no cubre el total.'; return;
+    }
+  } else {
+    detalle[_mostCobroForma === 'cheque' ? 'cheque' : _mostCobroForma] = t;
+  }
+  var cheque = null;
+  if (detalle.cheque > 0) {
+    var banco = (document.getElementById('most-ch-banco').value || '').trim();
+    var nro   = (document.getElementById('most-ch-numero').value || '').trim();
+    var emisor = (document.getElementById('most-ch-emisor').value || '').trim();
+    var vto   = (document.getElementById('most-ch-vto').value || '').trim();
+    if (!banco || !nro || !vto) { err.textContent = 'Completá banco, número y vencimiento del cheque.'; return; }
+    cheque = { banco: banco, numero: nro, emisor: emisor, vencimiento: vto, monto: detalle.cheque };
+  }
+  var ov = document.getElementById('most-cobro-ov');
+  if (ov) ov.remove();
+  var cb = window._mostCobroCb; window._mostCobroCb = null;
+  if (cb) cb({ forma: _mostCobroForma, detalle: detalle, cheque: cheque });
+}
+
+// ── GUARDADO DE LA VENTA MOSTRADOR ──────────────────────────────────
+function _mostGenerarCodigo() {
+  return 'R-' + String(Math.floor(1000 + Math.random() * 9000));
+}
+
+async function mostradorGuardar(cliente, cobro) {
+  try {
+    var hoy = new Date();
+    var hh = hoy.getHours().toString().padStart(2, '0');
+    var mm = hoy.getMinutes().toString().padStart(2, '0');
+    var yyyymmdd = hoy.getFullYear().toString()
+      + (hoy.getMonth() + 1).toString().padStart(2, '0')
+      + hoy.getDate().toString().padStart(2, '0');
+    var pedidoId = 'TCK-' + yyyymmdd + '-' + hh + mm + '-MOS-W'
+      + Math.random().toString(36).substring(2, 6).toUpperCase();
+
+    // Líneas en el MISMO formato que manualWA (el parser del AS las espera así)
+    var d = mwaCalcularDesglose();
+    var lineas = [];
+    d.promos.forEach(function(pr) {
+      lineas.push('🎁 *50% OFF: ' + (pr.nombre || '').toUpperCase() + '* × ' + pr.qty + ' | 💰 $' + pr.subtotal.toLocaleString('es-AR'));
+    });
+    d.combos.forEach(function(c) {
+      var partes = ['🔥 *' + (c.nombre.replace(/^COMBO\s*/i, '').toUpperCase()) + '* × ' + c.qty];
+      c.productos.forEach(function(p) { partes.push('✓ ' + p.qty + 'x ' + p.nombre); });
+      partes.push('💰 $' + c.subtotal.toLocaleString('es-AR') + ' (-' + c.descuento_pct + '%)');
+      lineas.push(partes.join(' | '));
+    });
+    d.sueltos.forEach(function(s) {
+      var dtoStr = s.dto ? '[-' + s.dto.pct + '%]' : '';
+      var presStr = s.presentacion ? ' (' + s.presentacion + ')' : '';
+      lineas.push(s.qty + 'x ' + s.nombre + presStr + dtoStr + ' → $' + s.subtotal.toLocaleString('es-AR'));
+    });
+    var total = d.total;
+    var formaLabel = cobro.forma === 'mixto'
+      ? ('mixto (ef $' + Math.round(cobro.detalle.efectivo) + ' / tr $' + Math.round(cobro.detalle.transferencia) + ' / ch $' + Math.round(cobro.detalle.cheque) + ')')
+      : cobro.forma;
+    var nota = 'VENTA MOSTRADOR — cobrado: ' + formaLabel;
+
+    // 1) Guardar el pedido (origen mostrador → AS v25.50.0 lo saca de la logística)
+    var params = new URLSearchParams({
+      accion:        'guardarPedido',
+      pedidoId:      pedidoId,
+      vendedor:      'Mostrador',
+      cliente:       cliente,
+      localidad:     'Trenque Lauquen',
+      detalle:       lineas.join(' | '),
+      total:         total,
+      itemsTotales:  d.itemsCount,
+      nota:          nota,
+      estado:        'Pendiente',
+      origen:        'mostrador',
+      fecha_entrega: '',
+      turno_entrega: ''
+    });
+    var respG = await fetch(APPS_SCRIPT_URL + '?' + params.toString());
+    var dataG = await respG.json();
+    if (dataG.status === 'duplicate') {
+      toast('⚠️ Esta venta ya estaba registrada (ID ' + (dataG.id || pedidoId) + ')', 'warn');
+      return;
+    }
+    if (dataG.status !== 'ok') {
+      toast('❌ ' + (dataG.message || 'No se pudo guardar la venta'), 'err');
+      return;
+    }
+
+    // Stock de combos/promos (igual que manualWA)
+    var combosAplicados = Object.keys(_manualWACombos || {}).filter(function(cid) { return _manualWACombos[cid] > 0; });
+    if (combosAplicados.length > 0) {
+      combosConsumirStockVentas(combosAplicados.map(function(cid) { return { id: cid, qty: _manualWACombos[cid] }; }))
+        .catch(function(e) { console.error('[mostrador combos]', e); });
+    }
+    if (typeof promosConsumirStockVentas === 'function' && _manualWAPromos && Object.keys(_manualWAPromos).length > 0) {
+      promosConsumirStockVentas(_manualWAPromos).catch(function(e) { console.error('[mostrador promos]', e); });
+    }
+
+    // 2) Presupuesto Xubio automático (cliente Xubio obligatorio en este flujo)
+    var nroPres = '';
+    try {
+      var paramsP = new URLSearchParams({
+        accion:         'crearPresupuestoXubio',
+        pedidoId:       pedidoId,
+        xubioClienteId: window._mostradorClienteXubio.id
+      });
+      var respP = await fetch(APPS_SCRIPT_URL + '?' + paramsP.toString());
+      var dataP = await respP.json();
+      if (dataP.status === 'ok') {
+        nroPres = dataP.nroPresupuesto || '';
+      } else {
+        console.warn('[mostrador presupuesto]', dataP);
+        toast('⚠️ Venta guardada pero el presupuesto Xubio falló: ' + (dataP.message || dataP.code || '') + ' — reintentá desde Pedidos', 'warn');
+      }
+    } catch (eP) {
+      console.error('[mostrador presupuesto]', eP);
+      toast('⚠️ Venta guardada pero el presupuesto Xubio no respondió — reintentá desde Pedidos', 'warn');
+    }
+
+    // 3) Cheque → cheques_recibidos (tesorería lo ve donde siempre)
+    if (cobro.cheque) {
+      try {
+        await sbFetch('cheques_recibidos', {
+          method: 'POST',
+          headers: { 'Prefer': 'return=minimal' },
+          body: JSON.stringify([{
+            pedido_id: pedidoId,
+            chofer:    'Mostrador',
+            cliente:   cliente,
+            ciudad:    'Trenque Lauquen',
+            monto:     cobro.cheque.monto,
+            banco:     cobro.cheque.banco,
+            numero_cheque: cobro.cheque.numero,
+            emisor:    cobro.cheque.emisor || null,
+            fecha_vencimiento: cobro.cheque.vencimiento,
+            estado:    'recibido'
+          }])
+        });
+      } catch (eCh) { console.error('[mostrador cheque]', eCh); toast('⚠️ El cheque no se registró en sistema — avisar a Braian', 'warn'); }
+    }
+
+    // 4) Código de retiro + cola de Pancho (reintenta si el código choca)
+    var codigo = '';
+    var itemsResumen = d.sueltos.map(function(s) { return s.qty + 'x ' + s.nombre; })
+      .concat(d.combos.map(function(c) { return c.qty + 'x ' + c.nombre; }))
+      .concat(d.promos.map(function(p) { return p.qty + 'x ' + p.nombre + ' (50% OFF)'; }))
+      .join(', ');
+    for (var intento = 0; intento < 5 && !codigo; intento++) {
+      var cand = _mostGenerarCodigo();
+      try {
+        var filasR = await sbFetch('mostrador_retiros', {
+          method: 'POST',
+          headers: { 'Prefer': 'return=representation' },
+          body: JSON.stringify([{
+            codigo:           cand,
+            pedido_id:        pedidoId,
+            cliente:          cliente,
+            cliente_xubio_id: window._mostradorClienteXubio.id,
+            items_resumen:    itemsResumen,
+            detalle_json:     { sueltos: d.sueltos, combos: d.combos, promos: d.promos },
+            total:            total,
+            forma_cobro:      cobro.forma,
+            detalle_cobro:    cobro.detalle,
+            vendido_por:      'Mostrador',
+            xubio_tipo:       nroPres ? 'presupuesto' : null,
+            xubio_nro:        nroPres || null,
+            estado:           'pendiente'
+          }])
+        });
+        if (filasR && filasR.length) codigo = cand;
+      } catch (eCod) {
+        console.warn('[mostrador código] choque/error con ' + cand + ', reintento…', eCod);
+      }
+    }
+    if (!codigo) {
+      toast('❌ La venta se guardó (' + pedidoId + ') pero NO se pudo generar el código de retiro — avisar a Braian', 'err');
+      cerrarCargaManualWA();
+      mostradorTabRender();
+      return;
+    }
+
+    cerrarCargaManualWA();
+    mostradorCodigoMostrar(codigo, cliente, total, nroPres, formaLabel);
+    mostradorTabRender();
+  } catch (e) {
+    console.error('[mostradorGuardar]', e);
+    toast('❌ Error inesperado — revisá si la venta quedó en Pedidos antes de reintentar', 'err');
+  } finally {
+    if (typeof _mwaLiberarLock === 'function') _mwaLiberarLock();
+  }
+}
+
+function mostradorCodigoMostrar(codigo, cliente, total, nroPres, formaLabel) {
+  var h = '';
+  h += '<div class="most-ov" id="most-cod-ov">';
+  h += ' <div class="most-card" style="text-align:center;">';
+  h += '  <div class="most-h" style="text-align:center;">✅ Venta registrada</div>';
+  h += '  <div style="font-size:14px;color:#5C4A38;font-weight:700;">' + _mostEsc(cliente) + ' · ' + _mostFmt(total) + ' · ' + _mostEsc(formaLabel) + '</div>';
+  if (nroPres) h += '  <div style="font-size:12px;color:#8A7E72;margin-top:2px;">📄 Presupuesto Xubio #' + _mostEsc(nroPres) + '</div>';
+  h += '  <div class="most-cod-big">' + _mostEsc(codigo) + '</div>';
+  h += '  <div style="font-size:13px;color:#5C4A38;font-weight:700;">Dale este código al cliente.<br>Lo presenta en el depósito y Pancho le entrega la mercadería.</div>';
+  h += '  <button class="most-act" onclick="document.getElementById(\'most-cod-ov\').remove()">LISTO</button>';
+  h += ' </div>';
+  h += '</div>';
+  document.body.insertAdjacentHTML('beforeend', h);
+}
+
+// ── PANCHO: cards de retiro + entrega ──────────────────────────────
+function _depRetiroCardHtml(r, esPend) {
+  var h = '<div class="dep-ret-card">';
+  h += '<div style="display:flex;align-items:center;justify-content:space-between;gap:8px;">';
+  h += '  <span class="dep-ret-cod">' + _mostEsc(r.codigo) + '</span>';
+  h += esPend
+    ? '<span class="dep-badge dep-badge-pend">⏳ Esperando</span>'
+    : '<span class="dep-badge dep-badge-ok">✅ Entregado</span>';
+  h += '</div>';
+  h += '<div style="font-family:\'Barlow Condensed\',sans-serif;font-size:17px;font-weight:900;color:#2A2018;margin-top:3px;">' + _mostEsc(r.cliente || '') + '</div>';
+  h += '<div style="font-size:13px;color:#5C4A38;margin-top:3px;">' + _mostEsc(r.items_resumen || '') + '</div>';
+  h += '<div style="font-size:12px;color:#8A7E72;margin-top:3px;">' + _mostFmt(r.total) + ' · ' + _mostEsc(r.forma_cobro || '') + ' · ' + _depFmtFecha(r.creado_at) + '</div>';
+  if (esPend) {
+    h += '<button class="dep-ret-entregar" onclick="depRetiroEntregar(\'' + _mostEsc(r.id) + '\')">✅ ENTREGADO AL CLIENTE</button>';
+  } else if (r.entregado_en) {
+    h += '<div style="font-size:11px;color:#9A8F85;margin-top:4px;">Entregado por ' + _mostEsc(r.entregado_por || '—') + ' · ' + _depFmtFecha(r.entregado_en) + '</div>';
+  }
+  h += '</div>';
+  return h;
+}
+
+async function depRetiroEntregar(id) {
+  var r = _depRetiros.find(function(x) { return x.id === id; });
+  if (!r) return;
+  if (!confirm('¿Entregar ' + r.codigo + ' a ' + (r.cliente || 'cliente') + '?\n\n' + (r.items_resumen || ''))) return;
+  try {
+    var filas = await sbFetch('mostrador_retiros?id=eq.' + encodeURIComponent(id), {
+      method: 'PATCH',
+      headers: { 'Prefer': 'return=representation' },
+      body: JSON.stringify({
+        estado: 'entregado',
+        entregado_en: new Date().toISOString(),
+        entregado_por: vendedorActual || 'Pancho'
+      })
+    });
+    if (!filas || !filas.length) throw new Error('PATCH devolvió vacío (¿RLS?)');
+    // Estado del pedido → Entregado (fire-and-forget; cambiarEstado ubica la fila por pedidoId)
+    if (r.pedido_id) {
+      fetch(APPS_SCRIPT_URL + '?' + new URLSearchParams({
+        accion: 'cambiarEstado', pedidoId: r.pedido_id, fila: '0', estado: 'Entregado'
+      }).toString()).catch(function(e) { console.warn('[retiro cambiarEstado]', e); });
+    }
+    if (typeof toast === 'function') toast('✅ Retiro ' + r.codigo + ' entregado', 'ok');
+    await depositoRecargar();
+  } catch (e) {
+    console.error('[depRetiroEntregar]', e);
+    if (typeof toast === 'function') toast('❌ No se pudo registrar la entrega — reintentá', 'err');
+  }
+}
+
+// ── Polling del panel de Pancho (60s) ──────────────────────────────
+function depPollIniciar() {
+  if (_depPollTimer) return;
+  _depPollTimer = setInterval(function() {
+    if (vendedorActual !== 'Pancho') { clearInterval(_depPollTimer); _depPollTimer = null; return; }
+    depositoRecargar();
+  }, 60000);
+}
+// ═══ Fin módulo Mostrador v14.58.0 ══════════════════════════════════
 </script>
 
 </body>
