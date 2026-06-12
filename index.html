@@ -200,6 +200,27 @@
      particulares v14.52.0.
      ═══════════════════════════════════════════════════════════════════ -->
 <!-- ═══════════════════════════════════════════════════════════════════════
+     TCK VENTAS — v14.66.0 — 12/06/2026
+     ──────────────────────────────────────────────────────────────────────
+     FACTURA DIRECTA EN MOSTRADOR (pedido Braian 12/06)
+       · ANTES: la venta mostrador creaba PRESUPUESTO Xubio
+         (crearPresupuestoXubio) y los contadores facturaban a mano.
+       · AHORA: llama accion=crearFacturaXubio (Apps Script v25.56.0) →
+         emite FACTURA fiscal real (PV 211693 THE CHICKEN KINGS, contado,
+         CAE de ARCA, validado en test del 11/06).
+       · mostrador_retiros: xubio_tipo='factura', xubio_nro = nro factura.
+       · Pantalla post-venta y lista de ventas muestran "🧾 Factura #".
+       · Reintento: mostradorReintentarFactura (reemplaza el de presup.)
+         para ventas donde la factura falló al emitir.
+       · OJO OPERATIVO: una factura emitida NO se borra al cancelar — el
+         AS v25.56.0 bloquea la cancelación y pide Nota de Crédito en
+         Xubio web primero.
+     REQUIERE: Apps Script v25.56.0 deployado ANTES (si no, el AS
+       responde error de acción desconocida y la venta queda sin
+       comprobante hasta reintentar).
+     Base: v14.65.0 (código retiro 4 dígitos).
+     ═══════════════════════════════════════════════════════════════════ -->
+<!-- ═══════════════════════════════════════════════════════════════════════
      TCK VENTAS — v14.65.0 — 12/06/2026
      ──────────────────────────────────────────────────────────────────────
      CÓDIGO DE RETIRO — 4 dígitos pelados (pedido Braian 12/06)
@@ -45176,12 +45197,12 @@ async function mostradorTabRender() {
       h += '  <div style="font-size:13px;font-weight:800;color:#2A2018;margin-top:3px;">' + _mostEsc(r.cliente || '') + ' · ' + _mostFmt(r.total) + '</div>';
       h += '  <div style="font-size:12px;color:#8A7E72;margin-top:2px;">' + _mostEsc(r.items_resumen || '') + '</div>';
       h += '  <div style="font-size:11px;color:#9A8F85;margin-top:2px;">' + _mostEsc(r.forma_cobro || '') +
-           (r.xubio_nro ? ' · 📄 Presup. #' + _mostEsc(r.xubio_nro) : '') + '</div>';
-      // v14.61.0: si el presupuesto falló al vender, reintento desde acá
+           (r.xubio_nro ? (r.xubio_tipo === 'factura' ? ' · 🧾 Fact. #' : ' · 📄 Presup. #') + _mostEsc(r.xubio_nro) : '') + '</div>';
+      // v14.66.0: si la factura falló al vender, reintento desde acá
       // (el rol Mostrador no ve el tab Pedidos; sin esto no había camino).
       if (!r.xubio_nro && r.estado !== 'cancelado' && r.pedido_id && r.cliente_xubio_id) {
         h += '  <button class="most-sec" style="margin-top:6px;color:#7A5800;border-color:#D9B44A;" ' +
-             'onclick="mostradorReintentarPresupuesto(\'' + _mostEsc(r.id) + '\', this)">📄 Reintentar presupuesto Xubio</button>';
+             'onclick="mostradorReintentarFactura(\'' + _mostEsc(r.id) + '\', this)">🧾 Reintentar factura Xubio</button>';
       }
       h += '</div>';
     });
@@ -45520,11 +45541,13 @@ async function mostradorGuardar(cliente, cobro) {
       promosConsumirStockVentas(_manualWAPromos).catch(function(e) { console.error('[mostrador promos]', e); });
     }
 
-    // 2) Presupuesto Xubio automático (cliente Xubio obligatorio en este flujo)
+    // 2) FACTURA Xubio automática (v14.66.0 — antes era presupuesto).
+    //    AS v25.56.0 emite factura fiscal real (PV 211693, contado, CAE).
+    //    Cliente Xubio obligatorio en este flujo.
     var nroPres = '';
     try {
       var paramsP = new URLSearchParams({
-        accion:         'crearPresupuestoXubio',
+        accion:         'crearFacturaXubio',
         pedidoId:       pedidoId,
         xubioClienteId: window._mostradorClienteXubio.id
       });
@@ -45533,12 +45556,12 @@ async function mostradorGuardar(cliente, cobro) {
       if (dataP.status === 'ok') {
         nroPres = dataP.nroPresupuesto || '';
       } else {
-        console.warn('[mostrador presupuesto]', dataP);
-        toast('⚠️ Venta guardada pero el presupuesto Xubio falló: ' + (dataP.message || dataP.code || '') + ' — usá 📄 Reintentar en la lista de ventas', 'warn');
+        console.warn('[mostrador factura]', dataP);
+        toast('⚠️ Venta guardada pero la FACTURA Xubio falló: ' + (dataP.message || dataP.code || '') + ' — usá 🧾 Reintentar en la lista de ventas', 'warn');
       }
     } catch (eP) {
-      console.error('[mostrador presupuesto]', eP);
-      toast('⚠️ Venta guardada pero el presupuesto Xubio no respondió — usá 📄 Reintentar en la lista de ventas', 'warn');
+      console.error('[mostrador factura]', eP);
+      toast('⚠️ Venta guardada pero la factura Xubio no respondió — usá 🧾 Reintentar en la lista de ventas', 'warn');
     }
 
     // 3) Cheque → cheques_recibidos (tesorería lo ve donde siempre)
@@ -45586,7 +45609,7 @@ async function mostradorGuardar(cliente, cobro) {
             forma_cobro:      cobro.forma,
             detalle_cobro:    cobro.detalle,
             vendido_por:      'Mostrador',
-            xubio_tipo:       nroPres ? 'presupuesto' : null,
+            xubio_tipo:       nroPres ? 'factura' : null,
             xubio_nro:        nroPres || null,
             estado:           'pendiente'
           }])
@@ -45620,7 +45643,7 @@ function mostradorCodigoMostrar(codigo, cliente, total, nroPres, formaLabel) {
   h += ' <div class="most-card" style="text-align:center;">';
   h += '  <div class="most-h" style="text-align:center;">✅ Venta registrada</div>';
   h += '  <div style="font-size:14px;color:#5C4A38;font-weight:700;">' + _mostEsc(cliente) + ' · ' + _mostFmt(total) + ' · ' + _mostEsc(formaLabel) + '</div>';
-  if (nroPres) h += '  <div style="font-size:12px;color:#8A7E72;margin-top:2px;">📄 Presupuesto Xubio #' + _mostEsc(nroPres) + '</div>';
+  if (nroPres) h += '  <div style="font-size:12px;color:#8A7E72;margin-top:2px;">🧾 Factura Xubio #' + _mostEsc(nroPres) + '</div>';
   h += '  <div class="most-cod-big">' + _mostEsc(codigo) + '</div>';
   h += '  <div style="font-size:13px;color:#5C4A38;font-weight:700;">Dale este código al cliente.<br>Lo presenta en el depósito y Pancho le entrega la mercadería.</div>';
   h += '  <button class="most-act" onclick="document.getElementById(\'most-cod-ov\').remove()">LISTO</button>';
@@ -45629,37 +45652,38 @@ function mostradorCodigoMostrar(codigo, cliente, total, nroPres, formaLabel) {
   document.body.insertAdjacentHTML('beforeend', h);
 }
 
-// ── Reintento de presupuesto desde la lista de ventas (v14.61.0) ───
-async function mostradorReintentarPresupuesto(retiroId, btn) {
+// ── Reintento de FACTURA desde la lista de ventas (v14.66.0, ex presupuesto) ───
+async function mostradorReintentarFactura(retiroId, btn) {
   var r = _mostRetirosHoy.find(function(x) { return x.id === retiroId; });
   if (!r || !r.pedido_id || !r.cliente_xubio_id) return;
-  if (btn) { btn.disabled = true; btn.textContent = 'Creando presupuesto…'; }
+  if (btn) { btn.disabled = true; btn.textContent = 'Emitiendo factura…'; }
   try {
     var resp = await fetch(APPS_SCRIPT_URL + '?' + new URLSearchParams({
-      accion:         'crearPresupuestoXubio',
+      accion:         'crearFacturaXubio',
       pedidoId:       r.pedido_id,
       xubioClienteId: r.cliente_xubio_id
     }).toString());
     var data = await resp.json();
-    // YA_TIENE_PRESUPUESTO también es éxito (se creó antes y no se anotó acá)
+    // YA_TIENE_PRESUPUESTO también es éxito (el comprobante se creó antes
+    // y no se anotó acá — el AS usa el mismo guard de col 16 para factura)
     var nro = (data.status === 'ok') ? (data.nroPresupuesto || '')
             : (data.code === 'YA_TIENE_PRESUPUESTO' ? (data.nroPresupuesto || '') : '');
     if (nro) {
       await sbFetch('mostrador_retiros?id=eq.' + encodeURIComponent(retiroId), {
         method: 'PATCH',
         headers: { 'Prefer': 'return=minimal' },
-        body: JSON.stringify({ xubio_tipo: 'presupuesto', xubio_nro: nro })
+        body: JSON.stringify({ xubio_tipo: 'factura', xubio_nro: nro })
       });
-      toast('✅ Presupuesto #' + nro + ' creado', 'ok');
+      toast('✅ Factura #' + nro + ' emitida', 'ok');
       mostradorTabRender();
     } else {
-      toast('❌ ' + (data.message || data.code || 'No se pudo crear el presupuesto'), 'err');
-      if (btn) { btn.disabled = false; btn.textContent = '📄 Reintentar presupuesto Xubio'; }
+      toast('❌ ' + (data.message || data.code || 'No se pudo emitir la factura'), 'err');
+      if (btn) { btn.disabled = false; btn.textContent = '🧾 Reintentar factura Xubio'; }
     }
   } catch (e) {
-    console.error('[mostrador reintento presupuesto]', e);
+    console.error('[mostrador reintento factura]', e);
     toast('❌ Error de conexión — reintentá', 'err');
-    if (btn) { btn.disabled = false; btn.textContent = '📄 Reintentar presupuesto Xubio'; }
+    if (btn) { btn.disabled = false; btn.textContent = '🧾 Reintentar factura Xubio'; }
   }
 }
 
