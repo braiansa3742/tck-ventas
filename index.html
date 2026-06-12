@@ -161,6 +161,35 @@
      particulares v14.52.0.
      ═══════════════════════════════════════════════════════════════════ -->
 <!-- ═══════════════════════════════════════════════════════════════════════
+     TCK VENTAS — v14.61.0 — 11/06/2026
+     ──────────────────────────────────────────────────────────────────────
+     HARDENING post-deploy del mostrador (reporte de Braian + auditoría)
+
+     NUMERACIÓN (definitiva): el archivo traía hasta v14.58.0 propio
+     ("Barritas de Mozzarella", de otro chat). Equivalencias de los patches
+     de esta sesión: "v14.53.0 ROL DEPÓSITO" ≈ v14.59.0 · "v14.58.0 VENTA
+     MOSTRADOR" (bloque de abajo) ≈ v14.60.0 · esta versión = v14.61.0.
+
+     FIX 1 (el reportado): Pancho veía Clientes/Reportes — tckDesktopNav
+       (v14.46.1) espeja los destinos del menú Más como botones directos
+       en PC con display:flex !important y corre en cada resize, pisando
+       el role-gating de mostrarTabs. Ahora los roles sin menú Más
+       (Pancho, Mostrador, choferes) limpian el espejado y salen.
+     FIX 2: PEDIDO VIVO no corre en modo mostrador (la cajera no decide
+       cancelar pedidos de campo) + mostradorGuardar limpia el flag
+       _pedidoVivoReemplazar defensivamente.
+     FIX 3: si el presupuesto Xubio falla al vender, el rol Mostrador no
+       tenía camino de reintento (no ve el tab Pedidos). Ahora la card de
+       la venta muestra "📄 Reintentar presupuesto Xubio" (acepta
+       YA_TIENE_PRESUPUESTO como éxito y anota el nro en el retiro).
+     FIX 4: los descuentos de una venta mostrador quedan auditados en la
+       nota del pedido (formato DESCUENTOS: igual que manualWA).
+     PENDIENTE CONOCIDO: "cargas a camión" (conformidad de carga, Bloque B
+       de Pancho) NO está construido todavía — su panel hoy tiene
+       devoluciones + retiros mostrador. Bloques B y C en backlog.
+     Base: v14.58.0 (mostrador).
+     ═══════════════════════════════════════════════════════════════════ -->
+<!-- ═══════════════════════════════════════════════════════════════════════
      TCK VENTAS — v14.58.0 — 11/06/2026
      ──────────────────────────────────────────────────────────────────────
      VENTA MOSTRADOR (rol Mostrador) + RETIROS en panel de Pancho
@@ -22657,6 +22686,20 @@ function tckDesktopNav() {
     if (!nav) return;
     var isDesktop = window.matchMedia('(min-width: 1024px)').matches;
     var masBtn = document.getElementById('tab-btn-mas');
+    // v14.61.0 FIX: roles restringidos (Pancho/Mostrador/choferes) NO tienen
+    // menú Más → no espejar nada y limpiar lo que un resize anterior haya
+    // mostrado. Sin esto, el espejado de PC pisaba el role-gating de
+    // mostrarTabs con display:flex !important (Pancho veía Clientes/Reportes).
+    var _rolSinMas = (vendedorActual === 'Pancho' || vendedorActual === 'Mostrador' ||
+                      vendedorActual === 'Joan' || vendedorActual === 'Luis' ||
+                      vendedorActual === 'Juan Pablo');
+    if (_rolSinMas) {
+      document.querySelectorAll('.tab-btn[data-tck-mas]').forEach(function(btn) {
+        btn.style.setProperty('display', 'none', 'important');
+      });
+      if (masBtn) masBtn.style.setProperty('display', 'none', 'important');
+      return;
+    }
     document.querySelectorAll('#menu-mas-backdrop .menu-mas-item').forEach(function(item) {
       var visibleEnMas = window.getComputedStyle(item).display !== 'none';
       var m = (item.getAttribute('onclick') || '').match(/cambiarTab\('([^']+)'\)/);
@@ -36717,9 +36760,12 @@ function manualWAConfirmar() {
   }
 
   // ── v14.54.0 PEDIDO VIVO — antes del lock, sin red (mira solo el cache) ─
+  // v14.61.0: NO aplica en modo mostrador — la cajera no decide cancelar
+  // pedidos de campo de otro vendedor; una compra de mostrador convive con
+  // un pedido confirmado pendiente de reparto.
   var _pvInpWA = document.getElementById('manual-wa-cliente-input');
   var _pvClienteWA = _pvInpWA ? _pvInpWA.value.trim() : '';
-  var _pvPendWA = pedidoVivoPendiente(_pvClienteWA);
+  var _pvPendWA = window._mwaModoMostrador ? null : pedidoVivoPendiente(_pvClienteWA);
   if (_pvPendWA) {
     pedidoVivoModalAbrir(_pvPendWA, _pvClienteWA, function() {
       window._mwaUltimoTap = 0;
@@ -44950,6 +44996,12 @@ async function mostradorTabRender() {
       h += '  <div style="font-size:12px;color:#8A7E72;margin-top:2px;">' + _mostEsc(r.items_resumen || '') + '</div>';
       h += '  <div style="font-size:11px;color:#9A8F85;margin-top:2px;">' + _mostEsc(r.forma_cobro || '') +
            (r.xubio_nro ? ' · 📄 Presup. #' + _mostEsc(r.xubio_nro) : '') + '</div>';
+      // v14.61.0: si el presupuesto falló al vender, reintento desde acá
+      // (el rol Mostrador no ve el tab Pedidos; sin esto no había camino).
+      if (!r.xubio_nro && r.estado !== 'cancelado' && r.pedido_id && r.cliente_xubio_id) {
+        h += '  <button class="most-sec" style="margin-top:6px;color:#7A5800;border-color:#D9B44A;" ' +
+             'onclick="mostradorReintentarPresupuesto(\'' + _mostEsc(r.id) + '\', this)">📄 Reintentar presupuesto Xubio</button>';
+      }
       h += '</div>';
     });
   }
@@ -45236,7 +45288,17 @@ async function mostradorGuardar(cliente, cobro) {
     var formaLabel = cobro.forma === 'mixto'
       ? ('mixto (ef $' + Math.round(cobro.detalle.efectivo) + ' / tr $' + Math.round(cobro.detalle.transferencia) + ' / ch $' + Math.round(cobro.detalle.cheque) + ')')
       : cobro.forma;
-    var nota = 'VENTA MOSTRADOR — cobrado: ' + formaLabel;
+    // v14.61.0: defensivo — el modal de Pedido Vivo no corre en mostrador,
+    // pero si el flag quedó de una sesión anterior NO debe cancelar nada acá.
+    window._pedidoVivoReemplazar = null;
+    // v14.61.0: auditoría de descuentos en la nota (mismo formato que manualWA)
+    var _dtosM = Object.keys(_manualWADescuentos || {});
+    var _dtoNotaM = _dtosM.map(function(nm) {
+      var dd = _manualWADescuentos[nm];
+      return nm + ': -' + dd.pct + '% (' + dd.motivo + ')';
+    }).join(' | ');
+    var nota = 'VENTA MOSTRADOR — cobrado: ' + formaLabel +
+      (_dtosM.length ? ' || DESCUENTOS: ' + _dtoNotaM : '');
 
     // 1) Guardar el pedido (origen mostrador → AS v25.50.0 lo saca de la logística)
     var params = new URLSearchParams({
@@ -45289,11 +45351,11 @@ async function mostradorGuardar(cliente, cobro) {
         nroPres = dataP.nroPresupuesto || '';
       } else {
         console.warn('[mostrador presupuesto]', dataP);
-        toast('⚠️ Venta guardada pero el presupuesto Xubio falló: ' + (dataP.message || dataP.code || '') + ' — reintentá desde Pedidos', 'warn');
+        toast('⚠️ Venta guardada pero el presupuesto Xubio falló: ' + (dataP.message || dataP.code || '') + ' — usá 📄 Reintentar en la lista de ventas', 'warn');
       }
     } catch (eP) {
       console.error('[mostrador presupuesto]', eP);
-      toast('⚠️ Venta guardada pero el presupuesto Xubio no respondió — reintentá desde Pedidos', 'warn');
+      toast('⚠️ Venta guardada pero el presupuesto Xubio no respondió — usá 📄 Reintentar en la lista de ventas', 'warn');
     }
 
     // 3) Cheque → cheques_recibidos (tesorería lo ve donde siempre)
@@ -45382,6 +45444,40 @@ function mostradorCodigoMostrar(codigo, cliente, total, nroPres, formaLabel) {
   h += ' </div>';
   h += '</div>';
   document.body.insertAdjacentHTML('beforeend', h);
+}
+
+// ── Reintento de presupuesto desde la lista de ventas (v14.61.0) ───
+async function mostradorReintentarPresupuesto(retiroId, btn) {
+  var r = _mostRetirosHoy.find(function(x) { return x.id === retiroId; });
+  if (!r || !r.pedido_id || !r.cliente_xubio_id) return;
+  if (btn) { btn.disabled = true; btn.textContent = 'Creando presupuesto…'; }
+  try {
+    var resp = await fetch(APPS_SCRIPT_URL + '?' + new URLSearchParams({
+      accion:         'crearPresupuestoXubio',
+      pedidoId:       r.pedido_id,
+      xubioClienteId: r.cliente_xubio_id
+    }).toString());
+    var data = await resp.json();
+    // YA_TIENE_PRESUPUESTO también es éxito (se creó antes y no se anotó acá)
+    var nro = (data.status === 'ok') ? (data.nroPresupuesto || '')
+            : (data.code === 'YA_TIENE_PRESUPUESTO' ? (data.nroPresupuesto || '') : '');
+    if (nro) {
+      await sbFetch('mostrador_retiros?id=eq.' + encodeURIComponent(retiroId), {
+        method: 'PATCH',
+        headers: { 'Prefer': 'return=minimal' },
+        body: JSON.stringify({ xubio_tipo: 'presupuesto', xubio_nro: nro })
+      });
+      toast('✅ Presupuesto #' + nro + ' creado', 'ok');
+      mostradorTabRender();
+    } else {
+      toast('❌ ' + (data.message || data.code || 'No se pudo crear el presupuesto'), 'err');
+      if (btn) { btn.disabled = false; btn.textContent = '📄 Reintentar presupuesto Xubio'; }
+    }
+  } catch (e) {
+    console.error('[mostrador reintento presupuesto]', e);
+    toast('❌ Error de conexión — reintentá', 'err');
+    if (btn) { btn.disabled = false; btn.textContent = '📄 Reintentar presupuesto Xubio'; }
+  }
 }
 
 // ── PANCHO: cards de retiro + entrega ──────────────────────────────
