@@ -161,6 +161,19 @@
      particulares v14.52.0.
      ═══════════════════════════════════════════════════════════════════ -->
 <!-- ═══════════════════════════════════════════════════════════════════════
+     TCK VENTAS — v14.63.0 — 11/06/2026
+     ──────────────────────────────────────────────────────────────────────
+     FIX Cargas de Pancho — refresco en vivo (auditoría post-v14.62)
+       · ANTES: los viajes se cargaban UNA vez por sesión; un viaje creado
+         por Francisco después del login no aparecía hasta re-loguear (ni
+         con 🔄 ni con el polling de 60s).
+       · AHORA: depositoRecargar refresca cargas en la primera pasada (el
+         badge del segmented cuenta bien desde el arranque) y siempre que
+         la sección Cargas esté activa; depSeccionIr('cargas') refresca
+         SIEMPRE al entrar. Guard anti-solapamiento (_depCargasCargando).
+     Base: v14.62.0. Sin cambios en mostrador/recepción/stock.
+     ═══════════════════════════════════════════════════════════════════ -->
+<!-- ═══════════════════════════════════════════════════════════════════════
      TCK VENTAS — v14.62.0 — 11/06/2026
      ──────────────────────────────────────────────────────────────────────
      DEPÓSITO COMPLETO — Bloques B y C + validación de código de retiro
@@ -44721,6 +44734,13 @@ async function depositoRecargar() {
     _depCargando = false;
     return;
   }
+  // v14.63.0 — refrescar también los viajes/cargas: la primera vez (para que
+  // el badge del segmented cuente bien desde el arranque) y siempre que la
+  // sección Cargas esté activa (cubre 🔄 manual y polling de 60s — antes un
+  // viaje creado después del login no aparecía hasta re-loguear).
+  if (!_depCargasCargado || _depSeccion === 'cargas') {
+    depCargasRecargar();
+  }
   // v14.58.0 — retiros de mostrador (cola de Pancho)
   try {
     var desdeRet = new Date(Date.now() - 7 * 86400000).toISOString();
@@ -45544,7 +45564,9 @@ function _depRutaIdx(ciudad) {
 function depSeccionIr(sec) {
   _depSeccion = sec;
   depositoRender();
-  if (sec === 'cargas' && !_depCargasCargado) depCargasRecargar();
+  // v14.63.0: Cargas SIEMPRE refresca al entrar (viajes nuevos del día);
+  // Stock solo la primera vez (después refresca al guardar).
+  if (sec === 'cargas') depCargasRecargar();
   if (sec === 'stock' && !_depRecuentosCargado) depStockRecargar();
 }
 
@@ -45552,7 +45574,10 @@ function _depCargasPendientes() {
   return _depViajesHoy.filter(function(v) { return !_depConformidades[v.id]; }).length;
 }
 
+var _depCargasCargando = false;
 async function depCargasRecargar() {
+  if (_depCargasCargando) return;
+  _depCargasCargando = true;
   try {
     var hoyISO = (function() {
       var d = new Date();
@@ -45577,6 +45602,7 @@ async function depCargasRecargar() {
     console.error('[depósito cargas]', e);
     if (typeof toast === 'function') toast('❌ No se pudieron cargar los viajes — reintentá', 'err');
   }
+  _depCargasCargando = false;
   depositoRender();
 }
 
