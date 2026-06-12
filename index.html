@@ -2,6 +2,28 @@
 <html lang="es">
 <head>
 <!-- ═══════════════════════════════════════════════════════════════════════
+     TCK VENTAS — v14.65.0 — 12/06/2026
+     v14.65.0: PRECIOS DINÁMICOS DESDE productos_canonicos (bug Miguel).
+       · BUG: los precios de TOMADOR_CAT solo se actualizaban en el boot
+         (CSV del Sheet, v14.9.0). Una pestaña abierta varios días quedaba
+         con precios congelados → pedidos guardados con plata de menos
+         (Suprema IQF $102.000 vs $103.000, Alita $44.000 vs $45.000,
+         MDM $34.000 vs $35.500, Pollo A $86.000 vs $84.000, etc. —
+         20 de 68 productos desfasados al 12/6).
+       · FIX fuente: sbFetch a productos_canonicos (precio_actual +
+         aliases), espejo del catálogo v3.15.0. El CSV del Sheet ya no
+         se lee. Cache nueva: tck_precios_canon_v1 (la vieja
+         tck_tomador_precios_cache queda huérfana, inocua).
+       · FIX frescura: refrescarPreciosVentas() corre en boot + al abrir
+         tomador campo / carga WA / editar + al volver la pestaña a
+         primer plano (throttle 5 min). Si hay un overlay abierto y un
+         precio cambió, repinta SOLO los nodos de precio y recalcula
+         totales — no toca inputs ni cantidades (_tomadorRepintarPrecios).
+       · Sin match en canónicos → fallback al precio hardcodeado (igual
+         que antes). Tramos: sin cambios, siguen mandando sobre item.pr.
+       · NO SE TOCÓ: stock, combos, promos, descuentos, Xubio, anti-dup,
+         JWT v14.64.0, flujo de guardado.
+     ──────────────────────────────────────────────────────────────────
      TCK VENTAS — v14.64.0 — 12/06/2026
      v14.64.0: IDENTIDAD JWT DEL VENDEDOR (Fase A, riesgo cero) + FIX visitas.
        · Login: rpc/login_vendedor (misma validación bcrypt que verificar_pin)
@@ -20000,6 +20022,12 @@ document.addEventListener('visibilitychange', function() {
     const ahora = Date.now();
     if (ahora - _ultimoFetchPorVisibilidad < 10000) return;
     _ultimoFetchPorVisibilidad = ahora;
+    // v14.65.0 — Al volver a primer plano refrescamos precios SIEMPRE
+    // (aunque haya un tomador abierto: el repintado quirúrgico no pisa
+    // nada). Tiene su propio throttle de 5 min adentro.
+    if (typeof refrescarPreciosVentas === 'function') {
+      refrescarPreciosVentas();
+    }
     if (!hayAlgoAbierto()) {
       cargarPedidos(true);
     }
@@ -29163,134 +29191,146 @@ const TOMADOR_DEPRECADOS = new Set([
 })();
 
 // ═══════════════════════════════════════════════════════════════════════
-// UNIFICACIÓN PRECIOS SHEET → TOMADOR_CAT (v14.9.0)
+// PRECIOS DINÁMICOS SUPABASE → TOMADOR_CAT (v14.65.0)
 // ───────────────────────────────────────────────────────────────────────
-// Lee precios del CSV publicado del Sheet de Productos y los aplica a
-// TOMADOR_CAT por matching de nombre. Si no hay match, mantiene el precio
-// hardcodeado como fallback.
+// Fuente: productos_canonicos.precio_actual (Supabase). Espejo de la
+// decisión del catálogo v3.15.0 (12/6): LA VERDAD DE PRECIOS VIVE EN
+// productos_canonicos. Reemplaza la lectura del CSV publicado del Sheet
+// (v14.9.0), que tenía dos problemas:
+//   1. Solo corría en el boot → una pestaña abierta varios días quedaba
+//      con precios congelados en memoria (bug reportado por Miguel 12/6:
+//      Suprema IQF $102.000 en vez de $103.000, Alita $44.000 vs $45.000).
+//   2. Dependía de la republicación CSV de Google (~5 min de cache).
 //
-// Mapeo de nombres (cuando el nombre en TOMADOR_CAT difiere del Sheet):
-//   "Pollo A" → "Pollo Ginosa"   (siempre)
-//   "Pollo B" → "Pollo Optimo"   (Pollo B puede ser Optimo o San Sebastián)
+// Matching por producto: nombre exacto → nombre lower → aliases (lower)
+// → TOMADOR_NOMBRE_MAP (compat). Sin match → conserva el precio
+// hardcodeado del HTML como fallback offline (igual que el catálogo).
 //
-// Cache localStorage 30 min · Fallback a hardcodeado si Sheet falla.
+// Refresh: boot + apertura de cada tomador (campo / carga WA / editar)
+// + cuando la pestaña vuelve a primer plano. Throttle 5 min en memoria.
+// Si hay un overlay abierto y un precio cambia, se repintan SOLO los
+// nodos de precio (sin tocar inputs ni cantidades) y se recalculan los
+// totales. Los productos con tramos no se ven afectados: el tramo
+// (Supabase) sigue mandando sobre item.pr, como siempre.
 // ═══════════════════════════════════════════════════════════════════════
-var TOMADOR_PRICES_CSV_URL = 'https://docs.google.com/spreadsheets/d/e/2PACX-1vQDZk6Z5pejrI_djbUYBLEvh-X7H_sLF5ZCW2RQr0Bc03r8LOL17_C3pCmwwyLe2iXf3Fan0tgl7IJG/pub?gid=1658103892&single=true&output=csv';
-var TOMADOR_PRECIOS_CACHE_KEY = 'tck_tomador_precios_cache';
-var TOMADOR_PRECIOS_CACHE_TTL = 30 * 60 * 1000; // 30 min
+var TOMADOR_PRECIOS_CACHE_KEY = 'tck_precios_canon_v1';
+var TOMADOR_PRECIOS_TTL_MS    = 5 * 60 * 1000; // 5 min entre fetches
 
-// Mapeo TOMADOR_CAT → Sheet (cuando los nombres difieren)
+// Mapeo TOMADOR_CAT → nombre alternativo (compat histórica con el Sheet;
+// en canónicos 'Pollo Ginosa'/'Pollo Optimo' existen como aliases).
 var TOMADOR_NOMBRE_MAP = {
   'Pollo A': 'Pollo Ginosa',
   'Pollo B': 'Pollo Optimo'
 };
 
-var _tomadorPreciosDesdeSheet = false;
-
-function _tomadorParseCsvLine(line) {
-  var result = [];
-  var current = '';
-  var inQuotes = false;
-  for (var i = 0; i < line.length; i++) {
-    var ch = line[i];
-    if (ch === '"') {
-      if (inQuotes && line[i+1] === '"') { current += '"'; i++; }
-      else { inQuotes = !inQuotes; }
-    } else if (ch === ',' && !inQuotes) {
-      result.push(current);
-      current = '';
-    } else {
-      current += ch;
-    }
-  }
-  result.push(current);
-  return result;
-}
+var _tomadorPreciosDesdeSheet = false; // true = precios dinámicos aplicados
+var _tomadorPreciosUltFetch   = 0;
 
 function _aplicarPriceMapTomador(priceMap) {
   var actualizados = 0;
+  var cambiados = 0;
   TOMADOR_CAT.forEach(function(sec) {
     sec.items.forEach(function(it) {
-      var nombreSheet = TOMADOR_NOMBRE_MAP[it.n] || it.n;
-      if (priceMap[nombreSheet]) {
-        it.pr = priceMap[nombreSheet].precio;
+      var alt = TOMADOR_NOMBRE_MAP[it.n];
+      var hit = priceMap[it.n]
+        || priceMap[it.n.toLowerCase()]
+        || (alt ? (priceMap[alt] || priceMap[alt.toLowerCase()]) : null);
+      if (hit && hit.precio > 0) {
+        if (it.pr !== hit.precio) cambiados++;
+        it.pr = hit.precio;
         actualizados++;
       }
     });
   });
+  if (cambiados > 0) _tomadorRepintarPrecios();
   return actualizados;
 }
 
-function _tomadorParseCsv(csv) {
-  var lines = csv.trim().split('\n');
+// Fetch a Supabase → priceMap { key: {precio} }. Keys: nombre exacto +
+// nombre lower + cada alias en lower (misma convención que el catálogo).
+async function _fetchPreciosCanonVentas() {
+  var data = await sbFetch('productos_canonicos'
+    + '?select=nombre,precio_actual,aliases'
+    + '&activo=eq.true&precio_actual=not.is.null');
+  var rows = Array.isArray(data) ? data : [];
   var priceMap = {};
-  for (var i = 1; i < lines.length; i++) {
-    var cols = _tomadorParseCsvLine(lines[i]);
-    if (cols.length < 2) continue;
-    var nombre = cols[0].trim().replace(/^"|"$/g, '');
-    var precio = parseInt(cols[1].trim().replace(/^"|"$/g, '').replace(/[^\d]/g, ''));
-    var precioKg = cols[2] ? parseInt(cols[2].trim().replace(/^"|"$/g, '').replace(/[^\d]/g, '')) : 0;
-    var activo = cols[5] ? cols[5].trim().replace(/^"|"$/g, '').toUpperCase() : 'SI';
-    if (nombre && !isNaN(precio) && activo !== 'NO') {
-      priceMap[nombre] = { precio: precio, precioKg: precioKg };
-    }
-  }
+  rows.forEach(function(r) {
+    var precio = Math.round(Number(r.precio_actual));
+    if (!r.nombre || !precio || precio <= 0) return;
+    var val = { precio: precio };
+    priceMap[r.nombre] = val;
+    priceMap[r.nombre.toLowerCase()] = val;
+    (r.aliases || []).forEach(function(a) {
+      if (a) priceMap[String(a).toLowerCase()] = val;
+    });
+  });
   return priceMap;
 }
 
-async function cargarPreciosTomador() {
-  // 1. Intentar caché local primero
+// Refresca TOMADOR_CAT desde canónicos. Throttle TTL salvo force=true.
+// Nunca rompe: si el fetch falla, quedan los últimos precios aplicados
+// (o los hardcodeados del HTML si nunca hubo fetch exitoso).
+async function refrescarPreciosVentas(force) {
+  var ahora = Date.now();
+  if (!force && (ahora - _tomadorPreciosUltFetch) < TOMADOR_PRECIOS_TTL_MS) return;
+  _tomadorPreciosUltFetch = ahora; // marcar antes: evita ráfagas en paralelo
+  try {
+    var priceMap = await _fetchPreciosCanonVentas();
+    if (!priceMap || Object.keys(priceMap).length === 0) throw new Error('priceMap vacío');
+    var n = _aplicarPriceMapTomador(priceMap);
+    try {
+      localStorage.setItem(TOMADOR_PRECIOS_CACHE_KEY, JSON.stringify({ ts: ahora, priceMap: priceMap }));
+    } catch(e) {}
+    _tomadorPreciosDesdeSheet = true;
+    console.log('[TCK Precios] ' + n + ' productos actualizados desde productos_canonicos');
+  } catch(e) {
+    console.warn('[TCK Precios] fetch falló — sigue el último precio aplicado:', e.message);
+  }
+}
+
+// Boot: aplicar caché local al toque (arranque instantáneo) y refrescar de red.
+function cargarPreciosTomador() {
   try {
     var cached = localStorage.getItem(TOMADOR_PRECIOS_CACHE_KEY);
     if (cached) {
       var parsed = JSON.parse(cached);
-      if (Date.now() - parsed.ts < TOMADOR_PRECIOS_CACHE_TTL) {
+      if (parsed && parsed.priceMap) {
         var n = _aplicarPriceMapTomador(parsed.priceMap);
         _tomadorPreciosDesdeSheet = true;
-        console.log('[TCK Tomador Precios] ' + n + ' productos desde caché local');
-        // Refrescar en background sin bloquear
-        _refrescarPreciosTomadorBg();
-        return;
+        console.log('[TCK Precios] ' + n + ' productos desde caché local');
       }
     }
   } catch(e) {}
-
-  // 2. Sin caché válida — cargar desde Sheet
-  await _fetchYGuardarPreciosTomador();
+  refrescarPreciosVentas(true);
 }
 
-async function _fetchYGuardarPreciosTomador() {
+// Repintado quirúrgico: si hay un tomador abierto (campo o carga WA),
+// actualiza SOLO los nodos de precio de cada card y recalcula totales.
+// NO regenera el body del overlay: no pisa inputs ni cantidades cargadas.
+function _tomadorRepintarPrecios() {
   try {
-    var res = await fetch(TOMADOR_PRICES_CSV_URL + '&_t=' + Date.now(), { cache: 'no-cache' });
-    if (!res.ok) throw new Error('HTTP ' + res.status);
-    var csv = await res.text();
-    var priceMap = _tomadorParseCsv(csv);
-    var actualizados = _aplicarPriceMapTomador(priceMap);
-    try {
-      localStorage.setItem(TOMADOR_PRECIOS_CACHE_KEY, JSON.stringify({ ts: Date.now(), priceMap: priceMap }));
-    } catch(e) {}
-    _tomadorPreciosDesdeSheet = true;
-    console.log('[TCK Tomador Precios] ' + actualizados + ' productos actualizados desde Sheet');
-  } catch(e) {
-    _tomadorPreciosDesdeSheet = false;
-    console.warn('[TCK Tomador Precios] Usando precios hardcodeados (fallback):', e.message);
-  }
-}
-
-function _refrescarPreciosTomadorBg() {
-  setTimeout(async function() {
-    try {
-      var res = await fetch(TOMADOR_PRICES_CSV_URL + '&_t=' + Date.now(), { cache: 'no-cache' });
-      if (!res.ok) return;
-      var csv = await res.text();
-      var priceMap = _tomadorParseCsv(csv);
-      _aplicarPriceMapTomador(priceMap);
-      try {
-        localStorage.setItem(TOMADOR_PRECIOS_CACHE_KEY, JSON.stringify({ ts: Date.now(), priceMap: priceMap }));
-      } catch(e) {}
-      console.log('[TCK Tomador Precios] Caché actualizada en background');
-    } catch(e) {}
-  }, 100);
+    var mwaOverlay = document.getElementById('manual-wa-overlay');
+    var tomOverlay = document.getElementById('tomador-overlay');
+    if (!mwaOverlay && !tomOverlay) return;
+    TOMADOR_CAT.forEach(function(sec) {
+      sec.items.forEach(function(it) {
+        var safeId = it.n.replace(/[^a-zA-Z0-9]/g, '-');
+        var cards = [];
+        if (mwaOverlay) cards.push(document.getElementById('mwa-item-' + safeId));
+        if (tomOverlay) cards.push(document.getElementById('titem-' + safeId));
+        cards.forEach(function(card) {
+          if (!card) return;
+          var nodo = card.querySelector('.tomador-item-precio, .tomador-item-tramos');
+          if (!nodo) return;
+          var tmp = document.createElement('div');
+          tmp.innerHTML = tckCardPrecioHTML(it);
+          if (tmp.firstChild) nodo.replaceWith(tmp.firstChild);
+        });
+      });
+    });
+    if (mwaOverlay && typeof mwaActualizarTotal === 'function') mwaActualizarTotal();
+    if (tomOverlay && typeof tomadorActualizarTotal === 'function') tomadorActualizarTotal();
+  } catch(e) { console.warn('[TCK Precios] repintar:', e); }
 }
 
 // Disparar la carga al inicio (no bloquea — el tomador puede abrirse antes)
@@ -30303,6 +30343,10 @@ function _tomadorAbrirInterno() {
   // v14.16.0 — Refrescar stock al abrir (transparente, no bloquea)
   if (typeof cargarStockVisibleVentas === 'function') {
     cargarStockVisibleVentas();
+  }
+  // v14.65.0 — Refrescar precios al abrir (cubre pestañas abiertas hace días)
+  if (typeof refrescarPreciosVentas === 'function') {
+    refrescarPreciosVentas();
   }
 
   // Crear overlay
@@ -35337,6 +35381,10 @@ function _abrirEditarPedidoInterno(p, detalle) {
   if (typeof cargarStockVisibleVentas === 'function') {
     cargarStockVisibleVentas();
   }
+  // v14.65.0 — Refrescar precios al abrir (cubre pestañas abiertas hace días)
+  if (typeof refrescarPreciosVentas === 'function') {
+    refrescarPreciosVentas();
+  }
 
   // v9.9: trackear total original y líneas no parseadas para defensa
   _editarTotalOriginal = parseFloat(p.total) || 0;
@@ -36134,6 +36182,10 @@ function abrirCargaManualWA() {
   // v14.16.0 — Refrescar stock al abrir
   if (typeof cargarStockVisibleVentas === 'function') {
     cargarStockVisibleVentas();
+  }
+  // v14.65.0 — Refrescar precios al abrir (cubre pestañas abiertas hace días)
+  if (typeof refrescarPreciosVentas === 'function') {
+    refrescarPreciosVentas();
   }
 
   const overlay = document.createElement('div');
