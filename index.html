@@ -2,6 +2,11 @@
 <html lang="es">
 <head>
 <!-- ═══════════════════════════════════════════════════════════════════════
+     TCK VENTAS — v14.74.0 — 13/06/2026
+     v14.74.0: DEPOSITO pulido final. Retiros mostrador muestran el comprobante
+        (Fact./Presup. #) o aviso rojo si quedo sin comprobante Xubio. Badge del
+        tab Deposito ahora suma TODO lo pendiente de Pancho: devoluciones por
+        recibir + retiros pendientes + cargas sin conformar.
      TCK VENTAS — v14.73.0 — 13/06/2026
      v14.73.0: CARGAS DE PANCHO — visibilidad total. (P1) items + comprobante
         por pedido se traen de Supabase (pedidos_items + pedidos_zona) en
@@ -45214,7 +45219,8 @@ function _depBadgeTab() {
   var b = document.getElementById('tab-badge-deposito');
   if (!b) return;
   var n = _depRows.filter(function(r) { return r.estado === 'registrada'; }).length
-        + _depRetiros.filter(function(r) { return r.estado === 'pendiente'; }).length;
+        + _depRetiros.filter(function(r) { return r.estado === 'pendiente'; }).length
+        + _depCargasPendientes(); // v14.74.0: incluir viajes sin conformar
   b.textContent = n > 0 ? String(n) : '';
   b.style.display = n > 0 ? '' : 'none';
 }
@@ -46601,6 +46607,11 @@ function _depRetiroCardHtml(r, esPend) {
   h += '<div style="font-family:\'Barlow Condensed\',sans-serif;font-size:17px;font-weight:900;color:#2A2018;margin-top:3px;">' + _mostEsc(r.cliente || '') + '</div>';
   h += '<div style="font-size:13px;color:#5C4A38;margin-top:3px;">' + _mostEsc(r.items_resumen || '') + '</div>';
   h += '<div style="font-size:12px;color:#8A7E72;margin-top:3px;">' + _mostFmt(r.total) + ' · ' + _mostEsc(r.forma_cobro || '') + ' · ' + _depFmtFecha(r.creado_at) + '</div>';
+  // v14.74.0 — comprobante del mostrador visible (o aviso si falta)
+  var _rComp = r.xubio_nro
+    ? (r.xubio_tipo === 'factura' ? '🧾 Fact. #' + _mostEsc(r.xubio_nro) : '📄 Presup. #' + _mostEsc(r.xubio_nro))
+    : '<span style="color:#C62828;font-weight:800;">⚠️ Sin comprobante Xubio</span>';
+  h += '<div style="font-size:12px;margin-top:2px;">' + _rComp + '</div>';
   if (esPend) {
     h += '<button class="dep-ret-entregar" onclick="depRetiroEntregar(\'' + _mostEsc(r.id) + '\')">✅ ENTREGADO AL CLIENTE</button>';
   } else if (r.entregado_en) {
@@ -46672,7 +46683,7 @@ function depPollIniciar() {
    TCK_UPD_LOCAL aca Y el archivo version.json del repo.
    ============================================================ */
 (function(){
-  var TCK_UPD_LOCAL = '14.73.0';        /* <-- bump en cada deploy */
+  var TCK_UPD_LOCAL = '14.74.0';        /* <-- bump en cada deploy */
   var TCK_UPD_INTERVALO = 10 * 60 * 1000;   /* chequeo de fondo: 10 min */
   var _updUltChequeo = 0;
 
