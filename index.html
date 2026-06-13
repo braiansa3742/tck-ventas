@@ -2,6 +2,13 @@
 <html lang="es">
 <head>
 <!-- ═══════════════════════════════════════════════════════════════════════
+     TCK VENTAS — v14.75.0 — 13/06/2026
+     v14.75.0: DESPACHO — facturar y cargar al toque. El facturador del admin
+        escribe pedidos_zona.xubio_factura_id/nro al instante, asi que la unica
+        latencia era el refresco de Pancho. Ahora: (a) poll adaptativo — si hay
+        viajes esperando factura y esta en Cargas, refresca cada 20s (en vez de
+        60s) para destrabar solo; (b) boton "Ya facturaron — actualizar" en el
+        cartel rojo SIN FACTURA, para refrescar al instante.
      TCK VENTAS — v14.74.0 — 13/06/2026
      v14.74.0: DEPOSITO pulido final. Retiros mostrador muestran el comprobante
         (Fact./Presup. #) o aviso rojo si quedo sin comprobante Xubio. Badge del
@@ -45500,6 +45507,7 @@ async function depRecibir(id) {
 .dep-load-item.done { background:#F1F8E9;border-color:#A5D6A7;text-decoration:line-through;color:#8A7E72; }
 .dep-load-item.done .q { background:#A5D6A7; }
 .dep-sinfact { background:#FDECEA;border:1.5px solid #F5B7B1;border-left:3px solid #C62828;border-radius:8px;padding:8px 10px;margin:8px 2px;font-size:12.5px;font-weight:700;color:#C62828;line-height:1.4; }
+.dep-sinfact-ref { margin-top:8px;width:100%;padding:9px;border:1.5px solid #C62828;border-radius:8px;background:#fff;color:#C62828;font-family:'Barlow Condensed',sans-serif;font-weight:900;font-size:14px;cursor:pointer;touch-action:manipulation; }
 .dep-conf-bloq { background:#FFF8E1;border:1.5px solid #FFE082;border-radius:8px;padding:9px 11px;margin-top:8px;font-size:13px;font-weight:800;color:#7A5800;text-align:center; }
 .dep-dif-row { display:flex;align-items:center;gap:8px;padding:6px 0;border-bottom:1px solid #f0e8e8;font-size:13px; }
 .dep-dif-inp { width:64px;padding:6px 8px;border:1.5px solid #E8DFD5;border-radius:8px;font-size:14px;text-align:center;flex:none; }
@@ -45524,6 +45532,7 @@ var _mostRangoHasta = '';       // v14.71.0: YYYY-MM-DD
 var _depRetiros = [];
 var _depRetirosCargadoUnaVez = false;
 var _depPollTimer = null;
+var _depHayBloqueados = false;   // v14.75.0: hay viajes de hoy esperando factura
 
 function _mostEsc(s) {
   return String(s == null ? '' : s)
@@ -46227,6 +46236,11 @@ async function depCargasRecargar() {
           });
         } catch (ePz) { console.error('[dep comprobante]', ePz); }
       }
+      // v14.75.0 — ¿hay viajes pendientes con algún pedido sin factura?
+      _depHayBloqueados = _depViajesHoy.some(function (v) {
+        if (_depConformidades[v.id]) return false;
+        return (_depEntregasViaje[v.id] || []).some(_depEntSinFactura);
+      });
     }
     _depCargasCargado = true;
   } catch (e) {
@@ -46296,7 +46310,8 @@ function _depViajeCard(v) {
   // ⛔ bloqueo por factura faltante
   if (sinFact.length) {
     h += '<div class="dep-sinfact">⛔ ' + sinFact.length + ' pedido(s) SIN FACTURA — no cargar hasta facturar:<br>' +
-      sinFact.map(function(e) { return '• ' + _mostEsc(e.cliente || e.pedido_id); }).join('<br>') + '</div>';
+      sinFact.map(function(e) { return '• ' + _mostEsc(e.cliente || e.pedido_id); }).join('<br>') +
+      '<br><button class="dep-sinfact-ref" onclick="depositoRecargar()">🔄 Ya facturaron — actualizar</button></div>';
   }
 
   // 📋 Total a cargar (planilla consolidada + checklist)
@@ -46664,10 +46679,14 @@ async function depRetiroEntregar(id) {
 // ── Polling del panel de Pancho (60s) ──────────────────────────────
 function depPollIniciar() {
   if (_depPollTimer) return;
-  _depPollTimer = setInterval(function() {
-    if (vendedorActual !== 'Pancho') { clearInterval(_depPollTimer); _depPollTimer = null; return; }
+  function _tick() {
+    if (vendedorActual !== 'Pancho') { _depPollTimer = null; return; }
     depositoRecargar();
-  }, 60000);
+    // v14.75.0 — más rápido si hay cargas esperando factura, para destrabar al toque
+    var delay = (_depHayBloqueados && _depSeccion === 'cargas') ? 20000 : 60000;
+    _depPollTimer = setTimeout(_tick, delay);
+  }
+  _depPollTimer = setTimeout(_tick, 60000);
 }
 // ═══ Fin módulo Mostrador v14.58.0 ══════════════════════════════════
 </script>
@@ -46683,7 +46702,7 @@ function depPollIniciar() {
    TCK_UPD_LOCAL aca Y el archivo version.json del repo.
    ============================================================ */
 (function(){
-  var TCK_UPD_LOCAL = '14.74.0';        /* <-- bump en cada deploy */
+  var TCK_UPD_LOCAL = '14.75.0';        /* <-- bump en cada deploy */
   var TCK_UPD_INTERVALO = 10 * 60 * 1000;   /* chequeo de fondo: 10 min */
   var _updUltChequeo = 0;
 
