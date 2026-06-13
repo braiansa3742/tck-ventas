@@ -2,7 +2,15 @@
 <html lang="es">
 <head>
 <!-- ═══════════════════════════════════════════════════════════════════════
-     TCK VENTAS — v14.70.0 — 12/06/2026
+     TCK VENTAS — v14.71.0 — 13/06/2026
+     v14.71.0: MOSTRADOR — filtro de fecha (Hoy/Ayer/Rango) en el tab para
+        ver ventas de dias anteriores. Deteccion de HUERFANOS: pedidos
+        origen=mostrador en la ventana SIN fila de retiro (caso Agustin
+        12/06 — se guardo el pedido pero no entro al flujo) se muestran
+        arriba con aviso "Sin retiro / sin factura". Boton "Mostrador"
+        sumado al filtro de vendedores del admin (junto a Miguel/Juan/
+        Lisandro). Sin cambios en factura: el AS v25.61.0 ya factura bien;
+        el unico pendiente es deployarlo como Nueva version.
      v14.70.0: UPDATE CHECK. Banner flotante "Actualizar" cuando hay
         version nueva (lee version.json del repo, cache-bust). Al tocar:
         limpia caches + desregistra SW + reload. Bump TCK_UPD_LOCAL +
@@ -15792,6 +15800,7 @@ body {
         <button class="filtro-btn" onclick="setFiltroVendedor('Miguel',this)">Miguel</button>
         <button class="filtro-btn" onclick="setFiltroVendedor('Juan',this)">Juan</button>
         <button class="filtro-btn" onclick="setFiltroVendedor('Lisandro',this)">Lisandro</button>
+        <button class="filtro-btn" onclick="setFiltroVendedor('Mostrador',this)">🛒 Mostrador</button>
       </div>
       <div class="filtros filter-row" id="filtros-estado">
         <button class="filtro-btn on" onclick="setFiltro('todos',this)">Todos</button>
@@ -45426,6 +45435,9 @@ async function depRecibir(id) {
 <script>
 // ═══ v14.58.0 — MOSTRADOR ═══════════════════════════════════════════
 var _mostRetirosHoy = [];
+var _mostFiltroFecha = 'hoy';   // v14.71.0: 'hoy' | 'ayer' | 'rango'
+var _mostRangoDesde = '';       // v14.71.0: YYYY-MM-DD
+var _mostRangoHasta = '';       // v14.71.0: YYYY-MM-DD
 var _depRetiros = [];
 var _depRetirosCargadoUnaVez = false;
 var _depPollTimer = null;
@@ -45438,26 +45450,109 @@ function _mostEsc(s) {
 function _mostFmt(n) { return '$' + Math.round(Number(n) || 0).toLocaleString('es-AR'); }
 
 // ── HOME del tab Mostrador ──────────────────────────────────────────
+// v14.71.0 — ventana de fechas según el filtro (Hoy / Ayer / Rango).
+function _mostVentanaFechas() {
+  var desde, hasta, label;
+  var hoy0 = new Date(); hoy0.setHours(0, 0, 0, 0);
+  if (_mostFiltroFecha === 'ayer') {
+    desde = new Date(hoy0); desde.setDate(desde.getDate() - 1);
+    hasta = new Date(hoy0);
+    label = 'de ayer';
+  } else if (_mostFiltroFecha === 'rango') {
+    var ds = _mostRangoDesde || hoy0.toISOString().slice(0, 10);
+    var hs = _mostRangoHasta || ds;
+    desde = new Date(ds + 'T00:00:00');
+    hasta = new Date(hs + 'T00:00:00'); hasta.setDate(hasta.getDate() + 1); // exclusivo
+    label = 'del ' + ds + ' al ' + hs;
+  } else {
+    desde = hoy0;
+    hasta = new Date(hoy0); hasta.setDate(hasta.getDate() + 1);
+    label = 'de hoy';
+  }
+  return { desde: desde, hasta: hasta, label: label };
+}
+
+function mostradorSetFiltro(f, btn) {
+  _mostFiltroFecha = f;
+  document.querySelectorAll('#most-fechas .filtro-btn').forEach(function(b) { b.classList.remove('on'); });
+  if (btn) btn.classList.add('on');
+  var rango = document.getElementById('most-rango');
+  if (rango) rango.style.display = (f === 'rango') ? 'flex' : 'none';
+  if (f !== 'rango') mostradorTabRender();
+}
+
+function mostradorRangoAplicar() {
+  var ds = document.getElementById('most-rango-desde');
+  var hs = document.getElementById('most-rango-hasta');
+  _mostRangoDesde = ds ? ds.value : '';
+  _mostRangoHasta = hs ? hs.value : '';
+  mostradorTabRender();
+}
+
 async function mostradorTabRender() {
   var root = document.getElementById('most-root');
   if (!root) return;
+  var v = _mostVentanaFechas();
   try {
-    var hoy0 = new Date(); hoy0.setHours(0, 0, 0, 0);
     _mostRetirosHoy = await sbFetch('mostrador_retiros?select=*' +
-      '&creado_at=gte.' + encodeURIComponent(hoy0.toISOString()) +
-      '&order=creado_at.desc&limit=100') || [];
-  } catch (e) { console.error('[mostrador] retiros hoy:', e); _mostRetirosHoy = []; }
+      '&creado_at=gte.' + encodeURIComponent(v.desde.toISOString()) +
+      '&creado_at=lt.' + encodeURIComponent(v.hasta.toISOString()) +
+      '&order=creado_at.desc&limit=200') || [];
+  } catch (e) { console.error('[mostrador] retiros:', e); _mostRetirosHoy = []; }
 
-  var totalHoy = _mostRetirosHoy.reduce(function(s, r) { return s + (Number(r.total) || 0); }, 0);
+  // v14.71.0 — huérfanos: pedidos origen=mostrador en la misma ventana SIN
+  // fila de retiro (caso Agustín 12/06: se guardó el pedido pero no entró al
+  // flujo de retiro ni se facturó). Se leen de todosLosPedidos (Sheet, ya en
+  // memoria — el rol Mostrador también corre cargarPedidos al loguear).
+  var conRetiro = {};
+  _mostRetirosHoy.forEach(function(r) { if (r.pedido_id) conRetiro[r.pedido_id] = true; });
+  var huerfanos = [];
+  try {
+    (todosLosPedidos || []).forEach(function(p) {
+      if (!p || !p.pedidoId) return;
+      if (p.pedidoId.indexOf('-MOS-') < 0) return;
+      if (conRetiro[p.pedidoId]) return;
+      if ((p.estado || '').indexOf('Cancelado') >= 0) return;
+      var f = fechaPedido(p);
+      if (f >= v.desde && f < v.hasta) huerfanos.push(p);
+    });
+  } catch (eH) { console.warn('[mostrador] huérfanos:', eH); }
+
+  var totalPer = _mostRetirosHoy.reduce(function(s, r) { return s + (Number(r.total) || 0); }, 0);
   var h = '';
   h += '<div style="display:flex;align-items:center;justify-content:space-between;gap:10px;margin:4px 2px;">';
   h += '  <div style="font-family:\'Barlow Condensed\',sans-serif;font-size:24px;font-weight:900;color:#2A2018;">🛒 Mostrador</div>';
   h += '  <button class="dep-refresh" onclick="mostradorTabRender()">🔄</button>';
   h += '</div>';
   h += '<button class="most-btn-nueva" onclick="abrirCargaMostrador()">➕ NUEVA VENTA</button>';
-  h += '<div class="dep-sec-title">Ventas de hoy (' + _mostRetirosHoy.length + ' · ' + _mostFmt(totalHoy) + ')</div>';
+
+  // v14.71.0 — filtro de fecha
+  h += '<div class="filtros filter-row" id="most-fechas" style="margin:8px 0 4px;">';
+  h += '  <button class="filtro-btn' + (_mostFiltroFecha === 'hoy' ? ' on' : '') + '" onclick="mostradorSetFiltro(\'hoy\',this)">📅 Hoy</button>';
+  h += '  <button class="filtro-btn' + (_mostFiltroFecha === 'ayer' ? ' on' : '') + '" onclick="mostradorSetFiltro(\'ayer\',this)">Ayer</button>';
+  h += '  <button class="filtro-btn' + (_mostFiltroFecha === 'rango' ? ' on' : '') + '" onclick="mostradorSetFiltro(\'rango\',this)">📆 Rango</button>';
+  h += '</div>';
+  h += '<div id="most-rango" style="display:' + (_mostFiltroFecha === 'rango' ? 'flex' : 'none') + ';gap:8px;align-items:flex-end;margin:4px 2px 8px;flex-wrap:wrap;">';
+  h += '  <div><div style="font-size:11px;color:#8A7E72;font-weight:700;">Desde</div><input type="date" id="most-rango-desde" value="' + _mostEsc(_mostRangoDesde) + '" style="padding:7px 9px;border:1.5px solid #E8DFD5;border-radius:8px;font-size:14px;"></div>';
+  h += '  <div><div style="font-size:11px;color:#8A7E72;font-weight:700;">Hasta</div><input type="date" id="most-rango-hasta" value="' + _mostEsc(_mostRangoHasta) + '" style="padding:7px 9px;border:1.5px solid #E8DFD5;border-radius:8px;font-size:14px;"></div>';
+  h += '  <button class="most-sec" style="margin:0;padding:8px 14px;" onclick="mostradorRangoAplicar()">Ver</button>';
+  h += '</div>';
+
+  // v14.71.0 — huérfanos primero (necesitan atención)
+  if (huerfanos.length) {
+    h += '<div class="dep-sec-title" style="color:#C62828;">⚠️ Sin retiro / sin factura (' + huerfanos.length + ')</div>';
+    huerfanos.forEach(function(p) {
+      h += '<div class="most-ret-card" style="border-left:3px solid #C62828;">';
+      h += '  <div style="font-size:13px;font-weight:800;color:#2A2018;">' + _mostEsc(p.cliente || '') + ' · ' + fmtTotal(p.total) + '</div>';
+      h += '  <div style="font-size:11px;color:#9A8F85;margin-top:2px;">' + _mostEsc(p.pedidoId) + ' · ' + _mostEsc(p.estado || '') + '</div>';
+      h += '  <div style="font-size:11px;color:#C62828;font-weight:700;margin-top:4px;">No pasó por el flujo de retiro: no tiene código ni factura. Facturalo a mano en Xubio.</div>';
+      h += '</div>';
+    });
+  }
+
+  h += '<div class="dep-sec-title">Ventas ' + v.label + ' (' + _mostRetirosHoy.length + ' · ' + _mostFmt(totalPer) + ')</div>';
   if (!_mostRetirosHoy.length) {
-    h += '<div class="dep-empty">Todavía no hay ventas hoy.</div>';
+    h += '<div class="dep-empty">No hay ventas en este período.</div>';
   } else {
     _mostRetirosHoy.forEach(function(r) {
       var badge = r.estado === 'entregado'
@@ -46323,7 +46418,7 @@ function depPollIniciar() {
    TCK_UPD_LOCAL aca Y el archivo version.json del repo.
    ============================================================ */
 (function(){
-  var TCK_UPD_LOCAL = '14.70.0';        /* <-- bump en cada deploy */
+  var TCK_UPD_LOCAL = '14.71.0';        /* <-- bump en cada deploy */
   var TCK_UPD_INTERVALO = 10 * 60 * 1000;   /* chequeo de fondo: 10 min */
   var _updUltChequeo = 0;
 
