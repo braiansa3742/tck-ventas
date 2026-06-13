@@ -2,6 +2,19 @@
 <html lang="es">
 <head>
 <!-- ═══════════════════════════════════════════════════════════════════════
+     TCK VENTAS — v14.73.0 — 13/06/2026
+     v14.73.0: CARGAS DE PANCHO — visibilidad total. (P1) items + comprobante
+        por pedido se traen de Supabase (pedidos_items + pedidos_zona) en
+        depCargasRecargar: el detalle ya NO depende de todosLosPedidos (que no
+        se carga para el rol Deposito). (P2) Planilla consolidada "Total a cargar"
+        por viaje, sumando por producto+calibre. (P6) Checklist: tilda cada
+        producto al cargarlo (estado local _depCargaCheck, contador X/Y). (P5)
+        N de comprobante por entrega; si un pedido NO tiene factura -> rojo
+        "SIN FACTURA" y el boton CARGUE CONFORME queda BLOQUEADO (regla: no se
+        carga al camion sin factura). (P3) Al conformar, el viaje baja a "Ya
+        conformados" (tarjeta compacta) y arriba quedan solo los pendientes.
+        (P4) "Cargue con diferencia" pasa de prompt() a modal estructurado:
+        esperado -> cargado por producto + nota, guarda detalle_json.diferencias.
      TCK VENTAS — v14.72.0 — 13/06/2026
      v14.72.0: TAB DEPOSITO (Pancho) REORGANIZADO — segmented de 4 secciones
         top-level: 🚚 Cargas | 📦 Devoluciones | 🛒 Retiros | 📋 Stock (antes
@@ -45475,6 +45488,15 @@ async function depRecibir(id) {
 .dep-seg { display:grid;grid-template-columns:repeat(4,1fr);gap:5px;margin:10px 0 12px; }
 .dep-seg button { padding:9px 2px;border:1.5px solid #E8DFD5;border-radius:10px;background:#FAF6F0;font-family:'Barlow Condensed',sans-serif;font-size:13px;font-weight:900;color:#5C4A38;cursor:pointer;touch-action:manipulation;display:flex;align-items:center;justify-content:center;gap:2px; }
 .dep-grupo-head { display:flex;align-items:center;gap:8px;font-family:'Barlow Condensed',sans-serif;font-weight:900;font-size:15px;color:#2A2018;background:#F0E9DF;border-radius:8px;padding:8px 10px;margin:10px 2px 6px; }
+.dep-load-item { display:flex;align-items:center;gap:8px;padding:9px 10px;border:1px solid #E8DFD5;border-radius:8px;margin:4px 2px;background:#fff;font-size:14px;color:#2A2018;cursor:pointer;-webkit-tap-highlight-color:transparent; }
+.dep-load-item input { width:22px;height:22px;flex:none; }
+.dep-load-item .q { background:#2E7D32;color:#fff;border-radius:8px;padding:1px 8px;font-family:'Barlow Condensed',sans-serif;font-weight:900;font-size:14px;flex:none; }
+.dep-load-item.done { background:#F1F8E9;border-color:#A5D6A7;text-decoration:line-through;color:#8A7E72; }
+.dep-load-item.done .q { background:#A5D6A7; }
+.dep-sinfact { background:#FDECEA;border:1.5px solid #F5B7B1;border-left:3px solid #C62828;border-radius:8px;padding:8px 10px;margin:8px 2px;font-size:12.5px;font-weight:700;color:#C62828;line-height:1.4; }
+.dep-conf-bloq { background:#FFF8E1;border:1.5px solid #FFE082;border-radius:8px;padding:9px 11px;margin-top:8px;font-size:13px;font-weight:800;color:#7A5800;text-align:center; }
+.dep-dif-row { display:flex;align-items:center;gap:8px;padding:6px 0;border-bottom:1px solid #f0e8e8;font-size:13px; }
+.dep-dif-inp { width:64px;padding:6px 8px;border:1.5px solid #E8DFD5;border-radius:8px;font-size:14px;text-align:center;flex:none; }
 .dep-seg button.sel { background:#2E7D32;border-color:#2E7D32;color:#fff; }
 .dep-seg-n { background:#C62828;color:#fff;border-radius:10px;padding:0 6px;font-size:11px;margin-left:2px; }
 .dep-viaje-card { background:#fff;border:1.5px solid #E8DFD5;border-radius:14px;margin-bottom:12px;padding:12px 14px; }
@@ -46118,6 +46140,9 @@ var _depViajesHoy = [];                   // viajes de hoy
 var _depEntregasViaje = {};               // viaje_id -> entregas[]
 var _depConformidades = {};               // viaje_id -> fila cargas_conformidad
 var _depCargasCargado = false;
+var _depItemsPorPedido = {};              // v14.73.0: pedido_id -> [{nombre,qty,calibre}]
+var _depComprobante = {};                 // v14.73.0: pedido_id -> {facturaNro,tieneFactura,presupuesto}
+var _depCargaCheck = {};                  // v14.73.0: viaje_id -> { idx: true } (checklist local de carga)
 
 // Orden de carga = INVERSO al recorrido (la última parada se carga primero)
 var DEP_RUTA_ORDEN = ['trenque lauquen','pehuajo','henderson','carlos casares','daireaux',
@@ -46166,6 +46191,36 @@ async function depCargasRecargar() {
       });
       var confs = await sbFetch('cargas_conformidad?select=*&viaje_id=in.(' + ids + ')&limit=50') || [];
       confs.forEach(function(c) { _depConformidades[c.viaje_id] = c; });
+
+      // v14.73.0 — items + comprobante por pedido (fuente confiable, NO depende
+      // de todosLosPedidos, que no se carga para el rol Depósito).
+      var _pids = [];
+      Object.keys(_depEntregasViaje).forEach(function(vid) {
+        _depEntregasViaje[vid].forEach(function(e) { if (e.pedido_id) _pids.push(e.pedido_id); });
+      });
+      _pids = _pids.filter(function(x, i) { return _pids.indexOf(x) === i; });
+      _depItemsPorPedido = {}; _depComprobante = {};
+      if (_pids.length) {
+        var inL = '(' + _pids.join(',') + ')';
+        try {
+          var its = await sbFetch('pedidos_items?select=pedido_id,producto_tck_nombre,cantidad,calibre&pedido_id=in.' + inL + '&limit=3000') || [];
+          its.forEach(function(it) {
+            (_depItemsPorPedido[it.pedido_id] = _depItemsPorPedido[it.pedido_id] || []).push({
+              nombre: it.producto_tck_nombre || '—', qty: Number(it.cantidad) || 0, calibre: it.calibre || ''
+            });
+          });
+        } catch (eIt) { console.error('[dep items]', eIt); }
+        try {
+          var pzs = await sbFetch('pedidos_zona?select=pedido_id,xubio_factura_nro,xubio_factura_id,xubio_presupuesto_id&pedido_id=in.' + inL + '&limit=3000') || [];
+          pzs.forEach(function(pz) {
+            _depComprobante[pz.pedido_id] = {
+              facturaNro: pz.xubio_factura_nro || null,
+              tieneFactura: !!(pz.xubio_factura_id || pz.xubio_factura_nro),
+              presupuesto: !!pz.xubio_presupuesto_id
+            };
+          });
+        } catch (ePz) { console.error('[dep comprobante]', ePz); }
+      }
     }
     _depCargasCargado = true;
   } catch (e) {
@@ -46188,63 +46243,156 @@ function _depResumenDe(pedidoId) {
   return p ? (p.resumenPedido || p.detalle || '') : '';
 }
 
+// v14.73.0 — helpers de carga
+function _depItemKey(nombre, calibre) { return (nombre || '') + '|' + (calibre || ''); }
+function _depItemLabel(it) { return it.nombre + (it.calibre ? ' (' + it.calibre + ')' : ''); }
+function _depAggViaje(ents) {
+  var agg = {}, orden = [];
+  ents.forEach(function(e) {
+    (_depItemsPorPedido[e.pedido_id] || []).forEach(function(it) {
+      var k = _depItemKey(it.nombre, it.calibre);
+      if (!agg[k]) { agg[k] = { nombre: it.nombre, calibre: it.calibre, qty: 0 }; orden.push(k); }
+      agg[k].qty += it.qty;
+    });
+  });
+  return orden.map(function(k) { return agg[k]; });
+}
+function _depEntSinFactura(e) { var c = _depComprobante[e.pedido_id]; return !c || !c.tieneFactura; }
+
+function depCargaToggleCheck(viajeId, idx, el) {
+  var m = _depCargaCheck[viajeId] = _depCargaCheck[viajeId] || {};
+  if (el.checked) m[idx] = true; else delete m[idx];
+  var lbl = el.closest('.dep-load-item'); if (lbl) lbl.classList.toggle('done', el.checked);
+  var cont = document.getElementById('dep-load-count-' + viajeId);
+  if (cont) cont.textContent = Object.keys(m).length;
+}
+
+function _depViajeCard(v) {
+  var conf = _depConformidades[v.id];
+  var ents = (_depEntregasViaje[v.id] || []).slice().sort(function(a, b) {
+    return _depRutaIdx(b.ciudad) - _depRutaIdx(a.ciudad);   // inverso: última parada primero
+  });
+  var sinFact = ents.filter(_depEntSinFactura);
+  var agg = _depAggViaje(ents);
+  var totalU = agg.reduce(function(s, x) { return s + x.qty; }, 0);
+  var checks = _depCargaCheck[v.id] || {};
+  var nCheck = Object.keys(checks).length;
+
+  var h = '<div class="dep-viaje-card">';
+  h += '<div style="display:flex;align-items:center;justify-content:space-between;gap:8px;">';
+  h += '  <span class="dep-viaje-head">🚚 ' + _mostEsc(_depZonaLabel(v.zona)) + '</span>';
+  h += '<span class="dep-badge dep-badge-pend">⏳ Sin conformar</span>';
+  h += '</div>';
+  h += '<div style="font-size:12px;color:#8A7E72;margin-top:2px;">' +
+    _mostEsc(v.chofer || 'Sin chofer') + ' · ' + _mostEsc(v.vehiculo || 'Sin vehículo') +
+    ' · ' + ents.length + ' entregas · ' + _mostFmt(v.monto_total) + '</div>';
+
+  // ⛔ bloqueo por factura faltante
+  if (sinFact.length) {
+    h += '<div class="dep-sinfact">⛔ ' + sinFact.length + ' pedido(s) SIN FACTURA — no cargar hasta facturar:<br>' +
+      sinFact.map(function(e) { return '• ' + _mostEsc(e.cliente || e.pedido_id); }).join('<br>') + '</div>';
+  }
+
+  // 📋 Total a cargar (planilla consolidada + checklist)
+  if (agg.length) {
+    h += '<div class="dep-sec-title" style="margin-top:8px;">📋 Total a cargar — <span id="dep-load-count-' + v.id + '">' + nCheck + '</span>/' + agg.length + ' ítems (' + totalU + ' u.)</div>';
+    agg.forEach(function(x, idx) {
+      var done = !!checks[idx];
+      h += '<label class="dep-load-item' + (done ? ' done' : '') + '">' +
+        '<input type="checkbox"' + (done ? ' checked' : '') + ' onchange="depCargaToggleCheck(\'' + v.id + '\',' + idx + ',this)">' +
+        '<span class="q">' + x.qty + '</span> ' + _mostEsc(_depItemLabel(x)) + '</label>';
+    });
+  } else {
+    h += '<div class="dep-empty" style="margin-top:6px;">⚠️ Sin detalle de productos para este viaje. Ver planilla impresa.</div>';
+  }
+
+  // Por cliente (orden de carga) — con N° de comprobante
+  if (ents.length) {
+    h += '<div class="dep-sec-title" style="font-size:13px;color:#8A7E72;margin-top:8px;">Por cliente (orden de carga)</div>';
+    ents.forEach(function(e, i) {
+      var c = _depComprobante[e.pedido_id] || {};
+      var compTxt = c.tieneFactura
+        ? '🧾 Fact. #' + _mostEsc(c.facturaNro || '—')
+        : '<span style="color:#C62828;font-weight:800;">⛔ SIN FACTURA</span>';
+      h += '<div class="dep-viaje-ent">';
+      h += '<b>' + (i + 1) + '. ' + _mostEsc(e.cliente || '') + '</b> · ' + _mostEsc(e.ciudad || '') + ' · ' + compTxt;
+      var its = _depItemsPorPedido[e.pedido_id] || [];
+      if (its.length) {
+        h += '<br>' + its.map(function(it) { return it.qty + 'x ' + _mostEsc(_depItemLabel(it)); }).join(' · ');
+      } else {
+        var res = _depResumenDe(e.pedido_id);
+        if (res) h += '<br>' + _mostEsc(res);
+      }
+      h += '</div>';
+    });
+  }
+
+  // Botones de conformidad (conforme bloqueado si falta factura)
+  if (sinFact.length) {
+    h += '<div class="dep-conf-bloq">🔒 Conformar bloqueado: falta facturar ' + sinFact.length + ' pedido(s).</div>';
+  } else {
+    h += '<button class="dep-conf-ok" onclick="depCargaConformar(\'' + v.id + '\', false)">✅ CARGUÉ CONFORME</button>';
+  }
+  h += '<button class="dep-conf-dif" onclick="depCargaConformar(\'' + v.id + '\', true)">⚠️ Cargué con diferencia (anotar)</button>';
+  h += '</div>';
+  return h;
+}
+
+function _depViajeCardCompacto(v) {
+  var conf = _depConformidades[v.id];
+  var ents = _depEntregasViaje[v.id] || [];
+  var h = '<div class="dep-viaje-card" style="opacity:.82;">';
+  h += '<div style="display:flex;align-items:center;justify-content:space-between;gap:8px;">';
+  h += '<span class="dep-viaje-head">🚚 ' + _mostEsc(_depZonaLabel(v.zona)) + '</span>';
+  h += conf.estado === 'conforme'
+    ? '<span class="dep-badge dep-badge-ok">✅ Conforme</span>'
+    : '<span class="dep-badge dep-badge-dif">⚠️ Con diferencia</span>';
+  h += '</div>';
+  h += '<div style="font-size:12px;color:#8A7E72;margin-top:2px;">' + _mostEsc(v.chofer || '—') +
+    ' · ' + ents.length + ' entregas · firmado ' + _depFmtFecha(conf.conformado_en) +
+    ' por ' + _mostEsc(conf.conformado_por || '—') + '</div>';
+  if (conf.nota) h += '<div style="font-size:11px;color:#9A8F85;margin-top:4px;">📝 ' + _mostEsc(conf.nota) + '</div>';
+  h += '</div>';
+  return h;
+}
+
 function _depCargasHtml() {
-  var h = '<div style="font-size:12px;color:#8A7E72;margin:0 2px 8px;">Viajes de HOY · entregas en ORDEN DE CARGA (última parada primero). El detalle por producto está en la planilla impresa.</div>';
+  var h = '<div style="font-size:12px;color:#8A7E72;margin:0 2px 8px;">Viajes de HOY · orden de carga (última parada primero). Tildá cada producto al cargarlo. No se puede conformar un viaje con pedidos sin factura.</div>';
   if (!_depCargasCargado) return h + '<div class="dep-empty">Cargando viajes…</div>';
   if (!_depViajesHoy.length) return h + '<div class="dep-empty">No hay viajes programados para hoy.</div>';
-  _depViajesHoy.forEach(function(v) {
-    var conf = _depConformidades[v.id];
-    var ents = (_depEntregasViaje[v.id] || []).slice().sort(function(a, b) {
-      return _depRutaIdx(b.ciudad) - _depRutaIdx(a.ciudad);   // inverso: última parada primero
-    });
-    h += '<div class="dep-viaje-card">';
-    h += '<div style="display:flex;align-items:center;justify-content:space-between;gap:8px;">';
-    h += '  <span class="dep-viaje-head">🚚 ' + _mostEsc(_depZonaLabel(v.zona)) + '</span>';
-    h += conf
-      ? (conf.estado === 'conforme'
-        ? '<span class="dep-badge dep-badge-ok">✅ Conforme</span>'
-        : '<span class="dep-badge dep-badge-dif">⚠️ Con diferencia</span>')
-      : '<span class="dep-badge dep-badge-pend">⏳ Sin conformar</span>';
-    h += '</div>';
-    h += '<div style="font-size:12px;color:#8A7E72;margin-top:2px;">' +
-      _mostEsc(v.chofer || 'Sin chofer') + ' · ' + _mostEsc(v.vehiculo || 'Sin vehículo') +
-      ' · ' + ents.length + ' entregas · ' + _mostFmt(v.monto_total) + '</div>';
-    if (ents.length) {
-      h += '<div style="margin-top:6px;">';
-      ents.forEach(function(e, i) {
-        var res = _depResumenDe(e.pedido_id);
-        h += '<div class="dep-viaje-ent">';
-        h += '<b>' + (i + 1) + '. ' + _mostEsc(e.cliente || '') + '</b> · ' + _mostEsc(e.ciudad || '');
-        if (res) h += '<br>' + _mostEsc(res);
-        h += '</div>';
-      });
-      h += '</div>';
-    }
-    if (conf) {
-      h += '<div style="font-size:11px;color:#9A8F85;margin-top:6px;">Firmado por ' + _mostEsc(conf.conformado_por || '—') +
-        ' · ' + _depFmtFecha(conf.conformado_en) + (conf.nota ? '<br>📝 ' + _mostEsc(conf.nota) : '') + '</div>';
-    } else {
-      h += '<button class="dep-conf-ok" onclick="depCargaConformar(\'' + _mostEsc(v.id) + '\', false)">✅ CARGUÉ CONFORME</button>';
-      h += '<button class="dep-conf-dif" onclick="depCargaConformar(\'' + _mostEsc(v.id) + '\', true)">⚠️ Cargué con diferencia (anotar)</button>';
-    }
-    h += '</div>';
-  });
+  var pend = _depViajesHoy.filter(function(v) { return !_depConformidades[v.id]; });
+  var hechos = _depViajesHoy.filter(function(v) { return _depConformidades[v.id]; });
+  if (!pend.length) {
+    h += '<div class="dep-empty">✅ Todos los viajes de hoy están conformados.</div>';
+  } else {
+    pend.forEach(function(v) { h += _depViajeCard(v); });
+  }
+  if (hechos.length) {
+    h += '<div class="dep-sec-title" style="color:#8A7E72;">✅ Ya conformados (' + hechos.length + ')</div>';
+    hechos.forEach(function(v) { h += _depViajeCardCompacto(v); });
+  }
   return h;
 }
 
 async function depCargaConformar(viajeId, conDiferencia) {
   var v = _depViajesHoy.find(function(x) { return x.id === viajeId; });
   if (!v) return;
-  var nota = '';
-  if (conDiferencia) {
-    nota = prompt('⚠️ ¿Qué diferencia hubo en la carga?\n(obligatorio: producto, cantidad, qué pasó)');
-    if (nota === null) return;
-    nota = nota.trim();
-    if (!nota) { toast('La nota es obligatoria para conformar con diferencia', 'err'); return; }
-  } else {
-    if (!confirm('¿Confirmás que cargaste el viaje ' + _depZonaLabel(v.zona) + ' (' +
-      ((_depEntregasViaje[viajeId] || []).length) + ' entregas) COMPLETO y conforme?')) return;
+  var ents = _depEntregasViaje[viajeId] || [];
+  // v14.73.0 — no se puede cargar/conformar con pedidos sin factura
+  var sinFact = ents.filter(_depEntSinFactura);
+  if (sinFact.length) {
+    toast('⛔ ' + sinFact.length + ' pedido(s) SIN FACTURA — facturalos antes de cargar', 'err');
+    return;
   }
+  if (conDiferencia) { depDifModalAbrir(viajeId); return; }
+  if (!confirm('¿Confirmás que cargaste el viaje ' + _depZonaLabel(v.zona) + ' (' +
+    ents.length + ' entregas) COMPLETO y conforme?')) return;
+  await _depConformarGuardar(viajeId, false, '', null);
+}
+
+async function _depConformarGuardar(viajeId, conDiferencia, nota, difJson) {
+  var v = _depViajesHoy.find(function(x) { return x.id === viajeId; });
+  if (!v) return;
   try {
     var hoyISO = (function() {
       var d = new Date();
@@ -46253,6 +46401,8 @@ async function depCargaConformar(viajeId, conDiferencia) {
     var snapshot = (_depEntregasViaje[viajeId] || []).map(function(e) {
       return { pedido_id: e.pedido_id, cliente: e.cliente, ciudad: e.ciudad, monto: e.monto };
     });
+    var detalle = { entregas: snapshot };
+    if (difJson && difJson.length) detalle.diferencias = difJson;
     var filas = await sbFetch('cargas_conformidad?on_conflict=viaje_id', {
       method: 'POST',
       headers: { 'Prefer': 'resolution=merge-duplicates,return=representation' },
@@ -46265,7 +46415,7 @@ async function depCargaConformar(viajeId, conDiferencia) {
         total_pedidos:  (_depEntregasViaje[viajeId] || []).length,
         estado:         conDiferencia ? 'con_diferencia' : 'conforme',
         nota:           nota || null,
-        detalle_json:   { entregas: snapshot },
+        detalle_json:   detalle,
         conformado_por: vendedorActual || 'Pancho',
         conformado_en:  new Date().toISOString()
       }])
@@ -46275,9 +46425,58 @@ async function depCargaConformar(viajeId, conDiferencia) {
     toast(conDiferencia ? '⚠️ Carga registrada CON diferencia' : '✅ Carga conforme registrada', 'ok');
     depositoRender();
   } catch (e) {
-    console.error('[depCargaConformar]', e);
+    console.error('[_depConformarGuardar]', e);
     toast('❌ No se pudo registrar la conformidad — reintentá', 'err');
   }
+}
+
+// v14.73.0 — modal estructurado de "cargué con diferencia"
+function depDifModalAbrir(viajeId) {
+  var v = _depViajesHoy.find(function(x) { return x.id === viajeId; });
+  if (!v) return;
+  var ents = _depEntregasViaje[viajeId] || [];
+  var agg = _depAggViaje(ents);
+  window._depDifViaje = viajeId;
+  window._depDifAgg = agg;
+  var h = '<div class="most-ov" id="dep-dif-ov"><div class="most-card" style="max-height:85vh;overflow-y:auto;">';
+  h += '<div class="most-h">⚠️ Cargué con diferencia</div>';
+  h += '<div style="font-size:13px;color:#5C4A38;margin-bottom:10px;">🚚 ' + _mostEsc(_depZonaLabel(v.zona)) + ' — ajustá lo que cargaste distinto a lo pedido.</div>';
+  if (!agg.length) {
+    h += '<div class="dep-empty">Sin detalle de productos. Anotá la diferencia abajo.</div>';
+  } else {
+    h += '<div style="font-size:11px;color:#8A7E72;text-transform:uppercase;letter-spacing:.5px;font-weight:800;margin-bottom:4px;">Producto · esperado → cargado</div>';
+    agg.forEach(function(x, idx) {
+      h += '<div class="dep-dif-row"><span style="flex:1;">' + _mostEsc(_depItemLabel(x)) + '</span>' +
+        '<span style="color:#8A7E72;">esp. ' + x.qty + '</span>' +
+        '<input class="dep-dif-inp" id="dep-dif-' + idx + '" type="number" inputmode="numeric" value="' + x.qty + '"></div>';
+    });
+  }
+  h += '<div class="most-lbl" style="margin-top:8px;">Nota (qué pasó)</div>';
+  h += '<textarea class="most-inp" id="dep-dif-nota" rows="2" placeholder="Ej: no había stock de suprema, cargué 3 menos"></textarea>';
+  h += '<div id="dep-dif-err" style="color:#C62828;font-size:12px;font-weight:700;min-height:14px;"></div>';
+  h += '<button class="most-act" onclick="depDifGuardar()">Guardar diferencia</button>';
+  h += '<button class="most-sec" onclick="document.getElementById(\'dep-dif-ov\').remove()">Cancelar</button>';
+  h += '</div></div>';
+  document.body.insertAdjacentHTML('beforeend', h);
+}
+
+async function depDifGuardar() {
+  var viajeId = window._depDifViaje;
+  var agg = window._depDifAgg || [];
+  var err = document.getElementById('dep-dif-err'); if (err) err.textContent = '';
+  var difs = [];
+  agg.forEach(function(x, idx) {
+    var inp = document.getElementById('dep-dif-' + idx);
+    var cargado = inp ? (parseFloat(inp.value) || 0) : x.qty;
+    if (cargado !== x.qty) difs.push({ producto: _depItemLabel(x), esperado: x.qty, cargado: cargado });
+  });
+  var nota = (document.getElementById('dep-dif-nota') || {}).value || '';
+  nota = nota.trim();
+  if (!difs.length && !nota) { if (err) err.textContent = 'Marcá al menos una diferencia o escribí una nota.'; return; }
+  var notaFull = difs.map(function(d) { return d.producto + ': esp ' + d.esperado + ' → cargó ' + d.cargado; }).join(' | ');
+  if (nota) notaFull = (notaFull ? notaFull + ' || ' : '') + nota;
+  var ov = document.getElementById('dep-dif-ov'); if (ov) ov.remove();
+  await _depConformarGuardar(viajeId, true, notaFull, difs);
 }
 
 // ═══ v14.62.0 — BLOQUE C: STOCK INTERNO (recuentos) ═════════════════
@@ -46473,7 +46672,7 @@ function depPollIniciar() {
    TCK_UPD_LOCAL aca Y el archivo version.json del repo.
    ============================================================ */
 (function(){
-  var TCK_UPD_LOCAL = '14.72.0';        /* <-- bump en cada deploy */
+  var TCK_UPD_LOCAL = '14.73.0';        /* <-- bump en cada deploy */
   var TCK_UPD_INTERVALO = 10 * 60 * 1000;   /* chequeo de fondo: 10 min */
   var _updUltChequeo = 0;
 
