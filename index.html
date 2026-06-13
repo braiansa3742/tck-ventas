@@ -2,7 +2,16 @@
 <html lang="es">
 <head>
 <!-- ═══════════════════════════════════════════════════════════════════════
-     TCK VENTAS — v14.67.0 — 12/06/2026
+     TCK VENTAS — v14.68.0 — 12/06/2026
+     v14.68.0: ACUERDOS DE PRECIO (clientes VIP).
+       - Lee vw_acuerdos_vendedor (solo precios, sin margenes/costos).
+       - Si el cliente del flujo tiene acuerdo: el precio acordado es
+         FINAL (pisa tramos, sin descuento encima) en tomador campo,
+         editar pedido y carga manual WA (tckPrecioFinal centralizado).
+       - Card del tomador muestra PRECIO ACUERDO; banner arriba del
+         tomador con productos/precios/minimo semanal; toast al abrir
+         editar/mwa. El precio se reajusta solo en Supabase y aca se
+         lee en vivo.
      ──────────────────────────────────────────────────────────────────
      🆕 NUEVOS: LA GESTIÓN DE PROSPECTOS AHORA CUENTA COMO VISITA
        · BUG (reportado por Braian): Juan gestionaba prospectos desde la
@@ -18411,7 +18420,103 @@ function tckEditarPrecioTxt(item) {
     + '</span> · 1 a ' + (caja.min - 1) + ' $' + suelto.precio.toLocaleString('es-AR');
 }
 
+// ═══════════════════════════════════════════════════════════════
+// v14.68.0: ACUERDOS DE PRECIO EN VENTAS
+// Lee vw_acuerdos_vendedor (solo precio acordado, sin margenes).
+// Si el cliente activo tiene acuerdo para un producto, ese precio
+// es FINAL: pisa tramos y NO admite descuento encima. Aplica en los
+// 3 flujos (tomador campo, editar, manual WA) via tckPrecioFinal.
+// El precio se reajusta solo en Supabase (cron/trigger) y aca se
+// lee en vivo: el vendedor siempre cobra el precio vigente.
+// ═══════════════════════════════════════════════════════════════
+var _acuVtaMapa = null;        // Map clienteNorm -> [{prod, precio, min}]
+var _acuVtaCliActivo = '';     // cliente del flujo abierto
+
+function acuVtaNorm(x){ return (x||'').toString().toLowerCase().replace(/\s+/g,' ').trim(); }
+function acuVtaNormProd(x){
+  return (x||'').toString().toLowerCase()
+    .replace(/\([^)]*\)/g, ' ')
+    .replace(/\s*x\s*\d+\s*(congelado|fresco)?\s*$/, ' ')
+    .replace(/\s+/g, ' ').trim();
+}
+
+function acuVtaCargar(){
+  if (_acuVtaMapa !== null) return Promise.resolve();
+  _acuVtaMapa = new Map();
+  return sbFetch('vw_acuerdos_vendedor?select=cliente,producto,precio_acordado,volumen_min_semanal')
+    .then(function(rows){
+      (rows||[]).forEach(function(r){
+        var k = acuVtaNorm(r.cliente);
+        if (!_acuVtaMapa.has(k)) _acuVtaMapa.set(k, []);
+        _acuVtaMapa.get(k).push({
+          prod: acuVtaNormProd(r.producto),
+          nombre: r.producto,
+          precio: Number(r.precio_acordado),
+          min: Number(r.volumen_min_semanal) || 0
+        });
+      });
+    })
+    .catch(function(e){ console.warn('[acuerdos ventas] no disponible:', e.message); });
+}
+
+function acuVtaListaDe(cliente){
+  if (!_acuVtaMapa) return null;
+  var lst = _acuVtaMapa.get(acuVtaNorm(cliente));
+  return (lst && lst.length) ? lst : null;
+}
+
+// Precio acordado para un producto del cliente activo, o null.
+function acuVtaPrecioDe(nombreProducto){
+  if (!_acuVtaCliActivo || !nombreProducto) return null;
+  var lst = acuVtaListaDe(_acuVtaCliActivo);
+  if (!lst) return null;
+  var pn = acuVtaNormProd(nombreProducto);
+  for (var i = 0; i < lst.length; i++) if (lst[i].prod === pn) return lst[i].precio;
+  return null;
+}
+
+function acuVtaActivar(cliente){
+  _acuVtaCliActivo = cliente || '';
+  acuVtaCargar().then(function(){
+    var lst = acuVtaListaDe(_acuVtaCliActivo);
+    if (lst && typeof toast === 'function') {
+      toast('\u2B50 Cliente con acuerdo: precios especiales aplicados');
+    }
+  });
+}
+
+function acuVtaBannerTomador(){
+  acuVtaCargar().then(function(){
+    var body = document.getElementById('tomador-body');
+    if (!body || document.getElementById('acu-vta-banner')) return;
+    var lst = acuVtaListaDe(_acuVtaCliActivo);
+    if (!lst) return;
+    var items = lst.map(function(a){
+      return a.nombre + ' <b>$' + a.precio.toLocaleString('es-AR') + '</b>' +
+        (a.min ? ' (m\u00EDn. ' + a.min + '/sem)' : '');
+    }).join(' \u00B7 ');
+    body.insertAdjacentHTML('afterbegin',
+      '<div id="acu-vta-banner" style="background:#FFF3E0;border:1.5px solid #D4A574;border-radius:12px;' +
+      'padding:9px 12px;margin-bottom:10px;font-size:12px;color:#7A4F01;">' +
+      '<div style="font-family:\'Barlow Condensed\',sans-serif;font-weight:900;font-size:13px;color:#B45309;margin-bottom:2px;">' +
+      '\u2B50 CLIENTE CON ACUERDO DE PRECIO</div>' +
+      items +
+      '<div style="font-size:10px;color:#9C7050;margin-top:3px;">El precio acordado se aplica solo y no admite descuentos encima.</div>' +
+      '</div>');
+    if (typeof tomadorRenderProductos === 'function' && typeof _tomadorCatActual !== 'undefined') {
+      var cont = document.getElementById('tomador-body-productos');
+      if (cont) cont.innerHTML = tomadorRenderProductos(_tomadorCatActual);
+    }
+  });
+}
+
 function tckCardPrecioHTML(item) {
+  // v14.68.0: precio de acuerdo pisa todo lo demas en la card
+  var _pa = acuVtaPrecioDe(item && item.n);
+  if (_pa !== null) {
+    return '<div class="tomador-item-precio" style="color:#B45309;">\u2B50 $' + _pa.toLocaleString('es-AR') +
+      '<div style="font-size:9px;font-weight:900;letter-spacing:.5px;">PRECIO ACUERDO</div></div>';
+  }
   var pr = (item && item.pr) || 0;
   var t = (item && item.n) ? tckTramosDe(item.n) : null;
   if (!t || t.length < 2) {
@@ -18444,6 +18549,10 @@ function tckDtoMaxPct(nombre, q) {
 // el descuento se calcula sobre el precio del tramo y nunca supera el cap del
 // tramo vigente para esa cantidad. Productos sin tramo → comportamiento de antes.
 function tckPrecioFinal(item, q, dtoPct) {
+  // v14.68.0: si el cliente activo tiene acuerdo para este producto,
+  // ese precio es FINAL (ignora tramos y descuentos).
+  var _pa = acuVtaPrecioDe(item && item.n);
+  if (_pa !== null) return _pa;
   var base = tckPrecioTramo(item, q);
   var cap  = (item && item.n) ? tckDtoMaxPct(item.n, q) : null;
   var dto  = Number(dtoPct) || 0;
@@ -30380,6 +30489,9 @@ function tomadorAbrir() {
 // v8.6: extracción del contenido original del tomadorAbrir, sin check de sucursales.
 // Se llama desde tomadorAbrir() después de resolver la sucursal.
 function _tomadorAbrirInterno() {
+  // v14.68.0: activar acuerdos del cliente del check-in
+  acuVtaActivar(_gpsCheckinActivo ? (_gpsCheckinActivo.nombre_cliente || '') : '');
+  setTimeout(acuVtaBannerTomador, 250);
   _tomadorQtys = {};
   // v14.48.0: precarga de "Repetir último pedido" (Mi Ruta). Los nombres ya
   // vienen validados contra TOMADOR_CAT por jor2RepetirUltimo.
@@ -35425,6 +35537,7 @@ function abrirEditarPedido(p, detalle) {
 function _abrirEditarPedidoInterno(p, detalle) {
   _editarPedidoId = p.pedidoId;
   _editarCliente  = p.cliente || 'Cliente';
+  acuVtaActivar(_editarCliente);   // v14.68.0: aplicar acuerdos si tiene
   _editarFila     = p.fila;
   _editarQtys     = {};
   _editarDescuentos = {};
@@ -36228,6 +36341,7 @@ var _manualWACombos = {}; // v9.2: { comboId: cantidad }
 var _manualWAPromos = {};
 
 function abrirCargaManualWA() {
+  _acuVtaCliActivo = '';   // v14.68.0: limpiar acuerdo del flujo anterior
   _manualWAQtys = {};
   _manualWACliente = '';
   _manualWALocalidad = '';
@@ -36726,6 +36840,7 @@ function manualWAElegirCliente(nombre, localidad) {
   const el = document.getElementById('mwa-sugerencias');
   if (el) el.innerHTML = '';
   _manualWACliente = nombre;
+  acuVtaActivar(nombre);   // v14.68.0: aplicar acuerdos si tiene
   _manualWALocalidad = locInp && locInp.value ? locInp.value : '';
 
   // v14.54.0 PEDIDO VIVO: consulta async al elegir cliente del autocomplete.
