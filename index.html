@@ -2,6 +2,16 @@
 <html lang="es">
 <head>
 <!-- ═══════════════════════════════════════════════════════════════════════
+     TCK VENTAS — v14.72.0 — 13/06/2026
+     v14.72.0: TAB DEPOSITO (Pancho) REORGANIZADO — segmented de 4 secciones
+        top-level: 🚚 Cargas | 📦 Devoluciones | 🛒 Retiros | 📋 Stock (antes
+        todo en un scroll mezclado; el segmented existia en CSS pero
+        depositoRender nunca lo dibujaba). Devoluciones por recibir ahora
+        AGRUPADAS por chofer + dia (recibe el camion entero). Badges con
+        contador por seccion. depositoRender pasa a ser dispatcher; nuevas
+        _depRetirosHtml + _depDevolucionesHtml. Reusa _depCargasHtml/_depStockHtml
+        que ya existian. Limpieza de 44 devoluciones viejas (<01/06) se hace
+        por SQL (estado->archivada), aparte de este deploy.
      TCK VENTAS — v14.71.0 — 13/06/2026
      v14.71.0: MOSTRADOR — filtro de fecha (Hoy/Ayer/Rango) en el tab para
         ver ventas de dias anteriores. Deteccion de HUERFANOS: pedidos
@@ -45196,26 +45206,49 @@ function _depBadgeTab() {
   b.style.display = n > 0 ? '' : 'none';
 }
 
+// v14.72.0 — DISPATCHER de 4 secciones: Cargas | Devoluciones | Retiros | Stock.
+// Antes renderizaba todo mezclado en un scroll (el segmented existía en CSS
+// pero nunca se dibujaba). Ahora cada sección es independiente.
 function depositoRender() {
   var root = document.getElementById('dep-root');
   if (!root) return;
   _depBadgeTab();
 
-  var pend = _depRows.filter(function(r) { return r.estado === 'registrada'; });
-  var hechas = _depRows.filter(function(r) { return r.estado === 'recibida_deposito' || r.estado === 'nc_emitida'; });
+  var nCargas  = _depCargasPendientes();
+  var nDevol   = _depRows.filter(function(r) { return r.estado === 'registrada'; }).length;
+  var nRetiros = _depRetiros.filter(function(r) { return r.estado === 'pendiente'; }).length;
 
   var h = '';
-  // Header
   h += '<div style="display:flex;align-items:center;justify-content:space-between;gap:10px;margin:4px 2px 2px;">';
   h += '  <div style="font-family:\'Barlow Condensed\',sans-serif;font-size:24px;font-weight:900;color:#2A2018;">📦 Depósito</div>';
-  h += '  <button class="dep-refresh" onclick="depositoRecargar()">🔄 Actualizar</button>';
+  h += '  <button class="dep-refresh" onclick="depositoRecargar()">🔄</button>';
   h += '</div>';
-  h += '<div style="font-size:12px;color:#8A7E72;margin:0 2px;">Devoluciones de los últimos ' + DEP_DIAS_VENTANA + ' días · Retiros de mostrador</div>';
 
-  // ── v14.58.0: RETIROS MOSTRADOR ──
+  function _segBtn(sec, label, n) {
+    return '<button class="' + (_depSeccion === sec ? 'sel' : '') + '" onclick="depSeccionIr(\'' + sec + '\')">' +
+      label + (n > 0 ? '<span class="dep-seg-n">' + n + '</span>' : '') + '</button>';
+  }
+  h += '<div class="dep-seg">';
+  h += _segBtn('cargas', '🚚 Cargas', nCargas);
+  h += _segBtn('devoluciones', '📦 Devol.', nDevol);
+  h += _segBtn('retiros', '🛒 Retiros', nRetiros);
+  h += _segBtn('stock', '📋 Stock', 0);
+  h += '</div>';
+
+  if (_depSeccion === 'cargas')        h += _depCargasHtml();
+  else if (_depSeccion === 'retiros')  h += _depRetirosHtml();
+  else if (_depSeccion === 'stock')    h += _depStockHtml();
+  else                                 h += _depDevolucionesHtml();
+
+  root.innerHTML = h;
+}
+
+// v14.72.0 — Retiros de mostrador (sección propia)
+function _depRetirosHtml() {
   var retPend = _depRetiros.filter(function(r) { return r.estado === 'pendiente'; });
   var retHechos = _depRetiros.filter(function(r) { return r.estado === 'entregado'; });
-  h += '<div class="dep-sec-title">🛒 Retiros mostrador (' + retPend.length + ')</div>';
+  var h = '<div style="font-size:12px;color:#8A7E72;margin:0 2px 8px;">Retiros de mostrador esperando que el cliente los venga a buscar.</div>';
+  h += '<div class="dep-sec-title">🛒 Esperando retiro (' + retPend.length + ')</div>';
   if (!retPend.length) {
     h += '<div class="dep-empty">No hay retiros pendientes.</div>';
   } else {
@@ -45225,24 +45258,45 @@ function depositoRender() {
     h += '<div class="dep-sec-title" style="font-size:13px;color:#8A7E72;">Entregados (últimos 7 días: ' + retHechos.length + ')</div>';
     retHechos.slice(0, 10).forEach(function(r) { h += _depRetiroCardHtml(r, false); });
   }
+  return h;
+}
 
-  // ── Por recibir ──
+// v14.72.0 — Devoluciones agrupadas por chofer + día (recibe el camión entero)
+function _depDiaKey(iso) {
+  if (!iso) return 's/fecha';
+  try { return new Date(iso).toLocaleDateString('es-AR', { day: '2-digit', month: '2-digit', year: '2-digit' }); }
+  catch (e) { return 's/fecha'; }
+}
+function _depDevolucionesHtml() {
+  var pend = _depRows.filter(function(r) { return r.estado === 'registrada'; });
+  var hechas = _depRows.filter(function(r) { return r.estado === 'recibida_deposito' || r.estado === 'nc_emitida'; });
+  var h = '<div style="font-size:12px;color:#8A7E72;margin:0 2px 8px;">Devoluciones de los últimos ' + DEP_DIAS_VENTANA + ' días, agrupadas por chofer y día. Recibí el camión completo.</div>';
+
   h += '<div class="dep-sec-title">⏳ Por recibir (' + pend.length + ')</div>';
   if (!pend.length) {
     h += '<div class="dep-empty">No hay devoluciones pendientes de recepción. 👌</div>';
   } else {
-    pend.forEach(function(r) { h += _depCardHtml(r, true); });
+    var grupos = {}; var orden = [];
+    pend.forEach(function(r) {
+      var k = (r.chofer || 'Sin chofer') + ' · ' + _depDiaKey(r.fecha_devolucion);
+      if (!grupos[k]) { grupos[k] = []; orden.push(k); }
+      grupos[k].push(r);
+    });
+    orden.forEach(function(k) {
+      var arr = grupos[k];
+      h += '<div class="dep-grupo-head">🚚 ' + _depEsc(k) + '<span class="dep-seg-n" style="background:#C62828;margin-left:auto;">' + arr.length + '</span></div>';
+      arr.forEach(function(r) { h += _depCardHtml(r, true); });
+    });
   }
 
-  // ── Recibidas ──
   h += '<div class="dep-sec-title">✅ Recibidas (' + hechas.length + ')</div>';
   if (!hechas.length) {
     h += '<div class="dep-empty">Todavía no recibiste ninguna devolución.</div>';
   } else {
-    hechas.forEach(function(r) { h += _depCardHtml(r, false); });
+    hechas.slice(0, 15).forEach(function(r) { h += _depCardHtml(r, false); });
+    if (hechas.length > 15) h += '<div class="dep-empty" style="padding:8px;">… y ' + (hechas.length - 15) + ' más.</div>';
   }
-
-  root.innerHTML = h;
+  return h;
 }
 
 function _depCardHtml(r, esPend) {
@@ -45418,8 +45472,9 @@ async function depRecibir(id) {
 .dep-ret-cod { font-family:'Barlow Condensed',sans-serif;font-size:30px;font-weight:900;letter-spacing:2px;color:#7A5800; }
 .dep-ret-entregar { width:100%;margin-top:10px;background:linear-gradient(135deg,#7A5800,#B8860B);color:#fff;border:none;border-radius:10px;padding:12px;font-family:'Barlow Condensed',sans-serif;font-size:16px;font-weight:900;cursor:pointer;touch-action:manipulation; }
 /* v14.62.0 — segmented depósito + cargas + stock */
-.dep-seg { display:grid;grid-template-columns:repeat(3,1fr);gap:6px;margin:10px 0 12px; }
-.dep-seg button { padding:10px 4px;border:1.5px solid #E8DFD5;border-radius:10px;background:#FAF6F0;font-family:'Barlow Condensed',sans-serif;font-size:15px;font-weight:900;color:#5C4A38;cursor:pointer;touch-action:manipulation; }
+.dep-seg { display:grid;grid-template-columns:repeat(4,1fr);gap:5px;margin:10px 0 12px; }
+.dep-seg button { padding:9px 2px;border:1.5px solid #E8DFD5;border-radius:10px;background:#FAF6F0;font-family:'Barlow Condensed',sans-serif;font-size:13px;font-weight:900;color:#5C4A38;cursor:pointer;touch-action:manipulation;display:flex;align-items:center;justify-content:center;gap:2px; }
+.dep-grupo-head { display:flex;align-items:center;gap:8px;font-family:'Barlow Condensed',sans-serif;font-weight:900;font-size:15px;color:#2A2018;background:#F0E9DF;border-radius:8px;padding:8px 10px;margin:10px 2px 6px; }
 .dep-seg button.sel { background:#2E7D32;border-color:#2E7D32;color:#fff; }
 .dep-seg-n { background:#C62828;color:#fff;border-radius:10px;padding:0 6px;font-size:11px;margin-left:2px; }
 .dep-viaje-card { background:#fff;border:1.5px solid #E8DFD5;border-radius:14px;margin-bottom:12px;padding:12px 14px; }
@@ -46058,7 +46113,7 @@ async function mostradorReintentarFactura(retiroId, btn) {
 }
 
 // ═══ v14.62.0 — BLOQUE B: CONFORMIDAD DE CARGA ═════════════════════
-var _depSeccion = 'recepcion';            // cargas | recepcion | stock
+var _depSeccion = 'cargas';               // cargas | devoluciones | retiros | stock
 var _depViajesHoy = [];                   // viajes de hoy
 var _depEntregasViaje = {};               // viaje_id -> entregas[]
 var _depConformidades = {};               // viaje_id -> fila cargas_conformidad
@@ -46418,7 +46473,7 @@ function depPollIniciar() {
    TCK_UPD_LOCAL aca Y el archivo version.json del repo.
    ============================================================ */
 (function(){
-  var TCK_UPD_LOCAL = '14.71.0';        /* <-- bump en cada deploy */
+  var TCK_UPD_LOCAL = '14.72.0';        /* <-- bump en cada deploy */
   var TCK_UPD_INTERVALO = 10 * 60 * 1000;   /* chequeo de fondo: 10 min */
   var _updUltChequeo = 0;
 
