@@ -3,6 +3,10 @@
 <head>
 <!-- ═══════════════════════════════════════════════════════════════════════
      TCK VENTAS — v14.75.0 — 13/06/2026
+     v14.77.0: PROPONER ACUERDO restringido a vendedores (Miguel/Juan/
+        Lisandro). Gateo de la entrada del menu Mas (id menu-mas-proponer), del
+        boton en Acuerdos VIP y guard en acuPropAbrir. Choferes, deposito y
+        mostrador ya no ven ni pueden abrir la funcion. Helper acuPropPermitido.
      v14.76.0: PROPONER ACUERDO — el vendedor da de alta un acuerdo VIP
         (cliente + producto + precio + minimo semanal) desde Mas > "Proponer
         acuerdo" o desde Acuerdos VIP. Precarga el cliente del check-in. Crea
@@ -16994,7 +16998,7 @@ body {
     <div class="menu-mas-pill"></div>
     <div class="menu-mas-titulo">Más opciones</div>
     <div class="menu-mas-grid">
-      <button class="menu-mas-item" onclick="acuPropAbrir();cerrarMenuMas()">
+      <button class="menu-mas-item" id="menu-mas-proponer" onclick="acuPropAbrir();cerrarMenuMas()">
         <div class="menu-mas-icon">🤝</div>
         <div class="menu-mas-lbl">Proponer acuerdo</div>
       </button>
@@ -18590,7 +18594,7 @@ async function acuVipAbrir(){
   ov.innerHTML = '<div style="display:flex;align-items:center;gap:10px;margin-bottom:12px;">' +
     '<button onclick="document.getElementById(\'acu-vip-overlay\').remove()" style="background:#1A0800;color:#fff;border:none;border-radius:10px;padding:8px 14px;font-weight:800;cursor:pointer;">\u2190</button>' +
     '<div style="font-family:\'Barlow Condensed\',sans-serif;font-size:20px;font-weight:900;color:#1A0800;">\u2B50 Clientes con acuerdo VIP</div></div>' +
-    '<button onclick="document.getElementById(\'acu-vip-overlay\').remove();acuPropAbrir();" style="width:100%;background:#B45309;color:#fff;border:none;border-radius:13px;padding:13px;font-weight:800;font-size:14px;cursor:pointer;margin-bottom:12px;">🤝 Proponer acuerdo nuevo</button>' +
+    (acuPropPermitido() ? '<button onclick="document.getElementById(\'acu-vip-overlay\').remove();acuPropAbrir();" style="width:100%;background:#B45309;color:#fff;border:none;border-radius:13px;padding:13px;font-weight:800;font-size:14px;cursor:pointer;margin-bottom:12px;">🤝 Proponer acuerdo nuevo</button>' : '') +
     '<div id="acu-vip-body" style="font-size:13px;color:#5C3A1E;">Cargando\u2026</div>';
   document.body.appendChild(ov);
   try {
@@ -18649,6 +18653,8 @@ async function acuVipAbrir(){
 // lo apruebe). Crea cliente nuevo en Xubio si hace falta (reusa el
 // endpoint crearClienteXubio del Apps Script). Sin margenes ni costos.
 // ═══════════════════════════════════════════════════════════════
+var ACU_PROP_VENDEDORES = ['Miguel', 'Juan', 'Lisandro'];
+function acuPropPermitido(){ return typeof vendedorActual !== 'undefined' && ACU_PROP_VENDEDORES.indexOf(vendedorActual) >= 0; }
 var _acuPropProductos = null;   // [{id, nombre, precio, iva}]
 var _acuPropCli       = null;   // {nombre, xubio_id, localidad}
 var _acuPropLineas    = [];     // [{id, nombre, precio_lista, precio, min}]
@@ -18723,6 +18729,7 @@ async function acuPropCargarProductos(){
 }
 
 async function acuPropAbrir(){
+  if (!acuPropPermitido()){ if (typeof toast==='function') toast('Disponible solo para vendedores', 'err'); return; }
   _acuPropCli = null;
   _acuPropLineas = [];
   _acuPropVista = 'main';
@@ -23185,6 +23192,8 @@ var _tabActual = 'pedidos';
 
 function abrirMenuMas() {
   var b = document.getElementById('menu-mas-backdrop');
+  var mp = document.getElementById('menu-mas-proponer');
+  if (mp) mp.style.display = acuPropPermitido() ? 'flex' : 'none';
   if (b) b.classList.add('on');
 }
 function cerrarMenuMas() {
