@@ -3,6 +3,11 @@
 <head>
 <!-- ═══════════════════════════════════════════════════════════════════════
      TCK VENTAS — v14.75.0 — 13/06/2026
+     v14.76.0: PROPONER ACUERDO — el vendedor da de alta un acuerdo VIP
+        (cliente + producto + precio + minimo semanal) desde Mas > "Proponer
+        acuerdo" o desde Acuerdos VIP. Precarga el cliente del check-in. Crea
+        cliente nuevo en Xubio si hace falta. Entra pendiente_aprobacion: NO
+        se cobra hasta aprobarse en el admin. Modulo acuProp* autocontenido.
      v14.75.0: DESPACHO — facturar y cargar al toque. El facturador del admin
         escribe pedidos_zona.xubio_factura_id/nro al instante, asi que la unica
         latencia era el refresco de Pancho. Ahora: (a) poll adaptativo — si hay
@@ -16989,6 +16994,10 @@ body {
     <div class="menu-mas-pill"></div>
     <div class="menu-mas-titulo">Más opciones</div>
     <div class="menu-mas-grid">
+      <button class="menu-mas-item" onclick="acuPropAbrir();cerrarMenuMas()">
+        <div class="menu-mas-icon">🤝</div>
+        <div class="menu-mas-lbl">Proponer acuerdo</div>
+      </button>
       <button class="menu-mas-item" onclick="acuVipAbrir();cerrarMenuMas()">
         <div class="menu-mas-icon">⭐</div>
         <div class="menu-mas-lbl">Acuerdos VIP</div>
@@ -18581,6 +18590,7 @@ async function acuVipAbrir(){
   ov.innerHTML = '<div style="display:flex;align-items:center;gap:10px;margin-bottom:12px;">' +
     '<button onclick="document.getElementById(\'acu-vip-overlay\').remove()" style="background:#1A0800;color:#fff;border:none;border-radius:10px;padding:8px 14px;font-weight:800;cursor:pointer;">\u2190</button>' +
     '<div style="font-family:\'Barlow Condensed\',sans-serif;font-size:20px;font-weight:900;color:#1A0800;">\u2B50 Clientes con acuerdo VIP</div></div>' +
+    '<button onclick="document.getElementById(\'acu-vip-overlay\').remove();acuPropAbrir();" style="width:100%;background:#B45309;color:#fff;border:none;border-radius:13px;padding:13px;font-weight:800;font-size:14px;cursor:pointer;margin-bottom:12px;">🤝 Proponer acuerdo nuevo</button>' +
     '<div id="acu-vip-body" style="font-size:13px;color:#5C3A1E;">Cargando\u2026</div>';
   document.body.appendChild(ov);
   try {
@@ -18629,6 +18639,407 @@ async function acuVipAbrir(){
   } catch(e) {
     var b = document.getElementById('acu-vip-body');
     if (b) b.innerHTML = '<div style="color:#C62828;">No se pudo cargar (' + (e.message||e) + ')</div>';
+  }
+}
+
+// ═══════════════════════════════════════════════════════════════
+// v14.76.0 — PROPONER ACUERDO (alta de acuerdo VIP por el vendedor)
+// El vendedor carga cliente + productos + precio + minimo semanal.
+// Queda estado='pendiente_aprobacion' (NO se cobra hasta que el admin
+// lo apruebe). Crea cliente nuevo en Xubio si hace falta (reusa el
+// endpoint crearClienteXubio del Apps Script). Sin margenes ni costos.
+// ═══════════════════════════════════════════════════════════════
+var _acuPropProductos = null;   // [{id, nombre, precio, iva}]
+var _acuPropCli       = null;   // {nombre, xubio_id, localidad}
+var _acuPropLineas    = [];     // [{id, nombre, precio_lista, precio, min}]
+var _acuPropVista     = 'main'; // 'main' | 'buscarCli' | 'nuevoCli'
+var _acuPropAltaIva   = 'CF';
+var _acuPropEnviando  = false;
+
+function acuPropFmt(n){ return Number(n||0).toLocaleString('es-AR'); }
+function acuPropEsc(s){ return String(s==null?'':s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'); }
+
+function acuPropInjectCSS(){
+  if (document.getElementById('acu-prop-style')) return;
+  var css =
+    '.acu-prop-ov{position:fixed;inset:0;background:#FAF4EC;z-index:10000;overflow-y:auto;}' +
+    '.acu-prop-wrap{max-width:480px;margin:0 auto;padding:16px;}' +
+    '.acu-prop-hdr{display:flex;align-items:center;gap:10px;margin-bottom:14px;}' +
+    '.acu-prop-back{background:#1A0800;color:#fff;border:none;border-radius:10px;padding:8px 14px;font-weight:800;font-size:16px;cursor:pointer;}' +
+    '.acu-prop-ttl{font-family:"Barlow Condensed",sans-serif;font-size:22px;font-weight:900;color:#1A0800;}' +
+    '.acu-prop-cli{background:#1A0800;color:#FAF4EC;border-radius:14px;padding:12px 14px;margin-bottom:10px;display:flex;align-items:center;justify-content:space-between;gap:8px;}' +
+    '.acu-prop-cli-lbl{font-size:10px;letter-spacing:1px;color:#D4A574;font-weight:800;text-transform:uppercase;}' +
+    '.acu-prop-cli-name{font-family:"Barlow Condensed",sans-serif;font-size:19px;font-weight:800;line-height:1.1;}' +
+    '.acu-prop-cli-meta{font-size:11px;color:#C9B79E;margin-top:1px;}' +
+    '.acu-prop-chg{background:transparent;border:1.5px solid #D4A574;color:#D4A574;border-radius:9px;padding:6px 10px;font-size:12px;font-weight:700;cursor:pointer;white-space:nowrap;}' +
+    '.acu-prop-guia{font-size:12px;color:#9C7050;margin:8px 2px 14px;line-height:1.4;}' +
+    '.acu-prop-card{background:#fff;border:1.5px solid #EAD9C3;border-radius:16px;padding:12px 14px;margin-bottom:11px;}' +
+    '.acu-prop-card.on{border-color:#B45309;box-shadow:0 2px 12px rgba(180,83,9,.14);}' +
+    '.acu-prop-prow{display:flex;align-items:flex-start;justify-content:space-between;gap:8px;}' +
+    '.acu-prop-pname{font-family:"Barlow Condensed",sans-serif;font-size:18px;font-weight:800;color:#1A0800;line-height:1.1;}' +
+    '.acu-prop-plist{font-size:11px;color:#9E9E9E;margin-top:2px;}' +
+    '.acu-prop-plist b{color:#7C7C7C;}' +
+    '.acu-prop-del{background:transparent;border:none;color:#C62828;font-size:20px;font-weight:800;cursor:pointer;line-height:1;padding:0 2px;}' +
+    '.acu-prop-ins{display:flex;gap:9px;margin-top:11px;}' +
+    '.acu-prop-fld{flex:1;}' +
+    '.acu-prop-fld label{display:block;font-size:10px;font-weight:800;letter-spacing:.4px;color:#9C7050;text-transform:uppercase;margin-bottom:4px;}' +
+    '.acu-prop-ig{display:flex;align-items:center;background:#FAF4EC;border:1.5px solid #EAD9C3;border-radius:11px;padding:0 10px;}' +
+    '.acu-prop-ig:focus-within{border-color:#B45309;background:#fff;}' +
+    '.acu-prop-ig .pre{color:#9C7050;font-weight:800;font-size:15px;}' +
+    '.acu-prop-ig input{width:100%;border:none;background:transparent;outline:none;padding:11px 6px;font-size:17px;font-weight:700;color:#1A0800;}' +
+    '.acu-prop-add{width:100%;background:transparent;border:1.5px dashed #D4A574;color:#B45309;border-radius:13px;padding:13px;font-weight:800;font-size:14px;cursor:pointer;margin-top:2px;}' +
+    '.acu-prop-search{width:100%;border:1.5px solid #EAD9C3;border-radius:12px;padding:12px 14px;font-size:15px;outline:none;background:#fff;margin-bottom:8px;}' +
+    '.acu-prop-search:focus{border-color:#B45309;}' +
+    '.acu-prop-sug{background:#fff;border:1.5px solid #EAD9C3;border-radius:12px;overflow:hidden;margin-bottom:10px;}' +
+    '.acu-prop-sug-item{padding:11px 14px;border-bottom:1px solid #F2E7D7;cursor:pointer;font-size:14px;display:flex;justify-content:space-between;gap:8px;}' +
+    '.acu-prop-sug-item:last-child{border-bottom:none;}' +
+    '.acu-prop-sug-item:active{background:#FCEEDD;}' +
+    '.acu-prop-sug-item .sg-meta{color:#9C7050;font-size:12px;}' +
+    '.acu-prop-send-wrap{position:sticky;bottom:0;background:linear-gradient(180deg,rgba(250,244,236,0) 0%,#FAF4EC 35%);padding:18px 0 8px;margin-top:14px;}' +
+    '.acu-prop-send{width:100%;background:#B45309;color:#fff;border:none;border-radius:15px;padding:17px;font-size:17px;font-weight:900;cursor:pointer;box-shadow:0 6px 18px rgba(180,83,9,.3);}' +
+    '.acu-prop-send:disabled{background:#D9C3A8;box-shadow:none;cursor:not-allowed;}' +
+    '.acu-prop-note{font-size:11px;color:#9C7050;text-align:center;margin-top:10px;line-height:1.45;}' +
+    '.acu-prop-lbl{font-size:11px;font-weight:800;letter-spacing:.4px;color:#9C7050;text-transform:uppercase;margin:2px 2px 5px;}' +
+    '.acu-prop-inp{width:100%;border:1.5px solid #EAD9C3;border-radius:12px;padding:12px 14px;font-size:15px;outline:none;background:#fff;margin-bottom:10px;}' +
+    '.acu-prop-inp:focus{border-color:#B45309;}' +
+    '.acu-prop-seg{display:flex;gap:6px;margin-bottom:10px;}' +
+    '.acu-prop-seg button{flex:1;background:#fff;border:1.5px solid #EAD9C3;border-radius:11px;padding:11px 4px;font-size:13px;font-weight:700;color:#5C3A1E;cursor:pointer;}' +
+    '.acu-prop-seg button.sel{background:#1A0800;border-color:#1A0800;color:#fff;}' +
+    '.acu-prop-err{color:#C62828;font-size:12px;font-weight:700;min-height:16px;margin-bottom:6px;}' +
+    '.acu-prop-sec{width:100%;background:transparent;border:none;color:#9C7050;padding:10px;font-weight:700;font-size:13px;cursor:pointer;}';
+  var s = document.createElement('style');
+  s.id = 'acu-prop-style';
+  s.textContent = css;
+  document.head.appendChild(s);
+}
+
+async function acuPropCargarProductos(){
+  if (_acuPropProductos) return _acuPropProductos;
+  var data = await sbFetch('productos_canonicos?select=id,nombre,precio_actual,alicuota_iva&activo=eq.true&precio_actual=not.is.null&order=orden.asc');
+  _acuPropProductos = (Array.isArray(data) ? data : []).map(function(r){
+    return { id: r.id, nombre: r.nombre, precio: Math.round(Number(r.precio_actual)) || 0, iva: Number(r.alicuota_iva) || 0 };
+  }).filter(function(p){ return p.id && p.nombre; });
+  return _acuPropProductos;
+}
+
+async function acuPropAbrir(){
+  _acuPropCli = null;
+  _acuPropLineas = [];
+  _acuPropVista = 'main';
+  _acuPropEnviando = false;
+  // Precargar cliente del check-in si hay uno activo
+  if (window._gpsCheckinActivo && _gpsCheckinActivo.nombre_cliente){
+    _acuPropCli = {
+      nombre:   _gpsCheckinActivo.xubio_nombre || _gpsCheckinActivo.nombre_cliente,
+      xubio_id: _gpsCheckinActivo.xubio_id || '',
+      localidad:_gpsCheckinActivo.localidad || ''
+    };
+  }
+  acuPropInjectCSS();
+  var old = document.getElementById('acu-prop-ov'); if (old) old.remove();
+  var ov = document.createElement('div');
+  ov.id = 'acu-prop-ov';
+  ov.className = 'acu-prop-ov';
+  ov.innerHTML = '<div class="acu-prop-wrap">' +
+    '<div class="acu-prop-hdr">' +
+      '<button class="acu-prop-back" onclick="acuPropCerrar()">&#8592;</button>' +
+      '<div class="acu-prop-ttl">&#11088; Proponer acuerdo</div>' +
+    '</div>' +
+    '<div id="acu-prop-body"></div>' +
+  '</div>';
+  document.body.appendChild(ov);
+  try { await acuPropCargarProductos(); } catch(e){ console.warn('[acuProp] productos no disponibles:', e.message); }
+  acuPropRender();
+}
+
+function acuPropCerrar(){
+  var o = document.getElementById('acu-prop-ov'); if (o) o.remove();
+}
+
+function acuPropRender(){
+  var body = document.getElementById('acu-prop-body');
+  if (!body) return;
+  if (_acuPropVista === 'buscarCli'){ body.innerHTML = acuPropBuscarCliHTML(); return; }
+  if (_acuPropVista === 'nuevoCli'){ body.innerHTML = acuPropNuevoCliHTML(); acuPropPintarSegIva(); return; }
+  body.innerHTML = acuPropMainHTML();
+  acuPropBindLineas();
+}
+
+// ── Vista principal ───────────────────────────────────────────────
+function acuPropMainHTML(){
+  var h = '';
+  // Bloque cliente
+  if (_acuPropCli){
+    var meta = [];
+    if (_acuPropCli.localidad) meta.push(_acuPropCli.localidad);
+    meta.push(_acuPropCli.xubio_id ? 'en Xubio &#10003;' : 'sin Xubio (se vincula al facturar)');
+    h += '<div class="acu-prop-cli"><div>' +
+      '<div class="acu-prop-cli-lbl">Cliente</div>' +
+      '<div class="acu-prop-cli-name">' + acuPropEsc(_acuPropCli.nombre) + '</div>' +
+      '<div class="acu-prop-cli-meta">' + meta.join(' &middot; ') + '</div>' +
+      '</div><button class="acu-prop-chg" onclick="acuPropVista(\'buscarCli\')">Cambiar</button></div>';
+  } else {
+    h += '<div class="acu-prop-cli"><div>' +
+      '<div class="acu-prop-cli-lbl">Cliente</div>' +
+      '<div class="acu-prop-cli-name">Sin elegir</div>' +
+      '</div><button class="acu-prop-chg" onclick="acuPropVista(\'buscarCli\')">Elegir</button></div>';
+  }
+  h += '<div class="acu-prop-guia">Cargá precio y mínimo semanal <b>solo</b> de los productos que pactaste. Lo que dejes en blanco no entra. El cliente sigue pagando lista hasta que se apruebe.</div>';
+
+  // Lineas
+  _acuPropLineas.forEach(function(ln, i){
+    h += '<div class="acu-prop-card' + (ln.precio ? ' on' : '') + '" id="acu-prop-card-' + i + '">' +
+      '<div class="acu-prop-prow"><div>' +
+        '<div class="acu-prop-pname">' + acuPropEsc(ln.nombre) + '</div>' +
+        '<div class="acu-prop-plist">lista hoy: <b>$' + acuPropFmt(ln.precio_lista) + '</b></div>' +
+      '</div><button class="acu-prop-del" onclick="acuPropQuitar(' + i + ')">&times;</button></div>' +
+      '<div class="acu-prop-ins">' +
+        '<div class="acu-prop-fld"><label>Precio acordado</label><div class="acu-prop-ig"><span class="pre">$</span>' +
+          '<input inputmode="numeric" data-i="' + i + '" data-k="precio" value="' + (ln.precio || '') + '" placeholder="0"></div></div>' +
+        '<div class="acu-prop-fld"><label>Mín. cajas/sem</label><div class="acu-prop-ig">' +
+          '<input inputmode="numeric" data-i="' + i + '" data-k="min" value="' + (ln.min || '') + '" placeholder="0"></div></div>' +
+      '</div></div>';
+  });
+
+  h += '<button class="acu-prop-add" onclick="acuPropVista(\'addProd\')">+ Agregar producto</button>';
+  // Buscador de producto inline (cuando se toca agregar)
+  h += '<div id="acu-prop-prodbox"></div>';
+
+  var listo = !!_acuPropCli && _acuPropLineas.some(function(l){ return Number(l.precio) > 0; });
+  h += '<div class="acu-prop-send-wrap">' +
+    '<button class="acu-prop-send" id="acu-prop-send" ' + (listo ? '' : 'disabled') + ' onclick="acuPropEnviar()">Enviar a aprobación &rarr;</button>' +
+    '<div class="acu-prop-note">Queda <b>pendiente</b> hasta que se apruebe en el admin.<br>El cliente sigue pagando lista hasta entonces.</div>' +
+  '</div>';
+  return h;
+}
+
+function acuPropBindLineas(){
+  var ins = document.querySelectorAll('#acu-prop-body input[data-i]');
+  ins.forEach(function(inp){
+    inp.addEventListener('input', function(){
+      var i = parseInt(this.getAttribute('data-i'), 10);
+      var k = this.getAttribute('data-k');
+      var v = this.value.replace(/[^0-9]/g, '');
+      this.value = v;
+      if (!_acuPropLineas[i]) return;
+      _acuPropLineas[i][k] = v ? Number(v) : 0;
+      if (k === 'precio'){
+        var card = document.getElementById('acu-prop-card-' + i);
+        if (card) card.classList.toggle('on', Number(v) > 0);
+      }
+      var listo = !!_acuPropCli && _acuPropLineas.some(function(l){ return Number(l.precio) > 0; });
+      var btn = document.getElementById('acu-prop-send');
+      if (btn) btn.disabled = !listo;
+    });
+  });
+}
+
+function acuPropVista(v){
+  if (v === 'addProd'){ acuPropAbrirBuscadorProd(); return; }
+  _acuPropVista = v;
+  if (v === 'nuevoCli') _acuPropAltaIva = 'CF';
+  acuPropRender();
+}
+
+function acuPropQuitar(i){
+  _acuPropLineas.splice(i, 1);
+  acuPropRender();
+}
+
+// ── Buscador de producto (inline en la vista principal) ───────────
+function acuPropAbrirBuscadorProd(){
+  var box = document.getElementById('acu-prop-prodbox');
+  if (!box) return;
+  box.innerHTML = '<input class="acu-prop-search" id="acu-prop-prodsearch" placeholder="Buscar producto…" autocomplete="off">' +
+    '<div class="acu-prop-sug" id="acu-prop-prodsug"></div>';
+  var inp = document.getElementById('acu-prop-prodsearch');
+  if (inp){
+    inp.addEventListener('input', acuPropFiltrarProd);
+    inp.focus();
+  }
+  acuPropFiltrarProd();
+}
+
+function acuPropFiltrarProd(){
+  var sug = document.getElementById('acu-prop-prodsug');
+  if (!sug) return;
+  var q = (document.getElementById('acu-prop-prodsearch') || {}).value || '';
+  q = q.toLowerCase().trim();
+  var yaIds = _acuPropLineas.map(function(l){ return l.id; });
+  var lista = (_acuPropProductos || []).filter(function(p){
+    if (yaIds.indexOf(p.id) >= 0) return false;
+    return !q || p.nombre.toLowerCase().indexOf(q) >= 0;
+  }).slice(0, 10);
+  if (!lista.length){ sug.innerHTML = '<div class="acu-prop-sug-item"><span class="sg-meta">Sin resultados</span></div>'; return; }
+  sug.innerHTML = lista.map(function(p){
+    return '<div class="acu-prop-sug-item" onclick="acuPropAgregar(' + p.id + ')">' +
+      '<span>' + acuPropEsc(p.nombre) + '</span>' +
+      '<span class="sg-meta">$' + acuPropFmt(p.precio) + '</span></div>';
+  }).join('');
+}
+
+function acuPropAgregar(id){
+  var p = (_acuPropProductos || []).find(function(x){ return x.id === id; });
+  if (!p) return;
+  if (_acuPropLineas.some(function(l){ return l.id === id; })) return;
+  _acuPropLineas.push({ id: p.id, nombre: p.nombre, precio_lista: p.precio, precio: 0, min: 0 });
+  acuPropRender();
+}
+
+// ── Buscar cliente existente en Xubio ─────────────────────────────
+function acuPropBuscarCliHTML(){
+  return '<div class="acu-prop-lbl">Buscar cliente</div>' +
+    '<input class="acu-prop-search" id="acu-prop-clisearch" placeholder="Nombre del cliente…" autocomplete="off" oninput="acuPropBuscarCli()">' +
+    '<div class="acu-prop-sug" id="acu-prop-clisug"></div>' +
+    '<button class="acu-prop-add" onclick="acuPropVista(\'nuevoCli\')">&#10133; Cliente nuevo (crear en Xubio)</button>' +
+    '<button class="acu-prop-sec" onclick="acuPropVista(\'main\')">&#8592; Volver</button>';
+}
+
+var _acuPropCliTimer = null;
+function acuPropBuscarCli(){
+  clearTimeout(_acuPropCliTimer);
+  _acuPropCliTimer = setTimeout(acuPropBuscarCliGo, 300);
+}
+async function acuPropBuscarCliGo(){
+  var sug = document.getElementById('acu-prop-clisug');
+  var q = (document.getElementById('acu-prop-clisearch') || {}).value || '';
+  q = q.trim();
+  if (!sug) return;
+  if (q.length < 2){ sug.innerHTML = ''; return; }
+  try {
+    var path = 'clientes_xubio?select=id,nombre,cuit,localidad&nombre=ilike.*' + encodeURIComponent(q) + '*&limit=12';
+    var data = await sbFetch(path);
+    var rows = Array.isArray(data) ? data : [];
+    if (!rows.length){ sug.innerHTML = '<div class="acu-prop-sug-item"><span class="sg-meta">Sin resultados — probá Cliente nuevo</span></div>'; return; }
+    sug.innerHTML = rows.map(function(c){
+      var loc = c.localidad ? '<span class="sg-meta">' + acuPropEsc(c.localidad) + '</span>' : '';
+      return '<div class="acu-prop-sug-item" onclick="acuPropElegirCli(' +
+        '&quot;' + acuPropEsc(String(c.id)) + '&quot;,&quot;' + acuPropEsc(c.nombre).replace(/"/g,'&quot;') + '&quot;,&quot;' + acuPropEsc(c.localidad || '') + '&quot;)">' +
+        '<span>' + acuPropEsc(c.nombre) + '</span>' + loc + '</div>';
+    }).join('');
+  } catch(e){
+    sug.innerHTML = '<div class="acu-prop-sug-item"><span class="sg-meta">Error: ' + acuPropEsc(e.message) + '</span></div>';
+  }
+}
+function acuPropElegirCli(id, nombre, localidad){
+  _acuPropCli = { nombre: nombre, xubio_id: String(id || ''), localidad: localidad || '' };
+  _acuPropVista = 'main';
+  acuPropRender();
+}
+
+// ── Alta de cliente nuevo (crea en Xubio) ─────────────────────────
+function acuPropNuevoCliHTML(){
+  var locPrefill = (_acuPropCli && _acuPropCli.localidad) || (window._gpsCheckinActivo && _gpsCheckinActivo.localidad) || '';
+  return '<div class="acu-prop-lbl">Nombre / Razón social *</div>' +
+    '<input class="acu-prop-inp" id="acu-prop-na-nombre" placeholder="Nombre completo">' +
+    '<div class="acu-prop-lbl">Condición IVA</div>' +
+    '<div class="acu-prop-seg" id="acu-prop-na-iva">' +
+      '<button type="button" data-iva="CF" onclick="acuPropAltaIva(this)">Cons. Final</button>' +
+      '<button type="button" data-iva="MT" onclick="acuPropAltaIva(this)">Monotributo</button>' +
+      '<button type="button" data-iva="RI" onclick="acuPropAltaIva(this)">Resp. Insc.</button>' +
+    '</div>' +
+    '<div class="acu-prop-lbl">DNI o CUIT <span id="acu-prop-na-docreq" style="color:#C62828;display:none;">* obligatorio para RI/Mono</span></div>' +
+    '<input class="acu-prop-inp" id="acu-prop-na-doc" inputmode="numeric" placeholder="Sin puntos ni guiones">' +
+    '<div class="acu-prop-lbl">Localidad</div>' +
+    '<input class="acu-prop-inp" id="acu-prop-na-loc" value="' + acuPropEsc(locPrefill) + '" placeholder="Ciudad">' +
+    '<div class="acu-prop-lbl">Teléfono</div>' +
+    '<input class="acu-prop-inp" id="acu-prop-na-tel" inputmode="tel" placeholder="Opcional">' +
+    '<div class="acu-prop-err" id="acu-prop-na-err"></div>' +
+    '<button class="acu-prop-send" id="acu-prop-na-btn" onclick="acuPropCrearCli()">&#9989; Crear cliente en Xubio</button>' +
+    '<button class="acu-prop-sec" onclick="acuPropVista(\'buscarCli\')">&#8592; Volver</button>';
+}
+function acuPropPintarSegIva(){
+  var cont = document.getElementById('acu-prop-na-iva');
+  if (!cont) return;
+  cont.querySelectorAll('button').forEach(function(b){ b.classList.toggle('sel', b.getAttribute('data-iva') === _acuPropAltaIva); });
+  var req = document.getElementById('acu-prop-na-docreq');
+  if (req) req.style.display = (_acuPropAltaIva === 'CF') ? 'none' : 'inline';
+}
+function acuPropAltaIva(btn){
+  _acuPropAltaIva = btn.getAttribute('data-iva');
+  acuPropPintarSegIva();
+}
+async function acuPropCrearCli(){
+  var nombre = (document.getElementById('acu-prop-na-nombre').value || '').trim();
+  var doc    = (document.getElementById('acu-prop-na-doc').value || '').replace(/[^0-9]/g, '');
+  var loc    = (document.getElementById('acu-prop-na-loc').value || '').trim();
+  var tel    = (document.getElementById('acu-prop-na-tel').value || '').trim();
+  var errEl  = document.getElementById('acu-prop-na-err');
+  errEl.textContent = '';
+  if (!nombre){ errEl.textContent = 'Falta el nombre.'; return; }
+  if ((_acuPropAltaIva === 'RI' || _acuPropAltaIva === 'MT') && !/^\d{11}$/.test(doc)){
+    errEl.textContent = 'RI y Monotributo necesitan CUIT de 11 dígitos.'; return;
+  }
+  var btn = document.getElementById('acu-prop-na-btn');
+  btn.disabled = true; btn.textContent = 'Creando en Xubio…';
+  try {
+    var params = new URLSearchParams({
+      accion:       'crearClienteXubio',
+      nombre:       nombre,
+      condicionIva: _acuPropAltaIva,
+      numeroDoc:    doc,
+      localidad:    loc || 'Trenque Lauquen',
+      telefono:     tel,
+      direccion:    '',
+      vendedor:     (typeof vendedorActual !== 'undefined' && vendedorActual) ? vendedorActual : 'VENDEDOR'
+    });
+    var resp = await fetch(APPS_SCRIPT_URL + '?' + params.toString());
+    var data = await resp.json();
+    if ((data.status === 'creado' || data.status === 'creado_sin_ronda' || data.status === 'duplicado') && data.cliente && data.cliente.id){
+      _acuPropCli = { nombre: data.cliente.nombre || nombre, xubio_id: String(data.cliente.id), localidad: loc || '' };
+      _acuPropVista = 'main';
+      acuPropRender();
+      if (data.status === 'duplicado') toast('⚠️ Ese documento ya existía — se usa el cliente existente', 'warn');
+      else toast('✅ Cliente creado en Xubio', 'ok');
+    } else {
+      errEl.textContent = (data && data.message) ? data.message : 'No se pudo crear el cliente. Reintentá.';
+      btn.disabled = false; btn.textContent = '✅ Crear cliente en Xubio';
+    }
+  } catch(e){
+    console.error('[acuProp alta]', e);
+    errEl.textContent = 'Error de conexión — reintentá.';
+    btn.disabled = false; btn.textContent = '✅ Crear cliente en Xubio';
+  }
+}
+
+// ── Enviar a aprobación ───────────────────────────────────────────
+async function acuPropEnviar(){
+  if (_acuPropEnviando) return;
+  if (!_acuPropCli || !_acuPropCli.nombre){ toast('Elegí un cliente primero', 'err'); return; }
+  var lineas = _acuPropLineas.filter(function(l){ return Number(l.precio) > 0; });
+  if (!lineas.length){ toast('Cargá al menos un precio', 'err'); return; }
+
+  var btn = document.getElementById('acu-prop-send');
+  _acuPropEnviando = true;
+  if (btn){ btn.disabled = true; btn.textContent = 'Enviando…'; }
+
+  var quien = (typeof vendedorActual !== 'undefined' && vendedorActual) ? vendedorActual : 'VENDEDOR';
+  var payload = lineas.map(function(l){
+    return {
+      cliente:             _acuPropCli.nombre,
+      cliente_xubio_id:    _acuPropCli.xubio_id || null,
+      canonico_id:         l.id,
+      precio_acordado:     Number(l.precio),
+      volumen_min_semanal: Number(l.min) || 0,
+      estado:              'pendiente_aprobacion',
+      modo_ajuste:         'auto',
+      propuesto_por:       quien
+    };
+  });
+
+  try {
+    await sbFetch('acuerdos_precio', {
+      method: 'POST',
+      prefer: 'return=minimal',
+      body: JSON.stringify(payload)
+    });
+    acuPropCerrar();
+    toast('✅ Propuesta enviada — queda pendiente de aprobación', 'ok');
+  } catch(e){
+    console.error('[acuProp enviar]', e);
+    _acuPropEnviando = false;
+    if (btn){ btn.disabled = false; btn.textContent = 'Enviar a aprobación →'; }
+    toast('No se pudo enviar: ' + (e.message || e), 'err');
   }
 }
 
