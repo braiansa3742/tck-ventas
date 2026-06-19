@@ -16634,6 +16634,15 @@ body {
           <div id="cobro-multiple-total" style="text-align:right;font-family:'Barlow Condensed',sans-serif;font-size:13px;color:var(--text3);margin-top:8px;"></div>
         </div>
       </div>
+      <!-- v14.80.0 - Foto de entrega OBLIGATORIA (registro ante reclamos) -->
+      <div id="foto-entrega-wrap" style="margin:0 18px 12px;background:#E3F2FD;border:1.5px solid #1565C0;border-radius:12px;padding:12px;">
+        <div style="font-family:'Barlow Condensed',sans-serif;font-size:15px;font-weight:900;color:#0D47A1;margin-bottom:3px;">&#128230; Foto de la entrega</div>
+        <div style="font-size:12px;color:#1565C0;margin-bottom:10px;line-height:1.35;">Sac&aacute; una foto de <b>toda la mercader&iacute;a que est&aacute;s bajando</b>. Es el registro ante reclamos. Si es mucho, sac&aacute; varias. <b>Sin foto no se puede confirmar la entrega.</b></div>
+        <div id="foto-entrega-lista"></div>
+        <input type="file" id="fotoEntrega-cam" accept="image/*" capture="environment" style="display:none;" onchange="_fotoEntregaSeleccionada(this)">
+        <input type="file" id="fotoEntrega-gal" accept="image/*" style="display:none;" onchange="_fotoEntregaSeleccionada(this)">
+      </div>
+
       <!-- Botones -->
       <div class="entrega-modal-btns" id="entrega-modal-btns"></div>
       <div style="padding:0 18px;">
@@ -34430,6 +34439,10 @@ function abrirEntregaModal(entregaId) {
   });
   // v14.38.0 — reset del comprobante de transferencia al abrir otra entrega
   _resetComprobanteTransfer();
+  _resetFotoEntrega();
+  var _feWrap = document.getElementById('foto-entrega-wrap');
+  if (_feWrap) _feWrap.style.display = entregado ? 'none' : 'block';
+  if (!entregado) _renderFotoEntregaEstado();
   document.getElementById('cobro-multiple-total').textContent = '';
 
   // Botones
@@ -34838,6 +34851,7 @@ function cerrarEntregaModal() {
   _cobrosPendientes = null;
   _chequesData = [];
   _resetComprobanteTransfer();
+  _resetFotoEntrega();
   window._cobroMenosMotivo = null;
   window._cobroMenosMonto = null;
   var alertaCM = document.getElementById('cobro-menos-alerta');
@@ -34955,6 +34969,28 @@ async function confirmarEntregaModal() {
   // Validar devolución si hay items marcados
   const devData = _getDevolucionData();
   if (devData === 'SIN_CATEGORIA') { toast('❌ Elegí un motivo de devolución', 'err'); return; }
+
+  // v14.80.0 — FOTO DE ENTREGA OBLIGATORIA. Sin foto de la mercadería bajada
+  // no se puede confirmar (registro ante reclamos de faltante).
+  if (_fotosEntrega.some(function(f){ return f.subiendo; })) {
+    toast('⏳ Esperá: hay una foto subiéndose', 'err');
+    return;
+  }
+  if (!_fotosEntrega.some(function(f){ return f.path; })) {
+    toast('📦 Falta la foto de la entrega', 'err');
+    var _wfe = document.getElementById('foto-entrega-wrap');
+    if (_wfe) {
+      _wfe.style.display = 'block';
+      _wfe.scrollIntoView({ behavior:'smooth', block:'center' });
+      if (_wfe.animate) {
+        _wfe.animate(
+          [{ boxShadow:'0 0 0 0 rgba(21,101,192,.55)' }, { boxShadow:'0 0 0 9px rgba(21,101,192,0)' }],
+          { duration:850, iterations:2 }
+        );
+      }
+    }
+    return;
+  }
 
   // v14.38.0 — COMPROBANTE DE TRANSFERENCIA OBLIGATORIO.
   // Si cobró algo por transferencia, exige la foto del comprobante ANTES de
@@ -35323,6 +35359,131 @@ function _resetComprobanteTransfer() {
 }
 
 // ── Foto de CHEQUE (una por cheque, dentro del sub-modal) ───────
+// ═══════════════════════════════════════════════════════════════
+// v14.80.0 — FOTO DE ENTREGA OBLIGATORIA
+// ═══════════════════════════════════════════════════════════════
+// Registro de la mercadería bajada en cada entrega, prueba ante reclamos
+// de faltante. Mismo patrón que el comprobante de transferencia: sube a
+// Storage al seleccionar y bloquea la confirmación hasta tener al menos
+// una foto subida. Bucket PÚBLICO 'entregas-fotos'.
+// Cada item: { path, previewUrl, subiendo }.
+//   path → ruta en Storage; se guarda en entregas.foto_urls (jsonb array).
+//   El admin arma la URL pública con esa ruta.
+let _fotosEntrega = [];
+
+// Sube una foto de entrega al bucket público 'entregas-fotos'. Devuelve la
+// RUTA del objeto. Reutiliza _comprimirImagen (mismo helper del comprobante).
+async function _subirFotoEntrega(file, nombreBase) {
+  var blob = await _comprimirImagen(file, 1600, 0.72);
+  var f = new Date();
+  var ym = f.getFullYear() + '-' + String(f.getMonth() + 1).padStart(2, '0');
+  var safeBase = String(nombreBase || 'entrega').replace(/[^a-zA-Z0-9_-]/g, '').slice(0, 40) || 'e';
+  var path = 'entregas/' + ym + '/' + safeBase + '_' + Date.now() + '.jpg';
+  var resp = await fetch(SUPABASE_URL + '/storage/v1/object/entregas-fotos/' + path, {
+    method: 'POST',
+    headers: {
+      'apikey': SUPABASE_KEY,
+      'Authorization': 'Bearer ' + SUPABASE_KEY,
+      'Content-Type': 'image/jpeg',
+      'x-upsert': 'true'
+    },
+    body: blob
+  });
+  if (!resp.ok) {
+    var t = '';
+    try { t = await resp.text(); } catch(e){}
+    throw new Error('Storage ' + resp.status + ': ' + t);
+  }
+  return path;
+}
+
+function _renderFotoEntregaEstado() {
+  var lista = document.getElementById('foto-entrega-lista');
+  if (!lista) return;
+  var N = _fotosEntrega.length;
+  var html = '';
+  _fotosEntrega.forEach(function(c, idx) {
+    var titulo = N > 1 ? ('Foto ' + (idx + 1)) : 'Foto';
+    if (c.subiendo) {
+      html += '<div style="display:flex;align-items:center;gap:10px;padding:6px 2px;margin-bottom:8px;">' +
+        '<div style="width:18px;height:18px;border:2.5px solid #BBDEFB;border-top-color:#1565C0;border-radius:50%;animation:spin .8s linear infinite;flex-shrink:0;"></div>' +
+        '<span style="font-size:13px;font-weight:700;color:#1565C0;">Subiendo ' + titulo.toLowerCase() + '…</span>' +
+      '</div>';
+    } else if (c.path) {
+      var prev = (c.previewUrl || '').replace(/'/g, '%27');
+      html += '<div style="display:flex;align-items:center;gap:10px;margin-bottom:8px;">' +
+        '<img src="' + (c.previewUrl || '') + '" alt="foto entrega" onclick="_verComprobanteImg(\'' + prev + '\')" style="width:54px;height:54px;border-radius:8px;object-fit:cover;border:1.5px solid #1565C0;cursor:pointer;flex-shrink:0;">' +
+        '<div style="flex:1;min-width:0;">' +
+          '<div style="font-size:13px;font-weight:800;color:#0D47A1;">✅ ' + titulo + ' cargada</div>' +
+          '<div style="font-size:11px;color:#1565C0;">Tocá la foto para verla en grande</div>' +
+        '</div>' +
+        '<button type="button" onclick="_quitarFotoEntrega(' + idx + ')" style="background:#FFEBEE;border:1.5px solid rgba(198,40,40,.3);color:#C62828;border-radius:8px;padding:8px 10px;font-family:\'Barlow Condensed\',sans-serif;font-size:12px;font-weight:800;cursor:pointer;touch-action:manipulation;flex-shrink:0;">Quitar</button>' +
+      '</div>';
+    }
+  });
+  var subiendoAlguno = _fotosEntrega.some(function(c) { return c.subiendo; });
+  if (!subiendoAlguno) {
+    if (N === 0) {
+      html += '<div style="display:flex;gap:8px;">' +
+        '<button type="button" onclick="document.getElementById(\'fotoEntrega-cam\').click()" style="flex:1;padding:13px 8px;background:#1565C0;color:#fff;border:none;border-radius:10px;font-family:\'Barlow Condensed\',sans-serif;font-size:14px;font-weight:800;cursor:pointer;touch-action:manipulation;">📷 Tomar foto</button>' +
+        '<button type="button" onclick="document.getElementById(\'fotoEntrega-gal\').click()" style="flex:1;padding:13px 8px;background:#fff;color:#1565C0;border:1.5px solid #1565C0;border-radius:10px;font-family:\'Barlow Condensed\',sans-serif;font-size:14px;font-weight:800;cursor:pointer;touch-action:manipulation;">🖼️ Subir foto</button>' +
+      '</div>';
+    } else {
+      html += '<div style="margin-top:2px;">' +
+        '<div style="font-size:11px;font-weight:700;color:#1565C0;margin-bottom:6px;">¿Es mucha mercadería? Agregá las fotos que necesites:</div>' +
+        '<div style="display:flex;gap:8px;">' +
+          '<button type="button" onclick="document.getElementById(\'fotoEntrega-cam\').click()" style="flex:1;padding:10px 6px;background:#fff;color:#1565C0;border:1.5px dashed #1565C0;border-radius:10px;font-family:\'Barlow Condensed\',sans-serif;font-size:13px;font-weight:800;cursor:pointer;touch-action:manipulation;">➕📷 Otra foto</button>' +
+          '<button type="button" onclick="document.getElementById(\'fotoEntrega-gal\').click()" style="flex:1;padding:10px 6px;background:#fff;color:#1565C0;border:1.5px dashed #1565C0;border-radius:10px;font-family:\'Barlow Condensed\',sans-serif;font-size:13px;font-weight:800;cursor:pointer;touch-action:manipulation;">➕🖼️ Otra captura</button>' +
+        '</div>' +
+      '</div>';
+    }
+  }
+  lista.innerHTML = html;
+}
+
+async function _fotoEntregaSeleccionada(input) {
+  var file = input.files && input.files[0];
+  input.value = '';
+  if (!file) return;
+  var item = { path: null, previewUrl: URL.createObjectURL(file), subiendo: true };
+  _fotosEntrega.push(item);
+  _renderFotoEntregaEstado();
+  try {
+    var e = _entregasCache.find(function(x) { return x.id === _entregaModalId; });
+    var base = ((e && e.pedido_id) ? e.pedido_id : ('ent' + (_entregaModalId || ''))) +
+               '_f' + _fotosEntrega.length;
+    var path = await _subirFotoEntrega(file, base);
+    item.path = path;
+    item.subiendo = false;
+    _renderFotoEntregaEstado();
+    toast('✅ Foto cargada', 'ok');
+  } catch(err) {
+    console.error('Error subiendo foto de entrega:', err);
+    var ix = _fotosEntrega.indexOf(item);
+    if (ix !== -1) {
+      try { URL.revokeObjectURL(item.previewUrl); } catch(e2){}
+      _fotosEntrega.splice(ix, 1);
+    }
+    _renderFotoEntregaEstado();
+    toast('❌ No se pudo subir la foto. Probá de nuevo', 'err');
+  }
+}
+
+function _quitarFotoEntrega(idx) {
+  var c = _fotosEntrega[idx];
+  if (!c) return;
+  if (c.previewUrl) { try { URL.revokeObjectURL(c.previewUrl); } catch(e){} }
+  _fotosEntrega.splice(idx, 1);
+  _renderFotoEntregaEstado();
+}
+
+function _resetFotoEntrega() {
+  _fotosEntrega.forEach(function(c) {
+    if (c && c.previewUrl) { try { URL.revokeObjectURL(c.previewUrl); } catch(e){} }
+  });
+  _fotosEntrega = [];
+}
+
 function _chequeFotoHTML(ch, idx) {
   var header = '<div style="font-size:11px;font-weight:700;color:var(--text3);text-transform:uppercase;letter-spacing:.8px;margin-bottom:4px;">Foto del cheque (frente)</div>';
   var inputs =
@@ -35596,6 +35757,10 @@ async function _ejecutarConfirmacionEntrega(cobros) {
   }
 
   // v14.0: si el chofer cobró menos y justificó, guardar el motivo y monto real
+  // v14.80.0 — guardar las rutas de las fotos de entrega (jsonb array).
+  var _pathsFotoEnt = _fotosEntrega.map(function(f){ return f.path; }).filter(function(p){ return !!p; });
+  payload.foto_urls = _pathsFotoEnt;
+
   if (window._cobroMenosMotivo) {
     payload.diferencia_motivo = window._cobroMenosMotivo;
     payload.monto_cobrado_real = window._cobroMenosMonto || null;
@@ -47252,7 +47417,7 @@ function depPollIniciar() {
    TCK_UPD_LOCAL aca Y el archivo version.json del repo.
    ============================================================ */
 (function(){
-  var TCK_UPD_LOCAL = '14.79.0';        /* <-- bump en cada deploy */
+  var TCK_UPD_LOCAL = '14.80.0';        /* <-- bump en cada deploy */
   var TCK_UPD_INTERVALO = 10 * 60 * 1000;   /* chequeo de fondo: 10 min */
   var _updUltChequeo = 0;
 
