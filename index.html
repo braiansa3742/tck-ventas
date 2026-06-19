@@ -15533,6 +15533,29 @@ body {
 .vdes-dom{background:#F4F1ED;color:#cfc7bd;}
 .vdes-cell.weeksel{border-color:#8B0000;}
 .vdes-cell.daysel{outline:3px solid #4A0000;outline-offset:-2px;}
+/* v14.79 — celda por franja + contador de HOY */
+.vdes-cellfr{aspect-ratio:.56;justify-content:flex-start;gap:3px;padding:4px 3px;background:#fff;}
+.vdes-cellfr.vdes-sindata{background:#F7F4EF;}
+.vdes-cellfr .vdd{font-family:'Barlow Condensed',sans-serif;font-weight:900;font-size:12px;color:#3a2c22;width:19px;height:19px;display:flex;align-items:center;justify-content:center;border-radius:50%;background:#F0EAE2;position:static;opacity:1;}
+.vdes-cellfr.vdeshoy .vdd{color:#fff;background:#8B0000;}
+.vdes-cellfr .vdpills{display:flex;flex-direction:column;gap:3px;width:100%;}
+.vdes-cellfr .vdpill{height:17px;border-radius:5px;display:flex;align-items:center;justify-content:center;font-family:'Barlow Condensed',sans-serif;font-weight:900;font-size:11.5px;line-height:1;}
+.vdpill.p-g{background:#7DC36F;color:#0d2b0a;} .vdpill.p-y{background:#FFD24A;color:#5e4500;} .vdpill.p-o{background:#FF9D5C;color:#5e2400;} .vdpill.p-x{background:#EFEBE6;color:#BCB0A4;}
+.vdes-cellfr .vdmonto{font-family:'Barlow Condensed',sans-serif;font-weight:900;font-size:10.5px;color:#1B5E20;line-height:1;}
+.vdes-cellfr .vdmonto.z{color:#C9BFB4;}
+.vdes-hoy{background:linear-gradient(135deg,#1A0800,#3a1500);border-radius:14px;padding:13px 14px;margin-bottom:12px;}
+.vdes-hoy-top{display:flex;align-items:center;justify-content:space-between;margin-bottom:11px;}
+.vdes-hoy-tit{font-family:'Barlow Condensed',sans-serif;font-size:16px;font-weight:900;color:#fff;}
+.vdes-hoy-tot{font-family:'Barlow Condensed',sans-serif;font-size:12px;font-weight:700;color:#FFD700;}
+.vdes-hoy-fr{margin-bottom:9px;}
+.vdes-hoy-fr-row{display:flex;align-items:center;justify-content:space-between;margin-bottom:4px;}
+.vdes-hoy-fr-l{font-family:'Barlow Condensed',sans-serif;font-size:14px;font-weight:700;color:#fff;}
+.vdes-hoy-fr-n{font-family:'Barlow Condensed',sans-serif;font-size:14px;font-weight:900;}
+.vdes-hoy-bar{height:11px;background:rgba(255,255,255,.13);border-radius:6px;overflow:hidden;}
+.vdes-hoy-bar-f{height:100%;border-radius:6px;}
+.vdes-hoy-msg{background:rgba(255,215,0,.14);border:1px solid rgba(255,215,0,.3);border-radius:9px;padding:8px 10px;font-size:12.5px;font-weight:700;color:#FFE9A8;text-align:center;margin-top:2px;}
+.vdes-hoy-corr{font-size:12px;color:#E8D9C0;text-align:center;margin-top:9px;line-height:1.3;}
+.vdes-hoy-corr b{color:#FFD700;}
 .vdes-ley{display:flex;flex-wrap:wrap;gap:9px;margin-top:11px;font-size:10px;color:#9C7050;}
 .vdes-ley .sw{width:13px;height:13px;border-radius:3px;display:inline-block;vertical-align:middle;margin-right:3px;}
 .vdes-nota{font-size:10px;color:#9C7050;text-align:center;margin-top:10px;line-height:1.45;padding:0 4px;}
@@ -15934,7 +15957,7 @@ body {
       <div class="vdes-card" id="vdes-card">
         <div class="vdes-hdr">
           <div class="vdes-hdr-tit">📊 Mi rendimiento</div>
-          <div class="vdes-hdr-sub">Meta: 30 visitas/día · mín. 25 (sáb 15)</div>
+          <div class="vdes-hdr-sub">Meta: 15 a la mañana + 15 a la tarde · cuanto más, mejor</div>
         </div>
         <div class="vdes-body" id="vdes-body"></div>
       </div>
@@ -27247,9 +27270,50 @@ function vdesLunesDe(date) {
 }
 // v14.31 — metas por día: dom 0 · sáb 15 (mín 10) · resto 30 (mín 25)
 function vdesMetaDia(dow) {
-  if (dow === 0) return { meta: 0,  min: 0  };
-  if (dow === 6) return { meta: 15, min: 10 };
-  return { meta: 30, min: 25 };
+  if (dow === 0) return { meta: 0,  min: 0,  frMin: 0,  frObj: 0  };
+  if (dow === 6) return { meta: 16, min: 12, frMin: 8,  frObj: 10 };
+  return { meta: 30, min: 25, frMin: 15, frObj: 20 };
+}
+function vdesPillFranja(n, meta, esDom, info) {
+  if (esDom || !info) return { c:'p-x', t:'·' };
+  if (n >= meta.frObj) return { c:'p-g', t:n };
+  if (n >= meta.frMin) return { c:'p-y', t:n };
+  if (n > 0)           return { c:'p-o', t:n };
+  return { c:'p-x', t:'0' };
+}
+function vdesCorrelacion(mapa, ventas) {
+  var altoV=0, altoN=0, bajoV=0, bajoN=0;
+  Object.keys(mapa).forEach(function(iso){
+    var nn = mapa[iso].checkins||0; if (nn<=0) return;
+    var vv = (ventas[iso] && ventas[iso].total) ? ventas[iso].total : 0;
+    if (nn>=20) { altoV+=vv; altoN++; } else { bajoV+=vv; bajoN++; }
+  });
+  if (altoN<1 || bajoN<1) return '📈 <b>Más visitas = más ventas.</b> Cuantos más clientes visitás, más vendés.';
+  var pa=altoV/altoN, pb=bajoV/bajoN;
+  if (pb<=0 || pa<=pb) return '📈 <b>Más visitas = más ventas.</b> Tus mejores días son los que salís a la calle.';
+  var pct=Math.round((pa/pb-1)*100);
+  return '📈 Tus días de <b>20+ visitas</b> vendés un <b>+'+pct+'%</b> ('+vdesMontoCorto(pb)+' → '+vdesMontoCorto(pa)+' por día).';
+}
+function vdesContadorHoyHTML(man, tar, meta, mapa, ventas) {
+  var frMin=meta.frMin||0, frObj=meta.frObj||20;
+  function col(n){ return n>=frObj?'#7DC36F':n>=frMin&&frMin>0?'#FFD24A':n>0?'#FF9D5C':'#888'; }
+  function pc(n){ return Math.min(100, Math.round(n/(frObj||20)*100)); }
+  var msg;
+  if (frMin===0) msg='Hoy es día de descanso';
+  else if (man<frMin) msg='💪 Te faltan '+(frMin-man)+' para la meta de la mañana';
+  else if (tar<frMin) msg='🌅 ¡Mañana cumplida! Ahora vas por la tarde';
+  else msg='🔥 ¡Las dos franjas cumplidas! Cuanto más, mejor';
+  var corr=vdesCorrelacion(mapa, ventas);
+  var fr=function(ic,lbl,n){
+    return '<div class="vdes-hoy-fr"><div class="vdes-hoy-fr-row"><div class="vdes-hoy-fr-l">'+ic+' '+lbl+'</div>'
+      +'<div class="vdes-hoy-fr-n"><span style="color:'+col(n)+'">'+n+'</span> <span style="color:rgba(255,255,255,.45)">/ '+(frMin||'-')+'</span></div></div>'
+      +'<div class="vdes-hoy-bar"><div class="vdes-hoy-bar-f" style="width:'+pc(n)+'%;background:'+col(n)+'"></div></div></div>';
+  };
+  return '<div class="vdes-hoy"><div class="vdes-hoy-top"><div class="vdes-hoy-tit">📍 Tus visitas de HOY</div>'
+    +'<div class="vdes-hoy-tot">'+(man+tar)+' visitas</div></div>'
+    +fr('🌅','Mañana',man)+fr('🌆','Tarde',tar)
+    +'<div class="vdes-hoy-msg">'+msg+'</div>'
+    +(corr?'<div class="vdes-hoy-corr">'+corr+'</div>':'')+'</div>';
 }
 function vdesObjetivoDia(dow) { return vdesMetaDia(dow).meta; }   // compat
 function vdesDiaISO(date) {
@@ -27302,11 +27366,7 @@ function vdesVentasDia() {
   });
   return mapa;
 }
-function vdesEsCampo() {
-  var mapa = vdesPorDia();
-  for (var k in mapa) { if (mapa[k] && mapa[k].checkins > 0) return true; }
-  return false;
-}
+function vdesEsCampo() { return true; }   // v14.79: todos con la vara de visitas
 function vdesNivelVenta(monto, maxMes) {
   if (!monto || monto <= 0) return 'cero';
   if (!maxMes) return 'alto';
@@ -27410,6 +27470,15 @@ function vdesPorDia() {
       mapa[dia].checkins++;
     }
   });
+  Object.keys(mapa).forEach(function(dia){
+    var sM={}, sT={};
+    mapa[dia].visitas.forEach(function(v){
+      var hh = v.entrada ? v.entrada.getHours() : 0;
+      if (hh < 15) sM[v.cliente]=1; else sT[v.cliente]=1;
+    });
+    mapa[dia].manana = Object.keys(sM).length;
+    mapa[dia].tarde  = Object.keys(sT).length;
+  });
   return mapa;
 }
 
@@ -27428,7 +27497,7 @@ function vdesRenderResumen() {
   var lunes = new Date(_vdesSemanaRef);
   var dias = [];
   for (var i=0;i<7;i++) { var d=new Date(lunes); d.setDate(d.getDate()+i); dias.push(d); }   // L → D
-  var totalVis=0, totalPed=0, diasCalle=0, dotsHtml='', cumplidos=0, posibles=0;
+  var totalVis=0, totalPed=0, diasCalle=0, dotsHtml='', cumplidos=0, posibles=0, manCump=0, tarCump=0, manPos=0, tarPos=0, contadorHoy='';
   var totalVend=0, totalPend=0, nPedVenta=0, diasVenta=0;
   dias.forEach(function(d) {
     var iso = vdesDiaISO(d);
@@ -27437,6 +27506,9 @@ function vdesRenderResumen() {
     var n = info ? info.checkins : 0;
     if (n>0) diasCalle++;
     totalVis += n;
+    var manR = info ? (info.manana||0) : 0;
+    var tarR = info ? (info.tarde||0) : 0;
+    if (meta.frMin>0) { manPos++; tarPos++; if (manR>=meta.frMin) manCump++; if (tarR>=meta.frMin) tarCump++; }
     if (info) totalPed += info.visitas.filter(function(x){return x.tuvo_pedido;}).length;
     var vd = ventas[iso];
     if (vd) { totalVend += vd.total; totalPend += vd.pend; nPedVenta += vd.n; if (vd.total>0) diasVenta++; }
@@ -27457,6 +27529,8 @@ function vdesRenderResumen() {
   var pendTxt = totalPend>0 ? '<div class="vdes-vend-ori" style="text-align:right;">+' + vdesMontoCorto(totalPend) + ' pend.</div>' : '';
   var html;
   if (esCampo) {
+    var _hI = mapa[vdesDiaISO(vdesHoyAR())];
+    contadorHoy = vdesContadorHoyHTML(_hI?(_hI.manana||0):0, _hI?(_hI.tarde||0):0, vdesMetaDia(vdesHoyAR().getDay()), mapa, ventas);
     var prom = diasCalle ? (totalVis/diasCalle) : 0;
     var promTxt = (Math.round(prom*10)/10).toString().replace('.',',');
     var conv = totalVis ? Math.round(100*totalPed/totalVis) : 0;
@@ -27469,9 +27543,10 @@ function vdesRenderResumen() {
       + '<div class="vdes-kpi"><div class="vdes-kpi-num">' + promTxt + '</div><div class="vdes-kpi-lbl">Prom/día</div></div>'
       + '<div class="vdes-kpi vdes-kpi-wide"><div class="l">Vendido en la semana</div><div style="text-align:right;"><div class="r" style="color:#1B5E20">' + vdesMontoFull(totalVend) + '</div>' + pendTxt + '</div></div>'
       + '<div class="vdes-kpi vdes-kpi-wide"><div class="l">$ por visita</div><div class="r" style="color:#5C4030">' + vdesMontoFull(xVisita) + '</div></div>'
-      + '<div class="vdes-kpi vdes-kpi-wide"><div class="l">Días que llegaste a la meta (30)</div>'
-      + '<div style="display:flex;align-items:center;gap:10px;"><div class="vdes-dots">' + dotsHtml + '</div>'
-      + '<div class="r" style="color:' + objColor + '">' + cumplidos + ' / ' + posibles + '</div></div></div>'
+      + '<div class="vdes-kpi vdes-kpi-wide"><div class="l">🌅 Mañanas cumplidas (15+)</div>'
+      + '<div class="r" style="color:' + (manCump>=manPos?'#2E7D32':'#C75300') + '">' + manCump + ' / ' + manPos + '</div></div>'
+      + '<div class="vdes-kpi vdes-kpi-wide"><div class="l">🌆 Tardes cumplidas (15+)</div>'
+      + '<div class="r" style="color:' + (tarCump>=tarPos?'#2E7D32':'#C62828') + '">' + tarCump + ' / ' + tarPos + '</div></div>'
       + '<div class="vdes-kpi vdes-kpi-wide" style="grid-column:span 3;"><div class="l">Conversión a pedido</div><div class="r" style="color:' + convColor + '">' + conv + '%</div></div>'
       + '</div>';
   } else {
@@ -27486,7 +27561,7 @@ function vdesRenderResumen() {
       + '</div>';
   }
   var el = document.getElementById('vdes-resumen');
-  if (el) el.innerHTML = html;
+  if (el) el.innerHTML = contadorHoy + html;
 }
 
 function vdesRenderCalendario() {
@@ -27519,27 +27594,20 @@ function vdesRenderCalendario() {
     var meta = vdesMetaDia(dow);
     var vd = ventas[iso];
     var vend = vd ? vd.total : 0;
-    var cls, vTxt, montoTxt='', montoBig=false;
-    if (esCampo) {
-      if (esDom)             { cls='vdes-dom';     vTxt = (n>0 ? n : ''); }
-      else if (!info)        { cls='vdes-sindata'; vTxt='·'; }
-      else if (n>=meta.meta) { cls='vdes-ok';      vTxt=n; }
-      else if (n>=meta.min)  { cls='vdes-cerca';   vTxt=n; }
-      else { cls='vdes-flojo'; vTxt=n; }
-      montoTxt = vend>0 ? vdesMontoCorto(vend) : '';
-    } else {
-      var niv = vdesNivelVenta(vend, maxMes);
-      cls = (niv==='alto') ? 'vdes-ok' : (niv==='medio') ? 'vdes-cerca' : (niv==='bajo') ? 'vdes-flojo' : 'vdes-sindata';
-      vTxt = vend>0 ? vdesMontoCorto(vend) : (esDom ? '' : '·');
-      montoBig = true;
-    }
+    var man = info ? (info.manana||0) : 0;
+    var tar = info ? (info.tarde||0) : 0;
+    var pM = vdesPillFranja(man, meta, esDom, info);
+    var pT = vdesPillFranja(tar, meta, esDom, info);
+    var montoTxt = vend>0 ? vdesMontoCorto(vend) : '';
     var clsExtra = semDias[iso] ? ' weeksel' : '';
     if (iso===hoyISO) clsExtra += ' vdeshoy';
+    var baseCls = (!info && !esDom) ? ' vdes-sindata' : (esDom ? ' vdes-dom' : '');
     var clickable = (vend>0 || n>0 || !esDom) ? 'onclick="vdesAbrirDia(\'' + iso + '\')"' : '';
-    grid += '<div class="vdes-cell ' + cls + clsExtra + '" ' + clickable + ' data-iso="' + iso + '">'
-      + '<span class="d">' + dia + '</span>'
-      + '<span class="v"' + (montoBig?' style="font-size:12.5px;"':'') + '>' + vTxt + '</span>'
-      + (montoTxt ? '<span class="chk vdes-cell-monto">' + montoTxt + '</span>' : '')
+    grid += '<div class="vdes-cell vdes-cellfr' + baseCls + clsExtra + '" ' + clickable + ' data-iso="' + iso + '">'
+      + '<span class="vdd">' + dia + '</span>'
+      + '<div class="vdpills"><span class="vdpill ' + pM.c + '">' + pM.t + '</span>'
+      + '<span class="vdpill ' + pT.c + '">' + pT.t + '</span></div>'
+      + '<span class="vdmonto' + (montoTxt?'':' z') + '">' + (montoTxt||'—') + '</span>'
       + '</div>';
   }
   var leyenda = esCampo
@@ -47184,7 +47252,7 @@ function depPollIniciar() {
    TCK_UPD_LOCAL aca Y el archivo version.json del repo.
    ============================================================ */
 (function(){
-  var TCK_UPD_LOCAL = '14.78.0';        /* <-- bump en cada deploy */
+  var TCK_UPD_LOCAL = '14.79.0';        /* <-- bump en cada deploy */
   var TCK_UPD_INTERVALO = 10 * 60 * 1000;   /* chequeo de fondo: 10 min */
   var _updUltChequeo = 0;
 
