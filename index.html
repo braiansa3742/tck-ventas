@@ -26624,16 +26624,27 @@ function renderClientes() {
 async function gpsObtenerVendedorId() {
   if (_gpsVendedorId) return _gpsVendedorId;
   if (!vendedorActual) return null;
+  // v14.82.0 — cache local del id por vendedor, para que el check-in offline
+  // tenga vendedor_id aunque este arranque no tenga red.
+  var _kVend = 'tckVendId_' + vendedorActual;
   try {
     const nombre = vendedorActual === 'ADMIN' ? 'Admin' : vendedorActual;
     const data = await sbFetch('vendedores?nombre=eq.' + encodeURIComponent(nombre) + '&select=id');
     if (data && data.length > 0) {
       _gpsVendedorId = data[0].id;
+      try { localStorage.setItem(_kVend, String(_gpsVendedorId)); } catch(eLS){}
       return _gpsVendedorId;
     } else {
       console.warn('[GPS] ⚠️ Vendedor "' + nombre + '" NO está en la tabla `vendedores` de Supabase. Insertarlo con: INSERT INTO vendedores (nombre) VALUES (\'' + nombre + '\');');
     }
-  } catch(e) { console.error('GPS vendedor:', e); }
+  } catch(e) {
+    console.error('GPS vendedor:', e);
+    // Sin red: usar el id cacheado de una sesión online previa.
+    try {
+      var _cached = localStorage.getItem(_kVend);
+      if (_cached) { _gpsVendedorId = _cached; return _gpsVendedorId; }
+    } catch(eLS2){}
+  }
   return null;
 }
 
@@ -28817,18 +28828,18 @@ async function gpsConfirmarCheckin(nombreCliente, localidadCliente, xubioId, xub
     // vendedor ve toast rojo y la UI vuelve a "sin check-in".
     var vendedorId = await gpsObtenerVendedorId();
     try {
-      await sbFetch('visitas', {
-        method: 'POST',
-        body: JSON.stringify({
+      // v14.82.0 — fecha explícita (un check-in encolado conserva la hora real)
+      // + cola offline: sin señal queda 'pendiente' y se sube solo después.
+      var _checkinPendiente = ((await _restOPendiente('POST', 'visitas', {
           vendedor_id:    vendedorId,
           nombre_cliente: nombreCliente,
           tipo:           'checkin',
           lat:            coords.lat,
           lng:            coords.lng,
-          accuracy:       coords.accuracy != null ? coords.accuracy : null
-        })
-      });
-      // SI LLEGAMOS ACÁ, EL INSERT FUNCIONÓ
+          accuracy:       coords.accuracy != null ? coords.accuracy : null,
+          fecha:          new Date().toISOString()
+        })) === 'pendiente');
+      // SI LLEGAMOS ACÁ, EL CHECK-IN ENTRÓ (o quedó encolado sin señal)
       _gpsHizoPedido = false;
       // v14.22.4 FIX #1: locCanon ya viene canonizado del modal. La lógica
       // vieja de re-canonizar desde localidadCliente queda como defensa
@@ -28854,7 +28865,7 @@ async function gpsConfirmarCheckin(nombreCliente, localidadCliente, xubioId, xub
         fecha:          new Date().toISOString()
       };
       gpsActualizarEstado(_gpsCheckinActivo);
-      toast('✅ Check-in: ' + nombreCliente, 'ok');
+      toast(_checkinPendiente ? '✅ Check-in guardado (se registra con señal): ' + nombreCliente : '✅ Check-in: ' + nombreCliente, 'ok');
       // v14.54.0 PEDIDO VIVO: consulta async (fire-and-forget) de pedidos
       // Confirmado viejos del cliente. El resultado se usa al confirmar.
       pedidoVivoDispararChequeo(nombreCliente, _gpsCheckinActivo.xubio_id || '');
@@ -29254,15 +29265,13 @@ async function gpsCheckoutConPedidoExterno() {
   try {
     var vendedorId = await gpsObtenerVendedorId();
     if (vendedorId) {
-      await sbFetch('visitas', {
-        method: 'POST',
-        body: JSON.stringify({
+      await _restOPendiente('POST', 'visitas', {
           vendedor_id:    vendedorId,
           nombre_cliente: cliente,
           tipo:           'pedido_campo',
-          observacion:    'PEDIDO EXTERNO — confirmado en checkout (cargado por WhatsApp/directo)'
-        })
-      });
+          observacion:    'PEDIDO EXTERNO — confirmado en checkout (cargado por WhatsApp/directo)',
+          fecha:          new Date().toISOString()
+        });
     }
   } catch(e) {
     console.warn('[checkout pedido externo] No se pudo guardar marcador:', e);
@@ -29297,18 +29306,17 @@ async function gpsCheckoutFinal(motivo) {
     .then(function(results) {
       var coords = results[0];
       var vendedorId = results[1];
-      return sbFetch('visitas', {
-        method: 'POST',
-        body: JSON.stringify({
+      // v14.82.0 — fecha explícita + cola offline (no perder el checkout sin señal).
+      return _restOPendiente('POST', 'visitas', {
           vendedor_id:      vendedorId,
           nombre_cliente:   cliente,
           tipo:             'checkout',
           motivo_no_compra: motivo || null,
           lat:              coords.lat,
           lng:              coords.lng,
-          accuracy:         coords.accuracy != null ? coords.accuracy : null
-        })
-      });
+          accuracy:         coords.accuracy != null ? coords.accuracy : null,
+          fecha:            new Date().toISOString()
+        });
     })
     .catch(function(e) { console.error('Checkout background error:', e); });
 
@@ -35539,6 +35547,7 @@ async function _subirABucket(bucket, ruta, blob) {
 function _esErrorDeRed(err) {
   if (typeof navigator !== 'undefined' && navigator.onLine === false) return true;
   if (err && err.httpStatus) return false;   // el server respondió -> no es red
+  if (err && err.message && /Supabase error:\s*\d/.test(err.message)) return false; // HTTP de sbFetch
   return true;                               // timeout / fetch sin status -> red
 }
 
@@ -35550,6 +35559,23 @@ async function _subirOPendiente(bucket, ruta, blob) {
     return 'subido';
   } catch(e) {
     if (_esErrorDeRed(e)) return 'pendiente';
+    throw e;
+  }
+}
+
+// v14.82.0 — POST/PATCH a la REST API con cola offline. 'ok' si entró;
+// 'pendiente' si no había señal (queda encolado); lanza si el server rechazó.
+async function _restOPendiente(metodo, path, body) {
+  try {
+    await sbFetch(path, { method: metodo, body: JSON.stringify(body) });
+    return 'ok';
+  } catch(e) {
+    if (_esErrorDeRed(e)) {
+      var id = 'rest_' + String(path).replace(/[^a-z0-9]/gi, '') + '_' + Date.now() + '_' + Math.random().toString(36).slice(2, 7);
+      await _colaPut({ id: id, tipo: 'rest', metodo: metodo, path: path, body: body, creado: Date.now(), intentos: 0 });
+      _colaFlush().catch(function(){});
+      return 'pendiente';
+    }
     throw e;
   }
 }
@@ -35614,9 +35640,13 @@ async function _colaFlush() {
     var items = await _colaTodos();
     for (var i = 0; i < items.length; i++) {
       var it = items[i];
-      if (!it || it.tipo !== 'storage') continue;   // 'rest' -> v14.82.0
+      if (!it) continue;
       try {
-        await _subirABucket(it.bucket, it.ruta, it.blob);
+        if (it.tipo === 'storage') {
+          await _subirABucket(it.bucket, it.ruta, it.blob);
+        } else if (it.tipo === 'rest') {
+          await sbFetch(it.path, { method: it.metodo, body: JSON.stringify(it.body) });
+        } else { continue; }
         await _colaBorrar(it.id);
       } catch(e) {
         if (_esErrorDeRed(e)) { break; }             // sin señal: cortar, reintentar después
@@ -47586,7 +47616,7 @@ function depPollIniciar() {
    TCK_UPD_LOCAL aca Y el archivo version.json del repo.
    ============================================================ */
 (function(){
-  var TCK_UPD_LOCAL = '14.81.0';        /* <-- bump en cada deploy */
+  var TCK_UPD_LOCAL = '14.82.0';        /* <-- bump en cada deploy */
   var TCK_UPD_INTERVALO = 10 * 60 * 1000;   /* chequeo de fondo: 10 min */
   var _updUltChequeo = 0;
 
