@@ -15642,6 +15642,68 @@ body {
   contain-intrinsic-size: auto 56px;
 }
 </style>
+<style id="bp-styles">
+  .bp-overlay{position:fixed; inset:0; z-index:9000; background:#FFF8F0; display:none; flex-direction:column; font-family:'Barlow',sans-serif;}
+  .bp-overlay.bp-on{display:flex;}
+  .bp-hdr{background:linear-gradient(135deg,#8B0000,#5e0000); color:#fff; padding:18px 18px 16px;}
+  .bp-hdr h1{font-family:'Barlow Condensed',sans-serif; font-weight:700; font-size:25px; letter-spacing:.3px; line-height:1; margin:0;}
+  .bp-hdr p{font-size:13.5px; opacity:.92; margin:5px 0 0;}
+  .bp-counter{display:flex; align-items:baseline; gap:7px; margin-top:13px;}
+  .bp-counter .bp-n{font-family:'Barlow Condensed',sans-serif; font-weight:700; font-size:40px; line-height:.85;}
+  .bp-counter .bp-lbl{font-size:14px; opacity:.92; font-weight:500;}
+  .bp-rule{background:rgba(255,255,255,.12); border-radius:10px; padding:9px 11px; margin-top:13px; font-size:12px; line-height:1.45; display:flex; flex-direction:column; gap:3px;}
+  .bp-rule b{font-weight:700;}
+  .bp-dot{display:inline-block; width:8px; height:8px; border-radius:50%; margin-right:6px; vertical-align:middle;}
+  .bp-scroll{flex:1; overflow-y:auto; padding:14px 14px 6px; -webkit-overflow-scrolling:touch;}
+  .bp-sec{display:flex; align-items:center; gap:8px; font-family:'Barlow Condensed',sans-serif; font-weight:700; font-size:16px; letter-spacing:.4px; text-transform:uppercase; margin:6px 2px 9px;}
+  .bp-sec.bp-red{color:#8B0000;}
+  .bp-sec.bp-amber{color:#B7791F;}
+  .bp-sec .bp-tag{font-family:'Barlow',sans-serif; font-weight:600; font-size:10.5px; text-transform:none; padding:2px 8px; border-radius:20px; letter-spacing:0;}
+  .bp-sec.bp-red .bp-tag{background:#FBEAEA; color:#8B0000;}
+  .bp-sec.bp-amber .bp-tag{background:#FEF6E4; color:#B7791F;}
+  .bp-card{background:#fff; border-radius:14px; box-shadow:0 2px 12px rgba(139,0,0,.1); border:1px solid rgba(139,0,0,.15); margin-bottom:12px; overflow:hidden; transition:opacity .3s ease, transform .3s ease, max-height .36s ease, margin .36s ease; max-height:520px;}
+  .bp-card.bp-rl{border-left:5px solid #8B0000;}
+  .bp-card.bp-al{border-left:5px solid #B7791F;}
+  .bp-card.bp-leaving{opacity:0; transform:translateX(60px); max-height:0; margin-bottom:0;}
+  .bp-top{display:flex; justify-content:space-between; align-items:flex-start; padding:12px 13px 8px;}
+  .bp-cli{font-family:'Barlow Condensed',sans-serif; font-weight:700; font-size:19px; line-height:1.02;}
+  .bp-loc{font-size:12.5px; color:#7a6a5e; margin-top:2px;}
+  .bp-chip{font-family:'Barlow Condensed',sans-serif; font-weight:700; font-size:11px; white-space:nowrap; padding:4px 9px; border-radius:20px; letter-spacing:.3px;}
+  .bp-chip.bp-red{background:#FBEAEA; color:#8B0000;}
+  .bp-chip.bp-amber{background:#FEF6E4; color:#B7791F;}
+  .bp-body{padding:0 13px 11px;}
+  .bp-items{font-size:13px; color:#4a3f37; line-height:1.4;}
+  .bp-foot{display:flex; justify-content:space-between; align-items:center; margin-top:9px;}
+  .bp-fecha{font-size:11.5px; color:#9a8a7e;}
+  .bp-monto{font-family:'Barlow Condensed',sans-serif; font-weight:700; font-size:19px; color:#1A0800;}
+  .bp-acts{display:flex; flex-direction:column; gap:7px; padding:0 13px 13px;}
+  .bp-acts-sec{display:flex; gap:7px;}
+  .bp-btn{border:none; border-radius:10px; font-family:'Barlow Condensed',sans-serif; font-weight:700; letter-spacing:.4px; cursor:pointer; display:flex; align-items:center; justify-content:center; gap:5px; transition:filter .15s, transform .08s;}
+  .bp-btn:active{transform:scale(.96);}
+  .bp-btn-conf{background:#1B5E20; color:#fff; padding:13px 4px; font-size:16px; width:100%;}
+  .bp-btn-sec{flex:1; background:#fff; padding:10px 3px; font-size:13px;}
+  .bp-btn-edit{color:#B7791F; border:1.5px solid #B7791F;}
+  .bp-btn-repro{color:#0D47A1; border:1.5px solid #0D47A1;}
+  .bp-btn-canc{color:#8B0000; border:1.5px solid #8B0000;}
+  .bp-sub{padding:0 13px 13px; display:none;}
+  .bp-sub.bp-open{display:block;}
+  .bp-sub-t{font-size:12px; font-weight:700; color:#7a6a5e; margin-bottom:7px; text-transform:uppercase; letter-spacing:.5px;}
+  .bp-opts{display:flex; flex-wrap:wrap; gap:7px;}
+  .bp-opt{border:1.5px solid rgba(139,0,0,.15); background:#FFF8F0; border-radius:9px; padding:9px 12px; font-family:'Barlow',sans-serif; font-weight:600; font-size:13px; cursor:pointer; flex:1; min-width:42%; text-align:center; color:#8B0000;}
+  .bp-opt:active{transform:scale(.96);}
+  .bp-subx{width:100%; text-align:center; margin-top:9px; background:none; border:none; color:#9a8a7e; font-family:'Barlow',sans-serif; font-size:12.5px; cursor:pointer; text-decoration:underline;}
+  .bp-footbar{padding:12px 14px calc(12px + env(safe-area-inset-bottom)); background:#FFF8F0; border-top:1px solid rgba(139,0,0,.15);}
+  .bp-enter{width:100%; border:none; border-radius:13px; padding:15px; font-family:'Barlow Condensed',sans-serif; font-weight:700; font-size:17px; letter-spacing:.5px; cursor:pointer; transition:all .15s;}
+  .bp-enter.bp-locked{background:#E4DBCF; color:#a99a8c; cursor:not-allowed;}
+  .bp-enter.bp-soft{background:#fff; color:#B7791F; border:1.5px solid #B7791F;}
+  .bp-note{text-align:center; font-size:11.5px; color:#9a8a7e; margin-top:8px; line-height:1.4;}
+  .bp-done{flex:1; display:flex; flex-direction:column; align-items:center; justify-content:center; text-align:center; padding:40px 30px; gap:14px;}
+  .bp-ring{width:88px; height:88px; border-radius:50%; background:#1B5E20; color:#fff; display:flex; align-items:center; justify-content:center; font-size:46px; box-shadow:0 8px 24px rgba(27,94,32,.3);}
+  .bp-done h2{font-family:'Barlow Condensed',sans-serif; font-weight:700; font-size:26px; color:#1B5E20; margin:0;}
+  .bp-done p{font-size:14px; color:#6a5a4e; line-height:1.5; margin:0;}
+  .bp-toast{position:fixed; left:50%; bottom:96px; transform:translateX(-50%) translateY(20px); background:#1A0800; color:#fff; padding:10px 18px; border-radius:22px; font-size:13px; font-weight:600; opacity:0; transition:all .25s; pointer-events:none; white-space:nowrap; z-index:9100;}
+  .bp-toast.bp-show{opacity:.96; transform:translateX(-50%) translateY(0);}
+</style>
 </head>
 <body>
 
@@ -47122,7 +47184,7 @@ function depPollIniciar() {
    TCK_UPD_LOCAL aca Y el archivo version.json del repo.
    ============================================================ */
 (function(){
-  var TCK_UPD_LOCAL = '14.76.0';        /* <-- bump en cada deploy */
+  var TCK_UPD_LOCAL = '14.78.0';        /* <-- bump en cada deploy */
   var TCK_UPD_INTERVALO = 10 * 60 * 1000;   /* chequeo de fondo: 10 min */
   var _updUltChequeo = 0;
 
@@ -47177,6 +47239,259 @@ function depPollIniciar() {
   setTimeout(_updChequear, 4000);
   setInterval(_updChequear, TCK_UPD_INTERVALO);
   document.addEventListener('visibilitychange', function(){ if (!document.hidden) _updChequear(); });
+})();
+</script>
+<script id="bp-module">
+/* ============================================================
+   TCK · Bandeja de pendientes del vendedor (v1)
+   Módulo 100% aditivo: envuelve login() y editarCerrar().
+   Solo se activa para los 3 vendedores de calle.
+   Reusa cambiarEstado / abrirEditarPedido — no escribe por su cuenta.
+   ============================================================ */
+(function(){
+  'use strict';
+  var BP_VENDEDORES = ['Miguel','Juan','Lisandro'];   // lista blanca estricta
+  var _bpActiva = false;
+  var _bpList = [];
+
+  function bpFechaPedido(p){
+    var m = (p.pedidoId||'').match(/TCK-(\d{4})(\d{2})(\d{2})-\d{4}/);
+    if(m) return new Date(+m[1], (+m[2])-1, +m[3]);
+    var d = new Date((p.fechaHora||'').replace(' ','T'));
+    if(isNaN(d.getTime())) return null;
+    return new Date(d.getFullYear(), d.getMonth(), d.getDate());
+  }
+  function bpDias(p){
+    var f = bpFechaPedido(p); if(!f) return null;
+    var hoy = new Date(); hoy.setHours(0,0,0,0);
+    return Math.round((hoy.getTime() - f.getTime())/86400000);
+  }
+  function bpDiasTxt(d){ return d === 1 ? 'de ayer' : 'hace ' + d + ' días'; }
+  function bpFmt(n){ var x = parseFloat(String(n).replace(/[^0-9.-]/g,'')); return isNaN(x) ? String(n||'') : '$' + Math.round(x).toLocaleString('es-AR'); }
+  function bpEsc(s){ return String(s==null?'':s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'); }
+
+  function bpRecolectar(){
+    var lista = (typeof todosLosPedidos !== 'undefined' && todosLosPedidos) ? todosLosPedidos : [];
+    var out = [];
+    for(var i=0;i<lista.length;i++){
+      var p = lista[i];
+      if((p.estado||'Pendiente') !== 'Pendiente') continue;
+      if(p.vendedor !== (typeof vendedorActual!=='undefined'?vendedorActual:null)) continue;
+      var dias = bpDias(p);
+      if(dias === null || dias < 1) continue;          // de hoy o sin fecha confiable → no molesta
+      out.push({ p:p, dias:dias, sev: dias >= 3 ? 'red' : 'amber' });
+    }
+    out.sort(function(a,b){ if(a.sev!==b.sev) return a.sev==='red'?-1:1; return b.dias-a.dias; });
+    return out;
+  }
+
+  function bpEnsureOverlay(){
+    var ov = document.getElementById('bp-overlay');
+    if(ov) return ov;
+    ov = document.createElement('div');
+    ov.id = 'bp-overlay'; ov.className = 'bp-overlay';
+    document.body.appendChild(ov);
+    var t = document.createElement('div');
+    t.id = 'bp-toast'; t.className = 'bp-toast';
+    document.body.appendChild(t);
+    return ov;
+  }
+
+  function bpRender(){
+    var ov = bpEnsureOverlay();
+    var rojos = _bpList.filter(function(x){return x.sev==='red';});
+    var amar  = _bpList.filter(function(x){return x.sev==='amber';});
+    if(_bpList.length === 0){ bpRenderDone(ov); return; }
+
+    var cards = '';
+    if(rojos.length){
+      cards += '<div class="bp-sec bp-red">⚠ Atrasados +3 días <span class="bp-tag">obligatorio</span></div>';
+      cards += rojos.map(bpCard).join('');
+    }
+    if(amar.length){
+      cards += '<div class="bp-sec bp-amber">🕐 Atrasados <span class="bp-tag">podés postergar</span></div>';
+      cards += amar.map(bpCard).join('');
+    }
+
+    var footHtml;
+    if(rojos.length > 0){
+      footHtml = '<button class="bp-enter bp-locked" id="bp-enter">Resolvé los atrasados para continuar</button>'
+        + '<div class="bp-note">Tenés ' + rojos.length + ' atrasado' + (rojos.length>1?'s':'') + ' de +3 días que no se pueden postergar.</div>';
+    } else {
+      footHtml = '<button class="bp-enter bp-soft" id="bp-enter">Ahora no — entrar igual</button>'
+        + '<div class="bp-note">Te quedan ' + amar.length + '. Podés postergarlos hasta el próximo ingreso.</div>';
+    }
+
+    ov.innerHTML =
+      '<div class="bp-hdr">'
+      + '<h1>Pedidos por resolver</h1>'
+      + '<p>Antes de arrancar, decidí qué hacés con cada uno.</p>'
+      + '<div class="bp-counter"><span class="bp-n">' + _bpList.length + '</span><span class="bp-lbl">' + (_bpList.length===1?'pedido sin resolver':'pedidos sin resolver') + '</span></div>'
+      + '<div class="bp-rule">'
+      +   '<span><span class="bp-dot" style="background:#ff7a7a"></span><b>Atrasados +3 días:</b> los resolvés sí o sí para entrar.</span>'
+      +   '<span><span class="bp-dot" style="background:#FFD700"></span><b>Más recientes:</b> revisalos, podés postergar.</span>'
+      + '</div></div>'
+      + '<div class="bp-scroll">' + cards + '</div>'
+      + '<div class="bp-footbar">' + footHtml + '</div>';
+
+    var be = document.getElementById('bp-enter');
+    if(be) be.onclick = bpTryEnter;
+  }
+
+  function bpCard(x){
+    var p = x.p, sev = x.sev;
+    var resumen = p.resumen || p.items || '';
+    return ''
+      + '<div class="bp-card bp-' + (sev==='red'?'rl':'al') + '" id="bp-card-' + bpEsc(p.pedidoId) + '">'
+      +   '<div class="bp-top"><div>'
+      +     '<div class="bp-cli">' + bpEsc(p.comercio || p.cliente || 'Cliente') + '</div>'
+      +     '<div class="bp-loc">📍 ' + bpEsc(p.localidad || '') + '</div>'
+      +   '</div><div class="bp-chip bp-' + sev + '">' + bpDiasTxt(x.dias) + '</div></div>'
+      +   '<div class="bp-body"><div class="bp-items">' + bpEsc(resumen) + '</div>'
+      +     '<div class="bp-foot"><span class="bp-fecha">Cargado ' + bpDiasTxt(x.dias) + '</span><span class="bp-monto">' + bpFmt(p.total) + '</span></div>'
+      +   '</div>'
+      +   '<div class="bp-acts">'
+      +     '<button class="bp-btn bp-btn-conf" onclick="__bpAccion(\'' + bpEsc(p.pedidoId) + '\',\'confirmar\')">✓ Confirmar</button>'
+      +     '<div class="bp-acts-sec">'
+      +       '<button class="bp-btn bp-btn-sec bp-btn-edit" onclick="__bpSub(\'' + bpEsc(p.pedidoId) + '\',\'edit\')">✎ Editar</button>'
+      +       '<button class="bp-btn bp-btn-sec bp-btn-repro" onclick="__bpAccion(\'' + bpEsc(p.pedidoId) + '\',\'reprogramar\')">🕐 Reprogramar</button>'
+      +       '<button class="bp-btn bp-btn-sec bp-btn-canc" onclick="__bpSub(\'' + bpEsc(p.pedidoId) + '\',\'canc\')">✕ Cancelar</button>'
+      +     '</div>'
+      +   '</div>'
+      +   '<div class="bp-sub" id="bp-sub-' + bpEsc(p.pedidoId) + '"></div>'
+      + '</div>';
+  }
+
+  function bpRenderDone(ov){
+    ov.innerHTML = '<div class="bp-done"><div class="bp-ring">✓</div>'
+      + '<h2>¡Bandeja limpia!</h2><p>No te quedó ningún pedido colgado.<br>Buen día de ventas.</p></div>';
+    setTimeout(bpCerrar, 1100);
+  }
+
+  function bpFind(id){ for(var i=0;i<_bpList.length;i++){ if(_bpList[i].p.pedidoId===id) return _bpList[i]; } return null; }
+
+  window.__bpSub = function(id, tipo){
+    var sub = document.getElementById('bp-sub-' + id); if(!sub) return;
+    if(sub.classList.contains('bp-open') && sub.getAttribute('data-tipo')===tipo){ sub.classList.remove('bp-open'); sub.innerHTML=''; return; }
+    sub.setAttribute('data-tipo', tipo);
+    if(tipo === 'edit'){
+      // Opcion A: editar y reprogramar pasan por el editor existente
+      sub.innerHTML = '<div class="bp-sub-t">Abrir el editor del pedido</div>'
+        + '<div class="bp-opts"><button class="bp-opt" onclick="__bpAccion(\'' + id + '\',\'editar\')">Abrir editor para corregir</button></div>'
+        + '<button class="bp-subx" onclick="__bpSub(\'' + id + '\',\'edit\')">cerrar</button>';
+    } else {
+      sub.innerHTML = '<div class="bp-sub-t">¿Por qué lo cancelás?</div>'
+        + '<div class="bp-opts">'
+        +   '<button class="bp-opt" onclick="__bpAccion(\'' + id + '\',\'cancelar\',\'No se concretó\')">No se concretó</button>'
+        +   '<button class="bp-opt" onclick="__bpAccion(\'' + id + '\',\'cancelar\',\'Cliente desistió\')">Cliente desistió</button>'
+        +   '<button class="bp-opt" onclick="__bpAccion(\'' + id + '\',\'cancelar\',\'Pedido duplicado\')">Duplicado</button>'
+        +   '<button class="bp-opt" onclick="__bpAccion(\'' + id + '\',\'cancelar\',\'Otro\')">Otro motivo</button>'
+        + '</div><button class="bp-subx" onclick="__bpSub(\'' + id + '\',\'canc\')">cerrar</button>';
+    }
+    sub.classList.add('bp-open');
+  };
+
+  window.__bpAccion = async function(id, accion, detalle){
+    var item = bpFind(id); if(!item) return;
+    var p = item.p;
+    try{
+      if(accion === 'confirmar'){
+        if(typeof cambiarEstado !== 'function') throw new Error('cambiarEstado no disponible');
+        await cambiarEstado(p.pedidoId, p.fila, 'Confirmado', null);
+        bpSalir(id, '✓ Confirmado');
+      } else if(accion === 'cancelar'){
+        if(typeof cambiarEstado !== 'function') throw new Error('cambiarEstado no disponible');
+        await cambiarEstado(p.pedidoId, p.fila, 'Cancelado', null, detalle || 'Cancelado');
+        bpSalir(id, '✕ Cancelado: ' + (detalle||''));
+      } else if(accion === 'editar' || accion === 'reprogramar'){
+        // Opcion A: abre el editor existente; al cerrarse, bpReevaluar saca lo resuelto
+        bpOcultar();
+        if(typeof abrirEditarPedido === 'function'){
+          abrirEditarPedido(p, p.detalle || '');
+        } else if(typeof editarPedidoBtn === 'function'){
+          var fake = { stopPropagation:function(){}, target:null };
+          var btn = { getAttribute:function(k){ return k==='data-pid'?p.pedidoId : k==='data-cliente'?(p.cliente||'') : ''; } };
+          editarPedidoBtn(btn, fake);
+        } else {
+          bpToast('No se pudo abrir el editor'); bpMostrar();
+        }
+      }
+    }catch(e){
+      console.error('[bandeja] accion', accion, e);
+      bpToast('⚠️ No se pudo guardar, reintentá');
+    }
+  };
+
+  function bpSalir(id, msg){
+    var card = document.getElementById('bp-card-' + id);
+    bpToast(msg);
+    if(card){ card.classList.add('bp-leaving'); }
+    setTimeout(function(){
+      _bpList = _bpList.filter(function(x){ return x.p.pedidoId !== id; });
+      bpRender();
+    }, 300);
+  }
+
+  function bpTryEnter(){
+    var rojos = _bpList.filter(function(x){return x.sev==='red';});
+    if(rojos.length > 0){ bpToast('Primero resolvé los atrasados'); return; }
+    bpCerrar();
+  }
+
+  function bpMostrar(){ var ov = bpEnsureOverlay(); ov.classList.add('bp-on'); _bpActiva = true; bpRender(); }
+  function bpOcultar(){ var ov = document.getElementById('bp-overlay'); if(ov) ov.classList.remove('bp-on'); }
+  function bpCerrar(){ var ov = document.getElementById('bp-overlay'); if(ov) ov.classList.remove('bp-on'); _bpActiva = false; }
+
+  function bpReevaluar(){
+    _bpList = bpRecolectar();
+    if(_bpList.length){ bpMostrar(); }
+    else { bpCerrar(); }
+  }
+
+  var _bpToastT;
+  function bpToast(msg){
+    var t = document.getElementById('bp-toast'); if(!t) return;
+    t.textContent = msg; t.classList.add('bp-show');
+    clearTimeout(_bpToastT);
+    _bpToastT = setTimeout(function(){ t.classList.remove('bp-show'); }, 1600);
+  }
+
+  async function bpChequear(nombre){
+    if(BP_VENDEDORES.indexOf(nombre) === -1) return;   // solo los 3 vendedores
+    try{
+      var vacio = (typeof todosLosPedidos === 'undefined') || !todosLosPedidos || !todosLosPedidos.length;
+      if(vacio && typeof cargarPedidos === 'function'){ await cargarPedidos(true); }
+    }catch(e){ console.error('[bandeja] cargarPedidos', e); }
+    _bpList = bpRecolectar();
+    if(_bpList.length) bpMostrar();
+  }
+
+  // ── Wraps aditivos (no se toca el código original) ──
+  function bpInstalar(){
+    if(typeof window.login === 'function' && !window.login.__bpWrapped){
+      var _origLogin = window.login;
+      window.login = function(nombre){
+        var r = _origLogin.apply(this, arguments);
+        try{ bpChequear(nombre); }catch(e){ console.error('[bandeja] login hook', e); }
+        return r;
+      };
+      window.login.__bpWrapped = true;
+    }
+    if(typeof window.editarCerrar === 'function' && !window.editarCerrar.__bpWrapped){
+      var _origCerrar = window.editarCerrar;
+      window.editarCerrar = function(){
+        var r = _origCerrar.apply(this, arguments);
+        if(_bpActiva){ setTimeout(bpReevaluar, 60); }
+        return r;
+      };
+      window.editarCerrar.__bpWrapped = true;
+    }
+  }
+  if(document.readyState === 'loading'){
+    document.addEventListener('DOMContentLoaded', function(){ setTimeout(bpInstalar, 0); });
+  } else {
+    setTimeout(bpInstalar, 0);
+  }
 })();
 </script>
 </body>
