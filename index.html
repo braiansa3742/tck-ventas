@@ -35281,7 +35281,7 @@ function _renderComprobanteTransferEstado() {
       html += '<div style="display:flex;align-items:center;gap:10px;margin-bottom:8px;">' +
         '<img src="' + (c.previewUrl || '') + '" alt="comprobante" onclick="_verComprobanteImg(\'' + prev + '\')" style="width:54px;height:54px;border-radius:8px;object-fit:cover;border:1.5px solid #2E7D32;cursor:pointer;flex-shrink:0;">' +
         '<div style="flex:1;min-width:0;">' +
-          '<div style="font-size:13px;font-weight:800;color:#1B5E20;">✅ ' + titulo + ' cargado</div>' +
+          '<div style="font-size:13px;font-weight:800;color:#1B5E20;">' + (c.pendiente ? '⏳ ' + titulo + ' en cola (sube con señal)' : '✅ ' + titulo + ' cargado') + '</div>' +
           '<div style="font-size:11px;color:#2E7D32;">Tocá la foto para verla en grande</div>' +
         '</div>' +
         '<button type="button" onclick="_quitarComprobanteTransfer(' + idx + ')" style="background:#FFEBEE;border:1.5px solid rgba(198,40,40,.3);color:#C62828;border-radius:8px;padding:8px 10px;font-family:\'Barlow Condensed\',sans-serif;font-size:12px;font-weight:800;cursor:pointer;touch-action:manipulation;flex-shrink:0;">Quitar</button>' +
@@ -35312,25 +35312,25 @@ function _renderComprobanteTransferEstado() {
 
 async function _comprobanteTransferSeleccionada(input) {
   var file = input.files && input.files[0];
-  input.value = ''; // permitir re-elegir el mismo archivo
+  input.value = '';
   if (!file) return;
-  // v14.57.0 — cada selección AGREGA un comprobante a la lista (no pisa).
-  var item = { path: null, previewUrl: URL.createObjectURL(file), subiendo: true };
+  // v14.81.0 — ruta reservada antes de subir. Sin señal -> 'pendiente' (cola offline).
+  var e = _entregasCache.find(function(x) { return x.id === _entregaModalId; });
+  var base = ((e && e.pedido_id) ? e.pedido_id : ('ent' + (_entregaModalId || ''))) +
+             '_t' + (_comprobantesTransfer.length + 1);
+  var item = { path: _rutaStorage('transferencias', base), previewUrl: URL.createObjectURL(file), blob: null, subiendo: true, pendiente: false };
   _comprobantesTransfer.push(item);
   _renderComprobanteTransferEstado();
   try {
-    var e = _entregasCache.find(function(x) { return x.id === _entregaModalId; });
-    var base = ((e && e.pedido_id) ? e.pedido_id : ('ent' + (_entregaModalId || ''))) +
-               '_t' + _comprobantesTransfer.length;
-    var path = await _subirComprobante(file, 'transferencias', base);
-    item.path = path;
+    item.blob = await _comprimirImagen(file, 1600, 0.72);
+    var r = await _subirOPendiente('comprobantes', item.path, item.blob);
     item.subiendo = false;
+    item.pendiente = (r === 'pendiente');
+    if (!item.pendiente) item.blob = null;
     _renderComprobanteTransferEstado();
-    toast('✅ Comprobante cargado', 'ok');
+    toast(item.pendiente ? '✅ Comprobante guardado (se sube con señal)' : '✅ Comprobante cargado', 'ok');
   } catch(err) {
     console.error('Error subiendo comprobante de transferencia:', err);
-    // Si falló la subida, sacarlo de la lista para que no quede un
-    // item fantasma sin path bloqueando nada.
     var i = _comprobantesTransfer.indexOf(item);
     if (i !== -1) {
       try { URL.revokeObjectURL(item.previewUrl); } catch(e2){}
@@ -35414,7 +35414,7 @@ function _renderFotoEntregaEstado() {
       html += '<div style="display:flex;align-items:center;gap:10px;margin-bottom:8px;">' +
         '<img src="' + (c.previewUrl || '') + '" alt="foto entrega" onclick="_verComprobanteImg(\'' + prev + '\')" style="width:54px;height:54px;border-radius:8px;object-fit:cover;border:1.5px solid #1565C0;cursor:pointer;flex-shrink:0;">' +
         '<div style="flex:1;min-width:0;">' +
-          '<div style="font-size:13px;font-weight:800;color:#0D47A1;">✅ ' + titulo + ' cargada</div>' +
+          '<div style="font-size:13px;font-weight:800;color:#0D47A1;">' + (c.pendiente ? '⏳ ' + titulo + ' en cola (sube con señal)' : '✅ ' + titulo + ' cargada') + '</div>' +
           '<div style="font-size:11px;color:#1565C0;">Tocá la foto para verla en grande</div>' +
         '</div>' +
         '<button type="button" onclick="_quitarFotoEntrega(' + idx + ')" style="background:#FFEBEE;border:1.5px solid rgba(198,40,40,.3);color:#C62828;border-radius:8px;padding:8px 10px;font-family:\'Barlow Condensed\',sans-serif;font-size:12px;font-weight:800;cursor:pointer;touch-action:manipulation;flex-shrink:0;">Quitar</button>' +
@@ -35445,18 +35445,21 @@ async function _fotoEntregaSeleccionada(input) {
   var file = input.files && input.files[0];
   input.value = '';
   if (!file) return;
-  var item = { path: null, previewUrl: URL.createObjectURL(file), subiendo: true };
+  // v14.81.0 — ruta reservada + cola offline (igual que el comprobante).
+  var e = _entregasCache.find(function(x) { return x.id === _entregaModalId; });
+  var base = ((e && e.pedido_id) ? e.pedido_id : ('ent' + (_entregaModalId || ''))) +
+             '_f' + (_fotosEntrega.length + 1);
+  var item = { path: _rutaStorage('entregas', base), previewUrl: URL.createObjectURL(file), blob: null, subiendo: true, pendiente: false };
   _fotosEntrega.push(item);
   _renderFotoEntregaEstado();
   try {
-    var e = _entregasCache.find(function(x) { return x.id === _entregaModalId; });
-    var base = ((e && e.pedido_id) ? e.pedido_id : ('ent' + (_entregaModalId || ''))) +
-               '_f' + _fotosEntrega.length;
-    var path = await _subirFotoEntrega(file, base);
-    item.path = path;
+    item.blob = await _comprimirImagen(file, 1600, 0.72);
+    var r = await _subirOPendiente('entregas-fotos', item.path, item.blob);
     item.subiendo = false;
+    item.pendiente = (r === 'pendiente');
+    if (!item.pendiente) item.blob = null;
     _renderFotoEntregaEstado();
-    toast('✅ Foto cargada', 'ok');
+    toast(item.pendiente ? '✅ Foto guardada (se sube con señal)' : '✅ Foto cargada', 'ok');
   } catch(err) {
     console.error('Error subiendo foto de entrega:', err);
     var ix = _fotosEntrega.indexOf(item);
@@ -35483,6 +35486,155 @@ function _resetFotoEntrega() {
   });
   _fotosEntrega = [];
 }
+
+// ═══════════════════════════════════════════════════════════════
+// v14.81.0 — COLA OFFLINE DE SUBIDAS (IndexedDB)
+// ═══════════════════════════════════════════════════════════════
+// Para señal débil: la foto pesada que no llega a subir queda en esta
+// cola (persiste aunque cierren la app) y se sube sola cuando mejora la
+// señal. La confirmación de la entrega (PATCH chico) pasa igual.
+// Tipos de ítem: 'storage' (blob -> bucket). ('rest' se suma en v14.82.0.)
+var _COLA_DB = 'tckColaSubidas';
+var _COLA_STORE = 'cola';
+var _colaDbPromise = null;
+var _colaFlushing = false;
+
+function _rutaStorage(carpeta, base) {
+  var f = new Date();
+  var ym = f.getFullYear() + '-' + String(f.getMonth() + 1).padStart(2, '0');
+  var safe = String(base || 'x').replace(/[^a-zA-Z0-9_-]/g, '').slice(0, 40) || 'x';
+  return carpeta + '/' + ym + '/' + safe + '_' + Date.now() + '.jpg';
+}
+
+// PUT de un blob a un bucket. Timeout 20s (clave en señal débil: si cuelga,
+// aborta y el caller lo deja 'pendiente' en vez de trabar la UI).
+async function _subirABucket(bucket, ruta, blob) {
+  var ctrl = (typeof AbortController !== 'undefined') ? new AbortController() : null;
+  var to = ctrl ? setTimeout(function(){ try { ctrl.abort(); } catch(e){} }, 20000) : null;
+  try {
+    var resp = await fetch(SUPABASE_URL + '/storage/v1/object/' + bucket + '/' + ruta, {
+      method: 'POST',
+      headers: {
+        'apikey': SUPABASE_KEY,
+        'Authorization': 'Bearer ' + SUPABASE_KEY,
+        'Content-Type': 'image/jpeg',
+        'x-upsert': 'true'
+      },
+      body: blob,
+      signal: ctrl ? ctrl.signal : undefined
+    });
+    if (!resp.ok) {
+      var t = ''; try { t = await resp.text(); } catch(e){}
+      var err = new Error('Storage ' + resp.status + ': ' + t);
+      err.httpStatus = resp.status;   // hubo respuesta del server (no es falta de señal)
+      throw err;
+    }
+    return true;
+  } finally {
+    if (to) clearTimeout(to);
+  }
+}
+
+// ¿El error es por falta de señal (encolar) o lo rechazó el server (mostrar)?
+function _esErrorDeRed(err) {
+  if (typeof navigator !== 'undefined' && navigator.onLine === false) return true;
+  if (err && err.httpStatus) return false;   // el server respondió -> no es red
+  return true;                               // timeout / fetch sin status -> red
+}
+
+// Intenta subir ya. Devuelve 'subido' o 'pendiente' (sin señal). Lanza solo
+// si el server rechazó de verdad (el caller saca el ítem y avisa).
+async function _subirOPendiente(bucket, ruta, blob) {
+  try {
+    await _subirABucket(bucket, ruta, blob);
+    return 'subido';
+  } catch(e) {
+    if (_esErrorDeRed(e)) return 'pendiente';
+    throw e;
+  }
+}
+
+function _colaAbrir() {
+  if (_colaDbPromise) return _colaDbPromise;
+  _colaDbPromise = new Promise(function(resolve, reject) {
+    try {
+      var req = indexedDB.open(_COLA_DB, 1);
+      req.onupgradeneeded = function(ev) {
+        var db = ev.target.result;
+        if (!db.objectStoreNames.contains(_COLA_STORE)) {
+          db.createObjectStore(_COLA_STORE, { keyPath: 'id' });
+        }
+      };
+      req.onsuccess = function(ev) { resolve(ev.target.result); };
+      req.onerror = function() { reject(req.error); };
+    } catch(e) { reject(e); }
+  });
+  return _colaDbPromise;
+}
+
+function _colaPut(item) {
+  return _colaAbrir().then(function(db) {
+    return new Promise(function(resolve, reject) {
+      var tx = db.transaction(_COLA_STORE, 'readwrite');
+      tx.objectStore(_COLA_STORE).put(item);
+      tx.oncomplete = function() { resolve(true); };
+      tx.onerror = function() { reject(tx.error); };
+    });
+  });
+}
+
+function _colaBorrar(id) {
+  return _colaAbrir().then(function(db) {
+    return new Promise(function(resolve) {
+      var tx = db.transaction(_COLA_STORE, 'readwrite');
+      tx.objectStore(_COLA_STORE).delete(id);
+      tx.oncomplete = function() { resolve(true); };
+      tx.onerror = function() { resolve(false); };
+    });
+  });
+}
+
+function _colaTodos() {
+  return _colaAbrir().then(function(db) {
+    return new Promise(function(resolve) {
+      var tx = db.transaction(_COLA_STORE, 'readonly');
+      var req = tx.objectStore(_COLA_STORE).getAll();
+      req.onsuccess = function() { resolve(req.result || []); };
+      req.onerror = function() { resolve([]); };
+    });
+  }).catch(function(){ return []; });
+}
+
+// Sube lo pendiente. Reentrante-safe. Si falta señal, corta y reintenta luego.
+async function _colaFlush() {
+  if (_colaFlushing) return;
+  if (typeof navigator !== 'undefined' && navigator.onLine === false) return;
+  _colaFlushing = true;
+  try {
+    var items = await _colaTodos();
+    for (var i = 0; i < items.length; i++) {
+      var it = items[i];
+      if (!it || it.tipo !== 'storage') continue;   // 'rest' -> v14.82.0
+      try {
+        await _subirABucket(it.bucket, it.ruta, it.blob);
+        await _colaBorrar(it.id);
+      } catch(e) {
+        if (_esErrorDeRed(e)) { break; }             // sin señal: cortar, reintentar después
+        console.warn('[cola] item rechazado por server, lo descarto:', it.id, e && e.message);
+        await _colaBorrar(it.id);                    // server lo rechaza -> no trabar la cola
+      }
+    }
+  } finally {
+    _colaFlushing = false;
+  }
+}
+
+// Disparadores: al reconectar, cada minuto, y al cargar (items de sesiones previas).
+try {
+  window.addEventListener('online', function(){ _colaFlush().catch(function(){}); });
+  setInterval(function(){ _colaFlush().catch(function(){}); }, 60000);
+  _colaFlush().catch(function(){});
+} catch(e) { console.warn('[cola] no se pudo inicializar:', e); }
 
 function _chequeFotoHTML(ch, idx) {
   var header = '<div style="font-size:11px;font-weight:700;color:var(--text3);text-transform:uppercase;letter-spacing:.8px;margin-bottom:4px;">Foto del cheque (frente)</div>';
@@ -35517,22 +35669,28 @@ async function _chequeFotoSeleccionada(idx, input) {
   input.value = '';
   if (!file || !_chequesData[idx]) return;
   if (_chequesData[idx].fotoPreview) { try { URL.revokeObjectURL(_chequesData[idx].fotoPreview); } catch(e){} }
+  // v14.81.0 — ruta reservada + cola offline para la foto del cheque.
+  var e = _entregasCache.find(function(x) { return x.id === _entregaModalId; });
+  var base = ((e && e.pedido_id) ? e.pedido_id : ('ent' + (_entregaModalId || ''))) + '_ch' + (idx + 1);
   _chequesData[idx].fotoPreview = URL.createObjectURL(file);
-  _chequesData[idx].fotoPath = null;
+  _chequesData[idx].fotoPath = _rutaStorage('cheques', base);
+  _chequesData[idx].fotoBlob = null;
+  _chequesData[idx].fotoPendiente = false;
   _chequesData[idx].fotoSubiendo = true;
   _renderChequesLista();
   try {
-    var e = _entregasCache.find(function(x) { return x.id === _entregaModalId; });
-    var base = ((e && e.pedido_id) ? e.pedido_id : ('ent' + (_entregaModalId || ''))) + '_ch' + (idx + 1);
-    var path = await _subirComprobante(file, 'cheques', base);
+    var ruta = _chequesData[idx] ? _chequesData[idx].fotoPath : null;
+    var blob = await _comprimirImagen(file, 1600, 0.72);
+    var r = await _subirOPendiente('comprobantes', ruta, blob);
     if (_chequesData[idx]) {
-      _chequesData[idx].fotoPath = path;
       _chequesData[idx].fotoSubiendo = false;
+      _chequesData[idx].fotoPendiente = (r === 'pendiente');
+      _chequesData[idx].fotoBlob = (r === 'pendiente') ? blob : null;
     }
     _renderChequesLista();
   } catch(err) {
     console.error('Error subiendo foto de cheque:', err);
-    if (_chequesData[idx]) { _chequesData[idx].fotoSubiendo = false; _chequesData[idx].fotoPath = null; }
+    if (_chequesData[idx]) { _chequesData[idx].fotoSubiendo = false; _chequesData[idx].fotoPath = null; _chequesData[idx].fotoBlob = null; }
     _renderChequesLista();
     toast('❌ No se pudo subir la foto del cheque. Probá de nuevo', 'err');
   }
@@ -35770,6 +35928,17 @@ async function _ejecutarConfirmacionEntrega(cobros) {
 
   try {
     await sbFetch('entregas?id=eq.' + _entregaModalId, { method:'PATCH', body:JSON.stringify(payload) });
+    // v14.81.0 — persistir en la cola las fotos que quedaron 'pendientes' (señal débil).
+    try {
+      var _pendientes = [];
+      _fotosEntrega.forEach(function(f){ if (f.pendiente && f.blob && f.path) _pendientes.push(['entregas-fotos', f.path, f.blob]); });
+      _comprobantesTransfer.forEach(function(c){ if (c.pendiente && c.blob && c.path) _pendientes.push(['comprobantes', c.path, c.blob]); });
+      (_chequesData || []).forEach(function(ch){ if (ch && ch.fotoPendiente && ch.fotoBlob && ch.fotoPath) _pendientes.push(['comprobantes', ch.fotoPath, ch.fotoBlob]); });
+      for (var _pi = 0; _pi < _pendientes.length; _pi++) {
+        await _colaPut({ id: _pendientes[_pi][1], tipo: 'storage', bucket: _pendientes[_pi][0], ruta: _pendientes[_pi][1], blob: _pendientes[_pi][2], creado: Date.now(), intentos: 0 });
+      }
+      if (_pendientes.length > 0) { _colaFlush().catch(function(){}); }
+    } catch(_eCola) { console.warn('[cola] no se pudo encolar foto pendiente:', _eCola); }
     const e = _entregasCache.find(x => x.id === _entregaModalId);
 
     // v14.16.2 — Insertar cheques en BD acá (movido desde
@@ -47417,7 +47586,7 @@ function depPollIniciar() {
    TCK_UPD_LOCAL aca Y el archivo version.json del repo.
    ============================================================ */
 (function(){
-  var TCK_UPD_LOCAL = '14.80.0';        /* <-- bump en cada deploy */
+  var TCK_UPD_LOCAL = '14.81.0';        /* <-- bump en cada deploy */
   var TCK_UPD_INTERVALO = 10 * 60 * 1000;   /* chequeo de fondo: 10 min */
   var _updUltChequeo = 0;
 
