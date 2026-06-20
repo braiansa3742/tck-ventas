@@ -3,6 +3,10 @@
 <head>
 <!-- ═══════════════════════════════════════════════════════════════════════
      TCK VENTAS — v14.75.0 — 13/06/2026
+     v14.83.0: DEPOSITO/PANCHO -- al recibir una devolucion marca la
+        CONDICION (Buena / Danada / Vencida) con chips de un toque
+        (default Buena). Se guarda en devoluciones.recepcion_condicion
+        (columna nueva, ver DDL). Pancho NO ve monto ni NC.
      v14.77.0: PROPONER ACUERDO restringido a vendedores (Miguel/Juan/
         Lisandro). Gateo de la entrada del menu Mas (id menu-mas-proponer), del
         boton en Acuerdos VIP y guard en acuPropAbrir. Choferes, deposito y
@@ -46023,6 +46027,12 @@ var _miRondaOrigCargarPedidos = null;
 .dep-qty-num { min-width:26px;text-align:center;font-family:'Barlow Condensed',sans-serif;font-size:18px;font-weight:900;color:#2E7D32; }
 .dep-qty-num.dif { color:#C62828; }
 .dep-nota { width:100%;margin-top:8px;padding:8px 10px;border:1.5px solid #E8DFD5;border-radius:8px;font-size:13px;resize:none;background:#fff;color:#2A2018;box-sizing:border-box; }
+.dep-cond-lbl{font-size:11px;color:#8A7E72;margin:8px 2px 5px;text-transform:uppercase;letter-spacing:.6px;font-weight:800;}
+.dep-cond{display:grid;grid-template-columns:repeat(3,1fr);gap:6px;margin-bottom:8px;}
+.dep-cond-btn{padding:11px 4px;border:1.5px solid #E8DFD5;border-radius:10px;background:#FAF6F0;font-family:'Barlow Condensed',sans-serif;font-size:13px;font-weight:800;color:#5C4A38;cursor:pointer;}
+.dep-cond-btn.sel{background:#2E7D32;border-color:#2E7D32;color:#fff;}
+.dep-cond-btn.sel.cond-danio{background:#E65100;border-color:#E65100;}
+.dep-cond-btn.sel.cond-venc{background:#C62828;border-color:#C62828;}
 .dep-btn-recibir { width:100%;margin-top:10px;background:linear-gradient(135deg,#1B5E20,#2E7D32);color:#fff;border:none;border-radius:10px;padding:12px;font-family:'Barlow Condensed',sans-serif;font-size:16px;font-weight:900;letter-spacing:.5px;cursor:pointer;touch-action:manipulation; }
 .dep-btn-recibir:disabled { opacity:.55; }
 .dep-dif-aviso { margin-top:8px;background:#FFEBEE;border:1.5px solid #EF9A9A;border-radius:8px;padding:8px 10px;font-size:12px;color:#C62828;font-weight:700;display:none; }
@@ -46271,7 +46281,7 @@ function _depBodyRecepcionHtml(r) {
     var its = _depParseItems(r.items).map(function(it) {
       return { nombre: it.nombre, declarado: it.qty, recibido: it.qty };
     });
-    ed = _depEdit[r.id] = { items: its, nota: '' };
+    ed = _depEdit[r.id] = { items: its, nota: '', condicion: 'buena' };
   }
   var cat = _DEP_CATS[r.motivo_categoria] || r.motivo_categoria || '—';
   var h = '';
@@ -46294,6 +46304,11 @@ function _depBodyRecepcionHtml(r) {
   }
   var hayDif = ed.items.some(function(it) { return it.recibido !== it.declarado; });
   h += '<div class="dep-dif-aviso" id="dep-dif-' + _depEsc(r.id) + '" style="display:' + (hayDif ? 'block' : 'none') + ';">⚠️ Lo recibido NO coincide con lo que declaró el chofer. Quedará marcado para administración y el chofer.</div>';
+  // v14.83 — condición de la mercadería recibida (Pancho)
+  var _conds = [['buena','✅ Buena',''],['danada','⚠️ Dañada','cond-danio'],['vencida','⛔ Vencida','cond-venc']];
+  h += '<div class="dep-cond-lbl">¿En qué estado llegó la mercadería?</div><div class="dep-cond">';
+  _conds.forEach(function(c){ h += '<button class="dep-cond-btn ' + c[2] + ((ed.condicion||'buena') === c[0] ? ' sel' : '') + '" onclick="depCondicion(\'' + _depEsc(r.id) + '\',\'' + c[0] + '\')">' + c[1] + '</button>'; });
+  h += '</div>';
   h += '<textarea class="dep-nota" id="dep-nota-' + _depEsc(r.id) + '" rows="2" placeholder="Nota de recepción (opcional — obligatoria si hay diferencia)" oninput="depNota(\'' + _depEsc(r.id) + '\', this.value)">' + _depEsc(ed.nota) + '</textarea>';
   h += '<button class="dep-btn-recibir" id="dep-btn-' + _depEsc(r.id) + '" onclick="depRecibir(\'' + _depEsc(r.id) + '\')">✅ RECIBIDO EN DEPÓSITO</button>';
   return h;
@@ -46335,6 +46350,10 @@ function depQty(id, idx, delta) {
   depositoRender();
 }
 
+function depCondicion(id, val) {
+  var ed = _depEdit[id];
+  if (ed) { ed.condicion = val; depositoRender(); }
+}
 function depNota(id, val) {
   var ed = _depEdit[id];
   if (ed) ed.nota = val;
@@ -46360,7 +46379,8 @@ async function depRecibir(id) {
       recibida_por: vendedorActual || 'Pancho',
       recibido_json: ed.items,
       recepcion_diferencia: hayDif,
-      recepcion_nota: nota || null
+      recepcion_nota: nota || null,
+      recepcion_condicion: ed.condicion || 'buena'
     };
     // Patrón anti-RLS-silencioso: pedir la fila de vuelta y validar
     var rows = await sbFetch('devoluciones?id=eq.' + encodeURIComponent(id), {
@@ -47616,7 +47636,7 @@ function depPollIniciar() {
    TCK_UPD_LOCAL aca Y el archivo version.json del repo.
    ============================================================ */
 (function(){
-  var TCK_UPD_LOCAL = '14.82.0';        /* <-- bump en cada deploy */
+  var TCK_UPD_LOCAL = '14.83.0';        /* <-- bump en cada deploy */
   var TCK_UPD_INTERVALO = 10 * 60 * 1000;   /* chequeo de fondo: 10 min */
   var _updUltChequeo = 0;
 
