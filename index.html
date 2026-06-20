@@ -3,6 +3,10 @@
 <head>
 <!-- ═══════════════════════════════════════════════════════════════════════
      TCK VENTAS — v14.75.0 — 13/06/2026
+     v14.86.0: DEPOSITO/PANCHO -- R2 coincidencia obligatoria: lo recibido
+        DEBE coincidir con lo declarado por el chofer. Si no coincide, NO
+        se puede recibir (se resuelve con el chofer). No mas recepcion con
+        diferencia silenciosa.
      v14.85.0: DEPOSITO/PANCHO -- la foto de recepcion es OBLIGATORIA
         (no se puede confirmar sin al menos una). Control de lo que se acepta.
      v14.84.0: DEPOSITO/PANCHO -- ademas puede subir foto(s) de como
@@ -46410,6 +46414,10 @@ async function depRecibir(id) {
     if (typeof toast === 'function') toast('📷 Sacá al menos una foto de cómo llegó la mercadería antes de confirmar', 'err');
     return;
   }
+  if (ed.items.some(function(it){ return it.recibido !== it.declarado; })) {
+    if (typeof toast === 'function') toast('⚠️ Lo recibido no coincide con lo declarado por el chofer. Tiene que coincidir — si falta o sobra algo, resolvelo con el chofer antes de recibir', 'err');
+    return;
+  }
   var hayDif = ed.items.some(function(it) { return it.recibido !== it.declarado; });
   var nota = (ed.nota || '').trim();
   if (hayDif && !nota) {
@@ -47685,7 +47693,7 @@ function depPollIniciar() {
    TCK_UPD_LOCAL aca Y el archivo version.json del repo.
    ============================================================ */
 (function(){
-  var TCK_UPD_LOCAL = '14.85.0';        /* <-- bump en cada deploy */
+  var TCK_UPD_LOCAL = '14.86.0';        /* <-- bump en cada deploy */
   var TCK_UPD_INTERVALO = 10 * 60 * 1000;   /* chequeo de fondo: 10 min */
   var _updUltChequeo = 0;
 
