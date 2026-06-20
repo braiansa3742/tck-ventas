@@ -3,6 +3,12 @@
 <head>
 <!-- ═══════════════════════════════════════════════════════════════════════
      TCK VENTAS — v14.75.0 — 13/06/2026
+     v14.85.0: DEPOSITO/PANCHO -- la foto de recepcion es OBLIGATORIA
+        (no se puede confirmar sin al menos una). Control de lo que se acepta.
+     v14.84.0: DEPOSITO/PANCHO -- ademas puede subir foto(s) de como
+        llego la mercaderia al recibir (bucket entregas-fotos, carpeta
+        recepcion). Se guardan los paths en devoluciones.recepcion_foto
+        (columna nueva, ver DDL). Reusa _subirOPendiente (cola offline).
      v14.83.0: DEPOSITO/PANCHO -- al recibir una devolucion marca la
         CONDICION (Buena / Danada / Vencida) con chips de un toque
         (default Buena). Se guarda en devoluciones.recepcion_condicion
@@ -46033,6 +46039,13 @@ var _miRondaOrigCargarPedidos = null;
 .dep-cond-btn.sel{background:#2E7D32;border-color:#2E7D32;color:#fff;}
 .dep-cond-btn.sel.cond-danio{background:#E65100;border-color:#E65100;}
 .dep-cond-btn.sel.cond-venc{background:#C62828;border-color:#C62828;}
+.dep-foto-lbl{font-size:11px;color:#8A7E72;margin:6px 2px 5px;text-transform:uppercase;letter-spacing:.6px;font-weight:800;}
+.dep-foto-wrap{display:flex;flex-wrap:wrap;gap:8px;margin-bottom:8px;align-items:center;}
+.dep-foto-thumb{position:relative;width:64px;height:64px;border-radius:10px;overflow:hidden;border:1.5px solid #E8DFD5;background:#FAF6F0;}
+.dep-foto-thumb img{width:100%;height:100%;object-fit:cover;}
+.dep-foto-spin{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;background:rgba(255,255,255,.6);font-size:18px;}
+.dep-foto-x{position:absolute;top:1px;right:1px;width:18px;height:18px;border:none;border-radius:50%;background:rgba(0,0,0,.6);color:#fff;font-weight:900;cursor:pointer;line-height:1;padding:0;}
+.dep-foto-add{width:64px;height:64px;border-radius:10px;border:1.5px dashed #B8860B;background:#FFF8E1;display:flex;align-items:center;justify-content:center;font-size:24px;cursor:pointer;}
 .dep-btn-recibir { width:100%;margin-top:10px;background:linear-gradient(135deg,#1B5E20,#2E7D32);color:#fff;border:none;border-radius:10px;padding:12px;font-family:'Barlow Condensed',sans-serif;font-size:16px;font-weight:900;letter-spacing:.5px;cursor:pointer;touch-action:manipulation; }
 .dep-btn-recibir:disabled { opacity:.55; }
 .dep-dif-aviso { margin-top:8px;background:#FFEBEE;border:1.5px solid #EF9A9A;border-radius:8px;padding:8px 10px;font-size:12px;color:#C62828;font-weight:700;display:none; }
@@ -46281,7 +46294,7 @@ function _depBodyRecepcionHtml(r) {
     var its = _depParseItems(r.items).map(function(it) {
       return { nombre: it.nombre, declarado: it.qty, recibido: it.qty };
     });
-    ed = _depEdit[r.id] = { items: its, nota: '', condicion: 'buena' };
+    ed = _depEdit[r.id] = { items: its, nota: '', condicion: 'buena', fotos: [] };
   }
   var cat = _DEP_CATS[r.motivo_categoria] || r.motivo_categoria || '—';
   var h = '';
@@ -46310,6 +46323,14 @@ function _depBodyRecepcionHtml(r) {
   _conds.forEach(function(c){ h += '<button class="dep-cond-btn ' + c[2] + ((ed.condicion||'buena') === c[0] ? ' sel' : '') + '" onclick="depCondicion(\'' + _depEsc(r.id) + '\',\'' + c[0] + '\')">' + c[1] + '</button>'; });
   h += '</div>';
   h += '<textarea class="dep-nota" id="dep-nota-' + _depEsc(r.id) + '" rows="2" placeholder="Nota de recepción (opcional — obligatoria si hay diferencia)" oninput="depNota(\'' + _depEsc(r.id) + '\', this.value)">' + _depEsc(ed.nota) + '</textarea>';
+  // v14.84 — foto de cómo se recibió la mercadería
+  ed.fotos = ed.fotos || [];
+  h += '<div class="dep-foto-lbl">📷 Foto de cómo llegó (OBLIGATORIA)</div><div class="dep-foto-wrap">';
+  ed.fotos.forEach(function(ft, fi){
+    h += '<div class="dep-foto-thumb">' + (ft.previewUrl ? '<img src="' + ft.previewUrl + '">' : '') + (ft.subiendo ? '<span class="dep-foto-spin">⏳</span>' : '') + '<button class="dep-foto-x" onclick="depQuitarFoto(\'' + _depEsc(r.id) + '\',' + fi + ')">×</button></div>';
+  });
+  h += '<label class="dep-foto-add">📷<input type="file" accept="image/*" capture="environment" style="display:none" onchange="depFotoSel(\'' + _depEsc(r.id) + '\',this)"></label>';
+  h += '</div>';
   h += '<button class="dep-btn-recibir" id="dep-btn-' + _depEsc(r.id) + '" onclick="depRecibir(\'' + _depEsc(r.id) + '\')">✅ RECIBIDO EN DEPÓSITO</button>';
   return h;
 }
@@ -46350,6 +46371,29 @@ function depQty(id, idx, delta) {
   depositoRender();
 }
 
+async function depFotoSel(id, input) {
+  var file = input.files && input.files[0]; input.value = '';
+  if (!file) return;
+  var ed = _depEdit[id]; if (!ed) return; ed.fotos = ed.fotos || [];
+  var base = 'recep_' + id + '_' + (ed.fotos.length + 1);
+  var item = { path: _rutaStorage('recepcion', base), previewUrl: URL.createObjectURL(file), subiendo: true, pendiente: false };
+  ed.fotos.push(item); depositoRender();
+  try {
+    var blob = await _comprimirImagen(file, 1600, 0.72);
+    var rr = await _subirOPendiente('entregas-fotos', item.path, blob);
+    item.subiendo = false; item.pendiente = (rr === 'pendiente'); depositoRender();
+    if (typeof toast === 'function') toast(item.pendiente ? '📷 Foto guardada (se sube con señal)' : '📷 Foto cargada', 'ok');
+  } catch(err) {
+    console.error('[depósito] foto:', err);
+    var ix = ed.fotos.indexOf(item); if (ix !== -1) ed.fotos.splice(ix, 1); depositoRender();
+    if (typeof toast === 'function') toast('❌ No se pudo subir la foto — reintentá', 'err');
+  }
+}
+function depQuitarFoto(id, idx) {
+  var ed = _depEdit[id]; if (!ed || !ed.fotos) return;
+  var f = ed.fotos[idx]; if (f && f.previewUrl) { try { URL.revokeObjectURL(f.previewUrl); } catch(e){} }
+  ed.fotos.splice(idx, 1); depositoRender();
+}
 function depCondicion(id, val) {
   var ed = _depEdit[id];
   if (ed) { ed.condicion = val; depositoRender(); }
@@ -46362,6 +46406,10 @@ function depNota(id, val) {
 async function depRecibir(id) {
   var ed = _depEdit[id];
   if (!ed) return;
+  if (!ed.fotos || !ed.fotos.length) {
+    if (typeof toast === 'function') toast('📷 Sacá al menos una foto de cómo llegó la mercadería antes de confirmar', 'err');
+    return;
+  }
   var hayDif = ed.items.some(function(it) { return it.recibido !== it.declarado; });
   var nota = (ed.nota || '').trim();
   if (hayDif && !nota) {
@@ -46380,7 +46428,8 @@ async function depRecibir(id) {
       recibido_json: ed.items,
       recepcion_diferencia: hayDif,
       recepcion_nota: nota || null,
-      recepcion_condicion: ed.condicion || 'buena'
+      recepcion_condicion: ed.condicion || 'buena',
+      recepcion_foto: (ed.fotos && ed.fotos.length) ? JSON.stringify(ed.fotos.map(function(f){ return f.path; })) : null
     };
     // Patrón anti-RLS-silencioso: pedir la fila de vuelta y validar
     var rows = await sbFetch('devoluciones?id=eq.' + encodeURIComponent(id), {
@@ -47636,7 +47685,7 @@ function depPollIniciar() {
    TCK_UPD_LOCAL aca Y el archivo version.json del repo.
    ============================================================ */
 (function(){
-  var TCK_UPD_LOCAL = '14.83.0';        /* <-- bump en cada deploy */
+  var TCK_UPD_LOCAL = '14.85.0';        /* <-- bump en cada deploy */
   var TCK_UPD_INTERVALO = 10 * 60 * 1000;   /* chequeo de fondo: 10 min */
   var _updUltChequeo = 0;
 
