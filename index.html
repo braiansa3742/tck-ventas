@@ -2,7 +2,13 @@
 <html lang="es">
 <head>
 <!-- ═══════════════════════════════════════════════════════════════════════
-     TCK VENTAS — v14.75.0 — 13/06/2026
+     TCK VENTAS — v14.87.0 — 22/06/2026
+     v14.87.0: FOTO DESDE CAMARA -- se quita capture="environment" de los 4
+        inputs de foto (entrega, comprobante transferencia, cheque, recepcion
+        deposito). El capture forzaba la camara a pantalla completa y Android
+        reiniciaba la pestana al volver ("se sale de la app" al dar Aceptar),
+        perdiendo el estado del modal y el cobro sin cargar. Ahora abren el
+        selector del sistema (camara/galeria), estable en memoria.
      v14.86.0: DEPOSITO/PANCHO -- R2 coincidencia obligatoria: lo recibido
         DEBE coincidir con lo declarado por el chofer. Si no coincide, NO
         se puede recibir (se resuelve con el chofer). No mas recepcion con
@@ -16641,7 +16647,7 @@ body {
             <div style="font-size:12px;color:#2E7D32;margin-bottom:10px;line-height:1.35;">Subí o sacá la captura del pago. Si el cliente pagó con <b>más de una billetera</b>, cargá todas las capturas. <b>Sin comprobante, la transferencia queda como deuda tuya.</b></div>
             <!-- v14.57.0 — lista dinámica de comprobantes (soporta varios) -->
             <div id="comprobante-transfer-lista"></div>
-            <input type="file" id="compTransfer-cam" accept="image/*" capture="environment" style="display:none;" onchange="_comprobanteTransferSeleccionada(this)">
+            <input type="file" id="compTransfer-cam" accept="image/*" style="display:none;" onchange="_comprobanteTransferSeleccionada(this)">
             <input type="file" id="compTransfer-gal" accept="image/*" style="display:none;" onchange="_comprobanteTransferSeleccionada(this)">
           </div>
 
@@ -16653,7 +16659,7 @@ body {
         <div style="font-family:'Barlow Condensed',sans-serif;font-size:15px;font-weight:900;color:#0D47A1;margin-bottom:3px;">&#128230; Foto de la entrega</div>
         <div style="font-size:12px;color:#1565C0;margin-bottom:10px;line-height:1.35;">Sac&aacute; una foto de <b>toda la mercader&iacute;a que est&aacute;s bajando</b>. Es el registro ante reclamos. Si es mucho, sac&aacute; varias. <b>Sin foto no se puede confirmar la entrega.</b></div>
         <div id="foto-entrega-lista"></div>
-        <input type="file" id="fotoEntrega-cam" accept="image/*" capture="environment" style="display:none;" onchange="_fotoEntregaSeleccionada(this)">
+        <input type="file" id="fotoEntrega-cam" accept="image/*" style="display:none;" onchange="_fotoEntregaSeleccionada(this)">
         <input type="file" id="fotoEntrega-gal" accept="image/*" style="display:none;" onchange="_fotoEntregaSeleccionada(this)">
       </div>
 
@@ -35683,7 +35689,7 @@ try {
 function _chequeFotoHTML(ch, idx) {
   var header = '<div style="font-size:11px;font-weight:700;color:var(--text3);text-transform:uppercase;letter-spacing:.8px;margin-bottom:4px;">Foto del cheque (frente)</div>';
   var inputs =
-    '<input type="file" id="cheque-cam-' + idx + '" accept="image/*" capture="environment" style="display:none;" onchange="_chequeFotoSeleccionada(' + idx + ',this)">' +
+    '<input type="file" id="cheque-cam-' + idx + '" accept="image/*" style="display:none;" onchange="_chequeFotoSeleccionada(' + idx + ',this)">' +
     '<input type="file" id="cheque-gal-' + idx + '" accept="image/*" style="display:none;" onchange="_chequeFotoSeleccionada(' + idx + ',this)">';
   if (ch.fotoSubiendo) {
     return '<div>' + header +
@@ -46333,7 +46339,7 @@ function _depBodyRecepcionHtml(r) {
   ed.fotos.forEach(function(ft, fi){
     h += '<div class="dep-foto-thumb">' + (ft.previewUrl ? '<img src="' + ft.previewUrl + '">' : '') + (ft.subiendo ? '<span class="dep-foto-spin">⏳</span>' : '') + '<button class="dep-foto-x" onclick="depQuitarFoto(\'' + _depEsc(r.id) + '\',' + fi + ')">×</button></div>';
   });
-  h += '<label class="dep-foto-add">📷<input type="file" accept="image/*" capture="environment" style="display:none" onchange="depFotoSel(\'' + _depEsc(r.id) + '\',this)"></label>';
+  h += '<label class="dep-foto-add">📷<input type="file" accept="image/*" style="display:none" onchange="depFotoSel(\'' + _depEsc(r.id) + '\',this)"></label>';
   h += '</div>';
   h += '<button class="dep-btn-recibir" id="dep-btn-' + _depEsc(r.id) + '" onclick="depRecibir(\'' + _depEsc(r.id) + '\')">✅ RECIBIDO EN DEPÓSITO</button>';
   return h;
@@ -47693,7 +47699,7 @@ function depPollIniciar() {
    TCK_UPD_LOCAL aca Y el archivo version.json del repo.
    ============================================================ */
 (function(){
-  var TCK_UPD_LOCAL = '14.86.0';        /* <-- bump en cada deploy */
+  var TCK_UPD_LOCAL = '14.87.0';        /* <-- bump en cada deploy */
   var TCK_UPD_INTERVALO = 10 * 60 * 1000;   /* chequeo de fondo: 10 min */
   var _updUltChequeo = 0;
 
