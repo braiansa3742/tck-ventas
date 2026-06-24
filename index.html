@@ -2,7 +2,15 @@
 <html lang="es">
 <head>
 <!-- ═══════════════════════════════════════════════════════════════════════
-     TCK VENTAS — v14.87.0 — 22/06/2026
+     TCK VENTAS — v14.88.0 — 24/06/2026
+     v14.88.0: DEPOSITO/PANCHO -- card "Sin viaje asignado" (red de
+               seguridad). Los pedidos de HOY con viaje_id NULL (fallo de
+               asociacion en Apps Script o pendientes de que admin los
+               asigne) ya NO son invisibles: se listan en una card naranja
+               arriba de Cargas, con detalle + comprobante, y suman al
+               contador del segmento y al badge del tab. Caso Maira/Paulina
+               24/06. Sin boton conformar (no es un viaje): Pancho los carga
+               y avisa a administracion para regularizar.
      v14.87.0: FOTO DESDE CAMARA -- se quita capture="environment" de los 4
         inputs de foto (entrega, comprobante transferencia, cheque, recepcion
         deposito). El capture forzaba la camara a pantalla completa y Android
@@ -47173,6 +47181,7 @@ async function mostradorReintentarFactura(retiroId, btn) {
 // ═══ v14.62.0 — BLOQUE B: CONFORMIDAD DE CARGA ═════════════════════
 var _depSeccion = 'cargas';               // cargas | devoluciones | retiros | stock
 var _depViajesHoy = [];                   // viajes de hoy
+var _depHuerfanosHoy = [];                // v14.88.0: pedidos de HOY sin viaje (red de seguridad)
 var _depEntregasViaje = {};               // viaje_id -> entregas[]
 var _depConformidades = {};               // viaje_id -> fila cargas_conformidad
 var _depCargasCargado = false;
@@ -47202,7 +47211,8 @@ function depSeccionIr(sec) {
 }
 
 function _depCargasPendientes() {
-  return _depViajesHoy.filter(function(v) { return !_depConformidades[v.id]; }).length;
+  return _depViajesHoy.filter(function(v) { return !_depConformidades[v.id]; }).length
+       + _depHuerfanosHoy.length;   // v14.88.0: pedidos sin viaje también cuentan
 }
 
 var _depCargasCargando = false;
@@ -47261,6 +47271,36 @@ async function depCargasRecargar() {
       _depHayBloqueados = _depViajesHoy.some(function (v) {
         if (_depConformidades[v.id]) return false;
         return (_depEntregasViaje[v.id] || []).some(_depEntSinFactura);
+      });
+    }
+    // ── v14.88.0 — RED DE SEGURIDAD: pedidos de HOY sin viaje asignado ──
+    // No cuelgan de ningún viaje, así que el bloque de arriba no los ve.
+    // Se listan en card aparte (caso Maira/Paulina 24/06).
+    try {
+      _depHuerfanosHoy = await sbFetch('pedidos_zona?select=pedido_id,cliente,localidad_canonica,total,turno,zona,xubio_factura_nro,xubio_factura_id,xubio_presupuesto_id' +
+        '&viaje_id=is.null&salida_planificada=eq.' + hoyISO +
+        '&estado=in.(Pendiente,Confirmado)&order=turno.asc&limit=100') || [];
+    } catch (eHu) { _depHuerfanosHoy = []; console.error('[dep huérfanos]', eHu); }
+    if (_depHuerfanosHoy.length) {
+      var _hpids = _depHuerfanosHoy.map(function(p){ return p.pedido_id; })
+        .filter(function(x){ return x && !(x in _depItemsPorPedido); });
+      if (_hpids.length) {
+        try {
+          var itsH = await sbFetch('pedidos_items?select=pedido_id,producto_tck_nombre,cantidad,calibre&pedido_id=in.(' + _hpids.join(',') + ')&limit=3000') || [];
+          itsH.forEach(function(it){
+            (_depItemsPorPedido[it.pedido_id] = _depItemsPorPedido[it.pedido_id] || []).push({
+              nombre: it.producto_tck_nombre || '—', qty: Number(it.cantidad) || 0, calibre: it.calibre || ''
+            });
+          });
+        } catch (e1) { console.error('[dep huérf items]', e1); }
+      }
+      // comprobante: viene en la misma fila de pedidos_zona
+      _depHuerfanosHoy.forEach(function(p){
+        _depComprobante[p.pedido_id] = {
+          facturaNro: p.xubio_factura_nro || null,
+          tieneFactura: !!(p.xubio_factura_id || p.xubio_factura_nro),
+          presupuesto: !!p.xubio_presupuesto_id
+        };
       });
     }
     _depCargasCargado = true;
@@ -47398,10 +47438,58 @@ function _depViajeCardCompacto(v) {
   return h;
 }
 
+// v14.88.0 — Pedidos de HOY sin viaje asignado. No cuelgan de ningún viaje
+// (fallo de asociación en Apps Script, o pendientes de que admin los asigne).
+// Pancho los ve, los carga, y avisa a administración para regularizar.
+// SIN botón conformar: la conformidad es por viaje; cuando admin lo asigne,
+// el pedido salta a su card de viaje normal.
+function _depHuerfanosHtml() {
+  if (!_depHuerfanosHoy.length) return '';
+  var porTurno = {}, orden = [];
+  _depHuerfanosHoy.forEach(function(p){
+    var t = (p.turno === 'mañana' || p.turno === 'manana') ? '🌅 Mañana'
+          : (p.turno === 'tarde' ? '🌆 Tarde' : '📦 ' + _depZonaLabel(p.zona));
+    if (!porTurno[t]) { porTurno[t] = []; orden.push(t); }
+    porTurno[t].push(p);
+  });
+  var h = '<div class="dep-viaje-card" style="border:1.5px solid #FFB74D;border-left:4px solid #E65100;background:#FFFBF5;">';
+  h += '<div style="display:flex;align-items:center;justify-content:space-between;gap:8px;">';
+  h += '<span class="dep-viaje-head" style="color:#E65100;">⚠️ Sin viaje asignado</span>';
+  h += '<span class="dep-badge dep-badge-pend">' + _depHuerfanosHoy.length + ' pedido(s)</span>';
+  h += '</div>';
+  h += '<div style="font-size:12px;color:#8A7E72;margin-top:2px;">Son pedidos de HOY que no entraron en ningún viaje. Cargalos igual y avisá a administración para que los asignen.</div>';
+  orden.forEach(function(t){
+    h += '<div class="dep-sec-title" style="font-size:13px;color:#E65100;margin-top:10px;">' + t + '</div>';
+    porTurno[t].forEach(function(p, i){
+      var c = _depComprobante[p.pedido_id] || {};
+      var compTxt = c.tieneFactura
+        ? '🧾 Fact. #' + _mostEsc(c.facturaNro || '—')
+        : '<span style="color:#C62828;font-weight:800;">⛔ SIN FACTURA</span>';
+      h += '<div class="dep-viaje-ent">';
+      h += '<b>' + (i + 1) + '. ' + _mostEsc(p.cliente || '') + '</b> · ' + _mostEsc(p.localidad_canonica || '') + ' · ' + compTxt;
+      var its = _depItemsPorPedido[p.pedido_id] || [];
+      if (its.length) {
+        h += '<br>' + its.map(function(it){ return it.qty + 'x ' + _mostEsc(_depItemLabel(it)); }).join(' · ');
+      } else {
+        var res = _depResumenDe(p.pedido_id);
+        if (res) h += '<br>' + _mostEsc(res);
+      }
+      h += '</div>';
+    });
+  });
+  h += '<button class="dep-sinfact-ref" style="border-color:#E65100;color:#E65100;margin-top:10px;" onclick="depositoRecargar()">🔄 Ya los asignaron — actualizar</button>';
+  h += '</div>';
+  return h;
+}
+
 function _depCargasHtml() {
   var h = '<div style="font-size:12px;color:#8A7E72;margin:0 2px 8px;">Viajes de HOY · orden de carga (última parada primero). Tildá cada producto al cargarlo. No se puede conformar un viaje con pedidos sin factura.</div>';
   if (!_depCargasCargado) return h + '<div class="dep-empty">Cargando viajes…</div>';
-  if (!_depViajesHoy.length) return h + '<div class="dep-empty">No hay viajes programados para hoy.</div>';
+  // v14.88.0 — pedidos sin viaje SIEMPRE arriba (red de seguridad)
+  h += _depHuerfanosHtml();
+  if (!_depViajesHoy.length) {
+    return h + (_depHuerfanosHoy.length ? '' : '<div class="dep-empty">No hay viajes programados para hoy.</div>');
+  }
   var pend = _depViajesHoy.filter(function(v) { return !_depConformidades[v.id]; });
   var hechos = _depViajesHoy.filter(function(v) { return _depConformidades[v.id]; });
   if (!pend.length) {
