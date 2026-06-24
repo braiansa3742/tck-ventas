@@ -2,6 +2,12 @@
 <html lang="es">
 <head>
 <!-- ═══════════════════════════════════════════════════════════════════════
+     TCK VENTAS — v14.93.0 — 24/06/2026
+     v14.93.0: STOCK CONECTADO A XUBIO. El aviso "sin stock" del tomador
+        ahora se llena desde vw_cat_stock (sin_stock_efectivo), derivado del
+        stock real de Xubio, en vez del flag manual productos_canonicos.sin_stock
+        (reseteado). El badge numerico (real + comprometido) ya lee vw_stock_visible.
+
      TCK VENTAS — v14.88.0 — 24/06/2026
      v14.88.0: DEPOSITO/PANCHO -- card "Sin viaje asignado" (red de
                seguridad). Los pedidos de HOY con viaje_id NULL (fallo de
@@ -17523,6 +17529,33 @@ async function cargarStockVisibleVentas() {
   return _stockMapVentas;
 }
 
+// ══════════════════════════════════════════════════════════════
+// v14.93.0 — Binario "sin stock" del tomador desde Xubio.
+// Lee vw_cat_stock (sin_stock_efectivo): misma logica que el catalogo
+// (armado_a_demanda → con stock, override manual, resto manda Xubio) y
+// llena TOMADOR_SIN_STOCK_AVISO. Reemplaza el flag manual p.sin_stock.
+// El badge numerico (stock real + comprometido) sigue leyendo vw_stock_visible.
+// ══════════════════════════════════════════════════════════════
+async function cargarSinStockEfectivoVentas() {
+  try {
+    const url = SUPABASE_URL + '/rest/v1/vw_cat_stock?select=nombre&sin_stock_efectivo=eq.true';
+    const resp = await fetch(url, {
+      headers: { 'apikey': SUPABASE_KEY, 'Authorization': 'Bearer ' + SUPABASE_KEY }
+    });
+    if (!resp.ok) throw new Error('HTTP ' + resp.status);
+    const data = await resp.json();
+    if (!Array.isArray(data)) throw new Error('Respuesta no es array');
+    if (typeof TOMADOR_SIN_STOCK_AVISO !== 'undefined' && TOMADOR_SIN_STOCK_AVISO instanceof Set) {
+      TOMADOR_SIN_STOCK_AVISO.clear();
+      data.forEach(function(r) { if (r.nombre) TOMADOR_SIN_STOCK_AVISO.add(r.nombre); });
+    }
+    console.log('[TCK SinStock Ventas] ' + data.length + ' sin stock (Xubio)');
+  } catch (e) {
+    console.warn('[TCK SinStock Ventas] Error:', e);
+    // graceful: deja TOMADOR_SIN_STOCK_AVISO como este
+  }
+}
+
 /**
  * v14.16.0 — Devuelve el stock de un producto del tomador.
  * Aplica TOMADOR_NOMBRE_MAP para resolver alias (ej "Pollo A" → "Pollo Ginosa").
@@ -17851,14 +17884,10 @@ function _aplicarProductosCanonicos(productos) {
   // mismo objeto. Esto preserva las 4 referencias existentes
   // (TOMADOR_SIN_STOCK.has(...) en líneas ~19960, ~23395, ~23914)
   // sin necesidad de tocar nada más.
-  if (typeof TOMADOR_SIN_STOCK_AVISO !== 'undefined' && TOMADOR_SIN_STOCK_AVISO instanceof Set) {
-    TOMADOR_SIN_STOCK_AVISO.clear();
-    _prodCanonicos.forEach(function(p) {
-      if (p.sin_stock === true && p.activo !== false && p.nombre) {
-        TOMADOR_SIN_STOCK_AVISO.add(p.nombre);
-      }
-    });
-  }
+  // v14.93.0: TOMADOR_SIN_STOCK_AVISO ya NO se llena desde p.sin_stock
+  // (flag manual, reseteado a false). Ahora la fuente es vw_cat_stock
+  // (sin_stock_efectivo), derivado del stock real de Xubio.
+  // Ver cargarSinStockEfectivoVentas().
 }
 
 // v14.11.0 N40b: Polling cada 30s para detectar cambios en
@@ -17883,6 +17912,7 @@ function _iniciarPollingProductosCanonicos() {
   _prodCanonPollingTimer = setInterval(function() {
     if (document.hidden) return; // pausa si la pestaña está en background
     _refrescarProductosCanonicosBg();
+    cargarSinStockEfectivoVentas();
   }, _PROD_CANON_POLL_MS);
 
   // Si la pestaña vuelve a foreground después de estar hidden, refrescar
@@ -17890,6 +17920,7 @@ function _iniciarPollingProductosCanonicos() {
   document.addEventListener('visibilitychange', function() {
     if (!document.hidden) {
       _refrescarProductosCanonicosBg();
+      cargarSinStockEfectivoVentas();
     }
   });
 }
@@ -21116,6 +21147,7 @@ function login(nombre) {
   mostrarBotonesManual();
   // v14.10.0 N40b: cargar productos canónicos en background (no bloquea login)
   cargarProductosCanonicos();
+  cargarSinStockEfectivoVentas();
   // v14.14.0: cargar ciudades canónicas en background (single source: tabla rutas)
   cargarCiudadesCanonicas();
   // v14.11.0 N40b: polling cada 30s para detectar cambios de stock
@@ -47811,7 +47843,7 @@ function depPollIniciar() {
    TCK_UPD_LOCAL aca Y el archivo version.json del repo.
    ============================================================ */
 (function(){
-  var TCK_UPD_LOCAL = '14.92.0';        /* <-- bump en cada deploy */
+  var TCK_UPD_LOCAL = '14.93.0';        /* <-- bump en cada deploy */
   var TCK_UPD_INTERVALO = 10 * 60 * 1000;   /* chequeo de fondo: 10 min */
   var _updUltChequeo = 0;
 
