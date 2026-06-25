@@ -2,6 +2,41 @@
 <html lang="es">
 <head>
 <!-- ═══════════════════════════════════════════════════════════════════════
+     TCK VENTAS — v14.96.0 — 25/06/2026
+     v14.96.0: DEPOSITO/PANCHO -- rediseño del panel de Cargas (Frente 1).
+        (1) GATING POR FACTURACION: el viaje muestra estado "⏳ Facturando"
+            (con progreso X/Y y los pendientes colapsables) y NO muestra el
+            checklist hasta estar 100% facturado (= cuando sale la planilla
+            de Francisco). Asi Pancho nunca carga incompleto. Cuando esta
+            todo facturado pasa a "✅ Listo para cargar".
+        (2) CARD MENOS DENSA: header compacto + barra de progreso + toggle
+            "📋 Para cargar" / "👤 Por cliente" (el detalle por cliente queda
+            escondido). Se va la pared de nombres SIN FACTURA.
+        (3) CHECKLIST OBLIGATORIO: "CARGUE CONFORME" se habilita solo al
+            tildar todos los productos.
+        (4) FALTA/CAMBIO CON RESPALDO FISCAL: se elimina "cargue con
+            diferencia". Si falta/sustituye un producto, Pancho lo reporta
+            por pedido (que falto + que cargo en su lugar, elegido del
+            catalogo POR FOTO) y queda como ajuste pendiente en cargas_ajustes
+            para que administracion haga la NC + factura del sustituto.
+     v14.95.0: DEPOSITO/PANCHO -- mensajes de recepcion claros. Los motivos
+        por los que no puede confirmar (falta foto / falta nota si hay
+        diferencia) ahora se muestran FIJOS en una caja roja al lado del
+        boton, en vez de un toast que se iba solo y no llegaba a leer.
+        Ademas el boton cambia a "Recibir CON diferencia" (ambar) cuando lo
+        recibido no coincide con lo declarado, para que sepa que va a quedar
+        marcado antes de apretarlo.
+
+     TCK VENTAS — v14.94.0 — 25/06/2026
+     v14.94.0: DEPOSITO/PANCHO -- recepcion de devolucion CON DIFERENCIA
+        habilitada. Antes el boton RECIBIDO bloqueaba si lo recibido no
+        coincidia con lo declarado por el chofer, contradiciendo el aviso
+        de pantalla ("quedara marcado para administracion") y dejando a
+        Pancho trabado sin entender por que. Ahora puede recibir igual: la
+        diferencia queda marcada (recepcion_diferencia=true) para que admin
+        y el chofer la concilien. Se mantiene foto obligatoria y nota
+        obligatoria cuando hay diferencia. (decision Braian 25/06)
+
      TCK VENTAS — v14.93.0 — 24/06/2026
      v14.93.0: STOCK CONECTADO A XUBIO. El aviso "sin stock" del tomador
         ahora se llena desde vw_cat_stock (sin_stock_efectivo), derivado del
@@ -46122,6 +46157,8 @@ var _miRondaOrigCargarPedidos = null;
 .dep-foto-add{width:64px;height:64px;border-radius:10px;border:1.5px dashed #B8860B;background:#FFF8E1;display:flex;align-items:center;justify-content:center;font-size:24px;cursor:pointer;}
 .dep-btn-recibir { width:100%;margin-top:10px;background:linear-gradient(135deg,#1B5E20,#2E7D32);color:#fff;border:none;border-radius:10px;padding:12px;font-family:'Barlow Condensed',sans-serif;font-size:16px;font-weight:900;letter-spacing:.5px;cursor:pointer;touch-action:manipulation; }
 .dep-btn-recibir:disabled { opacity:.55; }
+.dep-btn-recibir.dif { background:linear-gradient(135deg,#B45309,#E0902A); }
+.dep-recibir-err { margin-top:10px;background:#FCE9E9;border:1.5px solid #E59A9A;border-radius:9px;padding:10px 12px;font-size:13px;font-weight:700;color:#C62828;line-height:1.45;display:none; }
 .dep-dif-aviso { margin-top:8px;background:#FFEBEE;border:1.5px solid #EF9A9A;border-radius:8px;padding:8px 10px;font-size:12px;color:#C62828;font-weight:700;display:none; }
 .dep-empty { text-align:center;padding:28px 16px;color:#9A8F85;font-size:13px;background:#FAF6F0;border:1.5px dashed #E8DFD5;border-radius:14px; }
 .dep-refresh { background:#fff;border:1.5px solid #E8DFD5;border-radius:20px;padding:6px 14px;font-family:'Barlow Condensed',sans-serif;font-size:13px;font-weight:800;color:#5C3A1E;cursor:pointer;touch-action:manipulation; }
@@ -46405,7 +46442,8 @@ function _depBodyRecepcionHtml(r) {
   });
   h += '<label class="dep-foto-add">📷<input type="file" accept="image/*" style="display:none" onchange="depFotoSel(\'' + _depEsc(r.id) + '\',this)"></label>';
   h += '</div>';
-  h += '<button class="dep-btn-recibir" id="dep-btn-' + _depEsc(r.id) + '" onclick="depRecibir(\'' + _depEsc(r.id) + '\')">✅ RECIBIDO EN DEPÓSITO</button>';
+  h += '<div class="dep-recibir-err" id="dep-recibir-err-' + _depEsc(r.id) + '"></div>';
+  h += '<button class="dep-btn-recibir' + (hayDif ? ' dif' : '') + '" id="dep-btn-' + _depEsc(r.id) + '" onclick="depRecibir(\'' + _depEsc(r.id) + '\')">' + (hayDif ? '✅ Recibir CON diferencia' : '✅ RECIBIDO EN DEPÓSITO') + '</button>';
   return h;
 }
 
@@ -46480,22 +46518,30 @@ function depNota(id, val) {
 async function depRecibir(id) {
   var ed = _depEdit[id];
   if (!ed) return;
+  // v14.95.0 — los motivos por los que no puede confirmar se muestran FIJOS en
+  // una caja al lado del botón (antes eran toast que se iban solos y Pancho no
+  // llegaba a leer por qué no avanzaba).
+  var _errBox = document.getElementById('dep-recibir-err-' + id);
+  function _depErr(msg) {
+    if (_errBox) { _errBox.textContent = msg; _errBox.style.display = 'block'; }
+    else if (typeof toast === 'function') { toast(msg, 'err'); }
+  }
+  function _depErrLimpiar() { if (_errBox) { _errBox.textContent = ''; _errBox.style.display = 'none'; } }
   if (!ed.fotos || !ed.fotos.length) {
-    if (typeof toast === 'function') toast('📷 Sacá al menos una foto de cómo llegó la mercadería antes de confirmar', 'err');
+    _depErr('📷 Falta la foto. Sacá al menos una de cómo llegó la mercadería antes de confirmar.');
     return;
   }
-  if (ed.items.some(function(it){ return it.recibido !== it.declarado; })) {
-    if (typeof toast === 'function') toast('⚠️ Lo recibido no coincide con lo declarado por el chofer. Tiene que coincidir — si falta o sobra algo, resolvelo con el chofer antes de recibir', 'err');
-    return;
-  }
+  // v14.94.0 — Pancho PUEDE recibir con diferencia: queda MARCADA para que
+  // administración y el chofer la concilien (decisión Braian 25/06).
   var hayDif = ed.items.some(function(it) { return it.recibido !== it.declarado; });
   var nota = (ed.nota || '').trim();
   if (hayDif && !nota) {
-    if (typeof toast === 'function') toast('⚠️ Hay diferencia con lo declarado — anotá el motivo en la nota antes de confirmar', 'err');
+    _depErr('⚠️ Hay diferencia con lo que declaró el chofer. Escribí en la nota qué pasó (qué faltó o sobró) y volvé a tocar el botón.');
     var ta = document.getElementById('dep-nota-' + id);
     if (ta) ta.focus();
     return;
   }
+  _depErrLimpiar();
   var btn = document.getElementById('dep-btn-' + id);
   if (btn) { btn.disabled = true; btn.textContent = 'Guardando…'; }
   try {
@@ -46580,6 +46626,39 @@ async function depRecibir(id) {
 .dep-viaje-ent b { color:#2A2018; }
 .dep-conf-ok { width:100%;margin-top:8px;background:linear-gradient(135deg,#1B5E20,#2E7D32);color:#fff;border:none;border-radius:10px;padding:12px;font-family:'Barlow Condensed',sans-serif;font-size:16px;font-weight:900;cursor:pointer;touch-action:manipulation; }
 .dep-conf-dif { width:100%;margin-top:6px;background:#fff;border:1.5px solid #E65100;border-radius:10px;padding:10px;font-size:13px;font-weight:800;color:#E65100;cursor:pointer;touch-action:manipulation; }
+/* v14.96.0 — estado "en facturación" */
+.dep-espera { margin-top:12px;background:#FFFBF5;border:1.5px solid #FFD9A8;border-radius:12px;padding:13px; }
+.dep-espera-big { font-family:'Barlow Condensed',sans-serif;font-size:17px;font-weight:900;color:#B45309; }
+.dep-espera-bar { height:7px;background:#F3E2CB;border-radius:5px;overflow:hidden;margin:8px 0 6px; }
+.dep-espera-fill { height:100%;background:linear-gradient(90deg,#E0902A,#F0A93C); }
+.dep-espera-txt { font-size:12px;color:#8A6A3A;line-height:1.45; }
+.dep-espera-ver { margin-top:9px;font-size:12px;font-weight:800;color:#B45309;background:none;border:none;cursor:pointer;padding:0;text-decoration:underline;display:block; }
+.dep-espera-list { margin-top:8px;font-size:12px;color:#9A7B4A;line-height:1.7; }
+/* v14.96.0 — progreso de carga */
+.dep-prog-wrap { margin:12px 0 4px; }
+.dep-prog-top { display:flex;justify-content:space-between;align-items:baseline;font-size:13px;font-weight:800;margin-bottom:5px; }
+.dep-prog-n { color:#2E7D32; }
+.dep-prog-bar { height:8px;background:#EFE7DB;border-radius:6px;overflow:hidden; }
+.dep-prog-fill { height:100%;background:linear-gradient(90deg,#2E7D32,#43A047);transition:width .25s; }
+/* v14.96.0 — toggle Para cargar / Por cliente */
+.dep-seg { display:flex;gap:6px;margin:12px 0 10px; }
+.dep-seg button { flex:1;padding:9px 6px;border:1.5px solid #E8DFD5;border-radius:10px;background:#FAF6F0;font-size:13px;font-weight:800;color:#5C4A38;cursor:pointer;touch-action:manipulation; }
+.dep-seg button.sel { background:#7A1414;border-color:#7A1414;color:#F4D58D; }
+/* v14.96.0 — conforme + falta/cambio */
+.dep-conf-nota { font-size:11px;color:#9A8F85;text-align:center;margin-top:6px; }
+.dep-falta-btn { margin-top:9px;width:100%;background:#fff;border:1.5px solid #E0902A;color:#B45309;border-radius:9px;padding:9px;font-size:13px;font-weight:800;cursor:pointer;touch-action:manipulation; }
+.dep-aj-aviso { margin-top:7px;background:#FBF3E6;border:1px solid #E7C58A;border-radius:8px;padding:7px 9px;font-size:12px;color:#7A5800;font-weight:700; }
+.dep-falta-tg { display:flex;gap:8px;margin-top:5px; }
+.dep-falta-tg button { flex:1;padding:10px;border:1.5px solid #E8DFD5;border-radius:9px;background:#fff;font-weight:800;font-size:14px;color:#5C4A38;cursor:pointer;touch-action:manipulation; }
+.dep-falta-tg button.on { background:#7A1414;border-color:#7A1414;color:#F4D58D; }
+.dep-falta-elegir { width:100%;padding:13px;border:1.5px dashed #C8771A;border-radius:10px;background:#FFF8EF;color:#B45309;font-size:15px;font-weight:800;cursor:pointer;touch-action:manipulation; }
+.dep-falta-elegido { display:flex;align-items:center;gap:10px;border:1.5px solid #A8CEA9;background:#F1F8F1;border-radius:10px;padding:10px;margin-top:6px;font-size:14px;color:#2A2018; }
+.dep-falta-info { background:#EAF3EA;border:1px solid #A8CEA9;border-radius:9px;padding:9px 11px;font-size:12px;color:#2E5C2E;margin-top:12px;line-height:1.5; }
+/* v14.96.0 — selector visual de productos (sustituto por foto) */
+.dep-sel-grid { display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-top:8px; }
+.dep-sel-prod { border:1.5px solid #EFE7DB;border-radius:12px;padding:8px;background:#fff;cursor:pointer;text-align:center;touch-action:manipulation; }
+.dep-sel-prod img { width:100%;height:78px;object-fit:cover;border-radius:9px;margin-bottom:6px;background:#F6E7CF; }
+.dep-sel-nm { font-size:12px;font-weight:700;line-height:1.25;color:#2A2018; }
 .dep-stock-row { display:grid;grid-template-columns:1fr 84px 34px;gap:6px;margin-bottom:6px; }
 .dep-stock-row input { padding:9px;border:1.5px solid #E8DFD5;border-radius:8px;font-size:13px;box-sizing:border-box;background:#fff;color:#2A2018; }
 .dep-stock-del { border:none;background:#FFEBEE;color:#C62828;border-radius:8px;font-size:15px;font-weight:900;cursor:pointer;touch-action:manipulation; }
@@ -47220,6 +47299,9 @@ var _depCargasCargado = false;
 var _depItemsPorPedido = {};              // v14.73.0: pedido_id -> [{nombre,qty,calibre}]
 var _depComprobante = {};                 // v14.73.0: pedido_id -> {facturaNro,tieneFactura,presupuesto}
 var _depCargaCheck = {};                  // v14.73.0: viaje_id -> { idx: true } (checklist local de carga)
+var _depCargaVista = {};                  // v14.96.0: viaje_id -> 'cargar' | 'cli' (toggle de vista en la card)
+var _depCargaTotal = {};                  // v14.96.0: viaje_id -> cantidad de ítems a cargar (progreso/conforme)
+var _depAjustesPorPedido = {};            // v14.96.0: pedido_id -> [ajustes pendientes en cargas_ajustes]
 
 // Orden de carga = INVERSO al recorrido (la última parada se carga primero)
 var DEP_RUTA_ORDEN = ['trenque lauquen','pehuajo','henderson','carlos casares','daireaux',
@@ -47335,6 +47417,12 @@ async function depCargasRecargar() {
         };
       });
     }
+    // v14.96.0 — ajustes fiscales pendientes (aviso "cambio reportado" en la card)
+    _depAjustesPorPedido = {};
+    try {
+      var ajs = await sbFetch('cargas_ajustes?select=pedido_id&estado=eq.pendiente&limit=500') || [];
+      ajs.forEach(function(a) { (_depAjustesPorPedido[a.pedido_id] = _depAjustesPorPedido[a.pedido_id] || []).push(a); });
+    } catch (eAj) { _depAjustesPorPedido = {}; console.error('[dep ajustes]', eAj); }
     _depCargasCargado = true;
   } catch (e) {
     console.error('[depósito cargas]', e);
@@ -47376,40 +47464,99 @@ function depCargaToggleCheck(viajeId, idx, el) {
   var m = _depCargaCheck[viajeId] = _depCargaCheck[viajeId] || {};
   if (el.checked) m[idx] = true; else delete m[idx];
   var lbl = el.closest('.dep-load-item'); if (lbl) lbl.classList.toggle('done', el.checked);
+  var n = Object.keys(m).length;
+  var total = _depCargaTotal[viajeId] || 0;
   var cont = document.getElementById('dep-load-count-' + viajeId);
-  if (cont) cont.textContent = Object.keys(m).length;
+  if (cont) cont.textContent = n + ' / ' + total;
+  var fill = document.getElementById('dep-load-fill-' + viajeId);
+  if (fill) fill.style.width = (total ? (n / total * 100) : 0) + '%';
+  // v14.96.0 — checklist obligatorio: el botón conforme se habilita solo si está todo tildado
+  var btn = document.getElementById('dep-conf-btn-' + viajeId);
+  if (btn) btn.disabled = (total === 0 || n < total);
+  var nota = document.getElementById('dep-conf-nota-' + viajeId);
+  if (nota) nota.style.display = (n < total) ? 'block' : 'none';
+}
+
+// v14.96.0 — toggle de vista de la card (Para cargar / Por cliente), sin re-render
+function depCargaVista(viajeId, cual) {
+  _depCargaVista[viajeId] = cual;
+  var vc = document.getElementById('dep-vista-cargar-' + viajeId);
+  var vl = document.getElementById('dep-vista-cli-' + viajeId);
+  if (vc) vc.style.display = (cual === 'cargar') ? '' : 'none';
+  if (vl) vl.style.display = (cual === 'cli') ? '' : 'none';
+  var bc = document.getElementById('dep-seg-cargar-' + viajeId);
+  var bl = document.getElementById('dep-seg-cli-' + viajeId);
+  if (bc) bc.classList.toggle('sel', cual === 'cargar');
+  if (bl) bl.classList.toggle('sel', cual === 'cli');
+}
+
+// v14.96.0 — desplegar/ocultar la lista de pedidos que faltan facturar
+function depFaltanToggle(viajeId) {
+  var l = document.getElementById('dep-faltan-' + viajeId);
+  if (l) l.style.display = (l.style.display === 'none' || !l.style.display) ? 'block' : 'none';
 }
 
 function _depViajeCard(v) {
-  var conf = _depConformidades[v.id];
   var ents = (_depEntregasViaje[v.id] || []).slice().sort(function(a, b) {
     return _depRutaIdx(b.ciudad) - _depRutaIdx(a.ciudad);   // inverso: última parada primero
   });
   var sinFact = ents.filter(_depEntSinFactura);
-  var agg = _depAggViaje(ents);
-  var totalU = agg.reduce(function(s, x) { return s + x.qty; }, 0);
-  var checks = _depCargaCheck[v.id] || {};
-  var nCheck = Object.keys(checks).length;
+  var totalEnt = ents.length;
+  var factOk = totalEnt - sinFact.length;
 
   var h = '<div class="dep-viaje-card">';
+  // Header compacto
   h += '<div style="display:flex;align-items:center;justify-content:space-between;gap:8px;">';
   h += '  <span class="dep-viaje-head">🚚 ' + _mostEsc(_depZonaLabel(v.zona)) + '</span>';
-  h += '<span class="dep-badge dep-badge-pend">⏳ Sin conformar</span>';
+  h += sinFact.length
+    ? '<span class="dep-badge dep-badge-pend">⏳ Facturando</span>'
+    : '<span class="dep-badge dep-badge-ok">✅ Listo para cargar</span>';
   h += '</div>';
   h += '<div style="font-size:12px;color:#8A7E72;margin-top:2px;">' +
     _mostEsc(v.chofer || 'Sin chofer') + ' · ' + _mostEsc(v.vehiculo || 'Sin vehículo') +
-    ' · ' + ents.length + ' entregas · ' + _mostFmt(v.monto_total) + '</div>';
+    ' · ' + totalEnt + ' entregas</div>';
 
-  // ⛔ bloqueo por factura faltante
+  // ── ESTADO 1: EN FACTURACIÓN — todavía hay pedidos sin factura ──
+  // La planilla de Francisco sale con el viaje 100% facturado; hasta entonces
+  // NO mostramos checklist, para que Pancho no cargue incompleto.
   if (sinFact.length) {
-    h += '<div class="dep-sinfact">⛔ ' + sinFact.length + ' pedido(s) SIN FACTURA — no cargar hasta facturar:<br>' +
-      sinFact.map(function(e) { return '• ' + _mostEsc(e.cliente || e.pedido_id); }).join('<br>') +
-      '<br><button class="dep-sinfact-ref" onclick="depositoRecargar()">🔄 Ya facturaron — actualizar</button></div>';
+    var pct = totalEnt ? Math.round(factOk / totalEnt * 100) : 0;
+    h += '<div class="dep-espera">';
+    h += '  <div class="dep-espera-big">Administración está facturando este viaje</div>';
+    h += '  <div class="dep-espera-bar"><div class="dep-espera-fill" style="width:' + pct + '%;"></div></div>';
+    h += '  <div class="dep-espera-txt"><b>' + factOk + ' de ' + totalEnt + '</b> pedidos facturados. La planilla todavía no está completa — cuando termine, acá aparece la lista para cargar.</div>';
+    h += '  <button class="dep-espera-ver" onclick="depFaltanToggle(\'' + v.id + '\')">Ver los ' + sinFact.length + ' que faltan facturar ▾</button>';
+    h += '  <div class="dep-espera-list" id="dep-faltan-' + v.id + '" style="display:none;">' +
+      sinFact.map(function(e) { return '• ' + _mostEsc(e.cliente || e.pedido_id); }).join('<br>') + '</div>';
+    h += '  <button class="dep-sinfact-ref" onclick="depositoRecargar()">🔄 Ya facturaron — actualizar</button>';
+    h += '</div>';
+    h += '</div>';
+    return h;
   }
 
-  // 📋 Total a cargar (planilla consolidada + checklist)
+  // ── ESTADO 2: LISTO PARA CARGAR — 100% facturado (= la planilla) ──
+  var agg = _depAggViaje(ents);
+  var checks = _depCargaCheck[v.id] || {};
+  var nCheck = Object.keys(checks).length;
+  var vista = _depCargaVista[v.id] || 'cargar';
+  var completo = (agg.length > 0 && nCheck >= agg.length);
+  _depCargaTotal[v.id] = agg.length;
+
+  // Progreso de carga
+  h += '<div class="dep-prog-wrap">';
+  h += '  <div class="dep-prog-top"><span>📋 Cargado</span><span class="dep-prog-n" id="dep-load-count-' + v.id + '">' + nCheck + ' / ' + agg.length + '</span></div>';
+  h += '  <div class="dep-prog-bar"><div class="dep-prog-fill" id="dep-load-fill-' + v.id + '" style="width:' + (agg.length ? (nCheck / agg.length * 100) : 0) + '%;"></div></div>';
+  h += '</div>';
+
+  // Toggle Para cargar / Por cliente
+  h += '<div class="dep-seg">';
+  h += '  <button class="' + (vista === 'cargar' ? 'sel' : '') + '" id="dep-seg-cargar-' + v.id + '" onclick="depCargaVista(\'' + v.id + '\',\'cargar\')">📋 Para cargar</button>';
+  h += '  <button class="' + (vista === 'cli' ? 'sel' : '') + '" id="dep-seg-cli-' + v.id + '" onclick="depCargaVista(\'' + v.id + '\',\'cli\')">👤 Por cliente</button>';
+  h += '</div>';
+
+  // Vista PARA CARGAR (checklist consolidado)
+  h += '<div id="dep-vista-cargar-' + v.id + '"' + (vista === 'cargar' ? '' : ' style="display:none;"') + '>';
   if (agg.length) {
-    h += '<div class="dep-sec-title" style="margin-top:8px;">📋 Total a cargar — <span id="dep-load-count-' + v.id + '">' + nCheck + '</span>/' + agg.length + ' ítems (' + totalU + ' u.)</div>';
     agg.forEach(function(x, idx) {
       var done = !!checks[idx];
       h += '<label class="dep-load-item' + (done ? ' done' : '') + '">' +
@@ -47417,37 +47564,34 @@ function _depViajeCard(v) {
         '<span class="q">' + x.qty + '</span> ' + _mostEsc(_depItemLabel(x)) + '</label>';
     });
   } else {
-    h += '<div class="dep-empty" style="margin-top:6px;">⚠️ Sin detalle de productos para este viaje. Ver planilla impresa.</div>';
+    h += '<div class="dep-empty">⚠️ Sin detalle de productos. Ver planilla impresa.</div>';
   }
+  h += '</div>';
 
-  // Por cliente (orden de carga) — con N° de comprobante
-  if (ents.length) {
-    h += '<div class="dep-sec-title" style="font-size:13px;color:#8A7E72;margin-top:8px;">Por cliente (orden de carga)</div>';
-    ents.forEach(function(e, i) {
-      var c = _depComprobante[e.pedido_id] || {};
-      var compTxt = c.tieneFactura
-        ? '🧾 Fact. #' + _mostEsc(c.facturaNro || '—')
-        : '<span style="color:#C62828;font-weight:800;">⛔ SIN FACTURA</span>';
-      h += '<div class="dep-viaje-ent">';
-      h += '<b>' + (i + 1) + '. ' + _mostEsc(e.cliente || '') + '</b> · ' + _mostEsc(e.ciudad || '') + ' · ' + compTxt;
-      var its = _depItemsPorPedido[e.pedido_id] || [];
-      if (its.length) {
-        h += '<br>' + its.map(function(it) { return it.qty + 'x ' + _mostEsc(_depItemLabel(it)); }).join(' · ');
-      } else {
-        var res = _depResumenDe(e.pedido_id);
-        if (res) h += '<br>' + _mostEsc(res);
-      }
-      h += '</div>';
-    });
-  }
+  // Vista POR CLIENTE (orden de carga) — escondida por defecto
+  h += '<div id="dep-vista-cli-' + v.id + '"' + (vista === 'cli' ? '' : ' style="display:none;"') + '>';
+  ents.forEach(function(e, i) {
+    var c = _depComprobante[e.pedido_id] || {};
+    h += '<div class="dep-viaje-ent">';
+    h += '<b>' + (i + 1) + '. ' + _mostEsc(e.cliente || '') + '</b> · ' + _mostEsc(e.ciudad || '') + ' · <span style="color:#2E7D32;font-weight:700;">🧾 Fact. #' + _mostEsc(c.facturaNro || '—') + '</span>';
+    var its = _depItemsPorPedido[e.pedido_id] || [];
+    if (its.length) {
+      h += '<br>' + its.map(function(it) { return it.qty + 'x ' + _mostEsc(_depItemLabel(it)); }).join(' · ');
+    } else {
+      var res = _depResumenDe(e.pedido_id);
+      if (res) h += '<br>' + _mostEsc(res);
+    }
+    if ((_depAjustesPorPedido[e.pedido_id] || []).length) {
+      h += '<div class="dep-aj-aviso">⚠️ Cambio reportado a administración</div>';
+    }
+    h += '<button class="dep-falta-btn" onclick="depFaltaAbrir(\'' + v.id + '\',\'' + _mostEsc(e.pedido_id) + '\')">⚠️ Faltó / cambié algo</button>';
+    h += '</div>';
+  });
+  h += '</div>';
 
-  // Botones de conformidad (conforme bloqueado si falta factura)
-  if (sinFact.length) {
-    h += '<div class="dep-conf-bloq">🔒 Conformar bloqueado: falta facturar ' + sinFact.length + ' pedido(s).</div>';
-  } else {
-    h += '<button class="dep-conf-ok" onclick="depCargaConformar(\'' + v.id + '\', false)">✅ CARGUÉ CONFORME</button>';
-  }
-  h += '<button class="dep-conf-dif" onclick="depCargaConformar(\'' + v.id + '\', true)">⚠️ Cargué con diferencia (anotar)</button>';
+  // Conformar (obligatorio: solo si tildó todo el checklist)
+  h += '<button class="dep-conf-ok" id="dep-conf-btn-' + v.id + '"' + (completo ? '' : ' disabled') + ' onclick="depCargaConformar(\'' + v.id + '\')">✅ CARGUÉ CONFORME</button>';
+  h += '<div class="dep-conf-nota" id="dep-conf-nota-' + v.id + '"' + (completo ? ' style="display:none;"' : '') + '>Tildá los ' + agg.length + ' productos para conformar</div>';
   h += '</div>';
   return h;
 }
@@ -47536,7 +47680,7 @@ function _depCargasHtml() {
   return h;
 }
 
-async function depCargaConformar(viajeId, conDiferencia) {
+async function depCargaConformar(viajeId) {
   var v = _depViajesHoy.find(function(x) { return x.id === viajeId; });
   if (!v) return;
   var ents = _depEntregasViaje[viajeId] || [];
@@ -47546,7 +47690,6 @@ async function depCargaConformar(viajeId, conDiferencia) {
     toast('⛔ ' + sinFact.length + ' pedido(s) SIN FACTURA — facturalos antes de cargar', 'err');
     return;
   }
-  if (conDiferencia) { depDifModalAbrir(viajeId); return; }
   if (!confirm('¿Confirmás que cargaste el viaje ' + _depZonaLabel(v.zona) + ' (' +
     ents.length + ' entregas) COMPLETO y conforme?')) return;
   await _depConformarGuardar(viajeId, false, '', null);
@@ -47592,53 +47735,155 @@ async function _depConformarGuardar(viajeId, conDiferencia, nota, difJson) {
   }
 }
 
-// v14.73.0 — modal estructurado de "cargué con diferencia"
-function depDifModalAbrir(viajeId) {
-  var v = _depViajesHoy.find(function(x) { return x.id === viajeId; });
-  if (!v) return;
+// v14.96.0 — Módulo "Faltó / cambié algo": Pancho reporta el cambio (qué faltó +
+// qué cargó en su lugar) y queda como ajuste fiscal pendiente para administración
+// (NC + factura del sustituto). Reemplaza al viejo "cargué con diferencia".
+function _depImgUrl(it) {
+  if (!it) return '';
+  if (it.img2) return it.img2;
+  var f = (typeof IMGMAP !== 'undefined' && IMGMAP[it.n]) ? IMGMAP[it.n] : ((it.img || '') + '.jpg');
+  return 'https://tckcatalogo.com/img/' + encodeURIComponent(f);
+}
+
+function depFaltaAbrir(viajeId, pedidoId) {
   var ents = _depEntregasViaje[viajeId] || [];
-  var agg = _depAggViaje(ents);
-  window._depDifViaje = viajeId;
-  window._depDifAgg = agg;
-  var h = '<div class="most-ov" id="dep-dif-ov"><div class="most-card" style="max-height:85vh;overflow-y:auto;">';
-  h += '<div class="most-h">⚠️ Cargué con diferencia</div>';
-  h += '<div style="font-size:13px;color:#5C4A38;margin-bottom:10px;">🚚 ' + _mostEsc(_depZonaLabel(v.zona)) + ' — ajustá lo que cargaste distinto a lo pedido.</div>';
-  if (!agg.length) {
-    h += '<div class="dep-empty">Sin detalle de productos. Anotá la diferencia abajo.</div>';
-  } else {
-    h += '<div style="font-size:11px;color:#8A7E72;text-transform:uppercase;letter-spacing:.5px;font-weight:800;margin-bottom:4px;">Producto · esperado → cargado</div>';
-    agg.forEach(function(x, idx) {
-      h += '<div class="dep-dif-row"><span style="flex:1;">' + _mostEsc(_depItemLabel(x)) + '</span>' +
-        '<span style="color:#8A7E72;">esp. ' + x.qty + '</span>' +
-        '<input class="dep-dif-inp" id="dep-dif-' + idx + '" type="number" inputmode="numeric" value="' + x.qty + '"></div>';
-    });
-  }
-  h += '<div class="most-lbl" style="margin-top:8px;">Nota (qué pasó)</div>';
-  h += '<textarea class="most-inp" id="dep-dif-nota" rows="2" placeholder="Ej: no había stock de suprema, cargué 3 menos"></textarea>';
-  h += '<div id="dep-dif-err" style="color:#C62828;font-size:12px;font-weight:700;min-height:14px;"></div>';
-  h += '<button class="most-act" onclick="depDifGuardar()">Guardar diferencia</button>';
-  h += '<button class="most-sec" onclick="document.getElementById(\'dep-dif-ov\').remove()">Cancelar</button>';
+  var e = ents.find(function(x) { return x.pedido_id === pedidoId; }) || {};
+  var c = _depComprobante[pedidoId] || {};
+  var its = _depItemsPorPedido[pedidoId] || [];
+  window._depFalta = {
+    viajeId: viajeId, pedidoId: pedidoId,
+    cliente: e.cliente || '', facturaNro: c.facturaNro || '',
+    conSub: true, sustituto: null
+  };
+  var opciones = its.length
+    ? its.map(function(it) {
+        var lbl = _depItemLabel(it);
+        return '<option value="' + _mostEsc(lbl) + '" data-qty="' + it.qty + '">' + _mostEsc(lbl + ' (facturado: ' + it.qty + ')') + '</option>';
+      }).join('')
+    : '<option value="">(sin detalle de productos)</option>';
+  var defQty = its.length ? its[0].qty : 1;
+  var h = '<div class="most-ov" id="dep-falta-ov"><div class="most-card" style="max-height:88vh;overflow-y:auto;">';
+  h += '<div class="most-h">⚠️ Faltó o cambié un producto</div>';
+  h += '<div style="font-size:13px;color:#5C4A38;margin-bottom:6px;">' + _mostEsc(e.cliente || '') + ' · Fact. #' + _mostEsc(c.facturaNro || '—') + '</div>';
+  h += '<div class="most-lbl">¿Qué producto facturado faltó?</div>';
+  h += '<select class="most-inp" id="dep-falta-prod" onchange="depFaltaProdChange()">' + opciones + '</select>';
+  h += '<div class="most-lbl">¿Cuánto faltó?</div>';
+  h += '<input class="most-inp" id="dep-falta-cant" type="number" inputmode="numeric" value="' + defQty + '">';
+  h += '<div class="most-lbl">¿Cargaste algo en su lugar?</div>';
+  h += '<div class="dep-falta-tg"><button class="on" id="dep-falta-si" onclick="depFaltaSubToggle(true)">Sí, un sustituto</button><button id="dep-falta-no" onclick="depFaltaSubToggle(false)">No, va de menos</button></div>';
+  h += '<div id="dep-falta-subbox">';
+  h += '  <div class="most-lbl">¿Qué cargaste en su lugar?</div>';
+  h += '  <button class="dep-falta-elegir" id="dep-falta-elegir" onclick="depFaltaSelectorAbrir()">🔍 Elegir producto del catálogo</button>';
+  h += '  <div class="dep-falta-elegido" id="dep-falta-elegido" style="display:none;"></div>';
+  h += '  <div class="most-lbl" id="dep-falta-lblcant" style="display:none;">¿Cuánto cargaste?</div>';
+  h += '  <input class="most-inp" id="dep-falta-cantcarg" type="number" inputmode="numeric" value="' + defQty + '" style="display:none;">';
+  h += '</div>';
+  h += '<div class="most-lbl">Nota (opcional)</div>';
+  h += '<input class="most-inp" id="dep-falta-nota" type="text" placeholder="Aclaración para administración">';
+  h += '<div class="dep-falta-info">📨 Esto le avisa a administración: Nota de Crédito de lo que faltó + factura del sustituto. El chofer puede salir igual.</div>';
+  h += '<div id="dep-falta-err" style="color:#C62828;font-size:12px;font-weight:700;min-height:14px;"></div>';
+  h += '<button class="most-act" id="dep-falta-btn-rep" onclick="depFaltaReportar()">📨 Reportar a administración</button>';
+  h += '<button class="most-sec" onclick="document.getElementById(\'dep-falta-ov\').remove()">Cancelar</button>';
   h += '</div></div>';
   document.body.insertAdjacentHTML('beforeend', h);
 }
 
-async function depDifGuardar() {
-  var viajeId = window._depDifViaje;
-  var agg = window._depDifAgg || [];
-  var err = document.getElementById('dep-dif-err'); if (err) err.textContent = '';
-  var difs = [];
-  agg.forEach(function(x, idx) {
-    var inp = document.getElementById('dep-dif-' + idx);
-    var cargado = inp ? (parseFloat(inp.value) || 0) : x.qty;
-    if (cargado !== x.qty) difs.push({ producto: _depItemLabel(x), esperado: x.qty, cargado: cargado });
+function depFaltaProdChange() {
+  var sel = document.getElementById('dep-falta-prod');
+  var opt = sel && sel.options[sel.selectedIndex];
+  var q = opt ? opt.getAttribute('data-qty') : null;
+  if (q) { var c = document.getElementById('dep-falta-cant'); if (c) c.value = q; }
+}
+
+function depFaltaSubToggle(si) {
+  if (window._depFalta) window._depFalta.conSub = si;
+  var bs = document.getElementById('dep-falta-si'), bn = document.getElementById('dep-falta-no');
+  if (bs) bs.classList.toggle('on', si);
+  if (bn) bn.classList.toggle('on', !si);
+  var box = document.getElementById('dep-falta-subbox');
+  if (box) box.style.display = si ? 'block' : 'none';
+}
+
+function depFaltaSelectorAbrir() {
+  var h = '<div class="most-ov" id="dep-sel-ov" style="z-index:60;"><div class="most-card" style="max-height:90vh;overflow-y:auto;">';
+  h += '<div class="most-h">Elegí el producto cargado</div>';
+  h += '<input class="most-inp" id="dep-sel-q" type="text" placeholder="🔍 Buscar producto…" oninput="depFaltaSelectorFiltrar(this.value)">';
+  h += '<div class="dep-sel-grid" id="dep-sel-grid"></div>';
+  h += '<button class="most-sec" onclick="document.getElementById(\'dep-sel-ov\').remove()">Cerrar</button>';
+  h += '</div></div>';
+  document.body.insertAdjacentHTML('beforeend', h);
+  depFaltaSelectorPintar('');
+}
+
+function depFaltaSelectorPintar(q) {
+  q = (q || '').toLowerCase();
+  var html = '';
+  (TOMADOR_CAT || []).forEach(function(cat) {
+    (cat.items || []).forEach(function(it) {
+      if (q && it.n.toLowerCase().indexOf(q) < 0) return;
+      var safe = it.n.replace(/'/g, '').replace(/"/g, '&quot;');
+      html += '<div class="dep-sel-prod" onclick="depFaltaElegirProducto(&quot;' + safe + '&quot;)">' +
+        '<img src="' + _depImgUrl(it) + '" loading="lazy" onerror="this.style.visibility=&quot;hidden&quot;">' +
+        '<div class="dep-sel-nm">' + _mostEsc(it.n) + '</div></div>';
+    });
   });
-  var nota = (document.getElementById('dep-dif-nota') || {}).value || '';
-  nota = nota.trim();
-  if (!difs.length && !nota) { if (err) err.textContent = 'Marcá al menos una diferencia o escribí una nota.'; return; }
-  var notaFull = difs.map(function(d) { return d.producto + ': esp ' + d.esperado + ' → cargó ' + d.cargado; }).join(' | ');
-  if (nota) notaFull = (notaFull ? notaFull + ' || ' : '') + nota;
-  var ov = document.getElementById('dep-dif-ov'); if (ov) ov.remove();
-  await _depConformarGuardar(viajeId, true, notaFull, difs);
+  var g = document.getElementById('dep-sel-grid');
+  if (g) g.innerHTML = html || '<div class="dep-empty">Sin resultados.</div>';
+}
+function depFaltaSelectorFiltrar(q) { depFaltaSelectorPintar(q); }
+
+function depFaltaElegirProducto(nombre) {
+  if (window._depFalta) window._depFalta.sustituto = nombre;
+  var el = document.getElementById('dep-falta-elegido');
+  if (el) { el.style.display = 'flex'; el.innerHTML = '<span>✅ <b>' + _mostEsc(nombre) + '</b></span>'; }
+  var btn = document.getElementById('dep-falta-elegir'); if (btn) btn.textContent = '🔄 Cambiar producto';
+  var lbl = document.getElementById('dep-falta-lblcant'); if (lbl) lbl.style.display = 'block';
+  var cc = document.getElementById('dep-falta-cantcarg'); if (cc) cc.style.display = 'block';
+  var ov = document.getElementById('dep-sel-ov'); if (ov) ov.remove();
+}
+
+async function depFaltaReportar() {
+  var f = window._depFalta; if (!f) return;
+  var err = document.getElementById('dep-falta-err'); if (err) err.textContent = '';
+  var prod = (document.getElementById('dep-falta-prod') || {}).value || '';
+  var cantF = parseFloat((document.getElementById('dep-falta-cant') || {}).value) || 0;
+  if (!prod) { if (err) err.textContent = 'Elegí qué producto faltó.'; return; }
+  if (cantF <= 0) { if (err) err.textContent = 'Indicá cuánto faltó.'; return; }
+  var prodCarg = null, cantC = null;
+  if (f.conSub) {
+    if (!f.sustituto) { if (err) err.textContent = 'Elegí el producto que cargaste en su lugar.'; return; }
+    prodCarg = f.sustituto;
+    cantC = parseFloat((document.getElementById('dep-falta-cantcarg') || {}).value) || 0;
+  }
+  var nota = ((document.getElementById('dep-falta-nota') || {}).value || '').trim() || null;
+  var btn = document.getElementById('dep-falta-btn-rep');
+  if (btn) { btn.disabled = true; btn.textContent = 'Reportando…'; }
+  try {
+    var filas = await sbFetch('cargas_ajustes', {
+      method: 'POST',
+      headers: { 'Prefer': 'return=representation' },
+      body: JSON.stringify([{
+        pedido_id: f.pedidoId,
+        viaje_id: f.viajeId,
+        cliente: f.cliente || null,
+        factura_nro: f.facturaNro || null,
+        producto_falto: prod,
+        cantidad_falto: cantF,
+        producto_cargado: prodCarg,
+        cantidad_cargada: cantC,
+        nota: nota,
+        reportado_por: vendedorActual || 'Pancho'
+      }])
+    });
+    if (!filas || !filas.length) throw new Error('insert vacío (¿RLS?)');
+    var ov = document.getElementById('dep-falta-ov'); if (ov) ov.remove();
+    if (typeof toast === 'function') toast('✅ Reportado a administración', 'ok');
+    depositoRecargar();
+  } catch (e) {
+    console.error('[depFaltaReportar]', e);
+    if (err) err.textContent = 'No se pudo reportar — reintentá.';
+    if (btn) { btn.disabled = false; btn.textContent = '📨 Reportar a administración'; }
+  }
 }
 
 // ═══ v14.62.0 — BLOQUE C: STOCK INTERNO (recuentos) ═════════════════
