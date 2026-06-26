@@ -2,6 +2,18 @@
 <html lang="es">
 <head>
 <!-- ═══════════════════════════════════════════════════════════════════════
+     TCK VENTAS — v14.98.0 — 26/06/2026
+     v14.98.0: MOSTRADOR — anti factura-fantasma (reporte Valentina 26/06).
+        BUG: un producto tildado de una venta podia quedar en el carrito y
+        colarse en la factura del cliente siguiente -> nota de credito.
+        FIX 1: cerrarCargaManualWA() ahora LIMPIA el carrito (qtys/descuentos/
+          combos/promos) al cerrar, no solo al abrir. Ninguna venta arrastra
+          productos a la siguiente, por cualquier camino (exito/cancelar/atras).
+        FIX 2: el modal de cobro (ultima pantalla antes de EMITIR) ahora
+          muestra el RESUMEN ITEMIZADO (cliente + cada linea + total) para que
+          la cajera revise exactamente que va a facturar. 'avisar' pedido.
+        SIN CAMBIOS: Xubio, anti-dup, codigo retiro, Pancho, tomador campo/WA.
+        Base: v14.97.0.
      TCK VENTAS — v14.97.0 — 26/06/2026
      v14.97.0: Raviolones Espinaca y Mozz - presentacion 500 Grs y precio paquete $6.000 (antes 'Granel 8 Kg' $69.000 = precio de caja). Espejo de catalogo v3.23.0 + productos_canonicos id 45.
      TCK VENTAS — v14.96.0 — 25/06/2026
@@ -37835,6 +37847,15 @@ function cerrarCargaManualWA() {
   const el = document.getElementById('manual-wa-overlay');
   if (el) el.remove();
   document.body.style.overflow = '';
+  // v14.98.0 — limpiar SIEMPRE el carrito al cerrar para que ninguna venta
+  // arrastre productos a la siguiente (bug mostrador: ravioles de un cliente
+  // se colaban en la factura del proximo). abrirCargaManualWA ya reseteaba al
+  // abrir; esto cubre el hueco cuando el modal se reusa sin 'NUEVA VENTA'.
+  _manualWAQtys = {};
+  _manualWADescuentos = {};
+  _manualWACombos = {};
+  _manualWAPromos = {};
+  if (typeof _acuVtaCliActivo !== 'undefined') _acuVtaCliActivo = '';
 }
 
 let _mwaBuscarTimer = null;
@@ -46972,11 +46993,36 @@ function mostradorCobroAbrir(total, cb) {
   _mostCobroForma = 'efectivo';
   window._mostCobroCb = cb;
   window._mostCobroTotal = Number(total) || 0;
+  // v14.98.0 — RESUMEN ITEMIZADO antes de emitir factura (anti factura-fantasma).
+  var _revD = (typeof mwaCalcularDesglose === 'function')
+    ? mwaCalcularDesglose() : { sueltos:[], combos:[], promos:[], itemsCount:0 };
+  var _revCli = (window._mostradorClienteXubio && window._mostradorClienteXubio.nombre)
+    ? window._mostradorClienteXubio.nombre : 'Cliente';
+  var _revEsc = (typeof escapeHtml === 'function') ? escapeHtml : function(x){
+    return String(x==null?'':x).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); };
+  var _revFilas = [];
+  _revD.sueltos.forEach(function(s){ _revFilas.push([ s.qty + '\u00d7 ' + s.nombre, s.subtotal ]); });
+  _revD.combos.forEach(function(c){ _revFilas.push([ c.qty + '\u00d7 ' + c.nombre + ' (combo)', c.subtotal ]); });
+  _revD.promos.forEach(function(p){ _revFilas.push([ p.qty + '\u00d7 ' + p.nombre + ' (50% OFF)', p.subtotal ]); });
+  var _revHtml = ''
+    + '<div style="background:#FFF8E1;border:1px solid #FFE082;border-radius:12px;padding:10px 12px;margin-bottom:10px;text-align:left;">'
+    +   '<div style="font-size:13px;color:#5D4037;margin-bottom:6px;">\ud83e\uddfe Vas a facturar a <strong>' + _revEsc(_revCli) + '</strong></div>'
+    +   '<div style="max-height:160px;overflow-y:auto;">'
+    +     (_revFilas.length ? _revFilas.map(function(f){
+            return '<div style="display:flex;justify-content:space-between;gap:8px;font-size:13px;padding:3px 0;border-bottom:1px dashed #EEE;">'
+              + '<span style="color:#333;">' + _revEsc(f[0]) + '</span>'
+              + '<span style="font-weight:800;color:#1B5E20;white-space:nowrap;">$' + Number(f[1]).toLocaleString('es-AR') + '</span>'
+              + '</div>';
+          }).join('') : '<div style="font-size:13px;color:#C62828;">\u26a0\ufe0f Sin productos en el carrito</div>')
+    +   '</div>'
+    +   '<div style="font-size:11px;color:#8D6E63;margin-top:6px;font-weight:700;">' + _revFilas.length + ' \u00edtem(s) \u00b7 revis\u00e1 antes de emitir</div>'
+    + '</div>';
   var h = '';
   h += '<div class="most-ov" id="most-cobro-ov">';
   h += ' <div class="most-card">';
   h += '  <div class="most-h">💵 Cobro en el acto</div>';
   h += '  <div style="font-family:\'Barlow Condensed\',sans-serif;font-size:34px;font-weight:900;color:#1B5E20;text-align:center;margin-bottom:6px;">' + _mostFmt(total) + '</div>';
+  h += _revHtml;
   h += '  <div class="most-cobro-grid" id="most-cobro-grid">';
   h += '   <button type="button" class="sel" data-f="efectivo" onclick="mostradorCobroForma(this)">💵 Efectivo</button>';
   h += '   <button type="button" data-f="transferencia" onclick="mostradorCobroForma(this)">📱 Transf. / MP</button>';
