@@ -2,6 +2,22 @@
 <html lang="es">
 <head>
 <!-- ═══════════════════════════════════════════════════════════════════════
+     TCK VENTAS — v14.101.0 — 29/06/2026
+     ──────────────────────────────────────────────────────────────────────
+     DIVISIÓN DE ZONAS DE REPARTO — Parte A (inferencia de entrega + display)
+     Zona 1 → 1A/1B · Zona 2 → 2A/2B · 'Solo América y Fortín' → Zona 3.
+     Calendario: 1A=lun · 1B=mar · Z3=mié · 2A=jue · 2B=vie · TL=todos.
+
+     Backward-compatible: reconoce las subzonas nuevas Y la nomenclatura
+     vieja. Mientras la tabla `rutas` NO esté migrada, todo igual que hoy.
+
+     Cambios: _zonaKeyFromTexto, ZONA_DB_A_TECNICA, ZONA_NOMBRE_AMIGABLE,
+     ZONA_DIAS_SALIDA, viajeEspBuscarOpciones (subzonas = zona grande) y
+     6 mapas de display de paneles de viajes/choferes.
+
+     NO incluido (Parte B): Mi Ronda. Agrupa por clientes_activos.ruta_viaje,
+     que no cambia al migrar `rutas`, así que sigue con los corredores viejos.
+     ──────────────────────────────────────────────────────────────────────
      TCK VENTAS — v14.100.0 — 27/06/2026
      v14.98.0: MOSTRADOR — anti factura-fantasma (reporte Valentina 26/06).
         BUG: un producto tildado de una venta podia quedar en el carrito y
@@ -17905,6 +17921,11 @@ async function cargarCiudadesCanonicas() {
       if (!t) return null;
       var n = String(t).trim().toLowerCase()
         .normalize('NFD').replace(/[\u0300-\u036f]/g, '');
+      if (n === 'zona 1a' || n === 'zona1a') return 'zona1a';
+      if (n === 'zona 1b' || n === 'zona1b') return 'zona1b';
+      if (n === 'zona 2a' || n === 'zona2a') return 'zona2a';
+      if (n === 'zona 2b' || n === 'zona2b') return 'zona2b';
+      if (n === 'zona 3'  || n === 'zona3')  return 'zona3';
       if (n === 'zona 1' || n === 'zona1') return 'zona1';
       if (n === 'zona 2' || n === 'zona2') return 'zona2';
       if (n.indexOf('america') >= 0 && n.indexOf('fortin') >= 0) return 'america_fortin';
@@ -18525,6 +18546,11 @@ function localidadesSelectHTML(opts) {
 // caía en "Sin viaje asignado" — incluso cuando el backend SÍ asignaba viaje.
 // Resultado: vendedor leía "Sin viaje" y desconfiaba del sistema (falso negativo).
 var ZONA_DB_A_TECNICA = {
+  'Zona 1A':                'zona1a',
+  'Zona 1B':                'zona1b',
+  'Zona 2A':                'zona2a',
+  'Zona 2B':                'zona2b',
+  'Zona 3':                 'zona3',
   'Zona 1':                 'zona1',
   'Zona 2':                 'zona2',
   'Solo América y Fortín':  'america_fortin',
@@ -18533,6 +18559,11 @@ var ZONA_DB_A_TECNICA = {
 
 // Etiquetas amigables para mostrar en el toast
 var ZONA_NOMBRE_AMIGABLE = {
+  'zona1a':          'Zona 1A',
+  'zona1b':          'Zona 1B',
+  'zona2a':          'Zona 2A',
+  'zona2b':          'Zona 2B',
+  'zona3':           'Zona 3',
   'zona1':           'Zona 1',
   'zona2':           'Zona 2',
   'america_fortin':  'América / Fortín',
@@ -18542,6 +18573,11 @@ var ZONA_NOMBRE_AMIGABLE = {
 };
 
 var ZONA_DIAS_SALIDA = {
+  'zona1a':          [1],     // Lunes
+  'zona1b':          [2],     // Martes
+  'zona3':           [3],     // Miércoles
+  'zona2a':          [4],     // Jueves
+  'zona2b':          [5],     // Viernes
   'zona1':           [1],     // Lunes
   'zona2':           [4],     // Jueves
   'america_fortin':  [2],     // Martes
@@ -18724,7 +18760,7 @@ async function viajeEspBuscarOpciones(localidad) {
   const zonaTec = (ZONA_DB_A_TECNICA && ZONA_DB_A_TECNICA[canon.zona]) || canon.zona;
 
   // Solo zonas grandes — TL no acepta viajes especiales por este flujo
-  if (zonaTec !== 'zona1' && zonaTec !== 'zona2' && zonaTec !== 'america_fortin') {
+  if (['zona1','zona2','america_fortin','zona1a','zona1b','zona2a','zona2b','zona3'].indexOf(zonaTec) < 0) {
     return null;
   }
 
@@ -33400,7 +33436,7 @@ function renderViajeHeader() {
   // Zona display
   const zonaDisplay = (function(z) {
     const map = {
-      'zona1': 'Zona 1', 'zona2': 'Zona 2',
+      'zona1': 'Zona 1', 'zona2': 'Zona 2', 'zona1a': 'Zona 1A', 'zona1b': 'Zona 1B', 'zona2a': 'Zona 2A', 'zona2b': 'Zona 2B', 'zona3': 'Zona 3',
       'tl_manana': 'TL Mañana', 'tl_tarde': 'TL Tarde', 'tl': 'TL',
       'america_fortin': 'América/Fortín'
     };
@@ -33421,7 +33457,7 @@ function renderViajeHeader() {
       // v14.13.3: zonas escritas completas (antes "TL Mañ.", "TL Tar.", "Am/Fort")
       const z = (function(zz) {
         const map = {
-          'zona1': 'Zona 1', 'zona2': 'Zona 2',
+          'zona1': 'Zona 1', 'zona2': 'Zona 2', 'zona1a': 'Zona 1A', 'zona1b': 'Zona 1B', 'zona2a': 'Zona 2A', 'zona2b': 'Zona 2B', 'zona3': 'Zona 3',
           'tl_manana': 'TL Mañana', 'tl_tarde': 'TL Tarde', 'tl': 'TL',
           'america_fortin': 'Am/Fortín'
         };
@@ -33512,7 +33548,7 @@ async function renderSinViajeActivo() {
       const f = v.fecha_salida || '';
       const fechaStr = formatearFechaCorta(f);
       const zonaDisplay = ({
-        'zona1': 'Zona 1', 'zona2': 'Zona 2',
+        'zona1': 'Zona 1', 'zona2': 'Zona 2', 'zona1a': 'Zona 1A', 'zona1b': 'Zona 1B', 'zona2a': 'Zona 2A', 'zona2b': 'Zona 2B', 'zona3': 'Zona 3',
         'tl_manana': 'TL Mañana', 'tl_tarde': 'TL Tarde', 'tl': 'TL',
         'america_fortin': 'América/Fortín'
       })[v.zona] || v.zona;
@@ -33611,7 +33647,7 @@ function mvRenderViajeActivo() {
   const isLuis = choferKey.indexOf('luis') >= 0;
   const colorClase = isLuis ? ' luis' : '';
   const zonaDisplay = ({
-    'zona1': 'Zona 1', 'zona2': 'Zona 2',
+    'zona1': 'Zona 1', 'zona2': 'Zona 2', 'zona1a': 'Zona 1A', 'zona1b': 'Zona 1B', 'zona2a': 'Zona 2A', 'zona2b': 'Zona 2B', 'zona3': 'Zona 3',
     'tl_manana': 'TL Mañana', 'tl_tarde': 'TL Tarde', 'tl': 'TL',
     'america_fortin': 'América/Fortín'
   })[v.zona] || v.zona;
@@ -33677,7 +33713,7 @@ function mvRenderProximos() {
   _mvProximos.forEach(function(v) {
     const f = formatearFechaCorta(v.fecha_salida);
     const zonaDisplay = ({
-      'zona1': 'Zona 1', 'zona2': 'Zona 2',
+      'zona1': 'Zona 1', 'zona2': 'Zona 2', 'zona1a': 'Zona 1A', 'zona1b': 'Zona 1B', 'zona2a': 'Zona 2A', 'zona2b': 'Zona 2B', 'zona3': 'Zona 3',
       'tl_manana': 'TL Mañana', 'tl_tarde': 'TL Tarde', 'tl': 'TL',
       'america_fortin': 'América/Fortín'
     })[v.zona] || v.zona;
@@ -33772,7 +33808,7 @@ function mvRenderHistorial() {
   _mvHistorial.forEach(function(v) {
     const f = formatearFechaCorta(v.fecha_salida);
     const zonaDisplay = ({
-      'zona1': 'Zona 1', 'zona2': 'Zona 2',
+      'zona1': 'Zona 1', 'zona2': 'Zona 2', 'zona1a': 'Zona 1A', 'zona1b': 'Zona 1B', 'zona2a': 'Zona 2A', 'zona2b': 'Zona 2B', 'zona3': 'Zona 3',
       'tl_manana': 'TL Mañana', 'tl_tarde': 'TL Tarde', 'tl': 'TL',
       'america_fortin': 'América/Fortín'
     })[v.zona] || v.zona;
@@ -48455,7 +48491,7 @@ function depPollIniciar() {
    TCK_UPD_LOCAL aca Y el archivo version.json del repo.
    ============================================================ */
 (function(){
-  var TCK_UPD_LOCAL = '14.100.0';        /* <-- bump en cada deploy */
+  var TCK_UPD_LOCAL = '14.101.0';        /* <-- bump en cada deploy */
   var TCK_UPD_INTERVALO = 10 * 60 * 1000;   /* chequeo de fondo: 10 min */
   var _updUltChequeo = 0;
 
