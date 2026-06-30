@@ -2,6 +2,10 @@
 <html lang="es">
 <head>
 <!-- ═══════════════════════════════════════════════════════════════════════
+     TCK VENTAS — v14.105.0 — 30/06/2026
+     v14.105.0: CALIBRE EN EL TOMADOR. Pollo A/B/C ahora tienen selector x6/x7 en
+       la tarjeta; obliga a elegir antes de confirmar; la linea se guarda como
+       "Pollo X · calibre x6" -> mapea al producto Xubio correcto y baja bien el stock.
      TCK VENTAS — v14.103.0 — 29/06/2026
      v14.103.0: DEPOSITO/PANCHO — el panel de carga mira SOLO entregas por salir.
         BUG: viajes que acumulan entregas de varios dias quedaban atascados en
@@ -30688,6 +30692,34 @@ if (typeof cargarStockVisibleVentas === 'function') {
 }
 
 var _tomadorQtys       = {}; // { nombreProducto: cantidad }
+var _tomadorCalibres   = {}; // v14.105.0 — calibre elegido por pollo { 'Pollo A': 'x6'|'x7' }
+// Pollos que requieren elegir calibre al vender (cada calibre mapea a su producto Xubio -> baja el stock correcto)
+var POLLOS_CON_CALIBRE = { 'Pollo A': true, 'Pollo B': true, 'Pollo C': true };
+function _tomadorCalSafe(n) { return String(n).replace(/[^a-zA-Z0-9]/g, '_'); }
+function tomadorCalibreSelectorHTML(nombre) {
+  var safe = _tomadorCalSafe(nombre), sel = _tomadorCalibres[nombre] || '';
+  function bcal(c) {
+    var on = sel === c;
+    return '<button type="button" id="tcalb-' + safe + '-' + c + '"'
+      + ' onclick="tomadorSetCalibre(&quot;' + String(nombre).replace(/"/g, '&quot;') + '&quot;,&quot;' + c + '&quot;)"'
+      + ' style="flex:1;padding:6px 0;border:1.5px solid ' + (on ? '#8B0000' : '#E0E0E0') + ';background:' + (on ? '#8B0000' : '#fff') + ';color:' + (on ? '#fff' : '#777') + ';border-radius:8px;font-family:Barlow Condensed,sans-serif;font-weight:900;font-size:13px;cursor:pointer;touch-action:manipulation;">' + c + '</button>';
+  }
+  return '<div style="display:flex;align-items:center;gap:5px;margin:4px 0 2px;">'
+    + '<span style="font-size:10px;font-weight:800;color:#8B0000;text-transform:uppercase;letter-spacing:.4px;">Calibre</span>'
+    + bcal('x6') + bcal('x7') + '</div>';
+}
+function tomadorSetCalibre(nombre, cal) {
+  _tomadorCalibres[nombre] = cal;
+  var safe = _tomadorCalSafe(nombre);
+  ['x6', 'x7'].forEach(function(c) {
+    var btn = document.getElementById('tcalb-' + safe + '-' + c);
+    if (!btn) return;
+    var on = (c === cal);
+    btn.style.borderColor = on ? '#8B0000' : '#E0E0E0';
+    btn.style.background  = on ? '#8B0000' : '#fff';
+    btn.style.color       = on ? '#fff' : '#777';
+  });
+}
 var _tomadorCompetencia = {};
 var _tomadorDescuentos  = {}; // { nombreProducto: { pct: 5, motivo: 'volumen' } } // { nombreProducto: { precio, competencia } }
 var _tomadorSucursalElegida = null; // v8.6: sucursal elegida al confirmar, se vincula al pedido
@@ -31771,6 +31803,7 @@ function tomadorCerrar() {
   // pase, una vez procesado todo).
   try {
     _tomadorQtys = {};
+    _tomadorCalibres = {};
     _tomadorPromos = {};
     _tomadorDescuentos = {};
     _tomadorCombos = {};
@@ -31861,6 +31894,7 @@ function tomadorRenderProductos(catId) {
         + '<div class="tomador-item-body">'
         + '<div class="tomador-item-nombre">' + item.n + '</div>'
         + '<div class="tomador-item-presentacion">' + item.p + '</div>'
+        + (POLLOS_CON_CALIBRE[item.n] ? tomadorCalibreSelectorHTML(item.n) : '')
         + tckCardPrecioHTML(item)
         + stockBadge
         + '<div class="tomador-qty">'
@@ -32691,6 +32725,9 @@ async function tomadorConfirmarConEntrega(entregaData) {
   var _pedidoGuardadoOK = false;
   try {
   var items = Object.keys(_tomadorQtys);
+  // v14.105.0 — exigir calibre en los pollos antes de guardar (evita facturar el calibre equivocado)
+  var _faltaCalibre = items.filter(function(n) { return POLLOS_CON_CALIBRE[n] && _tomadorQtys[n] > 0 && !_tomadorCalibres[n]; });
+  if (_faltaCalibre.length) { toast('Elegí el calibre (x6/x7) en: ' + _faltaCalibre.join(', '), 'err'); return; }
   var cliente   = _gpsCheckinActivo ? _gpsCheckinActivo.nombre_cliente : 'Cliente';
   var vendedor  = vendedorActual || 'Vendedor';
   var hoy       = new Date();
@@ -32726,7 +32763,8 @@ async function tomadorConfirmarConEntrega(entregaData) {
     var precioDef = tckPrecioFinal(item, qty, dto ? dto.pct : 0);
     var subtotal = precioDef * qty;
     total += subtotal;
-    lineas.push(qty + 'x ' + nombre + ' (' + item.p + ')' + (dto ? ' [-' + dto.pct + '%]' : '') + ' → $' + subtotal.toLocaleString('es-AR'));
+    var _nombreLinea = nombre + ((POLLOS_CON_CALIBRE[nombre] && _tomadorCalibres[nombre]) ? ' · calibre ' + _tomadorCalibres[nombre] : '');
+    lineas.push(qty + 'x ' + _nombreLinea + ' (' + item.p + ')' + (dto ? ' [-' + dto.pct + '%]' : '') + ' → $' + subtotal.toLocaleString('es-AR'));
   });
 
   // Agregar datos de competencia si hay
@@ -48528,7 +48566,7 @@ function depPollIniciar() {
    TCK_UPD_LOCAL aca Y el archivo version.json del repo.
    ============================================================ */
 (function(){
-  var TCK_UPD_LOCAL = '14.103.0';        /* <-- bump en cada deploy */
+  var TCK_UPD_LOCAL = '14.105.0';        /* <-- bump en cada deploy */
   var TCK_UPD_INTERVALO = 10 * 60 * 1000;   /* chequeo de fondo: 10 min */
   var _updUltChequeo = 0;
 
