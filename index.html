@@ -2,6 +2,12 @@
 <html lang="es">
 <head>
 <!-- ═══════════════════════════════════════════════════════════════════════
+     TCK VENTAS — v14.102.0 — 29/06/2026
+     v14.102.0: DEVOLUCIONES ESTRUCTURADAS. Al guardar una devolucion se persiste
+        ahora items_json = [{producto, cantidad}] ademas del texto (cambio aditivo,
+        no toca el flujo del chofer). Alimenta la cuenta corriente del producto
+        (la vuelta de mercaderia = +stock). Las devoluciones previas quedan como
+        estaban (texto libre).
      TCK VENTAS — v14.101.0 — 29/06/2026
      ──────────────────────────────────────────────────────────────────────
      DIVISIÓN DE ZONAS DE REPARTO — Parte A (inferencia de entrega + display)
@@ -35308,6 +35314,10 @@ function _getDevolucionData() {
     .filter(function(s) { return _devolucionItems[s].qty > 0; })
     .map(function(s) { var it = _devolucionItems[s]; return it.qty + 'x ' + it.nombre; })
     .join(', ');
+  // v14.102.0 — version estructurada (producto + cantidad) para la cuenta corriente del producto
+  var items_json = Object.keys(_devolucionItems)
+    .filter(function(s) { return _devolucionItems[s].qty > 0; })
+    .map(function(s) { var it = _devolucionItems[s]; return { producto: it.nombre, cantidad: it.qty }; });
   // Label legible para mostrar en historiales (ej: "Con olor / mal estado")
   var catLabels = {
     sin_stock:    'Sin stock',
@@ -35322,6 +35332,7 @@ function _getDevolucionData() {
   var motivo = detalle ? (catLabel + ' — ' + detalle) : catLabel;
   return {
     items: items,
+    items_json: items_json,
     motivo: motivo,
     categoria: _devolucionCategoria,
     detalle: detalle
@@ -36539,6 +36550,7 @@ async function _ejecutarConfirmacionEntrega(cobros) {
           telefono_cliente: e.telefono_cliente || null,
           chofer:           vendedorActual || e.chofer || 'Sin chofer',
           items:            devDataFinal.items || null,
+          items_json:       (devDataFinal.items_json && devDataFinal.items_json.length) ? devDataFinal.items_json : null,
           motivo:           devDataFinal.detalle || null,
           motivo_categoria: devDataFinal.categoria,
           monto_devuelto:   Math.round(montoDevuelto * 100) / 100,
@@ -48491,7 +48503,7 @@ function depPollIniciar() {
    TCK_UPD_LOCAL aca Y el archivo version.json del repo.
    ============================================================ */
 (function(){
-  var TCK_UPD_LOCAL = '14.101.0';        /* <-- bump en cada deploy */
+  var TCK_UPD_LOCAL = '14.102.0';        /* <-- bump en cada deploy */
   var TCK_UPD_INTERVALO = 10 * 60 * 1000;   /* chequeo de fondo: 10 min */
   var _updUltChequeo = 0;
 
