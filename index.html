@@ -2,6 +2,11 @@
 <html lang="es">
 <head>
 <!-- ═══════════════════════════════════════════════════════════════════════
+     TCK VENTAS — v14.105.1 — 30/06/2026
+     v14.105.1: CALIBRE TAMBIEN EN MOSTRADOR/WA. El flujo "Cargar pedido por WA"
+       es codigo separado del tomador; se le agrego el mismo selector x6/x7 +
+       validacion + "· calibre x6" en la linea -> baja el stock correcto en la
+       factura de mostrador (lo que reporto Valentina).
      TCK VENTAS — v14.105.0 — 30/06/2026
      v14.105.0: CALIBRE EN EL TOMADOR. Pollo A/B/C ahora tienen selector x6/x7 en
        la tarjeta; obliga a elegir antes de confirmar; la linea se guarda como
@@ -37936,9 +37941,34 @@ var _manualWACombos = {}; // v9.2: { comboId: cantidad }
 // v13.4: promos 1+1 del pedido manual WA { promoId: cantPares }
 var _manualWAPromos = {};
 
+var _manualWACalibres = {}; // v14.105.1 — calibre por pollo en el flujo mostrador/WA
+function _mwaCalSafe(n) { return String(n).replace(/[^a-zA-Z0-9]/g, '-'); }
+function mwaCalibreSelectorHTML(nombre) {
+  var safe = _mwaCalSafe(nombre), sel = _manualWACalibres[nombre] || '';
+  function bc(c) {
+    var on = sel === c;
+    return '<button type="button" id="mwacalb-' + safe + '-' + c + '"'
+      + ' onclick="mwaSetCalibre(&quot;' + String(nombre).replace(/"/g, '&quot;') + '&quot;,&quot;' + c + '&quot;)"'
+      + ' style="flex:1;padding:6px 0;border:1.5px solid ' + (on ? '#8B0000' : '#E0E0E0') + ';background:' + (on ? '#8B0000' : '#fff') + ';color:' + (on ? '#fff' : '#777') + ';border-radius:8px;font-family:Barlow Condensed,sans-serif;font-weight:900;font-size:13px;cursor:pointer;touch-action:manipulation;">' + c + '</button>';
+  }
+  return '<div style="display:flex;align-items:center;gap:5px;margin:4px 0 2px;"><span style="font-size:10px;font-weight:800;color:#8B0000;text-transform:uppercase;letter-spacing:.4px;">Calibre</span>' + bc('x6') + bc('x7') + '</div>';
+}
+function mwaSetCalibre(nombre, cal) {
+  _manualWACalibres[nombre] = cal;
+  var safe = _mwaCalSafe(nombre);
+  ['x6', 'x7'].forEach(function(c) {
+    var btn = document.getElementById('mwacalb-' + safe + '-' + c);
+    if (!btn) return;
+    var on = (c === cal);
+    btn.style.borderColor = on ? '#8B0000' : '#E0E0E0';
+    btn.style.background  = on ? '#8B0000' : '#fff';
+    btn.style.color       = on ? '#fff' : '#777';
+  });
+}
 function abrirCargaManualWA() {
   _acuVtaCliActivo = '';   // v14.68.0: limpiar acuerdo del flujo anterior
   _manualWAQtys = {};
+  _manualWACalibres = {};
   _manualWACliente = '';
   _manualWALocalidad = '';
   _manualWADescuentos = {};
@@ -37999,6 +38029,7 @@ function manualWAHTML() {
         '<div class="tomador-item-body">' +
           '<div class="tomador-item-nombre">' + item.n + '</div>' +
           '<div class="tomador-item-presentacion">' + item.p + '</div>' +
+          (POLLOS_CON_CALIBRE[item.n] ? mwaCalibreSelectorHTML(item.n) : '') +
           tckCardPrecioHTML(item) +
           stockBadge +
           '<div class="tomador-qty">' +
@@ -38220,7 +38251,7 @@ function mwaCalcularDesglose() {
     var subtotal = precioFinal * qty;
 
     desglose.sueltos.push({
-      nombre: nombre,
+      nombre: nombre + ((POLLOS_CON_CALIBRE[nombre] && _manualWACalibres[nombre]) ? ' · calibre ' + _manualWACalibres[nombre] : ''),
       qty: qty,
       precio_unit: precioUnit,
       precio_final: precioFinal,
@@ -38271,6 +38302,7 @@ function cerrarCargaManualWA() {
   // se colaban en la factura del proximo). abrirCargaManualWA ya reseteaba al
   // abrir; esto cubre el hueco cuando el modal se reusa sin 'NUEVA VENTA'.
   _manualWAQtys = {};
+  _manualWACalibres = {};
   _manualWADescuentos = {};
   _manualWACombos = {};
   _manualWAPromos = {};
@@ -38678,6 +38710,10 @@ function manualWAConfirmar() {
     console.warn('[ANTI-DUP] manualWAConfirmar bloqueado por lock activo');
     return;
   }
+
+  // v14.105.1 — exigir calibre en los pollos antes de emitir (mostrador/WA)
+  var _mwaFaltaCal = Object.keys(_manualWAQtys).filter(function(n) { return POLLOS_CON_CALIBRE[n] && _manualWAQtys[n] > 0 && !_manualWACalibres[n]; });
+  if (_mwaFaltaCal.length) { toast('Elegí el calibre (x6/x7) en: ' + _mwaFaltaCal.join(', '), 'err'); return; }
 
   // ── v14.54.0 PEDIDO VIVO — antes del lock, sin red (mira solo el cache) ─
   // v14.61.0: NO aplica en modo mostrador — la cajera no decide cancelar
@@ -48566,7 +48602,7 @@ function depPollIniciar() {
    TCK_UPD_LOCAL aca Y el archivo version.json del repo.
    ============================================================ */
 (function(){
-  var TCK_UPD_LOCAL = '14.105.0';        /* <-- bump en cada deploy */
+  var TCK_UPD_LOCAL = '14.105.1';        /* <-- bump en cada deploy */
   var TCK_UPD_INTERVALO = 10 * 60 * 1000;   /* chequeo de fondo: 10 min */
   var _updUltChequeo = 0;
 
