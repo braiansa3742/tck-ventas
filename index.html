@@ -2,6 +2,20 @@
 <html lang="es">
 <head>
 <!-- ═══════════════════════════════════════════════════════════════════════
+     TCK VENTAS — v14.103.0 — 29/06/2026
+     v14.103.0: DEPOSITO/PANCHO — el panel de carga mira SOLO entregas por salir.
+        BUG: viajes que acumulan entregas de varios dias quedaban atascados en
+        "Facturando" para siempre, porque entregas terminales (entregado/cancelado/
+        no_entregado/archivado/no_encontrado) y en_camino contaban como "sin factura".
+        FIX 1: nuevo _depEntCargable — gating, contador, checklist, conformidad y
+          snapshot ahora ignoran todo lo terminal; solo cuenta lo pendiente de cargar.
+          Un viaje 100% facturado en sus pedidos cargables pasa a "Listo para cargar".
+        FIX 2: viajes sin entregas cargables ya no se muestran como card de carga.
+        FIX 3: los retiros de mostrador PENDIENTES se traen siempre (sin corte de 7
+          dias); el corte aplica solo al historial de entregados. Un retiro viejo sin
+          cerrar no desaparece mas de la cola de Pancho.
+        NOTA: los "entregados sin factura" son tema fiscal (Gaston/Francisco), no de
+          deposito — por eso salen del panel de Pancho.
      TCK VENTAS — v14.102.0 — 29/06/2026
      v14.102.0: DEVOLUCIONES ESTRUCTURADAS. Al guardar una devolucion se persiste
         ahora items_json = [{producto, cantidad}] ademas del texto (cambio aditivo,
@@ -46642,7 +46656,7 @@ async function depositoRecargar() {
   try {
     var desdeRet = new Date(Date.now() - 7 * 86400000).toISOString();
     var nuevos = await sbFetch('mostrador_retiros?select=*' +
-      '&creado_at=gte.' + encodeURIComponent(desdeRet) +
+      '&or=(estado.eq.pendiente,creado_at.gte.' + encodeURIComponent(desdeRet) + ')' +
       '&order=creado_at.desc&limit=200') || [];
     var pendAntes = _depRetiros.filter(function(r){ return r.estado === 'pendiente'; }).length;
     var pendAhora = nuevos.filter(function(r){ return r.estado === 'pendiente'; }).length;
@@ -47799,7 +47813,7 @@ async function depCargasRecargar() {
       // v14.75.0 — ¿hay viajes pendientes con algún pedido sin factura?
       _depHayBloqueados = _depViajesHoy.some(function (v) {
         if (_depConformidades[v.id]) return false;
-        return (_depEntregasViaje[v.id] || []).some(_depEntSinFactura);
+        return (_depEntregasViaje[v.id] || []).filter(_depEntCargable).some(_depEntSinFactura);
       });
     }
     // ── v14.88.0 — RED DE SEGURIDAD: pedidos de HOY sin viaje asignado ──
@@ -47874,6 +47888,12 @@ function _depAggViaje(ents) {
   return orden.map(function(k) { return agg[k]; });
 }
 function _depEntSinFactura(e) { var c = _depComprobante[e.pedido_id]; return !c || !c.tieneFactura; }
+// v14.103.0 -- el panel de Pancho es para CARGAR: solo cuentan las entregas todavia
+// por salir (pendiente). Lo terminal (entregado/cancelado/no_entregado/no_encontrado/
+// archivado/resuelto_admin) y lo que ya esta arriba del camion (en_camino) NO se carga
+// ni traba la facturacion del viaje.
+var _DEP_NO_CARGABLE = { entregado:1, cancelado:1, no_entregado:1, no_encontrado:1, archivado:1, en_camino:1, resuelto_admin:1 };
+function _depEntCargable(e) { return !_DEP_NO_CARGABLE[(e && e.estado) || '']; }
 
 function depCargaToggleCheck(viajeId, idx, el) {
   var m = _depCargaCheck[viajeId] = _depCargaCheck[viajeId] || {};
@@ -47912,7 +47932,7 @@ function depFaltanToggle(viajeId) {
 }
 
 function _depViajeCard(v) {
-  var ents = (_depEntregasViaje[v.id] || []).slice().sort(function(a, b) {
+  var ents = (_depEntregasViaje[v.id] || []).filter(_depEntCargable).sort(function(a, b) {
     return _depRutaIdx(b.ciudad) - _depRutaIdx(a.ciudad);   // inverso: última parada primero
   });
   var sinFact = ents.filter(_depEntSinFactura);
@@ -48081,7 +48101,11 @@ function _depCargasHtml() {
   if (!_depViajesHoy.length) {
     return h + (_depHuerfanosHoy.length ? '' : '<div class="dep-empty">No hay viajes programados para hoy.</div>');
   }
-  var pend = _depViajesHoy.filter(function(v) { return !_depConformidades[v.id]; });
+  // v14.103.0 -- ademas de no-conformado, el viaje tiene que tener algo cargable
+  // (si todo ya esta entregado/cancelado, no se muestra como pendiente de carga).
+  var pend = _depViajesHoy.filter(function(v) {
+    return !_depConformidades[v.id] && (_depEntregasViaje[v.id] || []).some(_depEntCargable);
+  });
   var hechos = _depViajesHoy.filter(function(v) { return _depConformidades[v.id]; });
   if (!pend.length) {
     h += '<div class="dep-empty">✅ Todos los viajes de hoy están conformados.</div>';
@@ -48100,7 +48124,8 @@ async function depCargaConformar(viajeId) {
   if (!v) return;
   var ents = _depEntregasViaje[viajeId] || [];
   // v14.73.0 — no se puede cargar/conformar con pedidos sin factura
-  var sinFact = ents.filter(_depEntSinFactura);
+  // v14.103.0 -- solo entregas cargables (pendientes); lo terminal no traba
+  var sinFact = (ents || []).filter(_depEntCargable).filter(_depEntSinFactura);
   if (sinFact.length) {
     toast('⛔ ' + sinFact.length + ' pedido(s) SIN FACTURA — facturalos antes de cargar', 'err');
     return;
@@ -48118,7 +48143,7 @@ async function _depConformarGuardar(viajeId, conDiferencia, nota, difJson) {
       var d = new Date();
       return d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0');
     })();
-    var snapshot = (_depEntregasViaje[viajeId] || []).map(function(e) {
+    var snapshot = (_depEntregasViaje[viajeId] || []).filter(_depEntCargable).map(function(e) {
       return { pedido_id: e.pedido_id, cliente: e.cliente, ciudad: e.ciudad, monto: e.monto };
     });
     var detalle = { entregas: snapshot };
@@ -48132,7 +48157,7 @@ async function _depConformarGuardar(viajeId, conDiferencia, nota, difJson) {
         zona:           v.zona || null,
         chofer:         v.chofer || null,
         vehiculo:       v.vehiculo || null,
-        total_pedidos:  (_depEntregasViaje[viajeId] || []).length,
+        total_pedidos:  (_depEntregasViaje[viajeId] || []).filter(_depEntCargable).length,
         estado:         conDiferencia ? 'con_diferencia' : 'conforme',
         nota:           nota || null,
         detalle_json:   detalle,
@@ -48503,7 +48528,7 @@ function depPollIniciar() {
    TCK_UPD_LOCAL aca Y el archivo version.json del repo.
    ============================================================ */
 (function(){
-  var TCK_UPD_LOCAL = '14.102.0';        /* <-- bump en cada deploy */
+  var TCK_UPD_LOCAL = '14.103.0';        /* <-- bump en cada deploy */
   var TCK_UPD_INTERVALO = 10 * 60 * 1000;   /* chequeo de fondo: 10 min */
   var _updUltChequeo = 0;
 
