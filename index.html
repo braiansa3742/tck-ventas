@@ -2,6 +2,12 @@
 <html lang="es">
 <head>
 <!-- ═══════════════════════════════════════════════════════════════════════
+     TCK VENTAS — v14.106.0 — 01/07/2026
+     v14.106.0: CALIBRE + FRESCO/CONGELADO. El selector de pollo ahora ofrece la
+       variante exacta: Pollo A x6/x7; Pollo B y C x6/x7 × Fresco/Congelado. La
+       linea se guarda con el nombre exacto del mapeo Xubio (ej "Pollo B x6 Fresco")
+       -> factura el producto correcto (baja bien el stock) Y la planilla de carga
+       desglosa por variante sola. Sin cambios en Apps Script (mapeo resuelve por nombre).
      TCK VENTAS — v14.105.1 — 30/06/2026
      v14.105.1: CALIBRE TAMBIEN EN MOSTRADOR/WA. El flujo "Cargar pedido por WA"
        es codigo separado del tomador; se le agrego el mismo selector x6/x7 +
@@ -30700,26 +30706,33 @@ var _tomadorQtys       = {}; // { nombreProducto: cantidad }
 var _tomadorCalibres   = {}; // v14.105.0 — calibre elegido por pollo { 'Pollo A': 'x6'|'x7' }
 // Pollos que requieren elegir calibre al vender (cada calibre mapea a su producto Xubio -> baja el stock correcto)
 var POLLOS_CON_CALIBRE = { 'Pollo A': true, 'Pollo B': true, 'Pollo C': true };
+// Variantes por pollo — DEBEN coincidir EXACTO con productos_xubio_mapping.producto_tck_nombre
+var POLLO_VARIANTES = {
+  'Pollo A': ['x6', 'x7'],
+  'Pollo B': ['x6 Fresco', 'x6 Congelado', 'x7 Fresco', 'x7 Congelado'],
+  'Pollo C': ['x6 Fresco', 'x6 Congelado', 'x7 Fresco', 'x7 Congelado']
+};
 function _tomadorCalSafe(n) { return String(n).replace(/[^a-zA-Z0-9]/g, '_'); }
 function tomadorCalibreSelectorHTML(nombre) {
   var safe = _tomadorCalSafe(nombre), sel = _tomadorCalibres[nombre] || '';
-  function bcal(c) {
-    var on = sel === c;
-    return '<button type="button" id="tcalb-' + safe + '-' + c + '"'
-      + ' onclick="tomadorSetCalibre(&quot;' + String(nombre).replace(/"/g, '&quot;') + '&quot;,&quot;' + c + '&quot;)"'
-      + ' style="flex:1;padding:6px 0;border:1.5px solid ' + (on ? '#8B0000' : '#E0E0E0') + ';background:' + (on ? '#8B0000' : '#fff') + ';color:' + (on ? '#fff' : '#777') + ';border-radius:8px;font-family:Barlow Condensed,sans-serif;font-weight:900;font-size:13px;cursor:pointer;touch-action:manipulation;">' + c + '</button>';
-  }
-  return '<div style="display:flex;align-items:center;gap:5px;margin:4px 0 2px;">'
-    + '<span style="font-size:10px;font-weight:800;color:#8B0000;text-transform:uppercase;letter-spacing:.4px;">Calibre</span>'
-    + bcal('x6') + bcal('x7') + '</div>';
+  var vars = POLLO_VARIANTES[nombre] || ['x6', 'x7'];
+  var btns = vars.map(function(v, ix) {
+    var on = sel === v;
+    return '<button type="button" id="tcalb-' + safe + '-' + ix + '"'
+      + ' onclick="tomadorSetCalibre(&quot;' + String(nombre).replace(/"/g, '&quot;') + '&quot;,&quot;' + v + '&quot;)"'
+      + ' style="flex:1 1 44%;padding:6px 2px;border:1.5px solid ' + (on ? '#8B0000' : '#E0E0E0') + ';background:' + (on ? '#8B0000' : '#fff') + ';color:' + (on ? '#fff' : '#777') + ';border-radius:8px;font-family:Barlow Condensed,sans-serif;font-weight:900;font-size:12px;cursor:pointer;touch-action:manipulation;">' + v + '</button>';
+  }).join('');
+  return '<div style="margin:4px 0 2px;">'
+    + '<div style="font-size:10px;font-weight:800;color:#8B0000;text-transform:uppercase;letter-spacing:.4px;margin-bottom:3px;">Calibre / estado</div>'
+    + '<div style="display:flex;flex-wrap:wrap;gap:4px;">' + btns + '</div></div>';
 }
 function tomadorSetCalibre(nombre, cal) {
   _tomadorCalibres[nombre] = cal;
   var safe = _tomadorCalSafe(nombre);
-  ['x6', 'x7'].forEach(function(c) {
-    var btn = document.getElementById('tcalb-' + safe + '-' + c);
+  (POLLO_VARIANTES[nombre] || ['x6', 'x7']).forEach(function(v, ix) {
+    var btn = document.getElementById('tcalb-' + safe + '-' + ix);
     if (!btn) return;
-    var on = (c === cal);
+    var on = (v === cal);
     btn.style.borderColor = on ? '#8B0000' : '#E0E0E0';
     btn.style.background  = on ? '#8B0000' : '#fff';
     btn.style.color       = on ? '#fff' : '#777';
@@ -32732,7 +32745,7 @@ async function tomadorConfirmarConEntrega(entregaData) {
   var items = Object.keys(_tomadorQtys);
   // v14.105.0 — exigir calibre en los pollos antes de guardar (evita facturar el calibre equivocado)
   var _faltaCalibre = items.filter(function(n) { return POLLOS_CON_CALIBRE[n] && _tomadorQtys[n] > 0 && !_tomadorCalibres[n]; });
-  if (_faltaCalibre.length) { toast('Elegí el calibre (x6/x7) en: ' + _faltaCalibre.join(', '), 'err'); return; }
+  if (_faltaCalibre.length) { toast('Elegí calibre/estado del pollo en: ' + _faltaCalibre.join(', '), 'err'); return; }
   var cliente   = _gpsCheckinActivo ? _gpsCheckinActivo.nombre_cliente : 'Cliente';
   var vendedor  = vendedorActual || 'Vendedor';
   var hoy       = new Date();
@@ -32768,7 +32781,7 @@ async function tomadorConfirmarConEntrega(entregaData) {
     var precioDef = tckPrecioFinal(item, qty, dto ? dto.pct : 0);
     var subtotal = precioDef * qty;
     total += subtotal;
-    var _nombreLinea = nombre + ((POLLOS_CON_CALIBRE[nombre] && _tomadorCalibres[nombre]) ? ' · calibre ' + _tomadorCalibres[nombre] : '');
+    var _nombreLinea = nombre + ((POLLOS_CON_CALIBRE[nombre] && _tomadorCalibres[nombre]) ? ' ' + _tomadorCalibres[nombre] : '');
     lineas.push(qty + 'x ' + _nombreLinea + ' (' + item.p + ')' + (dto ? ' [-' + dto.pct + '%]' : '') + ' → $' + subtotal.toLocaleString('es-AR'));
   });
 
@@ -37945,21 +37958,22 @@ var _manualWACalibres = {}; // v14.105.1 — calibre por pollo en el flujo mostr
 function _mwaCalSafe(n) { return String(n).replace(/[^a-zA-Z0-9]/g, '-'); }
 function mwaCalibreSelectorHTML(nombre) {
   var safe = _mwaCalSafe(nombre), sel = _manualWACalibres[nombre] || '';
-  function bc(c) {
-    var on = sel === c;
-    return '<button type="button" id="mwacalb-' + safe + '-' + c + '"'
-      + ' onclick="mwaSetCalibre(&quot;' + String(nombre).replace(/"/g, '&quot;') + '&quot;,&quot;' + c + '&quot;)"'
-      + ' style="flex:1;padding:6px 0;border:1.5px solid ' + (on ? '#8B0000' : '#E0E0E0') + ';background:' + (on ? '#8B0000' : '#fff') + ';color:' + (on ? '#fff' : '#777') + ';border-radius:8px;font-family:Barlow Condensed,sans-serif;font-weight:900;font-size:13px;cursor:pointer;touch-action:manipulation;">' + c + '</button>';
-  }
-  return '<div style="display:flex;align-items:center;gap:5px;margin:4px 0 2px;"><span style="font-size:10px;font-weight:800;color:#8B0000;text-transform:uppercase;letter-spacing:.4px;">Calibre</span>' + bc('x6') + bc('x7') + '</div>';
+  var vars = POLLO_VARIANTES[nombre] || ['x6', 'x7'];
+  var btns = vars.map(function(v, ix) {
+    var on = sel === v;
+    return '<button type="button" id="mwacalb-' + safe + '-' + ix + '"'
+      + ' onclick="mwaSetCalibre(&quot;' + String(nombre).replace(/"/g, '&quot;') + '&quot;,&quot;' + v + '&quot;)"'
+      + ' style="flex:1 1 44%;padding:6px 2px;border:1.5px solid ' + (on ? '#8B0000' : '#E0E0E0') + ';background:' + (on ? '#8B0000' : '#fff') + ';color:' + (on ? '#fff' : '#777') + ';border-radius:8px;font-family:Barlow Condensed,sans-serif;font-weight:900;font-size:12px;cursor:pointer;touch-action:manipulation;">' + v + '</button>';
+  }).join('');
+  return '<div style="margin:4px 0 2px;"><div style="font-size:10px;font-weight:800;color:#8B0000;text-transform:uppercase;letter-spacing:.4px;margin-bottom:3px;">Calibre / estado</div><div style="display:flex;flex-wrap:wrap;gap:4px;">' + btns + '</div></div>';
 }
 function mwaSetCalibre(nombre, cal) {
   _manualWACalibres[nombre] = cal;
   var safe = _mwaCalSafe(nombre);
-  ['x6', 'x7'].forEach(function(c) {
-    var btn = document.getElementById('mwacalb-' + safe + '-' + c);
+  (POLLO_VARIANTES[nombre] || ['x6', 'x7']).forEach(function(v, ix) {
+    var btn = document.getElementById('mwacalb-' + safe + '-' + ix);
     if (!btn) return;
-    var on = (c === cal);
+    var on = (v === cal);
     btn.style.borderColor = on ? '#8B0000' : '#E0E0E0';
     btn.style.background  = on ? '#8B0000' : '#fff';
     btn.style.color       = on ? '#fff' : '#777';
@@ -38251,7 +38265,7 @@ function mwaCalcularDesglose() {
     var subtotal = precioFinal * qty;
 
     desglose.sueltos.push({
-      nombre: nombre + ((POLLOS_CON_CALIBRE[nombre] && _manualWACalibres[nombre]) ? ' · calibre ' + _manualWACalibres[nombre] : ''),
+      nombre: nombre + ((POLLOS_CON_CALIBRE[nombre] && _manualWACalibres[nombre]) ? ' ' + _manualWACalibres[nombre] : ''),
       qty: qty,
       precio_unit: precioUnit,
       precio_final: precioFinal,
@@ -38713,7 +38727,7 @@ function manualWAConfirmar() {
 
   // v14.105.1 — exigir calibre en los pollos antes de emitir (mostrador/WA)
   var _mwaFaltaCal = Object.keys(_manualWAQtys).filter(function(n) { return POLLOS_CON_CALIBRE[n] && _manualWAQtys[n] > 0 && !_manualWACalibres[n]; });
-  if (_mwaFaltaCal.length) { toast('Elegí el calibre (x6/x7) en: ' + _mwaFaltaCal.join(', '), 'err'); return; }
+  if (_mwaFaltaCal.length) { toast('Elegí calibre/estado del pollo en: ' + _mwaFaltaCal.join(', '), 'err'); return; }
 
   // ── v14.54.0 PEDIDO VIVO — antes del lock, sin red (mira solo el cache) ─
   // v14.61.0: NO aplica en modo mostrador — la cajera no decide cancelar
@@ -48602,7 +48616,7 @@ function depPollIniciar() {
    TCK_UPD_LOCAL aca Y el archivo version.json del repo.
    ============================================================ */
 (function(){
-  var TCK_UPD_LOCAL = '14.105.1';        /* <-- bump en cada deploy */
+  var TCK_UPD_LOCAL = '14.106.0';        /* <-- bump en cada deploy */
   var TCK_UPD_INTERVALO = 10 * 60 * 1000;   /* chequeo de fondo: 10 min */
   var _updUltChequeo = 0;
 
