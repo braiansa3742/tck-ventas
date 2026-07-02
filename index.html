@@ -2,6 +2,23 @@
 <html lang="es">
 <head>
 <!-- ═══════════════════════════════════════════════════════════════════════
+     TCK VENTAS — v14.107.0 — 02/07/2026
+     v14.107.0: ANTI-CAOS con Xubio caído (reporte Lisandro 02/07: "aparece,
+        desaparece, me aparece como doble").
+        (1) DUPLICADOS REALES: cuando Xubio tira 500 el vendedor re-cargaba el
+            pedido entero (caso Olmedo: 09:56 Pendiente + 10:00 re-tomado =
+            pedido doble). El modal de error ahora dice en verde y en negrita:
+            "El pedido YA está guardado, NO lo vuelvas a cargar — reintentá
+            el presupuesto desde la pestaña PEDIDOS".
+        (2) APARECE/DESAPARECE: TTL de pedidos optimistas 10 → 45 min (el CSV
+            publicado tarda >10 min bajo edición intensa y el optimista vencía
+            antes → hueco donde el pedido "no estaba").
+        (3) SALIR/ENTRAR YA NO BORRA: los optimistas persisten al cerrar
+            sesión; _mergeOptimisticos filtra por dueño (datos.vendedor) para
+            no cruzarlos entre vendedores en el mismo celular. Antes salir()
+            los limpiaba y el ciclo "salgo/entro" hacía desaparecer pedidos
+            recién cargados.
+        Base: v14.106.1.
      TCK VENTAS — v14.106.1 — 02/07/2026
      v14.106.1: SESIÓN VENCIDA VISIBLE (fix check-in/checkout "que no andan").
         Con el blindaje RLS de Supabase las tablas operativas (visitas,
@@ -21207,7 +21224,12 @@ let _pedidosPendientesNotif = 0;
 //       reinicio hasta que el CSV lo confirma (ahí _mergeOptimisticos lo suelta).
 // Map<pedidoId, { creadoEn: timestamp, datos: pedido }>
 const _optimisticPedidos = new Map();
-const OPTIMISTIC_TTL_MS = 10 * 60 * 1000; // v14.40.0: 10 min (antes 90s)
+// v14.107.0: 45 min (antes 10 min). El CSV publicado del Sheet puede tardar
+// MÁS de 10 min en regenerarse cuando el Sheet está bajo edición intensa
+// (caso 02/07: pedidos que "aparecían y desaparecían" para Lisandro). El
+// optimista se suelta apenas el CSV confirma el pedido, así que un TTL largo
+// no muestra datos viejos: solo defiende más tiempo contra el lag de Google.
+const OPTIMISTIC_TTL_MS = 45 * 60 * 1000;
 const _OPTIMISTIC_LS_KEY = 'tck_ventas_optimistas_v1';
 
 // v14.40.0 — Persistir el Map a localStorage para que sobreviva a cerrar/reabrir.
@@ -21271,8 +21293,13 @@ function _mergeOptimisticos(pedidosFromServer) {
       return;
     }
     if (!idsServer.has(id)) {
-      // Server aún no lo tiene → defenderlo, agregarlo al inicio
-      result.unshift(entry.datos);
+      // Server aún no lo tiene → defenderlo, agregarlo al inicio.
+      // v14.107.0: solo si el pedido es del vendedor logueado (los optimistas
+      // ya NO se borran al cerrar sesión; el filtro por dueño evita que se
+      // crucen entre vendedores en un mismo celular).
+      if (entry.datos && (!entry.datos.vendedor || entry.datos.vendedor === vendedorActual)) {
+        result.unshift(entry.datos);
+      }
     } else {
       // Server lo confirmó → soltar el optimista
       _optimisticPedidos.delete(id);
@@ -21682,7 +21709,11 @@ function salir() {
   limpiarSesion();
   document.title = 'TCK Ventas';
   vendedorActual = null; pinActual = ''; pinVendedorTemp = null; todosLosPedidos = []; _pedidosCache = [];
-  _optimisticLimpiarLS(); // v14.40.0: no arrastrar optimistas de un vendedor al siguiente
+  // v14.107.0: los optimistas YA NO se borran al salir. Antes (v14.40.0) se
+  // limpiaban acá para no cruzarlos entre vendedores, pero eso hacía que
+  // "salir y volver a entrar" borrara pedidos recién cargados que el CSV
+  // todavía no confirmó (el aparece/desaparece del 02/07). Ahora persisten
+  // y _mergeOptimisticos filtra por dueño (datos.vendedor === vendedorActual).
   document.getElementById('login-wrap').style.display = 'flex';
   document.getElementById('panel').classList.remove('on');
   document.getElementById('lista-pedidos').innerHTML = '';
@@ -26834,7 +26865,13 @@ function _tomadorMostrarErrorXubio(pedidoId, fila, clienteNombre, entregaData, m
     +     '</div>'
     +   '</div>'
     +   '<div style="padding:14px 20px;">'
-    +     '<div style="background:#FFF3E0;border-left:3px solid #FF9800;padding:10px 12px;border-radius:0 8px 8px 0;font-size:12px;color:#6D4C2D;line-height:1.5;">'
+    // v14.107.0 — aviso anti-duplicados: cuando Xubio fallaba, los vendedores
+    // volvían a CARGAR el pedido entero (caso Olmedo 02/07: pedido doble real).
+    // El pedido YA está en el sistema; lo único pendiente es el presupuesto.
+    +     '<div style="background:#E8F5E9;border-left:3px solid #4CAF50;padding:10px 12px;border-radius:0 8px 8px 0;font-size:12.5px;color:#1B5E20;line-height:1.5;font-weight:600;">'
+    +       '✅ El pedido YA está guardado. <b>NO lo vuelvas a cargar</b> (se duplica). Solo falta el presupuesto de Xubio: reintentá ahora o más tarde desde la pestaña PEDIDOS.'
+    +     '</div>'
+    +     '<div style="background:#FFF3E0;border-left:3px solid #FF9800;padding:10px 12px;border-radius:0 8px 8px 0;font-size:12px;color:#6D4C2D;line-height:1.5;margin-top:8px;">'
     +       _escapeHtml(mensajeErr || 'No se pudo crear el presupuesto Xubio. Probá de nuevo cuando tengas señal, o el admin lo puede confirmar desde el panel.')
     +     '</div>'
     +     '<div style="display:flex;gap:8px;margin-top:14px;">'
