@@ -2,6 +2,20 @@
 <html lang="es">
 <head>
 <!-- ═══════════════════════════════════════════════════════════════════════
+     TCK VENTAS — v14.106.1 — 02/07/2026
+     v14.106.1: SESIÓN VENCIDA VISIBLE (fix check-in/checkout "que no andan").
+        Con el blindaje RLS de Supabase las tablas operativas (visitas,
+        entregas, mironda_gestiones, etc.) ya NO aceptan la anon key: el
+        fallback silencioso de sbFetch (v14.64.0: JWT rechazado → reintento
+        con anon) dejó de salvar la operación. Un vendedor con JWT vencido
+        quedaba "logueado" pero sin poder hacer check-in/checkout ni guardar
+        gestiones, con errores mudos en consola.
+        FIX: si el reintento anon también da 401/403, sbFetch avisa con toast
+        (throttle 60s): "Tu sesión venció. Tocá ⏻, salí y volvé a entrar con
+        tu PIN". No desloguea solo (para no cortar a un chofer en ruta con
+        cola offline); el usuario re-entra y el JWT se renueva.
+        SIN CAMBIOS: tomador, Xubio, entregas, Mi Ronda.
+        Base: v14.106.0.
      TCK VENTAS — v14.106.0 — 01/07/2026
      v14.106.0: CALIBRE + FRESCO/CONGELADO. El selector de pollo ahora ofrece la
        variante exacta: Pollo A x6/x7; Pollo B y C x6/x7 × Fresco/Congelado. La
@@ -18237,6 +18251,22 @@ async function _flushGrafiasSinCanonizar() {
   }
 }
 
+// v14.106.1 — Aviso de sesión vencida (throttle 60s para no spamear toasts).
+// Con el blindaje RLS de Supabase, la anon key ya NO tiene permisos sobre las
+// tablas operativas (visitas, entregas, mironda_gestiones, etc.): el viejo
+// fallback silencioso a anon de v14.64.0 dejó de salvar la operación. Si el
+// JWT venció, lo único que arregla es volver a loguearse con el PIN — avisarlo
+// claro en vez de fallar mudo (check-in/checkout que "no andan").
+var _sbSesionVencidaTs = 0;
+function _sbAvisarSesionVencida() {
+  var ahora = Date.now();
+  if (ahora - _sbSesionVencidaTs < 60000) return;
+  _sbSesionVencidaTs = ahora;
+  try {
+    toast('🔒 Tu sesión venció. Tocá ⏻ (arriba a la derecha), salí y volvé a entrar con tu PIN.', 'err');
+  } catch(e) { console.warn('[sbFetch] Sesión vencida (toast no disponible):', e); }
+}
+
 async function sbFetch(path, options = {}) {
   const url = SUPABASE_URL + '/rest/v1/' + path;
   const headers = {
@@ -18248,12 +18278,14 @@ async function sbFetch(path, options = {}) {
   };
   let resp = await fetch(url, { ...options, headers });
   // v14.64.0: token vencido/rechazado → limpiar y reintentar 1 vez con anon.
-  // En Fase A esto garantiza que un token malo JAMÁS rompe la operación.
+  // v14.106.1: si el reintento anon TAMBIÉN falla por permisos (401/403 del
+  // blindaje RLS), la sesión venció de verdad → avisar re-login con PIN.
   if (resp.status === 401 && _JWT) {
     console.warn('[sbFetch] JWT rechazado (401): limpio token y reintento con anon');
     jwtLimpiar();
     headers['Authorization'] = 'Bearer ' + SUPABASE_KEY;
     resp = await fetch(url, { ...options, headers });
+    if (resp.status === 401 || resp.status === 403) _sbAvisarSesionVencida();
   }
   if (!resp.ok) {
     const err = await resp.text();
