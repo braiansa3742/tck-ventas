@@ -2,6 +2,20 @@
 <html lang="es">
 <head>
 <!-- ═══════════════════════════════════════════════════════════════════════
+     TCK VENTAS — v14.108.0 — 06/07/2026
+     v14.108.0: BAJAS DEL TOMADOR (pedido del equipo 06/07). Agregados a
+        TOMADOR_DEPRECADOS (reversible: quitar del Set):
+        · VEGGIE completa (Garbanzos, Lentejas, Quinoa, Hongos, Espinaca —
+          las otras 3 ya estaban desde v12.1) — se vencieron. La sección
+          desaparece sola.
+        · Bocadito Clasico (GTA x5kg) — no hay más.
+        · Fino de Ave Cocida — se venció.
+        · VERDURAS CONGELADAS completas (las 7) — se vencieron. La sección
+          desaparece sola.
+        Espejo en catálogo v3.24.0 (V4_PRODUCTOS_OCULTOS) y admin v13.104.0.
+        Pechuguitas al Verdeo NO se saca: queda sin_stock=true en
+        productos_canonicos (aviso amarillo automático vía polling).
+        Base: v14.107.0.
      TCK VENTAS — v14.107.0 — 02/07/2026
      v14.107.0: ANTI-CAOS con Xubio caído (reporte Lisandro 02/07: "aparece,
         desaparece, me aparece como doble").
@@ -30603,7 +30617,26 @@ const TOMADOR_SIN_STOCK = TOMADOR_SIN_STOCK_AVISO;
 const TOMADOR_DEPRECADOS = new Set([
   'Hamburguesa de Arvejas',
   'Hamburguesa Mexicana',
-  'Hamburguesa 5 Vegetales'
+  'Hamburguesa 5 Vegetales',
+  // v14.108.0 (6/7): línea VEGGIE completa — se vencieron (pedido del equipo).
+  // Con estas 5 la sección VEGGIE queda vacía y desaparece sola.
+  'Hamburguesa de Garbanzos',
+  'Hamburguesa de Lentejas',
+  'Hamburguesa de Quinoa',
+  'Hamburguesa de Hongos',
+  'Hamburguesa de Espinaca',
+  // v14.108.0 (6/7): discontinuados — no hay más / vencidos.
+  'Bocadito Clasico',
+  'Fino de Ave Cocida',
+  // v14.108.0 (6/7): VERDURAS CONGELADAS completas — se vencieron.
+  // La sección VERD queda vacía y desaparece sola.
+  'Arándanos Solimeno',
+  'Brocoli',
+  'Espinacas',
+  'Morron',
+  'Primavera',
+  'Frutos Rojos',
+  'Cebolla'
 ]);
 
 // Filtrar TOMADOR_CAT una sola vez al cargar — afecta los 3 tomadores
@@ -48685,7 +48718,7 @@ function depPollIniciar() {
    TCK_UPD_LOCAL aca Y el archivo version.json del repo.
    ============================================================ */
 (function(){
-  var TCK_UPD_LOCAL = '14.106.0';        /* <-- bump en cada deploy */
+  var TCK_UPD_LOCAL = '14.108.0';        /* <-- bump en cada deploy */
   var TCK_UPD_INTERVALO = 10 * 60 * 1000;   /* chequeo de fondo: 10 min */
   var _updUltChequeo = 0;
 
