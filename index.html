@@ -2,7 +2,19 @@
 <html lang="es">
 <head>
 <!-- ═══════════════════════════════════════════════════════════════════════
-     TCK VENTAS — v14.108.1 — 08/07/2026
+     TCK VENTAS — v14.109.0 — 10/07/2026
+     v14.109.0: PRESUPUESTO NO-BLOQUEANTE (fix "Creando..." colgado). Al crear
+        el presupuesto la app ya NO espera la respuesta de Xubio: dispara, libera
+        la pantalla con un badge "⏳ Creando presup…" y consulta la base cada 10s
+        hasta que el presupuesto existe de verdad (pedidos_zona.xubio_presupuesto_id)
+        → recién ahí pasa a "✅ Confirmado". Si a los 5 min no salió, vuelve a
+        Pendiente para reintentar. El vendedor puede cerrar la ventana y seguir
+        con otro cliente. NUNCA marca Confirmado sin que la base confirme el
+        presupuesto REAL (no hay falsos confirmados sin facturar). Resuelve el
+        caso Mónica (10/07): Xubio tardó 2 min, el celular perdió la respuesta
+        pero el server creó el presupuesto igual → antes quedaba "Creando…"
+        colgado; ahora el poll lo confirma solo. Reusa el patrón de optimistas
+        (persiste en localStorage, sobrevive a cerrar/reabrir).
      v14.108.1: FIX blindaje RLS — el registro de productos sin canonizar
         (telemetría del tomador) escribía con la anon key, que desde el
         blindaje del 29/06 no tiene INSERT/UPDATE en esa tabla (401 mudo,
@@ -5694,6 +5706,7 @@ body {
 .cv23-badge.entregado { background: #ECEFF1; color: #455A64; }
 .cv23-badge.cancelado { background: #FFEBEE; color: #C62828; }
 .cv23-badge.revision { background: #F3E5F5; color: #6A1B9A; }
+.cv23-badge.procesando { background: #E3F2FD; color: #1565C0; }
 .cv23-meta {
   font-family: 'Barlow Condensed', sans-serif;
   font-size: 10px;
@@ -21329,6 +21342,151 @@ function _mergeOptimisticos(pedidosFromServer) {
   return result;
 }
 
+// ════════════════════════════════════════════════════════════════
+// v14.109.0 — PRESUPUESTO NO-BLOQUEANTE (fix "Creando..." colgado)
+// ────────────────────────────────────────────────────────────────
+// Antes: al crear el presupuesto la app esperaba la respuesta de Xubio.
+// Si Xubio tardaba 1-2 min, la pantalla quedaba en "Creando..." para
+// siempre AUNQUE el servidor ya lo hubiera creado (caso Mónica 10/07) →
+// el vendedor cerraba/reintentaba y podía duplicar.
+// Ahora: se dispara la creación, se libera la pantalla enseguida con un
+// badge "⏳ Creando presup…" y se consulta la BASE cada 10s hasta que el
+// pedido tenga presupuesto de verdad (pedidos_zona.xubio_presupuesto_id,
+// que se escribe al instante cuando Xubio confirma). Solo ahí pasa a
+// "✅ Confirmado". Si a los 5 min no salió, vuelve a Pendiente para
+// reintentar. NUNCA marca Confirmado de forma optimista: el salto ocurre
+// solo con la base confirmando el presupuesto REAL (si no, el pedido
+// quedaría "confirmado" sin presupuesto y nadie lo facturaría).
+// Reusa el patrón de _optimisticPedidos (persistencia LS + TTL).
+const _xubioProcesando = new Map();  // Map<pedidoId, {creadoEn, pollTimer, expiraTimer}>
+const XUBIO_PROC_TTL_MS = 5 * 60 * 1000;
+const XUBIO_PROC_POLL_MS = 10 * 1000;
+const _XUBIO_PROC_LS_KEY = 'tck_ventas_xubio_procesando_v1';
+// Errores del backend que significan "el presupuesto NO se creó y NO se va a
+// crear solo" → soltar el marcador y avisar. El resto (ERROR_XUBIO/5xx/lock/
+// excepción/red cortada) se dejan al poll: el server pudo haberlo creado igual.
+const _XUBIO_ERRORES_DEFINITIVOS = ['PRODUCTOS_SIN_MAPEAR', 'SIN_ITEMS', 'FECHA_INVALIDA',
+  'FALTA_CLIENTE', 'FALTA_PEDIDO', 'PEDIDO_NO_ENCONTRADO', 'PARSER_ERROR_FATAL',
+  'SPLIT_INCONSISTENTE', 'FACTURA_NO_VERIFICABLE', 'CONDICION_FISCAL_NULL'];
+
+function _xubioProcActivo(pedidoId) { return _xubioProcesando.has(pedidoId); }
+
+function _xubioProcGuardarLS() {
+  try {
+    var arr = [];
+    _xubioProcesando.forEach(function(e, id) { arr.push({ id: id, creadoEn: e.creadoEn }); });
+    localStorage.setItem(_XUBIO_PROC_LS_KEY, JSON.stringify(arr));
+  } catch (e) {}
+}
+
+// Recupera los "en proceso" tras cerrar/reabrir la app y reactiva su poll.
+function _xubioProcCargarLS() {
+  try {
+    var raw = localStorage.getItem(_XUBIO_PROC_LS_KEY);
+    if (!raw) return;
+    var arr = JSON.parse(raw) || [];
+    var ahora = Date.now();
+    arr.forEach(function(o) {
+      if (!o || !o.id) return;
+      var creadoEn = Number(o.creadoEn) || ahora;
+      if (ahora - creadoEn > XUBIO_PROC_TTL_MS) return; // vencido
+      if (_xubioProcesando.has(o.id)) return;
+      _xubioProcesando.set(o.id, { creadoEn: creadoEn, pollTimer: null, expiraTimer: null });
+      _xubioProcArrancarTimers(o.id, creadoEn);
+    });
+  } catch (e) {}
+}
+
+function _xubioProcRegistrar(pedidoId) {
+  if (_xubioProcesando.has(pedidoId)) return;
+  var creadoEn = Date.now();
+  _xubioProcesando.set(pedidoId, { creadoEn: creadoEn, pollTimer: null, expiraTimer: null });
+  _xubioProcGuardarLS();
+  _xubioProcArrancarTimers(pedidoId, creadoEn);
+}
+
+function _xubioProcArrancarTimers(pedidoId, creadoEn) {
+  var entry = _xubioProcesando.get(pedidoId);
+  if (!entry) return;
+  entry.pollTimer = setInterval(function() { _xubioProcPoll(pedidoId); }, XUBIO_PROC_POLL_MS);
+  var restante = Math.max(1000, (creadoEn + XUBIO_PROC_TTL_MS) - Date.now());
+  entry.expiraTimer = setTimeout(function() { _xubioProcExpirar(pedidoId); }, restante);
+  _xubioProcPoll(pedidoId); // poll inmediato (por si ya se confirmó, ej: reabrió la app)
+}
+
+function _xubioProcSoltar(pedidoId) {
+  var entry = _xubioProcesando.get(pedidoId);
+  if (entry) {
+    if (entry.pollTimer) clearInterval(entry.pollTimer);
+    if (entry.expiraTimer) clearTimeout(entry.expiraTimer);
+  }
+  _xubioProcesando.delete(pedidoId);
+  _xubioProcGuardarLS();
+}
+
+// Poll: ¿el pedido ya tiene presupuesto en la base? (fuente de verdad; no
+// depende de que el celular haya recibido la respuesta de Xubio).
+async function _xubioProcPoll(pedidoId) {
+  if (!_xubioProcesando.has(pedidoId)) return;
+  try {
+    var r = await sbFetch('pedidos_zona?pedido_id=eq.' + encodeURIComponent(pedidoId) +
+      '&select=xubio_presupuesto_id,xubio_factura_nro,estado&limit=1');
+    if (!_xubioProcesando.has(pedidoId)) return; // se soltó mientras esperaba
+    if (Array.isArray(r) && r.length) {
+      var z = r[0];
+      if (z.xubio_presupuesto_id || z.xubio_factura_nro || z.estado === 'Confirmado') {
+        _xubioProcConfirmar(pedidoId, null);
+      }
+    }
+  } catch (e) { /* red/JWT: reintenta en el próximo tick, o expira a los 5 min */ }
+}
+
+// Confirmación REAL: el presupuesto existe en la base. Muta el pedido a
+// Confirmado y suelta el marcador. Idempotente.
+function _xubioProcConfirmar(pedidoId, nroPresupuesto) {
+  if (!_xubioProcesando.has(pedidoId)) return;
+  _xubioProcSoltar(pedidoId);
+  var pedido = todosLosPedidos.find(function(x) { return x.pedidoId === pedidoId; });
+  if (pedido) {
+    pedido.estado = 'Confirmado';
+    pedido.xubioEstado = 'creado';
+    if (nroPresupuesto) pedido.xubioNroPresupuesto = nroPresupuesto;
+    // Proteger el Confirmado contra el CSV viejo (mismo mecanismo que cambiarEstado).
+    _estadosCambiados[pedidoId] = { estado: 'Confirmado', ts: Date.now() };
+  }
+  _xubioActivo = false;
+  renderPedidos();
+  actualizarMiDiaSiAbierto && actualizarMiDiaSiAbierto();
+  toast('✅ Presupuesto ' + (nroPresupuesto ? ('N° ' + nroPresupuesto + ' ') : '') + 'confirmado', 'ok');
+}
+
+// Expiración a los 5 min sin confirmar: vuelve a Pendiente para reintentar.
+function _xubioProcExpirar(pedidoId) {
+  if (!_xubioProcesando.has(pedidoId)) return;
+  _xubioProcSoltar(pedidoId);
+  var pedido = todosLosPedidos.find(function(x) { return x.pedidoId === pedidoId; });
+  if (pedido) pedido.xubioEstado = '';
+  _xubioActivo = false;
+  renderPedidos();
+  toast('⚠️ Xubio sigue lento. El pedido quedó guardado — tocá "Crear presupuesto" para reintentar (NO lo cargues de nuevo).', 'err');
+}
+
+// Reaplica el badge "procesando" a los pedidos del Map en cada cargarPedidos
+// (el CSV trae xubioEstado vacío y lo pisaría). Si el CSV ya trae el pedido
+// confirmado, suelta el marcador. Análogo a _mergeOptimisticos.
+function _xubioProcAplicarMarcador(pedidos) {
+  if (!_xubioProcesando.size) return pedidos;
+  pedidos.forEach(function(p) {
+    if (!_xubioProcesando.has(p.pedidoId)) return;
+    if (p.xubioNroPresupuesto || p.estado === 'Confirmado') {
+      _xubioProcSoltar(p.pedidoId); // el server ya lo confirmó (vía CSV)
+    } else {
+      p.xubioEstado = 'procesando'; // sigue en proceso → mantener el badge
+    }
+  });
+  return pedidos;
+}
+
 function mostrarBadgeNuevosPedidos(cant) {
   var badge = document.getElementById('badge-nuevos-pedidos');
   if (!badge) {
@@ -21655,6 +21813,7 @@ function login(nombre) {
   setTimeout(function() {
     if (!esChofer && !esDeposito) {
       _optimisticCargarLS(); // v14.40.0: recuperar pedidos optimistas persistidos (sobreviven a cerrar/reabrir la app)
+      _xubioProcCargarLS();  // v14.109.0: reactivar el poll de presupuestos que quedaron "en proceso" al reabrir
       cargarPedidos();
     }
     if (esAdmin) cargarAsignaciones();
@@ -21922,6 +22081,7 @@ async function cargarPedidos(silencioso, _reintentos) {
     // v14.5.0 OPTIMISTIC: mergear pedidos optimistas (creados localmente
     // hace <90s que aún no aparecen en la Sheet) antes de pisar el array.
     pedidos = _mergeOptimisticos(pedidos);
+    pedidos = _xubioProcAplicarMarcador(pedidos); // v14.109.0: mantener el badge "procesando" hasta que la base confirme
     _pedidosCache = pedidos.slice(); // actualizar cache
     todosLosPedidos = pedidos;
 
@@ -22819,19 +22979,25 @@ function renderCard(p) {
     : '📍 ' + escapeHtml(p.localidad || '');
 
   // Badge de estado (versión compacta) + duplicado pill aparte
-  var badgeClase = (p.estado === 'Pendiente') ? 'pendiente'
-                : (p.estado === 'Confirmado') ? 'confirmado'
-                : (p.estado === 'Entregado') ? 'entregado'
-                : (p.estado === 'Cancelado') ? 'cancelado'
-                : (p.estado === 'En revisión') ? 'revision'
-                : 'pendiente';
-  var badgeIcon = (p.estado === 'Pendiente') ? '⏳'
-               : (p.estado === 'Confirmado') ? '✅'
-               : (p.estado === 'Entregado') ? '📦'
-               : (p.estado === 'Cancelado') ? '❌'
-               : (p.estado === 'En revisión') ? '🔎'
-               : '⏳';
-  var badgeNuevo = '<span class="cv23-badge ' + badgeClase + '">' + badgeIcon + ' ' + (p.estado || 'Pendiente') + '</span>';
+  // v14.109.0 — "procesando" mientras se crea el presupuesto (flujo no-bloqueante)
+  var badgeNuevo;
+  if (p.xubioEstado === 'procesando') {
+    badgeNuevo = '<span class="cv23-badge procesando">⏳ Creando presup…</span>';
+  } else {
+    var badgeClase = (p.estado === 'Pendiente') ? 'pendiente'
+                  : (p.estado === 'Confirmado') ? 'confirmado'
+                  : (p.estado === 'Entregado') ? 'entregado'
+                  : (p.estado === 'Cancelado') ? 'cancelado'
+                  : (p.estado === 'En revisión') ? 'revision'
+                  : 'pendiente';
+    var badgeIcon = (p.estado === 'Pendiente') ? '⏳'
+                 : (p.estado === 'Confirmado') ? '✅'
+                 : (p.estado === 'Entregado') ? '📦'
+                 : (p.estado === 'Cancelado') ? '❌'
+                 : (p.estado === 'En revisión') ? '🔎'
+                 : '⏳';
+    badgeNuevo = '<span class="cv23-badge ' + badgeClase + '">' + badgeIcon + ' ' + (p.estado || 'Pendiente') + '</span>';
+  }
   var dupPill = '';
   if (p.esDuplicado && p.tipoDuplicado === 'exacto') {
     dupPill = ' <span class="cv23-dup-pill" onclick="event.stopPropagation();abrirModalDuplicados(\'' + p.pedidoId + '\')" title="Duplicado exacto — tocar para resolver">🔴 DUP</span>';
@@ -25572,11 +25738,13 @@ function buildXubioPanel(p, id) {
     +   '<div class="xubio-dropdown" id="xubio-drop-' + id + '"></div>'
     + '</div>'
 
-    // Botón crear presupuesto
-    + '<button class="btn-remitir" id="xubio-btn-' + id + '" ' + btnDisabled
-    +   ' onclick="xubioCrearPresupuesto(\'' + p.pedidoId + '\',' + p.fila + ',\'' + id + '\')">'
-    +   '📄 Crear presupuesto'
-    + '</button>'
+    // Botón crear presupuesto — o cartel "creando…" si está en proceso (v14.109.0)
+    + (_xubioProcActivo(p.pedidoId)
+        ? '<div class="xubio-panel-intro" style="text-align:center;color:#1565C0;font-weight:600;">⏳ Creando el presupuesto… podés cerrar y seguir trabajando. Se confirma solo en unos segundos.</div>'
+        : '<button class="btn-remitir" id="xubio-btn-' + id + '" ' + btnDisabled
+          + ' onclick="xubioCrearPresupuesto(\'' + p.pedidoId + '\',' + p.fila + ',\'' + id + '\')">'
+          + '📄 Crear presupuesto'
+          + '</button>')
     + '</div>';
 }
 
@@ -26371,14 +26539,13 @@ function xubioConfirmarCalibres(pedidoId, fila, id) {
 
 // ── Ejecutar la creación real del presupuesto ─────────────────────
 function xubioEjecutarCrearPresupuesto(pedidoId, fila, id, calibres, fechaPresupuesto) {
+  // v14.109.0 — guard: si ese pedido YA se está creando, no re-disparar.
+  if (_xubioProcActivo(pedidoId)) { toast('⏳ Ese presupuesto ya se está creando. Aguardá…', 'err'); return; }
   if (_xubioActivo) { toast('⏳ Ya se está creando un presupuesto. Aguardá...', 'err'); return; }
   _xubioActivo = true;
 
   var sel = _xubioSeleccion[pedidoId];
   if (!sel || !sel.clienteId) { _xubioActivo = false; toast('Seleccioná un cliente primero', 'err'); return; }
-
-  var btn = document.getElementById('xubio-btn-' + id);
-  if (btn) { btn.disabled = true; btn.textContent = '⏳ Creando...'; }
 
   var params = new URLSearchParams({
     accion:         'crearPresupuestoXubio',
@@ -26393,45 +26560,46 @@ function xubioEjecutarCrearPresupuesto(pedidoId, fila, id, calibres, fechaPresup
     params.set('fechaPresupuesto', fechaPresupuesto);
   }
 
+  // ── v14.109.0 — DISPARAR Y LIBERAR (no-bloqueante) ──
+  // Registramos el pedido "en proceso" (badge ⏳ + poll a la base cada 10s) y
+  // devolvemos el control enseguida. El fetch sigue en segundo plano para el
+  // happy-path rápido, pero la UI ya NO depende de que Xubio conteste: si
+  // tarda o se corta la conexión, el poll detecta la confirmación igual.
+  // NO se marca Confirmado acá — solo cuando la base confirma el presupuesto.
+  _xubioProcRegistrar(pedidoId);
+  var pedidoMem = todosLosPedidos.find(function(x) { return x.pedidoId === pedidoId; });
+  if (pedidoMem) pedidoMem.xubioEstado = 'procesando';
+  _xubioActivo = false;
+  renderPedidos();
+  toast('⏳ Creando el presupuesto — ya podés seguir con otro cliente. Se confirma solo.', 'ok');
+
   fetch(APPS_SCRIPT_URL + '?' + params.toString())
     .then(function(r) { return r.json(); })
     .then(function(data) {
+      if (!_xubioProcActivo(pedidoId)) return; // el poll ya lo resolvió
       if (data.status === 'ok') {
-        toast('✅ Presupuesto N° ' + data.nroPresupuesto + ' creado', 'ok');
-        _xubioActivo = false;
-        // Actualizar el pedido en memoria
-        var pedido = todosLosPedidos.find(function(x) { return x.pedidoId === pedidoId; });
-        if (pedido) {
-          pedido.estado = 'Confirmado';
-          pedido.xubioNroPresupuesto = data.nroPresupuesto;
-          pedido.xubioTransaccionid = data.transaccionid || '';
-          pedido.xubioEstado = 'creado';
-        }
+        _xubioProcConfirmar(pedidoId, data.nroPresupuesto);
+      } else if (data.code === 'YA_TIENE_PRESUPUESTO') {
+        _xubioProcConfirmar(pedidoId, data.nroPresupuesto);   // ya existe = éxito efectivo
+      } else if (_XUBIO_ERRORES_DEFINITIVOS.indexOf(data.code) >= 0) {
+        // El presupuesto NO se creó y NO se va a crear solo → soltar y avisar.
+        _xubioProcSoltar(pedidoId);
+        var pm = todosLosPedidos.find(function(x) { return x.pedidoId === pedidoId; });
+        if (pm) pm.xubioEstado = '';
         renderPedidos();
-        actualizarMiDiaSiAbierto && actualizarMiDiaSiAbierto();
-      } else {
-        // Manejo de errores específicos
         if (data.code === 'PRODUCTOS_SIN_MAPEAR' && data.faltantes) {
           xubioMostrarErrorFaltantes(data.faltantes);
-        } else if (data.code === 'YA_TIENE_PRESUPUESTO') {
-          toast('Este pedido ya tiene presupuesto #' + data.nroPresupuesto, 'err');
-          // Recargar pedidos para reflejar estado real
-          cargarPedidos(true);
-        } else if (data.code === 'CONDICION_FISCAL_NULL') {
-          toast('⚠️ ' + (data.message || 'Reintentá en unos segundos'), 'err');
-        } else if (data.code === 'LOCK_OCUPADO') {
-          toast('⏳ ' + (data.message || 'Otra operación en curso'), 'err');
         } else {
-          toast('Error: ' + (data.message || 'No se pudo crear el presupuesto'), 'err');
+          toast('⚠️ ' + (data.message || 'No se pudo crear el presupuesto'), 'err');
         }
-        _xubioActivo = false;
-        if (btn) { btn.disabled = false; btn.textContent = '📄 Crear presupuesto'; }
       }
+      // Errores transitorios (ERROR_XUBIO/5xx/LOCK_OCUPADO/EXCEPCION): NO tocar
+      // el marcador — el server pudo haber creado el presupuesto igual. El poll
+      // lo confirma, o expira a los 5 min con el aviso de reintentar.
     })
     .catch(function() {
-      toast('Error de conexión', 'err');
-      _xubioActivo = false;
-      if (btn) { btn.disabled = false; btn.textContent = '📄 Crear presupuesto'; }
+      // Red cortada: NO soltar. El server pudo completar aunque el celular
+      // perdió la conexión (caso Mónica). El poll a la base lo confirma.
     });
 }
 
@@ -48723,7 +48891,7 @@ function depPollIniciar() {
    TCK_UPD_LOCAL aca Y el archivo version.json del repo.
    ============================================================ */
 (function(){
-  var TCK_UPD_LOCAL = '14.108.1';        /* <-- bump en cada deploy */
+  var TCK_UPD_LOCAL = '14.109.0';        /* <-- bump en cada deploy */
   var TCK_UPD_INTERVALO = 10 * 60 * 1000;   /* chequeo de fondo: 10 min */
   var _updUltChequeo = 0;
 
