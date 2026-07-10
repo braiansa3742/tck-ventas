@@ -2,7 +2,11 @@
 <html lang="es">
 <head>
 <!-- ═══════════════════════════════════════════════════════════════════════
-     TCK VENTAS — v14.108.0 — 06/07/2026
+     TCK VENTAS — v14.108.1 — 08/07/2026
+     v14.108.1: FIX blindaje RLS — el registro de productos sin canonizar
+        (telemetría del tomador) escribía con la anon key, que desde el
+        blindaje del 29/06 no tiene INSERT/UPDATE en esa tabla (401 mudo,
+        se perdían las grafías nuevas). Ahora usa el JWT de la sesión.
      v14.108.0: BAJAS DEL TOMADOR (pedido del equipo 06/07). Agregados a
         TOMADOR_DEPRECADOS (reversible: quitar del Set):
         · VEGGIE completa (Garbanzos, Lentejas, Quinoa, Hongos, Espinaca —
@@ -18250,7 +18254,8 @@ async function _flushGrafiasSinCanonizar() {
           method: 'POST',
           headers: {
             'apikey': SUPABASE_KEY,
-            'Authorization': 'Bearer ' + SUPABASE_KEY,
+            // v14.108.1 — blindaje RLS: anon ya no escribe productos_sin_canonizar; usar JWT de sesión.
+            'Authorization': 'Bearer ' + (_JWT || SUPABASE_KEY),
             'Content-Type': 'application/json',
             'Prefer': 'resolution=merge-duplicates,return=minimal'
           },
@@ -18268,7 +18273,7 @@ async function _flushGrafiasSinCanonizar() {
             method: 'PATCH',
             headers: {
               'apikey': SUPABASE_KEY,
-              'Authorization': 'Bearer ' + SUPABASE_KEY,
+              'Authorization': 'Bearer ' + (_JWT || SUPABASE_KEY),
               'Content-Type': 'application/json',
               'Prefer': 'return=minimal'
             },
@@ -48718,7 +48723,7 @@ function depPollIniciar() {
    TCK_UPD_LOCAL aca Y el archivo version.json del repo.
    ============================================================ */
 (function(){
-  var TCK_UPD_LOCAL = '14.108.0';        /* <-- bump en cada deploy */
+  var TCK_UPD_LOCAL = '14.108.1';        /* <-- bump en cada deploy */
   var TCK_UPD_INTERVALO = 10 * 60 * 1000;   /* chequeo de fondo: 10 min */
   var _updUltChequeo = 0;
 
