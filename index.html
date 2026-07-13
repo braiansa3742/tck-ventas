@@ -2,6 +2,27 @@
 <html lang="es">
 <head>
 <!-- ═══════════════════════════════════════════════════════════════════════
+     TCK VENTAS — v14.110.0 — 13/07/2026
+     v14.110.0: REUNIÓN 13/07 (Francisco/Braian) — 3 cambios:
+        (1) FIX CALIBRE AL EDITAR PEDIDO (reporte Francisco: tras editar, la
+        planilla de carga mostraba "Pollo B" pelado). Causa: el tomador
+        (v14.105) escribe "Pollo B x6 Congelado" / "Pollo A x7", formato que
+        el EDITOR no reconocía → caía como huérfano y el calibre se perdía
+        al guardar. _editarSepararCalibre ahora reconoce también ese formato
+        y re-serializa EXACTAMENTE igual (coincide con productos_xubio_mapping
+        → presupuesto y stock siguen mapeando bien). El formato del catálogo
+        web ("Pollo B · calibre x7") sigue funcionando como antes.
+        (2) 📦 MERCADERÍA PARA VENDEDORES (pedido Braian): banner colapsable
+        arriba del tomador con compras en curso (OCs de Xubio, espejo
+        compras_xubio_ordenes, sin importes) e ingresos recientes (renglones
+        de facturas de compra mapeados a producto TCK) + TOAST "ingresó
+        mercadería" cuando aparece una factura de compra nueva desde la
+        última mirada del dispositivo (localStorage). Requiere correr
+        tools/vw-compras-vendedores-13jul.sql (2 vistas + GRANT); si las
+        vistas no existen degrada graceful (sin banner, sin toast).
+        (3) STOCK: el badge del tomador ahora muestra también el COMPROMETIDO
+        ("✓ 17 disponibles · 🔒 4 comp.") y el tooltip desglosa depósito
+        (Xubio) / comprometido / disponible.
      TCK VENTAS — v14.109.0 — 10/07/2026
      v14.109.0: PRESUPUESTO NO-BLOQUEANTE (fix "Creando..." colgado). Al crear
         el presupuesto la app ya NO espera la respuesta de Xubio: dispara, libera
@@ -17899,7 +17920,104 @@ function badgeStockHTML(nombreTomador) {
     txt = '✓ ' + visible + ' disponibles';
   }
 
-  return '<div class="stock-line-ventas" style="display:inline-block;background:' + bgFondo + ';color:' + color + ';font-size:11px;font-weight:800;padding:2px 8px;border-radius:6px;font-family:Barlow Condensed,sans-serif;letter-spacing:.3px;margin-top:3px;" title="Stock disponible (Xubio - comprometido en viajes futuros)">' + txt + '</div>';
+  // v14.110: Braian pidió que el vendedor vea también el COMPROMETIDO (lo que
+  // ya está confirmado en presupuestos/viajes) además del neto disponible.
+  if (st.comprometido > 0) txt += ' · 🔒 ' + st.comprometido + ' comp.';
+  var titleStock = 'Depósito (Xubio): ' + st.stock_xubio
+    + ' · Comprometido en presupuestos/viajes: ' + st.comprometido
+    + ' · Disponible: ' + visible;
+
+  return '<div class="stock-line-ventas" style="display:inline-block;background:' + bgFondo + ';color:' + color + ';font-size:11px;font-weight:800;padding:2px 8px;border-radius:6px;font-family:Barlow Condensed,sans-serif;letter-spacing:.3px;margin-top:3px;" title="' + titleStock + '">' + txt + '</div>';
+}
+
+// ═══════════════════════════════════════════════════════════════════
+// v14.110.0 — 📦 MERCADERÍA PARA VENDEDORES (pedido Braian, reunión 13/07)
+// Los vendedores ven qué compró la empresa (OCs recientes de Xubio, espejo
+// compras_xubio_ordenes) y qué INGRESÓ de verdad (facturas de compra con
+// renglones mapeados a producto TCK). Cuando aparece una factura de compra
+// nueva desde la última vez que este dispositivo miró → toast de aviso.
+// Fuentes: vw_vend_compras_encamino / vw_vend_compras_ingresos (sin importes;
+// SQL en tools/vw-compras-vendedores-13jul.sql). Si las vistas no existen
+// todavía, degrada graceful: sin banner y sin toast.
+// ═══════════════════════════════════════════════════════════════════
+var _comprasVend = { encamino: [], ingresos: [], ts: 0 };
+var COMPRAS_VEND_TTL = 5 * 60 * 1000;
+
+async function cargarComprasVendedores() {
+  if (_comprasVend.ts && (Date.now() - _comprasVend.ts < COMPRAS_VEND_TTL)) return _comprasVend;
+  try {
+    var hCv = { 'apikey': SUPABASE_KEY, 'Authorization': 'Bearer ' + SUPABASE_KEY };
+    var r1 = await fetch(SUPABASE_URL + '/rest/v1/vw_vend_compras_encamino?select=*&order=fecha.desc&limit=20', { headers: hCv });
+    var r2 = await fetch(SUPABASE_URL + '/rest/v1/vw_vend_compras_ingresos?select=*&order=fecha.desc&limit=40', { headers: hCv });
+    if (r1.ok) { var d1 = await r1.json(); if (Array.isArray(d1)) _comprasVend.encamino = d1; }
+    if (r2.ok) { var d2 = await r2.json(); if (Array.isArray(d2)) _comprasVend.ingresos = d2; }
+    _comprasVend.ts = Date.now();
+    comprasVendNotificarIngresos();
+    var contCv = document.getElementById('tomador-compras-camino');
+    if (contCv) contCv.innerHTML = comprasVendBannerHTML();
+  } catch (eCv) { console.warn('[TCK Compras Vend]', eCv); }
+  return _comprasVend;
+}
+
+// Toast cuando hay facturas de compra nuevas desde la última mirada del
+// dispositivo (localStorage). La primera vez solo marca, no spamea.
+function comprasVendNotificarIngresos() {
+  try {
+    var visto = localStorage.getItem('tck_compras_ingreso_visto') || '';
+    var maxSync = visto;
+    var nuevosPorProv = {};
+    (_comprasVend.ingresos || []).forEach(function(r) {
+      var s = r.sync_at || '';
+      if (s > maxSync) maxSync = s;
+      if (visto && s > visto) (nuevosPorProv[r.proveedor] = nuevosPorProv[r.proveedor] || []).push(r);
+    });
+    if (maxSync !== visto) localStorage.setItem('tck_compras_ingreso_visto', maxSync);
+    Object.keys(nuevosPorProv).slice(0, 2).forEach(function(pv) {
+      var rows = nuevosPorProv[pv];
+      var det = rows.slice(0, 3).map(function(r) { return Math.round(Number(r.cantidad) || 0) + '× ' + r.producto; }).join(', ');
+      if (typeof toast === 'function') toast('📦 Ingresó mercadería de ' + _cvProvCorto(pv) + ': ' + det + (rows.length > 3 ? '…' : ''), 'ok');
+    });
+  } catch (eNt) {}
+}
+
+function _cvEsc(s) { return String(s || '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;'); }
+function _cvProvCorto(p) { return String(p || '').split(' ').slice(0, 3).join(' '); }
+function _cvFecha(f) { if (!f) return ''; var p = String(f).slice(0, 10).split('-'); return p.length === 3 ? (p[2] + '/' + p[1]) : f; }
+
+// Banner colapsable que va arriba del tomador
+function comprasVendBannerHTML() {
+  var ec = _comprasVend.encamino || [];
+  var ing = _comprasVend.ingresos || [];
+  if (!ec.length && !ing.length) return '';
+  var h = '<details style="margin:8px 10px 2px;background:#FFF8EC;border:1.5px solid #D4A574;border-radius:12px;padding:8px 12px;">';
+  h += '<summary style="cursor:pointer;font-family:Barlow Condensed,sans-serif;font-weight:900;font-size:14px;color:#8B0000;list-style:none;">📦 Mercadería'
+    + (ec.length ? ' · ' + ec.length + ' compra' + (ec.length === 1 ? '' : 's') + ' en curso' : '')
+    + (ing.length ? ' · ingresos recientes' : '') + ' ▾</summary>';
+  if (ing.length) {
+    h += '<div style="margin-top:6px;font-size:11px;font-weight:800;color:#2E7D32;text-transform:uppercase;letter-spacing:.5px;">✅ Ingresó al depósito (factura cargada)</div>';
+    var porDia = {};
+    ing.forEach(function(r) { (porDia[r.fecha + '|' + r.proveedor] = porDia[r.fecha + '|' + r.proveedor] || []).push(r); });
+    Object.keys(porDia).sort().reverse().slice(0, 5).forEach(function(k) {
+      var rows = porDia[k];
+      var parts = k.split('|');
+      h += '<div style="font-size:12px;color:#3a2a1f;padding:3px 0;border-bottom:1px dashed #EAD9C2;">'
+        + '<b>' + _cvFecha(parts[0]) + '</b> · ' + _cvEsc(_cvProvCorto(parts[1])) + ': '
+        + rows.map(function(r) { return Math.round(Number(r.cantidad) || 0) + '× ' + _cvEsc(r.producto); }).join(', ')
+        + '</div>';
+    });
+  }
+  if (ec.length) {
+    h += '<div style="margin-top:6px;font-size:11px;font-weight:800;color:#B45309;text-transform:uppercase;letter-spacing:.5px;">🚛 Compras en curso (OC en Xubio)</div>';
+    ec.slice(0, 6).forEach(function(o) {
+      h += '<div style="font-size:12px;color:#3a2a1f;padding:3px 0;border-bottom:1px dashed #EAD9C2;">'
+        + '<b>OC ' + _cvEsc(o.numero) + '</b> · ' + _cvEsc(_cvProvCorto(o.proveedor)) + ' · ' + _cvFecha(o.fecha)
+        + (o.llegada_estimada ? ' · llega ~' + _cvFecha(o.llegada_estimada) : '')
+        + (o.estado ? ' · ' + _cvEsc(o.estado) : '') + '</div>';
+    });
+  }
+  h += '<div style="margin-top:5px;font-size:10px;color:#8B6F50;">El aviso de ingreso sale cuando administración carga la factura de compra en Xubio.</div>';
+  h += '</details>';
+  return h;
 }
 // ═══════════════════════════════════════════════════════════════════
 
@@ -30976,6 +31094,11 @@ cargarPreciosTomador();
 if (typeof cargarStockVisibleVentas === 'function') {
   cargarStockVisibleVentas();
 }
+// v14.110 — Mercadería en camino/ingresada al inicio (dispara el toast de
+// "ingresó mercadería" apenas el vendedor abre la app; no bloquea)
+if (typeof cargarComprasVendedores === 'function') {
+  cargarComprasVendedores();
+}
 
 var _tomadorQtys       = {}; // { nombreProducto: cantidad }
 var _tomadorCalibres   = {}; // v14.105.0 — calibre elegido por pollo { 'Pollo A': 'x6'|'x7' }
@@ -32046,6 +32169,10 @@ function _tomadorAbrirInterno() {
   if (typeof refrescarPreciosVentas === 'function') {
     refrescarPreciosVentas();
   }
+  // v14.110 — Refrescar mercadería en camino/ingresada (banner 📦, no bloquea)
+  if (typeof cargarComprasVendedores === 'function') {
+    cargarComprasVendedores();
+  }
 
   // Crear overlay
   var overlay = document.createElement('div');
@@ -32135,6 +32262,8 @@ function tomadorHTML() {
     // de productos con 0px de espacio. Mismo patrón aplicado en v13.5.1
     // para editar pedido.
     + '<div class="tomador-body" id="tomador-body">'
+    // v14.110: banner 📦 mercadería (compras en curso + ingresos recientes)
+    +   '<div id="tomador-compras-camino">' + ((typeof comprasVendBannerHTML === 'function') ? comprasVendBannerHTML() : '') + '</div>'
     +   '<div id="tomador-promos-bloque">' + promosRenderCarousel('tomador', 'tomadorAgregarPromo', 'tomadorQuitarPromo', _tomadorPromos) + '</div>'
     +   '<div id="tomador-combos-bloque">' + combosRenderBotones('tomador', 'tomadorAgregarCombo', 'tomadorQuitarCombo', _tomadorCombos) + '</div>'
     +   '<div class="tomador-cats" id="tomador-cats">' + cats + '</div>'
@@ -37394,15 +37523,24 @@ let _editarQtysHuerfanos    = []; // productos parseados que no existen en TOMAD
 let _editarCalibres         = {}; // v14.33.0: nombre base → calibre detectado (ej "Pollo B" → "calibre x7")
 
 // v14.33.0: separa el calibre embebido en el nombre de un Pollo genérico.
-// "Pollo B · calibre x7" → { base:"Pollo B", calibre:"calibre x7" }. Acepta
-// separador · o . y "calibre x7" / "calibre 7" (normaliza siempre a "calibre xN",
+// "Pollo B · calibre x7" → { base:"Pollo B", calibre:"calibre x7", sep:" · " }.
+// Acepta separador · o . y "calibre x7" / "calibre 7" (normaliza a "calibre xN",
 // que es la forma con la que el mapeo de Xubio reconoce el producto).
+// v14.110: reconoce TAMBIÉN el formato del tomador (v14.105): "Pollo B x6
+// Congelado" / "Pollo A x7". Estos nombres no matcheaban el CAT ni el separador
+// viejo → al EDITAR un pedido caían como huérfanos y el calibre se perdía (la
+// planilla de carga mostraba "Pollo B" pelado — reporte de Francisco 13/07).
+// `sep` indica cómo re-serializar al guardar: el formato del tomador se
+// reconstruye EXACTAMENTE igual porque coincide con productos_xubio_mapping.
 // Devuelve null si el nombre no tiene calibre embebido.
 function _editarSepararCalibre(nombre) {
   try {
-    var m = String(nombre || '').match(/^(.*?)\s*[·.]\s*calibre\s*x?\s*(\d+)\s*$/i);
-    if (!m || !m[1].trim()) return null;
-    return { base: m[1].trim(), calibre: 'calibre x' + m[2] };
+    var s = String(nombre || '');
+    var m = s.match(/^(.*?)\s*[·.]\s*calibre\s*x?\s*(\d+)\s*$/i);
+    if (m && m[1].trim()) return { base: m[1].trim(), calibre: 'calibre x' + m[2], sep: ' · ' };
+    m = s.match(/^(.*?)\s+(x\s?\d{1,2}(?:\s+(?:fresco|congelado))?)\s*$/i);
+    if (m && m[1].trim()) return { base: m[1].trim(), calibre: m[2], sep: ' ' };
+    return null;
   } catch (e) { return null; }
 }
 
@@ -37545,7 +37683,7 @@ function _abrirEditarPedidoInterno(p, detalle) {
         sec.items.forEach(function(it){ if (it.n === sep.base) baseExiste = true; });
       });
       if (baseExiste) {
-        _remapCalibre.push({ full: nombre, base: sep.base, calibre: sep.calibre, qty: _editarQtys[nombre] });
+        _remapCalibre.push({ full: nombre, base: sep.base, calibre: sep.calibre, sep: sep.sep, qty: _editarQtys[nombre] });
         return; // no es huérfano: es un pollo genérico con calibre
       }
     }
@@ -37556,7 +37694,9 @@ function _abrirEditarPedidoInterno(p, detalle) {
   _remapCalibre.forEach(function(r){
     delete _editarQtys[r.full];
     _editarQtys[r.base] = (_editarQtys[r.base] || 0) + (parseInt(r.qty) || 1);
-    _editarCalibres[r.base] = r.calibre;
+    // v14.110: guardar también el separador para re-serializar en el MISMO
+    // formato de origen (tomador: "Pollo B x6 Congelado" / web: "· calibre x7")
+    _editarCalibres[r.base] = { txt: r.calibre, sep: r.sep || ' · ' };
   });
   // Los huérfanos también se sacan de _editarQtys para no arrastrar basura
   _editarQtysHuerfanos.forEach(function(n){ delete _editarQtys[n]; });
@@ -37597,7 +37737,8 @@ function _editarMostrarNotaCalibre() {
   if (!body) return;
   if (document.getElementById('editar-nota-calibre')) return;
   var lista = Object.keys(_editarCalibres).map(function(base){
-    return base + ' (' + _editarCalibres[base] + ')';
+    var c = _editarCalibres[base];
+    return base + ' (' + ((c && c.txt) ? c.txt : c) + ')';
   }).join(', ');
   var div = document.createElement('div');
   div.id = 'editar-nota-calibre';
@@ -37996,8 +38137,11 @@ async function _editarConfirmarContinuar() {
           // v14.33.0: si el producto traía calibre (Pollo A/B/C del catálogo web),
           // reescribirlo en el detalle para no perderlo. El parser de texto + el
           // mapeo de Xubio reconocen "Pollo B · calibre x7" y lo presupuestan bien.
+          // v14.110: se re-serializa con el separador de ORIGEN — el formato del
+          // tomador ("Pollo B x6 Congelado") debe quedar idéntico porque coincide
+          // exacto con productos_xubio_mapping.producto_tck_nombre.
           var _calEd = _editarCalibres[nombre];
-          var _nomEd = _calEd ? (nombre + ' · ' + _calEd) : nombre;
+          var _nomEd = _calEd ? (nombre + ((_calEd.sep !== undefined) ? _calEd.sep : ' · ') + ((_calEd.txt !== undefined) ? _calEd.txt : _calEd)) : nombre;
           resumenLineas.push(qty + 'x ' + _nomEd);
           detalleParts.push(qty + 'x ' + _nomEd + ' (' + item.p + ')' + (dto?'[-'+dto.pct+'%]':'') + ' → $' + sub.toLocaleString('es-AR'));
         }
