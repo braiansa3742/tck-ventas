@@ -2,6 +2,31 @@
 <html lang="es">
 <head>
 <!-- ═══════════════════════════════════════════════════════════════════════
+     TCK VENTAS — v14.111.0 — 13/07/2026
+     v14.111.0: FIX SESIÓN ZOMBIE (JWT ausente/vencido con sesión viva).
+        SÍNTOMA (Juan, 13/07): "Base de datos no disponible" al buscar cliente
+        en el presupuesto y "No se pudo cargar tu ronda. Revisá tu conexión."
+        con internet OK. CAUSA: tck_session (30 días) y tck_jwt (30 días) son
+        independientes. Cuando un 401 dispara jwtLimpiar() se borra el token
+        pero NO la sesión; al reabrir, recuperarSesion() re-loguea con login()
+        —que NO regenera el JWT— y el vendedor queda ZOMBIE: logueado pero sin
+        token, cayendo a anon en cada lectura, que el blindaje RLS bloquea →
+        401 en todas las tablas operativas (clientes_xubio, clientes_activos…).
+        El aviso de v14.106.1 no saltaba porque _JWT ya era null (solo cubría
+        el caso _JWT truthy → rechazado).
+        FIX (3 puntos):
+          · jwtVigente(): decodifica exp del JWT (margen 60s).
+          · Auto-restore: si la sesión vive pero jwtVigente()===false, NO
+            restaura; limpia sesión y muestra la pantalla de PIN. Corta el
+            estado zombie de raíz (nadie vuelve a entrar sin token válido).
+          · sbFetch: ante 401/403 sin _JWT válido avisa "sesión venció, re-
+            logueá con PIN" (antes el caller mostraba "revisá tu conexión",
+            engañoso).
+        Infra sana: Supabase arriba, login_vendedor emite JWT válido (probado),
+        grants de authenticated intactos. Era 100% estado local del navegador.
+        SIN CAMBIOS: tomador, Xubio, entregas, Mi Ronda, stock, combos.
+        Base: v14.110.0.
+     ──────────────────────────────────────────────────────────────────
      TCK VENTAS — v14.110.0 — 13/07/2026
      v14.110.0: REUNIÓN 13/07 (Francisco/Braian) — 3 cambios:
         (1) FIX CALIBRE AL EDITAR PEDIDO (reporte Francisco: tras editar, la
@@ -17783,6 +17808,23 @@ var _JWT = null;
 function jwtGuardar(t) { _JWT = t || null; try { if (t) localStorage.setItem(JWT_KEY, t); } catch(e) {} }
 function jwtLeer() { try { return localStorage.getItem(JWT_KEY) || null; } catch(e) { return null; } }
 function jwtLimpiar() { _JWT = null; try { localStorage.removeItem(JWT_KEY); } catch(e) {} }
+// v14.111.0: ¿hay un JWT y NO está vencido? Decodifica el payload (base64url)
+// y compara exp con margen de 60s. Sin esto, un token ausente/vencido convive
+// con una sesión tck_session todavía "vigente" (dura 30 días aparte) y la app
+// entra en estado ZOMBIE: logueada pero cayendo a anon → 401 en todo, con el
+// blindaje RLS. Se usa en el auto-restore para forzar re-login en vez de eso.
+function jwtVigente() {
+  if (!_JWT) return false;
+  try {
+    var p = _JWT.split('.')[1];
+    if (!p) return false;
+    p = p.replace(/-/g, '+').replace(/_/g, '/');
+    while (p.length % 4) p += '=';
+    var payload = JSON.parse(atob(p));
+    if (!payload || !payload.exp) return false;
+    return (payload.exp * 1000) > (Date.now() + 60000);
+  } catch(e) { return false; }
+}
 _JWT = jwtLeer();
 
 
@@ -18452,7 +18494,15 @@ async function sbFetch(path, options = {}) {
     jwtLimpiar();
     headers['Authorization'] = 'Bearer ' + SUPABASE_KEY;
     resp = await fetch(url, { ...options, headers });
-    if (resp.status === 401 || resp.status === 403) _sbAvisarSesionVencida();
+  }
+  // v14.111.0: 401/403 sin JWT válido = sesión no autenticada. Cubre los DOS
+  // casos: (a) el token se acaba de limpiar arriba y el reintento anon lo
+  // bloquea el blindaje RLS; (b) _JWT ya era null de entrada (estado zombie:
+  // un jwtLimpiar() previo borró el token pero dejó tck_session viva). Antes
+  // (b) no avisaba nada y el caller mostraba "revisá tu conexión" / "base de
+  // datos no disponible" — engañoso: la conexión está bien, falta el PIN.
+  if ((resp.status === 401 || resp.status === 403) && !_JWT) {
+    _sbAvisarSesionVencida();
   }
   if (!resp.ok) {
     const err = await resp.text();
@@ -21322,6 +21372,13 @@ var _modoCampo = new URLSearchParams(window.location.search).get('modo') === 'ca
     if (esAdminSite && sesion !== 'ADMIN') {
       // Limpiar sesión de vendedor en el admin
       limpiarSesion();
+    } else if (!jwtVigente()) {
+      // v14.111.0: sesión viva pero SIN JWT válido (vencido, borrado por un 401
+      // anterior, o login previo a v14.64.0). No restaurar en estado zombie
+      // —logueado pero cayendo a anon → 401 en todo—: cerrar la sesión y pedir
+      // re-login con PIN, que es lo único que renueva el token.
+      limpiarSesion();
+      try { toast('🔒 Iniciá sesión con tu PIN para continuar.', 'err'); } catch(e) {}
     } else {
       login(sesion);
       if (_modoCampo) {
