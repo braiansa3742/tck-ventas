@@ -2,6 +2,29 @@
 <html lang="es">
 <head>
 <!-- ═══════════════════════════════════════════════════════════════════════
+     TCK VENTAS — v14.115.0 — 23/07/2026
+     v14.115.0: DOS FIXES (reportes Lisandro 22/07 y Luis 23/07).
+     (1) BANNER "Actualizar" ETERNO Y TAPANDO BOTONES (Luis: "me sale
+        actualizar cada vez que entro y no me deja cargar los pagos").
+        CAUSA: TCK_UPD_LOCAL quedó en '14.109.0' — nadie la bumpeó desde
+        el 10/07. El push v14.112-114 (20/07) subió version.json a
+        14.114.0 → desde el lunes TODOS los celulares (aun actualizados)
+        se creían viejos y veían el banner en cada sesión; "Actualizar"
+        no lo curaba porque el HTML nuevo también decía 14.109.0.
+        FIX: (a) TCK_UPD_LOCAL bumpeada a 14.115.0 (⚠️ REGLA DE DEPLOY:
+        bumpearla SIEMPRE junto con version.json — al admin ya le pasó
+        en v13.105.0); (b) el banner ahora tiene ✕ para cerrarlo (no
+        insiste en la misma sesión); (c) se dibuja ARRIBA de la barra
+        inferior (84px + safe-area, antes 16px) para no tapar los
+        botones de acción (ej. cargar pagos del chofer).
+     (2) FIX chip del cliente Xubio decía "undefined" (reporte
+        Lisandro 22/07, mientras la degradación de Xubio dejaba pedidos
+        en Pendiente). buildXubioPanel leía clienteSel.nombre/.cuit pero
+        _xubioSeleccion guarda clienteNombre/clienteCuit → al re-renderizarse
+        la card (auto-refresh 20s) el chip verde quedaba "undefined".
+        SOLO VISUAL: el botón "Crear presupuesto" siempre mandó el
+        clienteId correcto. Ahora lee clienteNombre/clienteCuit con
+        fallback a nombre/cuit por compatibilidad.
      TCK VENTAS — v14.114.0 — 20/07/2026
      v14.114.0: RECEPCIÓN DE MERCADERÍA + VENCIMIENTOS y PERFIL CHAN
         (pedido Braian 20/07: "que pancho controle cuando recibe mercadería
@@ -25937,8 +25960,8 @@ function buildXubioPanel(p, id) {
   var clienteSel = _xubioSeleccion[p.pedidoId];
   var clienteSelHtml = clienteSel
     ? '<div class="xubio-cliente-sel on" id="xubio-sel-' + id + '">'
-    +   '<div><div class="xubio-cliente-sel-nombre">' + clienteSel.nombre + '</div>'
-    +   '<div class="xubio-cliente-sel-meta">' + (clienteSel.cuit ? 'CUIT: ' + clienteSel.cuit : '') + '</div></div>'
+    +   '<div><div class="xubio-cliente-sel-nombre">' + (clienteSel.clienteNombre || clienteSel.nombre || '(sin nombre)') + '</div>'
+    +   '<div class="xubio-cliente-sel-meta">' + ((clienteSel.clienteCuit || clienteSel.cuit) ? 'CUIT: ' + (clienteSel.clienteCuit || clienteSel.cuit) : '') + '</div></div>'
     +   '<button class="xubio-cliente-clear" onclick="xubioLimpiarCliente(\'' + p.pedidoId + '\',\'' + id + '\')">✕</button>'
     + '</div>'
     : '<div class="xubio-cliente-sel" id="xubio-sel-' + id + '"></div>';
@@ -49422,7 +49445,7 @@ function depPollIniciar() {
    TCK_UPD_LOCAL aca Y el archivo version.json del repo.
    ============================================================ */
 (function(){
-  var TCK_UPD_LOCAL = '14.109.0';        /* <-- bump en cada deploy */
+  var TCK_UPD_LOCAL = '14.115.0';        /* <-- bump en cada deploy */
   var TCK_UPD_INTERVALO = 10 * 60 * 1000;   /* chequeo de fondo: 10 min */
   var _updUltChequeo = 0;
 
@@ -49441,12 +49464,22 @@ function depPollIniciar() {
     if (document.getElementById('tck-upd-banner')) return;
     /* anti-loop: si ya intentamos esta version en esta sesion, no insistir */
     try { if (sessionStorage.getItem('tck_upd_intentada') === vNueva) return; } catch(e) {}
+    /* v14.115.0: si la descart\u00F3 con la \u2715 en esta sesion, no volver a mostrarla */
+    try { if (sessionStorage.getItem('tck_upd_descartada') === vNueva) return; } catch(e) {}
     var b = document.createElement('div');
     b.id = 'tck-upd-banner';
-    b.style.cssText = 'position:fixed;left:50%;bottom:16px;transform:translateX(-50%);z-index:2147483000;display:flex;align-items:center;gap:12px;background:#1a1a1a;color:#fff;padding:12px 16px;border-radius:14px;box-shadow:0 8px 24px rgba(0,0,0,.35);font-family:system-ui,-apple-system,sans-serif;font-size:14px;max-width:calc(100vw - 24px);';
+    /* v14.115.0: bottom por ARRIBA de la barra de navegacion (72px + safe area)
+       \u2014 antes quedaba a 16px y tapaba los botones de accion de abajo (reclamo
+       de Luis 23/07: no podia cargar los pagos). */
+    b.style.cssText = 'position:fixed;left:50%;bottom:calc(84px + env(safe-area-inset-bottom, 0px));transform:translateX(-50%);z-index:2147483000;display:flex;align-items:center;gap:10px;background:#1a1a1a;color:#fff;padding:12px 14px;border-radius:14px;box-shadow:0 8px 24px rgba(0,0,0,.35);font-family:system-ui,-apple-system,sans-serif;font-size:14px;max-width:calc(100vw - 24px);';
     b.innerHTML = '<span style="white-space:nowrap;">\uD83D\uDD04 Nueva versi\u00F3n disponible</span>' +
-      '<button id="tck-upd-btn" style="background:#FFD700;color:#1a1a1a;border:none;border-radius:10px;padding:9px 18px;font-size:14px;font-weight:800;cursor:pointer;white-space:nowrap;">Actualizar</button>';
+      '<button id="tck-upd-btn" style="background:#FFD700;color:#1a1a1a;border:none;border-radius:10px;padding:9px 18px;font-size:14px;font-weight:800;cursor:pointer;white-space:nowrap;">Actualizar</button>' +
+      '<button id="tck-upd-cerrar" aria-label="Cerrar" style="background:none;border:none;color:#aaa;font-size:18px;font-weight:700;cursor:pointer;padding:4px 6px;line-height:1;">\u2715</button>';
     document.body.appendChild(b);
+    document.getElementById('tck-upd-cerrar').addEventListener('click', function(){
+      try { sessionStorage.setItem('tck_upd_descartada', vNueva); } catch(e) {}
+      b.remove();
+    });
     document.getElementById('tck-upd-btn').addEventListener('click', function(){
       this.disabled = true;
       this.textContent = 'Actualizando\u2026';
