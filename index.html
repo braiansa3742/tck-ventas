@@ -2,6 +2,37 @@
 <html lang="es">
 <head>
 <!-- ═══════════════════════════════════════════════════════════════════════
+     TCK VENTAS — v14.116.0 — 23/07/2026
+     v14.116.0: PANEL DE PANCHO — BADGE Y AGRUPACIÓN POR CALIBRE (cierra el
+        pendiente del Frente 2 de junio; la data la puso AS v25.97.0 +
+        backfill, bitácora #255).
+        ANTES: _depAggViaje agrupaba por nombre CRUDO + calibre → el mismo
+        pollo salía en 2-3 líneas ("Pollo B x6 Congelado|x6" del catálogo,
+        "Pollo B|x6" del modal, "Pollo B|" viejos) y el label mostraba
+        redundancias tipo "Pollo B x6 Congelado (x6)".
+        AHORA:
+        · _depNombreBaseCal(): normaliza el nombre (solo si empieza con
+          "Pollo") — saca "· calibre xN", "xN" suelto, Congelado/Fresco →
+          base limpia "Pollo B". Guard ^Pollo idéntico al backend: cero
+          falsos positivos con "Milanesa de Pollo x 800g" etc.
+        · _depItemNorm(): calibre = columna pedidos_items.calibre (fuente
+          de verdad) con fallback al nombre (ventana de transición).
+        · Agrupación por (base + calibre + fresco): "Pollo B x6: 5" y
+          "Pollo B x7: 3" como líneas separadas — soporta x6 y x7 en el
+          mismo viaje/pedido. FRESCO separa línea propia (excepción física
+          que Pancho tiene que ver); Congelado explícito se funde con el
+          default (regla de negocio: default congelado).
+        · Checklist "Para cargar": badge visual del calibre (.dep-cal,
+          acento TCK) + chip FRESCO celeste. Vistas "Por cliente",
+          huérfanos y modal "Faltó/cambié" usan el label plano unificado
+          ("Pollo B x6 FRESCO") — el modal arma <option>, no admite HTML.
+        · Orden determinístico del checklist: alfabético por base, calibres
+          juntos, FRESCO al final de su grupo.
+        Pollos viejos sin calibre (columna NULL, pedidos pre-deploy):
+        salen como "Pollo B" pelado en línea aparte — transición de ~1 día.
+        NO SE TOCÓ: fetch (ya traía calibre desde v14.73), checks por
+        índice, conformar, gating por facturación, ajustes fiscales.
+     ═══════════════════════════════════════════════════════════════════════
      TCK VENTAS — v14.115.0 — 23/07/2026
      v14.115.0: DOS FIXES (reportes Lisandro 22/07 y Luis 23/07).
      (1) BANNER "Actualizar" ETERNO Y TAPANDO BOTONES (Luis: "me sale
@@ -47931,6 +47962,8 @@ async function depVencSalida(id) {
 .dep-load-item { display:flex;align-items:center;gap:8px;padding:9px 10px;border:1px solid #E8DFD5;border-radius:8px;margin:4px 2px;background:#fff;font-size:14px;color:#2A2018;cursor:pointer;-webkit-tap-highlight-color:transparent; }
 .dep-load-item input { width:22px;height:22px;flex:none; }
 .dep-load-item .q { background:#2E7D32;color:#fff;border-radius:8px;padding:1px 8px;font-family:'Barlow Condensed',sans-serif;font-weight:900;font-size:14px;flex:none; }
+.dep-cal { display:inline-block;background:#B45309;color:#fff;border-radius:10px;padding:1px 8px;font-family:'Barlow Condensed',sans-serif;font-weight:900;font-size:12px;letter-spacing:.3px; }
+.dep-fresco { display:inline-block;background:#E3F2FD;color:#1565C0;border:1.5px solid #90CAF9;border-radius:10px;padding:0 7px;font-weight:800;font-size:10.5px;letter-spacing:.4px; }
 .dep-load-item.done { background:#F1F8E9;border-color:#A5D6A7;text-decoration:line-through;color:#8A7E72; }
 .dep-load-item.done .q { background:#A5D6A7; }
 .dep-sinfact { background:#FDECEA;border:1.5px solid #F5B7B1;border-left:3px solid #C62828;border-radius:8px;padding:8px 10px;margin:8px 2px;font-size:12.5px;font-weight:700;color:#C62828;line-height:1.4; }
@@ -48791,18 +48824,55 @@ function _depResumenDe(pedidoId) {
 }
 
 // v14.73.0 — helpers de carga
-function _depItemKey(nombre, calibre) { return (nombre || '') + '|' + (calibre || ''); }
-function _depItemLabel(it) { return it.nombre + (it.calibre ? ' (' + it.calibre + ')' : ''); }
+// v14.116.0 — CALIBRE ESTRUCTURADO: pedidos_items.calibre se puebla desde
+// AS v25.97.0 (bitácora #255). Acá se normaliza el nombre para que
+// "Pollo B x6 Congelado" (catálogo), "Pollo B · calibre x6" (viejos) y
+// "Pollo B" + calibre de columna (modal) agrupen en UNA línea por calibre.
+function _depNombreBaseCal(nombre) {
+  var s = String(nombre || '').trim();
+  if (!/^pollo\b/i.test(s)) return { base: s, cal: '', fresco: false };
+  var m = s.match(/(?:^|[\s·])x([4-9])(?=[\s·]|$)/i);
+  var cal = m ? ('x' + m[1]) : '';
+  var fresco = /\bfresco\b/i.test(s);
+  var base = s
+    .replace(/·?\s*calibre\s*x[4-9]/ig, ' ')
+    .replace(/(^|[\s·])x[4-9](?=[\s·]|$)/ig, ' ')
+    .replace(/\b(congelado|fresco)\b/ig, ' ')
+    .replace(/\s*·\s*/g, ' ')
+    .replace(/\s+/g, ' ').trim();
+  return { base: base || s, cal: cal, fresco: fresco };
+}
+function _depItemNorm(it) {
+  var n = _depNombreBaseCal(it.nombre);
+  var col = String(it.calibre || '').trim().toLowerCase();
+  var cal = /^x[4-9]$/.test(col) ? col : n.cal;   // columna manda; nombre = fallback
+  return { base: n.base, cal: cal, fresco: n.fresco || it.fresco === true };
+}
+function _depItemKey(it) { var n = _depItemNorm(it); return n.base + '|' + n.cal + '|' + (n.fresco ? 'F' : ''); }
+function _depItemLabel(it) {
+  var n = _depItemNorm(it);
+  return n.base + (n.cal ? ' ' + n.cal : '') + (n.fresco ? ' FRESCO' : '');
+}
 function _depAggViaje(ents) {
   var agg = {}, orden = [];
   ents.forEach(function(e) {
     (_depItemsPorPedido[e.pedido_id] || []).forEach(function(it) {
-      var k = _depItemKey(it.nombre, it.calibre);
-      if (!agg[k]) { agg[k] = { nombre: it.nombre, calibre: it.calibre, qty: 0 }; orden.push(k); }
+      var k = _depItemKey(it);
+      if (!agg[k]) {
+        var n = _depItemNorm(it);
+        agg[k] = { nombre: n.base, calibre: n.cal, fresco: n.fresco, qty: 0 };
+        orden.push(k);
+      }
       agg[k].qty += it.qty;
     });
   });
-  return orden.map(function(k) { return agg[k]; });
+  // v14.116.0 — orden determinístico: calibres del mismo producto juntos,
+  // FRESCO al final de su grupo
+  return orden.map(function(k) { return agg[k]; }).sort(function(a, b) {
+    if (a.nombre !== b.nombre) return a.nombre < b.nombre ? -1 : 1;
+    if (a.calibre !== b.calibre) return (a.calibre || 'zz') < (b.calibre || 'zz') ? -1 : 1;
+    return (a.fresco ? 1 : 0) - (b.fresco ? 1 : 0);
+  });
 }
 function _depEntSinFactura(e) { var c = _depComprobante[e.pedido_id]; return !c || !c.tieneFactura; }
 // v14.103.0 -- el panel de Pancho es para CARGAR: solo cuentan las entregas todavia
@@ -48913,7 +48983,9 @@ function _depViajeCard(v) {
       var done = !!checks[idx];
       h += '<label class="dep-load-item' + (done ? ' done' : '') + '">' +
         '<input type="checkbox"' + (done ? ' checked' : '') + ' onchange="depCargaToggleCheck(\'' + v.id + '\',' + idx + ',this)">' +
-        '<span class="q">' + x.qty + '</span> ' + _mostEsc(_depItemLabel(x)) + '</label>';
+        '<span class="q">' + x.qty + '</span> ' + _mostEsc(x.nombre) +
+        (x.calibre ? ' <span class="dep-cal">' + x.calibre + '</span>' : '') +
+        (x.fresco ? ' <span class="dep-fresco">FRESCO</span>' : '') + '</label>';
     });
   } else {
     h += '<div class="dep-empty">⚠️ Sin detalle de productos. Ver planilla impresa.</div>';
