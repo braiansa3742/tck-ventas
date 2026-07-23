@@ -2,6 +2,14 @@
 <html lang="es">
 <head>
 <!-- ═══════════════════════════════════════════════════════════════════════
+     TCK VENTAS — v14.117.0 — 23/07/2026
+     v14.117.0: FASE 1 OBSERVABILIDAD — toda edición manda editadoPor
+     (vendedorActual de la sesión) al Apps Script, que lo persiste en
+     pedidos_zona.editado_por/editado_at (AS v25.99.0). Cubre los 4 puntos
+     que usan accion=editarPedido: edición de contenido, fecha de entrega,
+     nota de duplicados y unir pedidos. Además corrige TCK_UPD_LOCAL que
+     había quedado en 14.115.0 (bump olvidado del deploy 14.116, regla 228).
+
      TCK VENTAS — v14.116.0 — 23/07/2026
      v14.116.0: PANEL DE PANCHO — BADGE Y AGRUPACIÓN POR CALIBRE (cierra el
         pendiente del Frente 2 de junio; la data la puso AS v25.97.0 +
@@ -38448,6 +38456,7 @@ async function _editarConfirmarContinuar() {
     const params = new URLSearchParams({
       accion:        'editarPedido',
       pedidoId:      _editarPedidoId,
+      editadoPor:    vendedorActual || '',
       fila:          _editarFila || '',
       total:         total,
       itemsTotales:  items,
@@ -39817,6 +39826,7 @@ function definirEntregaBtn(btn, event) {
     const params = new URLSearchParams({
       accion:        'editarPedido',
       pedidoId:      pedidoId,
+      editadoPor:    vendedorActual || '',
       fila:          fila || '',
       fecha_entrega: entrega.dia,
       turno_entrega: entrega.turno
@@ -41076,6 +41086,7 @@ async function _dupLogAccion(payload) {
     var params = new URLSearchParams({
       accion: 'editarPedido',
       pedidoId: payload.pedido_id,
+      editadoPor: vendedorActual || '',
       fila: p.fila,
       nota: notaNueva
     });
@@ -41876,6 +41887,7 @@ async function dupUnirPedidos() {
     var paramsUpd = new URLSearchParams({
       accion:        'editarPedido',
       pedidoId:      principal.pedidoId,
+      editadoPor:    vendedorActual || '',
       fila:          String(principal.fila),
       vendedor:      s.acreditarA,
       total:         String(totalUnido),
@@ -49517,7 +49529,7 @@ function depPollIniciar() {
    TCK_UPD_LOCAL aca Y el archivo version.json del repo.
    ============================================================ */
 (function(){
-  var TCK_UPD_LOCAL = '14.115.0';        /* <-- bump en cada deploy */
+  var TCK_UPD_LOCAL = '14.117.0';        /* <-- bump en cada deploy */
   var TCK_UPD_INTERVALO = 10 * 60 * 1000;   /* chequeo de fondo: 10 min */
   var _updUltChequeo = 0;
 
