@@ -2,7 +2,25 @@
 <html lang="es">
 <head>
 <!-- ═══════════════════════════════════════════════════════════════════════
-     TCK VENTAS — v14.119.1 — 24/07/2026
+     TCK VENTAS — v14.120.0 — 24/07/2026
+     v14.120.0: PROSPECTOS DEL INTERIOR PARA JUAN (reporte Juan 24/07 vía
+        Julián: "no me aparece la ciudad Villegas/Casares para marcar el
+        punto de venta / no me geolocaliza los puntos de venta").
+        CAUSA: el filtro v14.56.0 de 🆕 NUEVOS limitaba a JUAN a ver SOLO
+        prospectos de Trenque Lauquen (su territorio de entonces). Juan
+        ahora recorre el interior (Casares 23/07, Villegas 24/07) y las
+        cards de esas ciudades nunca le aparecían — Casares tiene 24
+        prospectos censados que no podía ver. Los check-ins con GPS SÍ
+        andaban: ~15 comercios en Casares y 11 en Villegas quedaron
+        geolocalizados en clientes_ubicaciones vía check-in manual.
+        FIX: nvCiudadPermitida — JUAN ve TODAS las ciudades (como admin).
+        MIGUEL/LISANDRO sin cambios (todo menos TL).
+        ⚠️ DATO PENDIENTE (no es bug de la app): General Villegas NO tiene
+        censo cargado en `prospectos` (0 filas) — la card de Villegas va a
+        aparecer recién cuando se cargue su censo (como se hizo con las
+        otras 20 ciudades). Tampoco tienen censo Gonzalez Moreno ni De
+        Bary (resto de la ruta Zona 3).
+     ── v14.119.1 — 24/07/2026 ──
      v14.119.1: IMGMAP Tapa Manía nuevos apuntado a los archivos reales
        del repo catálogo (prepizza_580g/ravioles_calabaza/fideos_500g/
        ñoquis_1kg .jpg; 4 Quesos placeholder). Espejo de catálogo v3.29.2.
@@ -45460,9 +45478,10 @@ function nvCiudadDe(p) {
 }
 
 // v14.56.0: visibilidad por vendedor.
-// JUAN → solo Trenque Lauquen. MIGUEL/LISANDRO → todo menos TL.
-// Otro usuario (admin/debug) → todo. Detección de TL tolerante a
-// acentos/mayúsculas/variantes ("TRENQUE LAUQUEN", "trenque", etc.).
+// v14.120.0: JUAN pasó a recorrer también el interior (Casares 23/07,
+// Villegas 24/07) → ahora ve TODAS las ciudades. MIGUEL/LISANDRO siguen
+// viendo todo menos TL. Otro usuario (admin/debug) → todo. Detección de
+// TL tolerante a acentos/mayúsculas/variantes ("TRENQUE LAUQUEN", etc.).
 function nvEsTL(ciudad) {
   var s = (ciudad || '').toString();
   try { s = s.normalize('NFD').replace(/[\u0300-\u036f]/g, ''); } catch (e) {}
@@ -45471,9 +45490,8 @@ function nvEsTL(ciudad) {
 
 function nvCiudadPermitida(ciudad) {
   var v = mrNormVendedor(vendedorActual);
-  if (v === 'JUAN') return nvEsTL(ciudad);
   if (v === 'MIGUEL' || v === 'LISANDRO') return !nvEsTL(ciudad);
-  return true;
+  return true; // JUAN (desde v14.120.0) y admin/debug ven todo
 }
 
 function nvPintarSeg() {
@@ -49562,7 +49580,7 @@ function depPollIniciar() {
    TCK_UPD_LOCAL aca Y el archivo version.json del repo.
    ============================================================ */
 (function(){
-  var TCK_UPD_LOCAL = '14.117.0';        /* <-- bump en cada deploy */
+  var TCK_UPD_LOCAL = '14.120.0';        /* <-- bump en cada deploy */
   var TCK_UPD_INTERVALO = 10 * 60 * 1000;   /* chequeo de fondo: 10 min */
   var _updUltChequeo = 0;
 
