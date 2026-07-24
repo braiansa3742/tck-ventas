@@ -2,7 +2,32 @@
 <html lang="es">
 <head>
 <!-- ═══════════════════════════════════════════════════════════════════════
-     TCK VENTAS — v14.120.0 — 24/07/2026
+     TCK VENTAS — v14.121.0 — 24/07/2026
+     v14.121.0: CHECK-IN — DOS FIXES DE UI (reporte Miguel 24/07, retomó el
+        check-in después de semanas; pendiente 30 de incidentes).
+        (1) MODAL "CERRANDO VENTA" ATRAPANTE: con Xubio degradado (pend. 27)
+        el fetch de crearPresupuestoXubio tarda minutos y el overlay no
+        tenía escape → el vendedor mataba la app (caso Angela Do Santos:
+        el backend tardó ~3 min y terminó OK; Miguel preso 10:05→10:14).
+        FIX: a los 40s aparece "🚪 Seguir sin esperar" (solo fase Xubio, no
+        en modo 'guardando'): cierra el overlay, ofrece el checkout de
+        siempre y marca _tomadorXubioEscapado — la respuesta tardía se
+        avisa por toast y NO abre el modal de éxito (su auto-checkout de
+        4s podría cerrar el check-in de OTRO cliente visitado después).
+        (2) CHECK-IN QUE "RESUCITA" TRAS EL CHECKOUT: el POST del checkout
+        espera GPS (hasta ~6s) + red, pero gpsCargarHistorial recargaba a
+        los 2,5s FIJOS → veía el check-in sin checkout en Supabase y lo
+        restauraba (_gpsCheckinActivo repuesto). El vendedor lo cerraba de
+        nuevo → checkouts duplicados en visitas (comprobado: "Proveduria
+        avenida" 2 checkouts idénticos 9:31:58 y 9:32:14 del 24/07).
+        FIX: (a) recarga encadenada al fin del POST (+800ms de margen) en
+        vez del timeout fijo; (b) lápida local _gpsCheckoutTumba
+        {cliente,ts}: gpsCargarHistorial no resucita un check-in del mismo
+        cliente ANTERIOR al cierre local (uno nuevo posterior restaura
+        normal). Cubre también la cola offline (fila que tarda en llegar).
+        Datos: NO hubo pérdida — todos los checkouts de hoy llegaron a
+        visitas; era solo UI, pero generaba dobles y desconfianza.
+     ── v14.120.0 — 24/07/2026 ──
      v14.120.0: PROSPECTOS DEL INTERIOR PARA JUAN (reporte Juan 24/07 vía
         Julián: "no me aparece la ciudad Villegas/Casares para marcar el
         punto de venta / no me geolocaliza los puntos de venta").
@@ -21475,6 +21500,13 @@ function gruposVaSucursalesDistintas(grupoPedidos) {
 // GPS state
 var _gpsVendedorId  = null;
 var _gpsCheckinActivo = null;
+// v14.121.0: lápida local del último checkout hecho en ESTE dispositivo.
+// El POST del checkout espera el GPS (hasta ~6s) + red; si el historial se
+// recarga antes de que la fila llegue a Supabase, el check-in recién
+// cerrado "resucitaba" en pantalla (reporte Miguel 24/07 → checkouts
+// duplicados en visitas). gpsCargarHistorial la usa para no resucitar un
+// check-in más viejo que este cierre local.
+var _gpsCheckoutTumba = null; // { cliente: nombre, ts: Date.now() }
 var _gpsHizoPedido  = false; // true si tomó pedido en el checkin activo
 
 let vendedorActual = null;
@@ -25984,6 +26016,11 @@ function renderInactivos_rep() {
 // Cambiar a true cuando estén las credenciales configuradas en Apps Script
 var XUBIO_HABILITADO = true;  // v10: Presupuestos activos
 var _xubioActivo   = false;  // pausa el auto-refresh cuando Xubio está en uso
+// v14.121.0: true cuando el vendedor tocó "Seguir sin esperar" en el modal
+// de progreso (Xubio lento). La respuesta tardía se avisa por toast en vez
+// de abrir el modal de éxito (cuyo auto-checkout cerraría la visita
+// EQUIVOCADA si el vendedor ya hizo check-in en otro cliente).
+var _tomadorXubioEscapado = false;
 
 // Estado por pedido: { clienteId, clienteNombre, productoId, productoNombre }
 var _xubioSeleccion = {};
@@ -27206,6 +27243,13 @@ function _tomadorXubioFinalizar(pedidoId, fila, idHtml, calibres, fechaISO, clie
         renderPedidos();
         if (typeof actualizarMiDiaSiAbierto === 'function') actualizarMiDiaSiAbierto();
 
+        // v14.121.0: si el vendedor escapó del modal, avisar por toast y NO
+        // abrir el modal de éxito (su auto-checkout llegaría tarde y podría
+        // cerrar el check-in de OTRO cliente).
+        if (_tomadorXubioEscapado) {
+          toast('✅ Presupuesto Xubio N° ' + (data.nroPresupuesto || '') + ' creado — ' + (clienteNombre || ''), 'ok');
+          return;
+        }
         // Modal de éxito + checkout auto en 4s
         _tomadorMostrarExito(pedidoId, clienteNombre, entregaData, data.nroPresupuesto, pedido && pedido.total);
       } else {
@@ -27222,12 +27266,20 @@ function _tomadorXubioFinalizar(pedidoId, fila, idHtml, calibres, fechaISO, clie
             pedido2.xubioEstado = 'creado';
           }
           renderPedidos();
+          if (_tomadorXubioEscapado) {
+            toast('✅ El pedido ya tenía presupuesto Xubio (N° ' + (data.nroPresupuesto || '') + ')', 'ok');
+            return;
+          }
           _tomadorMostrarExito(pedidoId, clienteNombre, entregaData, data.nroPresupuesto, pedido2 && pedido2.total);
           return;
         } else if (data.code === 'CONDICION_FISCAL_NULL') {
           mensajeErr = 'Falta condición fiscal del cliente. Reintentá en 30 segundos.';
         } else if (data.code === 'LOCK_OCUPADO') {
           mensajeErr = 'Otra operación en curso. Esperá unos segundos y reintentá.';
+        }
+        if (_tomadorXubioEscapado) {
+          toast('⚠️ Xubio no pudo crear el presupuesto — reintentá desde PEDIDOS', 'err');
+          return;
         }
         _tomadorMostrarErrorXubio(pedidoId, fila, clienteNombre, entregaData, mensajeErr);
       }
@@ -27236,6 +27288,10 @@ function _tomadorXubioFinalizar(pedidoId, fila, idHtml, calibres, fechaISO, clie
       console.error('[_tomadorXubioFinalizar] error red:', err);
       _xubioActivo = false;
       _tomadorCerrarProgreso();
+      if (_tomadorXubioEscapado) {
+        toast('⚠️ Sin respuesta de Xubio — el pedido quedó Pendiente, reintentá desde PEDIDOS', 'err');
+        return;
+      }
       _tomadorMostrarErrorXubio(pedidoId, fila, clienteNombre, entregaData,
         'Sin conexión para conectar con Xubio. El pedido se guardó como Pendiente.');
     });
@@ -27249,6 +27305,7 @@ function _tomadorMostrarProgreso(clienteNombre, modo) {
   var prev = document.getElementById('tomador-xubio-progreso');
   if (prev) prev.remove();
   var guardando = (modo === 'guardando');
+  _tomadorXubioEscapado = false;
   function _fila(estado, txtOk, txtPend) {
     // estado: 'ok' | 'run' | 'pend'
     if (estado === 'ok') {
@@ -27286,6 +27343,40 @@ function _tomadorMostrarProgreso(clienteNombre, modo) {
     +   '</div>'
     + '</div>';
   document.body.appendChild(modal);
+
+  // v14.121.0: ESCAPE — con Xubio degradado el fetch puede tardar minutos y
+  // el vendedor quedaba preso del overlay (lo único que podía hacer era
+  // matar la app; reporte Miguel 24/07, caso Angela Do Santos ~3 min).
+  // Pasados 40s aparece "Seguir sin esperar": cierra el modal, ofrece el
+  // checkout (el pedido y la visita YA están guardados) y la respuesta
+  // tardía de Xubio se avisa por toast (_tomadorXubioEscapado).
+  // Solo en fase Xubio: en modo 'guardando' el pedido todavía viaja y
+  // escapar invitaría a recargarlo (duplicados).
+  if (!guardando) {
+    setTimeout(function() {
+      var m = document.getElementById('tomador-xubio-progreso');
+      if (!m || document.getElementById('tom-prog-escape')) return;
+      var caja = document.createElement('div');
+      caja.id = 'tom-prog-escape';
+      caja.style.cssText = 'padding:0 20px 18px;';
+      caja.innerHTML = ''
+        + '<div style="background:#FFF3E0;border-left:3px solid #FF9800;padding:10px 12px;border-radius:0 8px 8px 0;font-size:12.5px;color:#6D4C2D;line-height:1.5;margin-bottom:10px;">'
+        +   'Xubio está tardando más de lo normal. El pedido y la visita <b>ya están guardados</b> — podés seguir y el presupuesto se termina de crear solo.'
+        + '</div>'
+        + '<button id="tom-prog-escape-btn" style="width:100%;padding:12px;background:#fff;color:#8B0000;border:1.5px solid #8B0000;border-radius:10px;font-family:Barlow Condensed,sans-serif;font-size:14px;font-weight:900;cursor:pointer;touch-action:manipulation;">🚪 Seguir sin esperar</button>';
+      var cardEl = m.firstChild;
+      if (cardEl) cardEl.appendChild(caja); else m.appendChild(caja);
+      var btn = document.getElementById('tom-prog-escape-btn');
+      if (btn) btn.onclick = function() {
+        _tomadorXubioEscapado = true;
+        _tomadorCerrarProgreso();
+        toast('⏳ Xubio sigue trabajando de fondo — NO vuelvas a cargar el pedido', 'ok');
+        if (_gpsCheckinActivo && typeof _gpsMostrarModalCheckoutAuto === 'function') {
+          _gpsMostrarModalCheckoutAuto(clienteNombre);
+        }
+      };
+    }, 40000);
+  }
 }
 
 function _tomadorCerrarProgreso() {
@@ -28214,6 +28305,16 @@ async function gpsCargarHistorial() {
                    && v.nombre_cliente === visitas[i].nombre_cliente
                    && new Date(v.fecha) > new Date(visitas[i].fecha);
           });
+          // v14.121.0: lápida local — si este dispositivo ya cerró este
+          // check-in pero el POST todavía no aparece en Supabase (espera
+          // GPS/red/cola offline), tratarlo como cerrado. Solo aplica a
+          // check-ins ANTERIORES a la lápida: un check-in nuevo del mismo
+          // cliente (fecha > ts) se restaura normal.
+          if (!tieneCheckout && _gpsCheckoutTumba
+              && visitas[i].nombre_cliente === _gpsCheckoutTumba.cliente
+              && new Date(visitas[i].fecha).getTime() <= _gpsCheckoutTumba.ts) {
+            tieneCheckout = true;
+          }
           if (!tieneCheckout) {
             checkinActivo = visitas[i];
             // v14.20.0: enriquecer con xubio_id buscando en clientes_xubio.
@@ -30382,10 +30483,15 @@ async function gpsCheckoutFinal(motivo) {
   _gpsHizoPedido = false;
   gpsActualizarEstado(null);
   toast(motivo ? '📋 Visita registrada: ' + motivo : '🚪 Check-out registrado', 'ok');
-  // Delay historial reload para que el checkout se guarde primero en Supabase
-  setTimeout(function() { gpsCargarHistorial(); }, 2500);
+  // v14.121.0: lápida local — cualquier recarga del historial que corra
+  // antes de que el POST llegue a Supabase NO debe resucitar este check-in.
+  _gpsCheckoutTumba = { cliente: cliente, ts: Date.now() };
 
-  // Guardar en Supabase en background
+  // Guardar en Supabase en background.
+  // v14.121.0: la recarga del historial se encadena a que el POST termine
+  // (antes corría a los 2,5s fijos y el POST — que espera GPS hasta ~6s —
+  // llegaba después: el check-in recién cerrado reaparecía en pantalla y
+  // el vendedor lo cerraba de nuevo → checkouts duplicados en visitas).
   Promise.all([gpsGetCoords(), gpsObtenerVendedorId()])
     .then(function(results) {
       var coords = results[0];
@@ -30402,7 +30508,11 @@ async function gpsCheckoutFinal(motivo) {
           fecha:            new Date().toISOString()
         });
     })
-    .catch(function(e) { console.error('Checkout background error:', e); });
+    .catch(function(e) { console.error('Checkout background error:', e); })
+    .then(function() {
+      // Pequeño margen para que Supabase sirva la fila recién insertada.
+      setTimeout(function() { gpsCargarHistorial(); }, 800);
+    });
 
   // v14.18.0 OPCIÓN D: si el checkout fue con motivo "real" (no técnico),
   // marcar el cliente como gestionado en Mi Ronda automáticamente.
@@ -49580,7 +49690,7 @@ function depPollIniciar() {
    TCK_UPD_LOCAL aca Y el archivo version.json del repo.
    ============================================================ */
 (function(){
-  var TCK_UPD_LOCAL = '14.120.0';        /* <-- bump en cada deploy */
+  var TCK_UPD_LOCAL = '14.121.0';        /* <-- bump en cada deploy */
   var TCK_UPD_INTERVALO = 10 * 60 * 1000;   /* chequeo de fondo: 10 min */
   var _updUltChequeo = 0;
 
