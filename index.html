@@ -2,7 +2,31 @@
 <html lang="es">
 <head>
 <!-- ═══════════════════════════════════════════════════════════════════════
-     TCK VENTAS — v14.121.0 — 24/07/2026
+     TCK VENTAS — v14.122.0 — 28/07/2026
+     v14.122.0: ALTA DE CLIENTE QUE SE COLGABA 10 MINUTOS (reporte Julián
+        28/07, modal de acuerdo de precios). Mismo patrón que el fix (1) de
+        v14.121.0, en otro flujo: fetch sin timeout + backend lento.
+        CAUSA REAL (medida): no es el alta, es contención. El sync MANUAL de
+        clientes tardó 321s el 28/07 (11:42→11:47, disparado por Mostrador)
+        contra los 15-40s del automático, y como la web app corre toda
+        request bajo el mismo usuario, Apps Script encoló el alta detrás.
+        El backend v25.100.1 le pone freno; acá va la mitad del cliente.
+        (1) acuPropCrearCli y mostradorAltaGuardar iban con fetch PELADO,
+        sin AbortController → botón "Creando en Xubio…" mudo 10 min. Ahora
+        pasan por _altaClienteFetch: corta a los 75s y muestra el contador
+        de segundos. El mensaje de timeout pide BUSCAR el cliente antes de
+        reintentar: para Consumidor Final sin DNI el backend no dedupea
+        (Código.gs:18055 `if (docRaw)`) y reintentar duplica en Xubio.
+        (2) _altaClienteInyectarEnRonda: el cliente nuevo se suma a
+        _miRondaClientes en el acto (solo status 'creado'). Antes no
+        aparecía hasta recargar la app — el cache tiene guard
+        `length > 0 && !force` y nadie llama con force=true — así que el
+        vendedor lo cargaba de nuevo.
+        (3) xubioSyncManual: entiende los status nuevos 'en_curso' y
+        'reciente' (sin esto caían en el else y mostraban un ❌ falso) y
+        corta a los 90s — el overlay es bloqueante, un fetch colgado dejaba
+        la pantalla trabada sin salida.
+     ── v14.121.0 — 24/07/2026 ──
      v14.121.0: CHECK-IN — DOS FIXES DE UI (reporte Miguel 24/07, retomó el
         check-in después de semanas; pendiente 30 de incidentes).
         (1) MODAL "CERRANDO VENTA" ATRAPANTE: con Xubio degradado (pend. 27)
@@ -244,9 +268,9 @@
         Espejo en catálogo v3.24.0 (V4_PRODUCTOS_OCULTOS) y admin v13.104.0.
         Pechuguitas al Verdeo NO se saca: queda sin_stock=true en
         productos_canonicos (aviso amarillo automático vía polling).
-        Base: v14.107.0.
-     TCK VENTAS — v14.107.0 — 02/07/2026
-     v14.107.0: ANTI-CAOS con Xubio caído (reporte Lisandro 02/07: "aparece,
+        Base: v14.122.0.
+     TCK VENTAS — v14.122.0 — 02/07/2026
+     v14.122.0: ANTI-CAOS con Xubio caído (reporte Lisandro 02/07: "aparece,
         desaparece, me aparece como doble").
         (1) DUPLICADOS REALES: cuando Xubio tira 500 el vendedor re-cargaba el
             pedido entero (caso Olmedo: 09:56 Pendiente + 10:00 re-tomado =
@@ -19981,6 +20005,86 @@ function acuPropAltaIva(btn){
   _acuPropAltaIva = btn.getAttribute('data-iva');
   acuPropPintarSegIva();
 }
+// ── Alta de cliente: helpers compartidos (acuerdo de precios + mostrador) ──
+// v14.122.0 — El fetch del alta iba pelado, sin AbortController. Cuando el
+// backend se encola detrás de un sync manual de clientes (medido el 28/07:
+// 321s contra los 15-40s del sync automático), el botón quedaba en
+// "Creando en Xubio…" hasta 10 minutos sin decir una palabra. Ahora corta a
+// los 75s y avisa. El alta puede haber quedado hecha igual del lado del
+// server, por eso el mensaje pide buscar el cliente antes de reintentar:
+// para Consumidor Final sin DNI el backend no dedupea, y reintentar a ciegas
+// crea un duplicado en Xubio.
+var ALTA_CLIENTE_TIMEOUT_MS = 75000;
+
+async function _altaClienteFetch(params, btn){
+  var controller = new AbortController();
+  var tid = setTimeout(function(){ controller.abort(); }, ALTA_CLIENTE_TIMEOUT_MS);
+  // Contador visible: 30s de botón quieto se leen como "se colgó" y el
+  // vendedor recarga la app en el peor momento.
+  var t0 = Date.now();
+  var tick = setInterval(function(){
+    if (btn) btn.textContent = 'Creando en Xubio… ' + Math.round((Date.now() - t0) / 1000) + 's';
+  }, 1000);
+  try {
+    var resp = await fetch(APPS_SCRIPT_URL + '?' + params.toString(), { signal: controller.signal });
+    return await resp.json();
+  } finally {
+    clearTimeout(tid);
+    clearInterval(tick);
+  }
+}
+
+function _altaClienteMsgError(e){
+  if (e && e.name === 'AbortError'){
+    return 'Xubio está tardando demasiado. Buscá el cliente en el buscador antes de reintentar: puede haberse creado igual.';
+  }
+  return 'Error de conexión — reintentá.';
+}
+
+// El backend inserta en clientes_activos, pero _miRondaClientes es un cache en
+// memoria que se llena una sola vez (guard `length > 0 && !force` en
+// miRondaCargarClientes) y nadie lo llama nunca con force=true. Resultado: el
+// cliente recién creado no aparecía en la ronda hasta recargar la app, y el
+// vendedor lo cargaba de nuevo. Lo inyectamos a mano en vez de refetchear —
+// el refetch pagina clientes_activos y clientes_ubicaciones enteras.
+// Solo para status 'creado': en 'duplicado' el cliente ya existe (y puede ser
+// de otro vendedor), y en 'creado_sin_ronda' el insert falló del lado del
+// server, así que inyectarlo sería mentir hasta el próximo refresh.
+function _altaClienteInyectarEnRonda(cli, vendedor, extra){
+  try {
+    if (!cli || !cli.id) return;
+    if (typeof _miRondaClientes === 'undefined' || !Array.isArray(_miRondaClientes)) return;
+    var xid = String(cli.id);
+    var yaEsta = _miRondaClientes.some(function(c){
+      return String(c.xubio_id || '') === xid || String(c.cliente_id || '') === ('TCK_X' + xid);
+    });
+    if (yaEsta) return;
+    extra = extra || {};
+    _miRondaClientes.push({
+      cliente_id: 'TCK_X' + xid,
+      nombre: cli.nombre || '',
+      telefono: extra.telefono || null,
+      localidad: cli.localidad || null,
+      direccion: extra.direccion || null,
+      vendedor: vendedor || '',
+      ruta_viaje: null,
+      ritmo: 'baja',
+      ultimo_pedido: null,
+      dias_desde_ult_pedido: null,
+      frec_dias_prom: null,
+      notas: null,
+      tipo_a: false,
+      facturacion_90d: 0,
+      xubio_id: xid,
+      cuit_dni: cli.cuit || null,
+      dias_visita: null,
+      canal: null
+    });
+  } catch(e){
+    console.warn('[alta cliente] no se pudo inyectar en la ronda:', e);
+  }
+}
+
 async function acuPropCrearCli(){
   var nombre = (document.getElementById('acu-prop-na-nombre').value || '').trim();
   var doc    = (document.getElementById('acu-prop-na-doc').value || '').replace(/[^0-9]/g, '');
@@ -20005,21 +20109,24 @@ async function acuPropCrearCli(){
       direccion:    '',
       vendedor:     (typeof vendedorActual !== 'undefined' && vendedorActual) ? vendedorActual : 'VENDEDOR'
     });
-    var resp = await fetch(APPS_SCRIPT_URL + '?' + params.toString());
-    var data = await resp.json();
+    var data = await _altaClienteFetch(params, btn);
     if ((data.status === 'creado' || data.status === 'creado_sin_ronda' || data.status === 'duplicado') && data.cliente && data.cliente.id){
       _acuPropCli = { nombre: data.cliente.nombre || nombre, xubio_id: String(data.cliente.id), localidad: loc || '' };
       _acuPropVista = 'main';
       acuPropRender();
       if (data.status === 'duplicado') toast('⚠️ Ese documento ya existía — se usa el cliente existente', 'warn');
-      else toast('✅ Cliente creado en Xubio', 'ok');
+      else if (data.status === 'creado_sin_ronda') toast('⚠️ Cliente creado en Xubio, pero no entró a tu ronda — avisá al admin', 'warn');
+      else {
+        _altaClienteInyectarEnRonda(data.cliente, params.get('vendedor'), { telefono: tel, direccion: '' });
+        toast('✅ Cliente creado en Xubio', 'ok');
+      }
     } else {
       errEl.textContent = (data && data.message) ? data.message : 'No se pudo crear el cliente. Reintentá.';
       btn.disabled = false; btn.textContent = '✅ Crear cliente en Xubio';
     }
   } catch(e){
     console.error('[acuProp alta]', e);
-    errEl.textContent = 'Error de conexión — reintentá.';
+    errEl.textContent = _altaClienteMsgError(e);
     btn.disabled = false; btn.textContent = '✅ Crear cliente en Xubio';
   }
 }
@@ -21613,7 +21720,7 @@ let _pedidosPendientesNotif = 0;
 //       reinicio hasta que el CSV lo confirma (ahí _mergeOptimisticos lo suelta).
 // Map<pedidoId, { creadoEn: timestamp, datos: pedido }>
 const _optimisticPedidos = new Map();
-// v14.107.0: 45 min (antes 10 min). El CSV publicado del Sheet puede tardar
+// v14.122.0: 45 min (antes 10 min). El CSV publicado del Sheet puede tardar
 // MÁS de 10 min en regenerarse cuando el Sheet está bajo edición intensa
 // (caso 02/07: pedidos que "aparecían y desaparecían" para Lisandro). El
 // optimista se suelta apenas el CSV confirma el pedido, así que un TTL largo
@@ -21683,7 +21790,7 @@ function _mergeOptimisticos(pedidosFromServer) {
     }
     if (!idsServer.has(id)) {
       // Server aún no lo tiene → defenderlo, agregarlo al inicio.
-      // v14.107.0: solo si el pedido es del vendedor logueado (los optimistas
+      // v14.122.0: solo si el pedido es del vendedor logueado (los optimistas
       // ya NO se borran al cerrar sesión; el filtro por dueño evita que se
       // crucen entre vendedores en un mismo celular).
       if (entry.datos && (!entry.datos.vendedor || entry.datos.vendedor === vendedorActual)) {
@@ -22246,7 +22353,7 @@ function salir() {
   limpiarSesion();
   document.title = 'TCK Ventas';
   vendedorActual = null; pinActual = ''; pinVendedorTemp = null; todosLosPedidos = []; _pedidosCache = [];
-  // v14.107.0: los optimistas YA NO se borran al salir. Antes (v14.40.0) se
+  // v14.122.0: los optimistas YA NO se borran al salir. Antes (v14.40.0) se
   // limpiaban acá para no cruzarlos entre vendedores, pero eso hacía que
   // "salir y volver a entrar" borrara pedidos recién cargados que el CSV
   // todavía no confirmó (el aparece/desaparece del 02/07). Ahora persisten
@@ -26383,11 +26490,26 @@ function xubioSyncManual(panelId) {
   // Deshabilitar todos los botones de sync (puede haber varios paneles abiertos)
   document.querySelectorAll('.xubio-sync-btn').forEach(function(b) { b.disabled = true; });
 
-  fetch(APPS_SCRIPT_URL + '?accion=syncClientesXubio&porQuien=' + encodeURIComponent(vendedorActual || 'sistema'))
-    .then(function(r) { return r.json(); })
+  // v14.122.0 — Timeout: el overlay es bloqueante, así que un fetch colgado
+  // dejaba al vendedor con la pantalla trabada sin salida.
+  var _syncCtrl = new AbortController();
+  var _syncTid = setTimeout(function(){ _syncCtrl.abort(); }, 90000);
+
+  fetch(APPS_SCRIPT_URL + '?accion=syncClientesXubio&porQuien=' + encodeURIComponent(vendedorActual || 'sistema'),
+        { signal: _syncCtrl.signal })
+    .then(function(r) { clearTimeout(_syncTid); return r.json(); })
     .then(function(data) {
       _xubioOcultarOverlaySync();
       document.querySelectorAll('.xubio-sync-btn').forEach(function(b) { b.disabled = false; });
+
+      // v14.122.0 — Status nuevos del backend v25.100.1: el sync manual ahora
+      // se saltea si hay otro en curso o si ya se sincronizó hace poco. No son
+      // errores; sin este bloque caían en el else y mostraban un ❌ falso.
+      if (data.status === 'en_curso' || data.status === 'reciente') {
+        toast('✓ ' + (data.message || 'Los clientes ya están al día.'), 'ok');
+        xubioCargarUltimaSync();
+        return;
+      }
 
       if (data.status === 'ok') {
         toast('✓ Sincronizado: ' + data.cantidad + ' clientes en ' + Math.round((data.duracion_ms || 0) / 1000) + 's');
@@ -26422,9 +26544,14 @@ function xubioSyncManual(panelId) {
       }
     })
     .catch(function(err) {
+      clearTimeout(_syncTid);
       _xubioOcultarOverlaySync();
       document.querySelectorAll('.xubio-sync-btn').forEach(function(b) { b.disabled = false; });
-      alert('❌ Error de conexión al sincronizar:\n\n' + err.message);
+      if (err && err.name === 'AbortError') {
+        alert('⚠️ La sincronización está tardando demasiado.\n\nSeguí trabajando: el sync automático corre solo cada pocas horas.');
+      } else {
+        alert('❌ Error de conexión al sincronizar:\n\n' + err.message);
+      }
     });
 }
 
@@ -27472,7 +27599,7 @@ function _tomadorMostrarErrorXubio(pedidoId, fila, clienteNombre, entregaData, m
     +     '</div>'
     +   '</div>'
     +   '<div style="padding:14px 20px;">'
-    // v14.107.0 — aviso anti-duplicados: cuando Xubio fallaba, los vendedores
+    // v14.122.0 — aviso anti-duplicados: cuando Xubio fallaba, los vendedores
     // volvían a CARGAR el pedido entero (caso Olmedo 02/07: pedido doble real).
     // El pedido YA está en el sistema; lo único pendiente es el presupuesto.
     +     '<div style="background:#E8F5E9;border-left:3px solid #4CAF50;padding:10px 12px;border-radius:0 8px 8px 0;font-size:12.5px;color:#1B5E20;line-height:1.5;font-weight:600;">'
@@ -48464,10 +48591,10 @@ async function mostradorAltaGuardar() {
       direccion:    dir,
       vendedor:     'MOSTRADOR'
     });
-    var resp = await fetch(APPS_SCRIPT_URL + '?' + params.toString());
-    var data = await resp.json();
+    var data = await _altaClienteFetch(params, btn);
     if ((data.status === 'creado' || data.status === 'creado_sin_ronda' || data.status === 'duplicado') && data.cliente && data.cliente.id) {
       window._mostradorClienteXubio = { id: String(data.cliente.id), nombre: data.cliente.nombre || nombre };
+      if (data.status === 'creado') _altaClienteInyectarEnRonda(data.cliente, 'MOSTRADOR', { telefono: tel, direccion: dir });
       var inp = document.getElementById('manual-wa-cliente-input');
       if (inp) inp.value = window._mostradorClienteXubio.nombre;
       var sug = document.getElementById('mwa-sugerencias');
@@ -48485,7 +48612,7 @@ async function mostradorAltaGuardar() {
     }
   } catch (e) {
     console.error('[mostrador alta]', e);
-    errEl.textContent = 'Error de conexión — reintentá.';
+    errEl.textContent = _altaClienteMsgError(e);
     btn.disabled = false; btn.textContent = '✅ CREAR CLIENTE EN XUBIO';
   }
 }
