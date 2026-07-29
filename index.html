@@ -2,7 +2,15 @@
 <html lang="es">
 <head>
 <!-- ═══════════════════════════════════════════════════════════════════════
-     TCK VENTAS — v14.122.0 — 28/07/2026
+     TCK VENTAS — v14.123.0 — 29/07/2026
+     v14.123.0: MOSTRADOR — DESGLOSE DEL COBRO MIXTO EN LA TARJETA (pedido
+        Julián 29/07, caso Lagardua retiro 8678: "mixto" $143.000 y nadie
+        podía ver cuánto fue efectivo y cuánto transferencia sin entrar a
+        Supabase). Si detalle_cobro tiene 2+ instrumentos, la tarjeta ahora
+        muestra "mixto (💵 $40.000 + 🏦 $103.000)". Con un solo instrumento
+        no repite (forma_cobro ya lo dice). Solo render: el fetch ya traía
+        detalle_cobro (select=*). Sin cambios de datos ni de flujo.
+     ── v14.122.0 — 28/07/2026 ──
      v14.122.0: ALTA DE CLIENTE QUE SE COLGABA 10 MINUTOS (reporte Julián
         28/07, modal de acuerdo de precios). Mismo patrón que el fix (1) de
         v14.121.0, en otro flujo: fetch sin timeout + backend lento.
@@ -48374,6 +48382,20 @@ function mostradorRangoAplicar() {
   mostradorTabRender();
 }
 
+// v14.123.0 — desglose del cobro mixto (detalle_cobro jsonb). Devuelve
+// "💵 $40.000 + 🏦 $103.000" solo si hay 2+ instrumentos con monto; con
+// uno solo forma_cobro ya lo dice y no hace falta repetirlo.
+function _mostDesgloseCobro(r) {
+  var d = r && r.detalle_cobro;
+  if (typeof d === 'string') { try { d = JSON.parse(d); } catch (_) { d = null; } }
+  if (!d || typeof d !== 'object') return '';
+  var partes = [];
+  if (Number(d.efectivo) > 0)      partes.push('💵 ' + _mostFmt(d.efectivo));
+  if (Number(d.transferencia) > 0) partes.push('🏦 ' + _mostFmt(d.transferencia));
+  if (Number(d.cheque) > 0)        partes.push('📋 ' + _mostFmt(d.cheque));
+  return partes.length >= 2 ? partes.join(' + ') : '';
+}
+
 async function mostradorTabRender() {
   var root = document.getElementById('most-root');
   if (!root) return;
@@ -48451,7 +48473,9 @@ async function mostradorTabRender() {
       h += '  </div>';
       h += '  <div style="font-size:13px;font-weight:800;color:#2A2018;margin-top:3px;">' + _mostEsc(r.cliente || '') + ' · ' + _mostFmt(r.total) + '</div>';
       h += '  <div style="font-size:12px;color:#8A7E72;margin-top:2px;">' + _mostEsc(r.items_resumen || '') + '</div>';
+      var desg = _mostDesgloseCobro(r);
       h += '  <div style="font-size:11px;color:#9A8F85;margin-top:2px;">' + _mostEsc(r.forma_cobro || '') +
+           (desg ? ' (' + desg + ')' : '') +
            (r.xubio_nro ? (r.xubio_tipo === 'factura' ? ' · 🧾 Fact. #' : ' · 📄 Presup. #') + _mostEsc(r.xubio_nro) : '') + '</div>';
       // v14.66.0: si la factura falló al vender, reintento desde acá
       // (el rol Mostrador no ve el tab Pedidos; sin esto no había camino).
@@ -49817,7 +49841,7 @@ function depPollIniciar() {
    TCK_UPD_LOCAL aca Y el archivo version.json del repo.
    ============================================================ */
 (function(){
-  var TCK_UPD_LOCAL = '14.121.0';        /* <-- bump en cada deploy */
+  var TCK_UPD_LOCAL = '14.123.0';        /* <-- bump en cada deploy */
   var TCK_UPD_INTERVALO = 10 * 60 * 1000;   /* chequeo de fondo: 10 min */
   var _updUltChequeo = 0;
 
