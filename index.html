@@ -2,7 +2,54 @@
 <html lang="es">
 <head>
 <!-- ═══════════════════════════════════════════════════════════════════════
-     TCK VENTAS — v14.123.0 — 29/07/2026
+     TCK VENTAS — v14.126.0 — 30/07/2026
+     v14.126.0: FIX "NO ME MARCA LAS VISITAS" (reporte Juan 30/07 desde
+        Casares). El panel "Mi rendimiento" de Mi Día mostraba 0 visitas
+        hoy y 0 días en calle aunque los check-ins entraban perfecto en
+        Supabase. CAUSA: vdesCargarVisitas pide el mes ±7d sin paginar y
+        PostgREST corta toda respuesta en max_rows=1000; con order=
+        fecha.asc lo truncado son las visitas MÁS NUEVAS → panel congelado
+        en un día viejo. Afectaba a los 3 vendedores: Lisandro congelado
+        al 10/07 (1.961 eventos en el rango), Juan al 23/07 (1.362),
+        Miguel al 29/07 (1.092). Las escrituras nunca fallaron (0 errores
+        4xx en los logs del API) — era 100% lectura.
+        FIX: se porta sbFetchAll() del admin (que ya había arreglado esta
+        misma falla en avCargarVisitas) y vdesCargarVisitas la usa para
+        traer el mes completo en páginas de 1000.
+        SIN CAMBIOS: check-in, historial "Hoy en campo", MI RUTA, tomador
+        (sus queries son de hoy solo y no llegan al tope).
+     ─────────────────────────────────────────────────────────────────────
+     TCK VENTAS — v14.125.0 — 28/07/2026
+     v14.125.0: TECLADO FÍSICO EN LA PANTALLA DE PIN (pedido Julián, semana
+        de prueba en fábrica). El PIN se ingresa con un teclado en pantalla
+        pensado para el celular; en la PC había que clickear los 4 dígitos
+        con el mouse. Ahora también se puede tipear:
+          · dígitos (fila superior o pad numérico) → pinPress
+          · Backspace → borrar   · Escape → volver a la lista de nombres
+        Listener global con salida temprana si paso2 no está visible, así no
+        interfiere con ningún otro input de la app.
+        NO incluye el pendiente asociado (que a vendedores/choferes se les
+        cierre la sesión para que vuelvan a ver el panel de pendientes) —
+        queda anotado a propósito: durante la conciliación no tocamos nada
+        que dependa de que el equipo re-loguee.
+     ─────────────────────────────────────────────────────────────────────
+     TCK VENTAS — v14.124.0 — 30/07/2026
+     v14.124.0: EL CHOFER SE ENTERA SI LE MUEVEN EL VIAJE.
+        Desde el admin v13.139.0 Fran puede mover un pedido de un viaje a
+        otro. Eso ya escribía entregas.viaje_id, pero el chofer no se
+        enteraba: cargarEntregas() solo corría al entrar al tab. Iba a
+        salir con el camión cargado distinto de lo que veía en la app.
+          · Auto-refresh cada 45s de las entregas del viaje activo.
+          · Si la lista cambió, toast "🔀 Cambió tu viaje: +N / −N pedidos.
+            Revisá la carga." — avisamos en vez de repintar callado, que el
+            chofer tiene que enterarse de que le tocaron el camión.
+        DOS GUARDS, porque acá el riesgo es pisarle la pantalla a alguien
+        que está manejando:
+          · hayAlgoAbierto() — el mismo guard que el admin sumó en v13.135.0
+            después de que el auto-refresh le cerrara la card a Francisco.
+          · document.hidden + tab activo — no gastamos datos en background.
+        Par de Apps Script v25.102.0 + tck-admin v13.139.0.
+     ─────────────────────────────────────────────────────────────────────
      v14.123.0: BAJA DEL DUPLICADO "Hamburguesa 100% Carne" (reporte Miguel
         29/07: "que diferencia hay en esos productos?" — respuesta: ninguna).
         Era el MISMO SKU de Xubio (3191253 "Hamburguesa 100 carne x 100gr.
@@ -18745,6 +18792,26 @@ async function sbFetch(path, options = {}) {
   return text ? JSON.parse(text) : null;
 }
 
+// v14.126.0 — GET paginado: PostgREST corta toda respuesta en max_rows=1000
+// aunque el query no tenga limit. Copiado del admin (fix de avCargarVisitas,
+// que tuvo exactamente esta falla). Usar en cualquier SELECT que pueda
+// superar las 1000 filas.
+async function sbFetchAll(pathBase, pageSize, maxPaginas) {
+  pageSize = pageSize || 1000;
+  maxPaginas = maxPaginas || 60;   // tope de seguridad (~60k filas)
+  var todas = [];
+  var offset = 0;
+  for (var i = 0; i < maxPaginas; i++) {
+    var sep = pathBase.indexOf('?') >= 0 ? '&' : '?';
+    var rows = await sbFetch(pathBase + sep + 'limit=' + pageSize + '&offset=' + offset);
+    if (!Array.isArray(rows) || rows.length === 0) break;
+    todas = todas.concat(rows);
+    if (rows.length < pageSize) break;   // última página
+    offset += pageSize;
+  }
+  return todas;
+}
+
 // ===============================================================
 // v14.99.0 - MI PLATA (panel de comisiones del vendedor)
 // ===============================================================
@@ -22169,6 +22236,32 @@ function pinVolver() {
   document.getElementById('login-sub').textContent = 'Seleccioná tu nombre';
 }
 
+// v14.125.0 — TECLADO FÍSICO EN LA PANTALLA DE PIN (pedido Julián 28/07).
+// El PIN se ingresa con un teclado en pantalla pensado para el celular. En la
+// PC había que clickear los 4 dígitos con el mouse. Ahora también se puede
+// tipear: números (fila superior o pad numérico) → pinPress, Backspace →
+// borrar, Escape → volver a la lista de nombres.
+// Solo actúa con la pantalla del PIN a la vista (paso2 visible): fuera de ahí
+// el listener sale en la primera línea y no interfiere con ningún otro input
+// de la app. preventDefault en Backspace evita que el navegador vuelva atrás.
+(function () {
+  document.addEventListener('keydown', function (e) {
+    var p2 = document.getElementById('paso2');
+    if (!p2 || p2.style.display === 'none' || p2.offsetParent === null) return;
+    if (e.ctrlKey || e.altKey || e.metaKey) return;
+    if (/^[0-9]$/.test(e.key)) {
+      e.preventDefault();
+      pinPress(e.key);
+    } else if (e.key === 'Backspace') {
+      e.preventDefault();
+      pinBorrar();
+    } else if (e.key === 'Escape') {
+      e.preventDefault();
+      pinVolver();
+    }
+  });
+})();
+
 function actualizarDots() {
   document.querySelectorAll('.pin-dot').forEach(function(d, i) {
     d.classList.toggle('on', i < pinActual.length);
@@ -22365,6 +22458,8 @@ function login(nombre) {
 
 function salir() {
   trackingDetener();
+  entregasFrenarRefresh();   // v14.124.0 — que no siga puliendo entregas del chofer anterior
+  _entregasFirmaPrev = null; // y que el próximo no reciba un aviso de cambio que no es suyo
   const bienvenidaEl = document.querySelector('.bienvenida');
   if (bienvenidaEl) bienvenidaEl.style.display = '';
   const panelEl = document.getElementById('panel');
@@ -24788,6 +24883,7 @@ function mostrarTabs() {
     document.documentElement.scrollTop = 0;
     document.body.scrollTop = 0;
     cargarEntregas();
+    entregasIniciarRefresh(); // v14.124.0 — enterarse si Fran le movió el viaje
     return;
   }
 
@@ -28800,7 +28896,13 @@ async function vdesCargarVisitas() {
     var path = 'visitas?vendedor_id=eq.' + vendedorId
       + '&fecha=gte.' + ini.toISOString() + '&fecha=lte.' + fin.toISOString()
       + '&select=*&order=fecha.asc';
-    var data = await sbFetch(path);
+    // v14.126.0 — paginar: el mes ±7d de un vendedor activo supera las 1000
+    // filas y PostgREST (max_rows=1000) truncaba las visitas MÁS NUEVAS
+    // (order=fecha.asc) → el panel quedaba congelado en un día viejo con
+    // "0 visitas hoy" aunque los check-ins entraban bien (reporte Juan 30/07:
+    // congelado al 23/07; Lisandro al 10/07, Miguel al 29/07). Mismo fix que
+    // el admin aplicó en avCargarVisitas.
+    var data = await sbFetchAll(path, 1000, 60);
     _vdesVisitas = Array.isArray(data) ? data : [];
     _vdesRangoMes = mesKey;
     _vdesVendId   = vendedorId;
@@ -35234,7 +35336,48 @@ function mvToggleAcordeonRend() {
 
 
 
-async function cargarEntregas() {
+// ═══════════════════════════════════════════════════════════════════
+// v14.124.0 — AUTO-REFRESH DE ENTREGAS DEL CHOFER
+//
+// Desde el admin, Fran ahora puede mover un pedido de un viaje a otro
+// (v13.139.0 / Apps Script v25.102.0): un pedido que entra a la tarde y
+// sale mañana temprano, o algo que vuelve de la mañana y se pasa al
+// reparto de la tarde. Eso ya escribía entregas.viaje_id, pero el chofer
+// no se enteraba: cargarEntregas() solo corría al entrar al tab. Iba a
+// salir con el camión cargado distinto de lo que veía en la app.
+//
+// Refrescamos cada 45s con DOS guards, porque el riesgo acá es pisarle la
+// pantalla a alguien que está manejando:
+//   · hayAlgoAbierto() — mismo guard que usa el admin desde v13.135.0,
+//     donde el auto-refresh le cerraba la card abierta a Francisco.
+//   · document.hidden — no gastamos datos del celular en background.
+// Si la lista cambió, avisamos con un toast en vez de repintar callado:
+// que el chofer sepa que le tocaron el viaje.
+// ═══════════════════════════════════════════════════════════════════
+var ENTREGAS_REFRESH_MS = 45000;
+var _entregasRefreshTimer = null;
+var _entregasFirmaPrev = null;
+
+function _entregasFirma(lista) {
+  if (!Array.isArray(lista)) return '';
+  return lista.map(function (e) { return e.pedido_id; }).sort().join('|');
+}
+
+function entregasIniciarRefresh() {
+  if (_entregasRefreshTimer) return;
+  _entregasRefreshTimer = setInterval(function () {
+    if (document.hidden) return;
+    if (typeof _tabActual !== 'undefined' && _tabActual !== 'entregas') return;
+    if (typeof hayAlgoAbierto === 'function' && hayAlgoAbierto()) return;
+    cargarEntregas(true).catch(function (e) { console.warn('[entregas] refresh', e); });
+  }, ENTREGAS_REFRESH_MS);
+}
+
+function entregasFrenarRefresh() {
+  if (_entregasRefreshTimer) { clearInterval(_entregasRefreshTimer); _entregasRefreshTimer = null; }
+}
+
+async function cargarEntregas(esRefresh) {
   const el = document.getElementById('entregas-lista');
   el.innerHTML = '<div style="text-align:center;padding:40px;color:var(--text3);">Cargando entregas...</div>';
 
@@ -35332,7 +35475,26 @@ async function cargarEntregas() {
     }
 
     _entregasCache = entregas || [];
-    
+
+    // v14.124.0 — ¿le movieron pedidos del viaje desde el admin? Avisamos con
+    // un toast en vez de repintar callado: el chofer tiene que enterarse de que
+    // lo que lleva en el camión cambió. Solo en el refresh automático — en la
+    // carga inicial no hay "cambio" contra el que comparar.
+    var _firmaAhora = _entregasFirma(_entregasCache);
+    if (esRefresh && _entregasFirmaPrev !== null && _firmaAhora !== _entregasFirmaPrev) {
+      var _antes = _entregasFirmaPrev ? _entregasFirmaPrev.split('|').filter(Boolean) : [];
+      var _ahora = _firmaAhora ? _firmaAhora.split('|').filter(Boolean) : [];
+      var _sum = _ahora.filter(function (x) { return _antes.indexOf(x) < 0; }).length;
+      var _res = _antes.filter(function (x) { return _ahora.indexOf(x) < 0; }).length;
+      var _msg = [];
+      if (_sum) _msg.push('+' + _sum + ' pedido' + (_sum > 1 ? 's' : ''));
+      if (_res) _msg.push('−' + _res + ' pedido' + (_res > 1 ? 's' : ''));
+      if (_msg.length && typeof toast === 'function') {
+        toast('🔀 Cambió tu viaje: ' + _msg.join(' · ') + '. Revisá la carga.', 'ok');
+      }
+    }
+    _entregasFirmaPrev = _firmaAhora;
+
     // v14.8: Cargar rutas (orden) y coordenadas GPS en paralelo
     await Promise.all([
       cargarCoordsClientes(_entregasCache),
@@ -49858,7 +50020,7 @@ function depPollIniciar() {
    TCK_UPD_LOCAL aca Y el archivo version.json del repo.
    ============================================================ */
 (function(){
-  var TCK_UPD_LOCAL = '14.121.0';        /* <-- bump en cada deploy */
+  var TCK_UPD_LOCAL = '14.125.0';        /* <-- bump en cada deploy */
   var TCK_UPD_INTERVALO = 10 * 60 * 1000;   /* chequeo de fondo: 10 min */
   var _updUltChequeo = 0;
 
