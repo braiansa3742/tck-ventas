@@ -2,6 +2,28 @@
 <html lang="es">
 <head>
 <!-- ═══════════════════════════════════════════════════════════════════════
+     TCK VENTAS — v14.127.0 — 30/07/2026
+     v14.127.0: VENTA MOSTRADOR CÓMODA EN NOTEBOOK (pedido Julián 30/07).
+        La cajera atiende con una notebook y el modal de venta era el
+        tomador mobile estirado: 3 columnas gigantes, sin buscador, y el
+        precio que más usa (suelto, 1-2 unidades) en gris 9.5px mientras
+        el de caja iba grande. Todo scoped al modo mostrador (clase
+        .mwa-most en el overlay) — el tomador de los vendedores en el
+        celular NO cambia.
+          · Buscador de productos sticky (nombre/presentación, sin
+            tildes, multi-palabra). Mientras se busca se ocultan promos
+            y combos para que los resultados queden arriba.
+          · Precio suelto ARRIBA y legible (rojo, Barlow Condensed);
+            el de caja queda como chip verde secundario.
+          · En pantalla ancha: contenido centrado (max 1100px), grilla
+            auto-fill de tarjetas ~155px (6-7 columnas), tipografía y
+            botones +/− más grandes.
+          · mostradorDecorarModal() idempotente: aplicar/quitar un
+            descuento reconstruye el body del modal y antes se comía el
+            banner mostrador, el chip de cliente y el nombre tipeado en
+            el input; ahora se re-decora y se reaplica la búsqueda.
+        Sin cambios de backend — no requiere deploy de Apps Script.
+     ─────────────────────────────────────────────────────────────────────
      TCK VENTAS — v14.126.0 — 30/07/2026
      v14.126.0: FIX "NO ME MARCA LAS VISITAS" (reporte Juan 30/07 desde
         Casares). El panel "Mi rendimiento" de Mi Día mostraba 0 visitas
@@ -39259,8 +39281,17 @@ function manualWAHTML() {
         valorActual: ''
       }) +
     '</div>' +
+    // v14.127.0 — buscador de productos (solo mostrador; el valor se conserva
+    // porque el body se reconstruye entero al aplicar/quitar un descuento)
+    (window._mwaModoMostrador ?
+      '<div class="mwa-buscar-wrap">' +
+        '<input class="manual-wa-input mwa-buscar-inp" id="mwa-buscar-prod" type="text" ' +
+          'placeholder="🔍 Buscar producto..." value="' + String(window._mwaBusquedaProd || '').replace(/"/g, '&quot;') + '" ' +
+          'oninput="mwaBuscarProducto(this.value)" autocomplete="off">' +
+      '</div>'
+    : '') +
     '<div id="mwa-promos-bloque">' + promosRenderCarousel('manualwa', 'manualWAAgregarPromo', 'manualWAQuitarPromo', _manualWAPromos) + '</div>' +
-    combosRenderBotones('manualwa', 'manualWAAgregarCombo', 'manualWAQuitarCombo', _manualWACombos) +
+    '<div id="mwa-combos-bloque">' + combosRenderBotones('manualwa', 'manualWAAgregarCombo', 'manualWAQuitarCombo', _manualWACombos) + '</div>' +
     prodsHtml +
   '</div>' +
   '<div class="manual-wa-footer">' +
@@ -39314,6 +39345,7 @@ function mwaGuardarDescuento(nombre) {
   // Re-render items
   var overlay = document.getElementById('manual-wa-overlay');
   if (overlay) { var body=overlay.querySelector('.manual-wa-body'); if(body){ var newHtml=document.createElement('div'); newHtml.innerHTML=manualWAHTML(); var newBody=newHtml.querySelector('.manual-wa-body'); if(newBody) body.innerHTML=newBody.innerHTML; } }
+  if (window._mwaModoMostrador && typeof mostradorDecorarModal === 'function') mostradorDecorarModal();  // v14.127.0: el rebuild borra banner/chip/búsqueda
   mwaActualizarTotal();
   toast('✅ Descuento '+pct+'% aplicado','ok');
 }
@@ -39323,6 +39355,7 @@ function mwaQuitarDescuento(nombre) {
   document.getElementById('tomador-dto-modal').remove();
   var overlay = document.getElementById('manual-wa-overlay');
   if (overlay) { var body=overlay.querySelector('.manual-wa-body'); if(body){ var newHtml=document.createElement('div'); newHtml.innerHTML=manualWAHTML(); var newBody=newHtml.querySelector('.manual-wa-body'); if(newBody) body.innerHTML=newBody.innerHTML; } }
+  if (window._mwaModoMostrador && typeof mostradorDecorarModal === 'function') mostradorDecorarModal();  // v14.127.0: el rebuild borra banner/chip/búsqueda
   mwaActualizarTotal();
 }
 
@@ -48518,6 +48551,38 @@ async function depVencSalida(id) {
 .dep-stock-row { display:grid;grid-template-columns:1fr 84px 34px;gap:6px;margin-bottom:6px; }
 .dep-stock-row input { padding:9px;border:1.5px solid #E8DFD5;border-radius:8px;font-size:13px;box-sizing:border-box;background:#fff;color:#2A2018; }
 .dep-stock-del { border:none;background:#FFEBEE;color:#C62828;border-radius:8px;font-size:15px;font-weight:900;cursor:pointer;touch-action:manipulation; }
+/* ═══ v14.127.0 — VENTA MOSTRADOR cómoda en notebook ═══════════════════
+   Todo scoped a .mwa-most (clase que abrirCargaMostrador le pone al
+   overlay): NO toca el tomador de los vendedores en el celular. */
+/* El overlay es full-screen; en pantalla ancha el contenido se centra
+   en vez de estirarse de borde a borde. */
+.mwa-most .manual-wa-body { max-width: 1100px; width: 100%; margin: 0 auto; box-sizing: border-box; }
+.mwa-most .manual-wa-confirmar-btn { max-width: 680px; display: block; margin: 0 auto; }
+/* Buscador de productos (solo se renderiza en modo mostrador) */
+.mwa-buscar-wrap { position: sticky; top: 0; z-index: 5; background: var(--cream); padding: 8px 0 10px; margin-bottom: 4px; }
+.mwa-buscar-inp { font-size: 16px; }
+/* Precios: en mostrador casi todo se vende suelto (1-2 unidades), así
+   que el precio suelto va ARRIBA y legible; el de caja queda como chip. */
+.mwa-most .tomador-item-tramos { display: flex; flex-direction: column-reverse; align-items: flex-start; gap: 3px; margin-bottom: 5px; }
+.mwa-most .tit-suelto { font-size: 12.5px; color: #444; margin-top: 0; }
+.mwa-most .tit-suelto b { font-family: 'Barlow Condensed', sans-serif; font-size: 16px; font-weight: 900; color: var(--red); }
+.mwa-most .tomador-item-precio { font-size: 16px; }
+/* Notebook / pantalla ancha: más columnas de tarjetas chicas (en vez de
+   3 gigantes) y tipografía más grande para leer de parado. */
+@media (min-width: 760px) {
+  .mwa-most .tomador-grid { grid-template-columns: repeat(auto-fill, minmax(155px, 1fr)); gap: 10px; }
+  .mwa-most .tomador-item-nombre { font-size: 14px; }
+  .mwa-most .tomador-item-presentacion { font-size: 11.5px; }
+  .mwa-most .tit-caja-p { font-size: 15px; }
+  .mwa-most .tit-caja-l { font-size: 9.5px; }
+  .mwa-most .tit-suelto { font-size: 13.5px; }
+  .mwa-most .tit-suelto b { font-size: 18px; }
+  .mwa-most .tomador-item-precio { font-size: 18px; }
+  .mwa-most .tomador-qty-btn { width: 34px; height: 34px; font-size: 18px; }
+  .mwa-most .tomador-qty-num { font-size: 19px; }
+  .mwa-most .manual-wa-input { font-size: 16px; }
+  .mwa-most .most-banner { font-size: 14px; }
+}
 </style>
 <script>
 // ═══ v14.58.0 — MOSTRADOR ═══════════════════════════════════════════
@@ -48672,25 +48737,85 @@ async function mostradorTabRender() {
 function abrirCargaMostrador() {
   window._mwaModoMostrador = true;
   window._mostradorClienteXubio = null;
+  window._mwaBusquedaProd = '';   // v14.127.0: buscador limpio en cada venta
   abrirCargaManualWA();
-  setTimeout(function() {
-    // Banner de modo
-    var bar = document.getElementById('xubio-sync-bar-mwa');
-    if (bar) bar.insertAdjacentHTML('beforebegin',
-      '<div class="most-banner">🛒 VENTA MOSTRADOR — el cliente tiene que ser de Xubio (elegilo de la lista o crealo)</div>');
-    // Localidad fija Trenque Lauquen + campo oculto
-    var loc = document.getElementById('manual-wa-localidad-input');
-    if (loc) {
-      loc.value = 'Trenque Lauquen';
-      var campo = loc.closest('.manual-wa-campo');
-      if (campo) campo.style.display = 'none';
+  var ov = document.getElementById('manual-wa-overlay');
+  if (ov) ov.classList.add('mwa-most');   // v14.127.0: estilos notebook
+  setTimeout(mostradorDecorarModal, 120);
+}
+
+// v14.127.0 — Decoración del modal en modo mostrador (banner, localidad
+// fija, chip de cliente, botón de alta). IDEMPOTENTE: se llama al abrir
+// y también después de que aplicar/quitar un descuento reconstruye el
+// body del modal (antes ese rebuild se comía el banner y el chip).
+function mostradorDecorarModal() {
+  var ov = document.getElementById('manual-wa-overlay');
+  if (!ov || !window._mwaModoMostrador) return;
+  ov.classList.add('mwa-most');
+  // Banner de modo
+  var bar = document.getElementById('xubio-sync-bar-mwa');
+  if (bar && !ov.querySelector('.most-banner')) bar.insertAdjacentHTML('beforebegin',
+    '<div class="most-banner">🛒 VENTA MOSTRADOR — el cliente tiene que ser de Xubio (elegilo de la lista o crealo)</div>');
+  // Localidad fija Trenque Lauquen + campo oculto
+  var loc = document.getElementById('manual-wa-localidad-input');
+  if (loc) {
+    loc.value = 'Trenque Lauquen';
+    var campo = loc.closest('.manual-wa-campo');
+    if (campo) campo.style.display = 'none';
+  }
+  // Chip de cliente seleccionado + botón de alta
+  var sug = document.getElementById('mwa-sugerencias');
+  if (sug && !document.getElementById('most-cli-sel')) sug.insertAdjacentHTML('afterend',
+    '<div class="most-cli-sel" id="most-cli-sel"></div>' +
+    '<button type="button" class="most-alta-btn" onclick="mostradorAltaAbrir()">➕ Cliente nuevo (alta en Xubio)</button>');
+  // Si ya había cliente elegido, repintar el chip y el input
+  var c = window._mostradorClienteXubio;
+  var inp = document.getElementById('manual-wa-cliente-input');
+  if (c && c.id && inp && !inp.value) inp.value = c.nombre;
+  mostradorPintarClienteSel();
+  // Reaplicar el filtro de búsqueda si había uno tipeado
+  mwaAplicarBusquedaProd();
+}
+
+// ── v14.127.0 — BUSCADOR DE PRODUCTOS (modo mostrador) ─────────────
+// Filtra las tarjetas del tomador por nombre/presentación (sin tildes,
+// todas las palabras tienen que matchear). Mientras hay búsqueda se
+// ocultan promos y combos para que los resultados queden arriba.
+window._mwaBusquedaProd = '';
+function mwaBuscarProducto(q) {
+  window._mwaBusquedaProd = q || '';
+  mwaAplicarBusquedaProd();
+}
+function mwaAplicarBusquedaProd() {
+  var ov = document.getElementById('manual-wa-overlay');
+  if (!ov) return;
+  var q = _mwaNormalizarTexto(window._mwaBusquedaProd);
+  var palabras = q ? q.split(/\s+/) : [];
+  var promos = document.getElementById('mwa-promos-bloque');
+  if (promos) promos.style.display = q ? 'none' : '';
+  var combos = document.getElementById('mwa-combos-bloque');
+  if (combos) combos.style.display = q ? 'none' : '';
+  var grids = ov.querySelectorAll('.manual-wa-body .tomador-grid');
+  for (var g = 0; g < grids.length; g++) {
+    var items = grids[g].querySelectorAll('.tomador-item');
+    var visibles = 0;
+    for (var i = 0; i < items.length; i++) {
+      var nom  = items[i].querySelector('.tomador-item-nombre');
+      var pres = items[i].querySelector('.tomador-item-presentacion');
+      var txt  = _mwaNormalizarTexto((nom ? nom.textContent : '') + ' ' + (pres ? pres.textContent : ''));
+      var ok = true;
+      for (var p = 0; p < palabras.length; p++) {
+        if (txt.indexOf(palabras[p]) === -1) { ok = false; break; }
+      }
+      items[i].style.display = ok ? '' : 'none';
+      if (ok) visibles++;
     }
-    // Chip de cliente seleccionado + botón de alta
-    var sug = document.getElementById('mwa-sugerencias');
-    if (sug) sug.insertAdjacentHTML('afterend',
-      '<div class="most-cli-sel" id="most-cli-sel"></div>' +
-      '<button type="button" class="most-alta-btn" onclick="mostradorAltaAbrir()">➕ Cliente nuevo (alta en Xubio)</button>');
-  }, 120);
+    // El título de la sección es el hermano anterior de la grilla
+    var tit = grids[g].previousElementSibling;
+    if (tit && String(tit.className).indexOf('tomador-sec-titulo') !== -1) {
+      tit.style.display = visibles ? '' : 'none';
+    }
+  }
 }
 
 function mostradorPintarClienteSel() {
@@ -50020,7 +50145,7 @@ function depPollIniciar() {
    TCK_UPD_LOCAL aca Y el archivo version.json del repo.
    ============================================================ */
 (function(){
-  var TCK_UPD_LOCAL = '14.125.0';        /* <-- bump en cada deploy */
+  var TCK_UPD_LOCAL = '14.127.0';        /* <-- bump en cada deploy */
   var TCK_UPD_INTERVALO = 10 * 60 * 1000;   /* chequeo de fondo: 10 min */
   var _updUltChequeo = 0;
 
