@@ -2,6 +2,23 @@
 <html lang="es">
 <head>
 <!-- ═══════════════════════════════════════════════════════════════════════
+     TCK VENTAS — v14.129.0 — 31/07/2026
+     v14.129.0: POLLO C — CALIBRES Y ESTADOS COMPLETOS EN EL TOMADOR.
+        CASO: se compró y se vendió Pollo C calibre 5, pero el tomador sólo
+        ofrecía x6/x7 (fresco/congelado), así que la venta no se podía cargar
+        por la app. Además faltaba el x8, que ya existía en Xubio y en
+        producto_variantes desde el alta del 26/05.
+        FIX: POLLO_VARIANTES['Pollo C'] pasa de 4 a 7 variantes:
+          x5 Fresco · x6 Fresco · x6 Congelado · x7 Fresco · x7 Congelado ·
+          x8 Fresco · x8 Congelado
+        (x5 va solo fresco: en Xubio no existe "Pollo C x 5 congelado".)
+        REQUIERE el SQL tck-pollo-c-x5-x8-v1.sql corrido ANTES del deploy:
+        agrega las filas de productos_xubio_mapping, stock_productos y
+        producto_variantes. Sin eso, elegir x5 o x8 arma la línea pero el
+        presupuesto Xubio no encuentra el SKU.
+        NO SE TOCÓ: Pollo A ni Pollo B (siguen con sus gaps de mapping
+        conocidos: A sin x8/x9/x10, B sin x5/x8 — ver nota línea ~1740).
+     ---
      TCK VENTAS — v14.128.0 — 31/07/2026
      v14.128.0: FIX "ME APARECIÓ DOBLE Y AL CANCELAR UNO SE CANCELARON LOS
         DOS" (reporte Miguel 31/07).
@@ -31787,7 +31804,9 @@ var POLLOS_CON_CALIBRE = { 'Pollo A': true, 'Pollo B': true, 'Pollo C': true };
 var POLLO_VARIANTES = {
   'Pollo A': ['x6', 'x7'],
   'Pollo B': ['x6 Fresco', 'x6 Congelado', 'x7 Fresco', 'x7 Congelado'],
-  'Pollo C': ['x6 Fresco', 'x6 Congelado', 'x7 Fresco', 'x7 Congelado']
+  // v14.129.0 — Pollo C completo: x5 (solo fresco, no existe congelado en Xubio),
+  // x6/x7/x8 en ambos estados. Coincide 1:1 con productos_xubio_mapping.
+  'Pollo C': ['x5 Fresco', 'x6 Fresco', 'x6 Congelado', 'x7 Fresco', 'x7 Congelado', 'x8 Fresco', 'x8 Congelado']
 };
 function _tomadorCalSafe(n) { return String(n).replace(/[^a-zA-Z0-9]/g, '_'); }
 function tomadorCalibreSelectorHTML(nombre) {
