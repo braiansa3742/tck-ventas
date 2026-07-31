@@ -2,6 +2,40 @@
 <html lang="es">
 <head>
 <!-- ═══════════════════════════════════════════════════════════════════════
+     TCK VENTAS — v14.128.0 — 31/07/2026
+     v14.128.0: FIX "ME APARECIÓ DOBLE Y AL CANCELAR UNO SE CANCELARON LOS
+        DOS" (reporte Miguel 31/07).
+        CASO: ZULMA ADRIANA ARANCIBIA, check-in 10:55, $91.300, presupuesto
+        Xubio 8034. La telemetría del tomador registra UN solo intento
+        (apps_script_ok 10:55:40, sin timeout ni bloqueo anti-dup) y en
+        pedidos_zona hay UN solo pedido — pero Miguel veía dos cards con el
+        MISMO pedidoId. Canceló una a las 12:07 ("🔄 Pedido duplicado") y se
+        marcaron las dos: el pedido real era uno solo, así que la clienta
+        quedó SIN pedido y el presupuesto 8034 se anuló en Xubio.
+        CAUSA: el unshift optimista (tomador de campo y manualWA) agrega el
+        pedido a todosLosPedidos sin chequear si ya está. Si el polling trajo
+        la fila del Sheet mientras el POST seguía en vuelo (waitLock 20s del
+        Apps Script + Xubio), quedan dos entradas del mismo id. Después
+        _estadosCambiados se aplica POR pedidoId a todas las entradas con ese
+        id → cancelar una card pinta las dos.
+        FIX (3 capas):
+          · _dedupePedidosPorId() nuevo — red de seguridad al final de
+            cargarPedidos: nunca dos cards del mismo pedidoId, venga de donde
+            venga. Loguea los repetidos que descarta.
+          · Guard en el unshift del tomador de campo: solo agrega si el id no
+            está ya en la lista.
+          · Mismo guard en manualWA.
+        NO CAMBIADO: la cancelación en sí (viaja con el pedidoId correcto), el
+        anti-duplicado server-side, ni el modal de duplicados.
+        PENDIENTE (backend, requiere deploy): cambiarEstado del Apps Script
+        arranca con filaEncontrada = parseInt(p.fila) y solo lo pisa si
+        encuentra el pedidoId en el Sheet. Si el id no existe (card fantasma),
+        cancela A CIEGAS la fila que le mandó el front — y los optimistas
+        llevan fila inventada (todosLosPedidos.length + 2). En ese camino
+        filaData queda null: tampoco corre el guard de factura ni anula el
+        presupuesto. Fix propuesto: abortar con PEDIDO_NO_ENCONTRADO cuando
+        vino pedidoId y no se encontró.
+     ─────────────────────────────────────────────────────────────────────
      TCK VENTAS — v14.127.0 — 30/07/2026
      v14.127.0: VENTA MOSTRADOR CÓMODA EN NOTEBOOK (pedido Julián 30/07).
         La cajera atiende con una notebook y el modal de venta era el
@@ -21929,6 +21963,37 @@ function _mergeOptimisticos(pedidosFromServer) {
   return result;
 }
 
+// v14.128.0 — DEDUPE POR pedidoId (fix "me apareció doble y cancelé los dos").
+// Caso Miguel 31/07 (ZULMA ARANCIBIA, presup. 8034): el pedido se guardó UNA
+// sola vez (telemetría: 1 apps_script_ok, sin timeout ni anti-dup) pero se
+// veía DOS veces con el MISMO id. Cómo entra el repetido: el unshift optimista
+// del tomador/manualWA no chequea si el pedido ya está en la lista — si el
+// polling trajo la fila del Sheet mientras el POST seguía en vuelo (waitLock
+// 20s + Xubio), quedan dos entradas del mismo pedidoId.
+// Por qué se "cancelan los dos": _estadosCambiados se aplica por pedidoId a
+// TODAS las entradas con ese id, así que cancelar una card pinta las dos. El
+// pedido real es uno solo — el vendedor cree que quedó uno vivo y no queda
+// ninguno (Zulma se quedó sin pedido).
+// Esta es la red de seguridad global: se aplica al final de cargarPedidos,
+// cubre cualquier camino que agregue pedidos (tomador, manualWA, mostrador,
+// cache anti-flicker) y deja siempre la PRIMERA aparición.
+function _dedupePedidosPorId(lista) {
+  var vistos = new Set();
+  var out = [];
+  var repetidos = [];
+  (lista || []).forEach(function(p) {
+    var id = p && p.pedidoId;
+    if (!id) { out.push(p); return; } // sin id: no lo tocamos
+    if (vistos.has(id)) { repetidos.push(id); return; }
+    vistos.add(id);
+    out.push(p);
+  });
+  if (repetidos.length) {
+    console.warn('[dedupe] pedidos repetidos descartados:', repetidos.join(', '));
+  }
+  return out;
+}
+
 // ════════════════════════════════════════════════════════════════
 // v14.109.0 — PRESUPUESTO NO-BLOQUEANTE (fix "Creando..." colgado)
 // ────────────────────────────────────────────────────────────────
@@ -22699,6 +22764,7 @@ async function cargarPedidos(silencioso, _reintentos) {
     // hace <90s que aún no aparecen en la Sheet) antes de pisar el array.
     pedidos = _mergeOptimisticos(pedidos);
     pedidos = _xubioProcAplicarMarcador(pedidos); // v14.109.0: mantener el badge "procesando" hasta que la base confirme
+    pedidos = _dedupePedidosPorId(pedidos); // v14.128.0: nunca dos cards del mismo pedidoId
     _pedidosCache = pedidos.slice(); // actualizar cache
     todosLosPedidos = pedidos;
 
@@ -34110,7 +34176,12 @@ async function tomadorConfirmarConEntrega(entregaData) {
       turnoEntrega: entregaData && entregaData.turno || '',
       fila:        todosLosPedidos.length + 2
     };
-    todosLosPedidos.unshift(nuevoPedidoOpt);
+    // v14.128.0: no agregar si el polling ya trajo este pedido del Sheet
+    // mientras el POST estaba en vuelo — si no, quedan dos cards del mismo
+    // pedidoId y cancelar una las pinta a las dos (caso Zulma 31/07).
+    if (!todosLosPedidos.some(function(x){ return x.pedidoId === pedidoId; })) {
+      todosLosPedidos.unshift(nuevoPedidoOpt);
+    }
     _pedidosCache = todosLosPedidos.slice();
     _registrarOptimistico(nuevoPedidoOpt);
     renderPedidos();
@@ -40321,7 +40392,11 @@ async function manualWAGuardar(cliente, localidad, entrega, sucursal) {
     turnoEntrega: entrega.turno,
     fila:         todosLosPedidos.length + 2
   };
-  todosLosPedidos.unshift(nuevoPedido);
+  // v14.128.0: mismo guard que el tomador — si el polling ya lo trajo, no
+  // duplicar la card (dos entradas del mismo id se cancelan juntas).
+  if (!todosLosPedidos.some(function(x){ return x.pedidoId === pedidoId; })) {
+    todosLosPedidos.unshift(nuevoPedido);
+  }
   _pedidosCache = todosLosPedidos.slice();
   // v14.5.0 OPTIMISTIC: registrar el pedido como "recién creado" para que
   // el próximo fetch NO lo borre aunque la Sheet aún no lo tenga.
@@ -50145,7 +50220,7 @@ function depPollIniciar() {
    TCK_UPD_LOCAL aca Y el archivo version.json del repo.
    ============================================================ */
 (function(){
-  var TCK_UPD_LOCAL = '14.127.0';        /* <-- bump en cada deploy */
+  var TCK_UPD_LOCAL = '14.128.0';        /* <-- bump en cada deploy */
   var TCK_UPD_INTERVALO = 10 * 60 * 1000;   /* chequeo de fondo: 10 min */
   var _updUltChequeo = 0;
 
