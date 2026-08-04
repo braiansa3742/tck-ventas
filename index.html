@@ -2,6 +2,50 @@
 <html lang="es">
 <head>
 <!-- ═══════════════════════════════════════════════════════════════════════
+     TCK VENTAS — v14.133.0 — 04/08/2026
+     v14.133.0: DOS FIXES.
+     (1) PEDIDO FANTASMA EN $0 SIN PRODUCTOS (reporte Miguel 03/08).
+        CASO: Jorgelina Mariel Manzini, Urdampilleta. El pedido
+        TCK-20260803-1341-MIG-WY9HA se guardó 13:41:45 con la cabecera
+        COMPLETA (cliente, localidad, entrega Martes 4 · Mañana, origen
+        whatsapp) pero total $0, itemsTotales 0 y detalle VACÍO. A las
+        13:45:32 Miguel lo recargó bien (WVI8X, $412.250) → quedaron dos
+        cards, una fantasma. Ninguno llegó a Xubio (nunca se confirmaron).
+        CAUSA: manualWAConfirmar valida `_dCheck.itemsCount === 0` cuando el
+        vendedor TOCA "Confirmar", pero después el flujo pasa por 3 pasos
+        asíncronos — canalClienteChequearYAbrir, sucElegirAbrir y el fetch de
+        viajeEspBuscarOpciones — y recién en manualWAGuardar se vuelve a leer
+        el carrito con mwaCalcularDesglose(). Desde v14.98.0 (anti
+        factura-fantasma de mostrador) cerrarCargaManualWA() VACÍA
+        _manualWAQtys/calibres/descuentos/combos/promos, así que si en esa
+        ventana el modal se cierra por cualquier vía (botón ←, cierre tras un
+        guardado previo, gesto atrás del cel), el desglose da 0 y se guarda
+        igual: cliente/localidad/entrega viajan por parámetro desde antes, el
+        carrito se relee después. No había revalidación en el guardado.
+        HERMANOS (mismo patrón, todos con gemelo bueno a minutos): W0I1C
+        Schulze 22/07, B5CH Paola González 28/07, CQOG Maria Acuña 21/07.
+        Los tres ya fueron cancelados a mano por el equipo.
+        FIX: guard duro en manualWAGuardar antes de armar el POST — si
+        itemsTotales<=0 o total<=0 o lineas.length===0, NO se envía: toast al
+        vendedor ("el carrito quedó vacío, cargalo de nuevo"), console.error
+        con el contexto y evento de telemetría 'bloqueado_carrito_vacio_mwa'
+        en tomador_eventos para poder medir si sigue pasando. Mismo criterio
+        de defensa en profundidad que el guard de localidad canónica (v13.7.5)
+        que está justo arriba. Mejor no guardar nada que guardar un fantasma:
+        el vendedor rehace el pedido en 30 segundos, el fantasma ensucia
+        planilla, viaje y facturación.
+        NO CAMBIADO: la validación de manualWAConfirmar, cerrarCargaManualWA
+        (limpiar al cerrar sigue siendo correcto), el flujo mostrador, ni el
+        tomador de campo.
+     (2) BANNER "Actualizar" ETERNO OTRA VEZ (reincidencia de v14.115.0).
+        TCK_UPD_LOCAL había quedado en '14.128.0' mientras version.json ya
+        decía 14.132.0 (las subidas 129/130/131/132 de catálogo bumpearon el
+        JSON pero no la constante del HTML) → todos los celulares, aun
+        actualizados, se creían viejos y veían el banner en cada sesión, y
+        "Actualizar" no lo curaba porque el HTML nuevo también decía 14.128.0.
+        FIX: TCK_UPD_LOCAL → 14.133.0, igual que version.json.
+        ⚠️ REGLA DE DEPLOY (van 3 veces): bumpear SIEMPRE las dos juntas.
+     ─────────────────────────────────────────────────────────────────────
      TCK VENTAS — v14.132.0 — 31/07/2026  (ACUMULATIVA: reemplaza 129/130/131)
      v14.132.0: LÍNEA UNIÓN GANADERA CON FOTO PROPIA POR SKU.
         25 SKUs en sección nueva "UNIÓN GANADERA", antes de TAPA MANÍA:
@@ -40301,6 +40345,32 @@ async function manualWAGuardar(cliente, localidad, entrega, sucursal) {
     return;
   }
 
+  // v14.133.0: GUARD CARRITO VACÍO (caso Manzini 03/08, 4 pedidos en $0 desde
+  // el 22/07). manualWAConfirmar valida itemsCount>0 al TOCAR "Confirmar",
+  // pero después vienen 3 pasos async (canal del cliente, sucursal, viaje
+  // especial) y recién acá se vuelve a leer el carrito con mwaCalcularDesglose.
+  // Si en esa ventana el modal se cerró por cualquier vía, cerrarCargaManualWA
+  // (v14.98.0) ya vació _manualWAQtys/combos/promos → se guardaba un pedido
+  // fantasma: cabecera OK (cliente/localidad/entrega vienen por parámetro) y
+  // total $0 sin detalle. Mejor no guardar nada que guardar un pedido vacío:
+  // el vendedor lo rehace en 30 segundos, el fantasma ensucia planilla y viaje.
+  if (!itemsTotales || itemsTotales <= 0 || !total || Number(total) <= 0 || lineas.length === 0) {
+    toast('⚠️ El carrito quedó vacío — el pedido NO se envió. Cargalo de nuevo.', 'err');
+    console.error('[manualWAGuardar] Bloqueado por carrito vacío:', {
+      pedidoId: pedidoId, cliente: cliente, itemsTotales: itemsTotales,
+      total: total, lineas: lineas.length
+    });
+    _telemetriaTomadorRegistrar({
+      paso:                'bloqueado_carrito_vacio_mwa',
+      pedido_id_intentado: pedidoId,
+      cliente:             cliente,
+      vendedor:            vendedor,
+      total:               0,
+      fingerprint:         ''
+    });
+    return;
+  }
+
   const params = new URLSearchParams({
     accion:        'guardarPedido',
     pedidoId:      pedidoId,
@@ -50269,7 +50339,7 @@ function depPollIniciar() {
    TCK_UPD_LOCAL aca Y el archivo version.json del repo.
    ============================================================ */
 (function(){
-  var TCK_UPD_LOCAL = '14.128.0';        /* <-- bump en cada deploy */
+  var TCK_UPD_LOCAL = '14.133.0';        /* <-- bump en cada deploy */
   var TCK_UPD_INTERVALO = 10 * 60 * 1000;   /* chequeo de fondo: 10 min */
   var _updUltChequeo = 0;
 
