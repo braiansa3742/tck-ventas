@@ -295,14 +295,9 @@ label .opt{font-weight:600;letter-spacing:.02em;text-transform:none;opacity:.7}
   async function buscarLocalidades(q){
     var n = sinAcentos(q).trim();
     if (n.length < 2) return [];
-    var esc = encodeURIComponent(n + "*");
-    var path = "localidades_ar"
-      + "?select=id,nombre,alias,provincia,departamento,tiene_reparto,zona"
-      + "&or=(nombre_norm.like." + esc + ",alias_norm.like." + esc + ")"
-      + "&order=tiene_reparto.desc,nombre.asc&limit=8";
-    return await sel(path);
+    return await rpc("buscar_localidades", { q: n });
   }
-
+  
   function pintarResultados(res){
     var caja = $("resultados");
     if (!res.length){
