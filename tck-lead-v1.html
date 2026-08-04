@@ -1,0 +1,517 @@
+<!DOCTYPE html>
+<html lang="es-AR">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<meta name="robots" content="noindex,nofollow">
+<title>TCK · Alta de lead</title>
+<style>
+:root{
+  --crema:#FAF4EC; --marron:#1A0800; --acento:#B45309;
+  --dorado:#D4A574; --verde:#1E8449; --rojo:#B91C1C;
+  --linea:rgba(26,8,0,.14); --tenue:rgba(26,8,0,.55);
+}
+*{box-sizing:border-box;margin:0;padding:0}
+body{background:var(--crema);color:var(--marron);
+  font-family:ui-sans-serif,system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;
+  min-height:100vh;padding:20px 16px 48px;-webkit-font-smoothing:antialiased}
+.wrap{max-width:440px;margin:0 auto}
+header{display:flex;align-items:baseline;justify-content:space-between;
+  padding-bottom:14px;border-bottom:2px solid var(--marron)}
+.marca{font-size:20px;font-weight:800;letter-spacing:-.02em}
+.marca span{color:var(--acento)}
+.quien{font-size:12px;color:var(--tenue)}
+h1{font-size:26px;font-weight:800;letter-spacing:-.03em;line-height:1.1;margin:26px 0 6px}
+.sub{font-size:14px;color:var(--tenue);line-height:1.5;margin-bottom:24px}
+label{display:block;font-size:11px;font-weight:700;text-transform:uppercase;
+  letter-spacing:.09em;color:var(--tenue);margin-bottom:7px}
+label .opt{font-weight:600;letter-spacing:.02em;text-transform:none;opacity:.7}
+.campo{width:100%;padding:15px 16px;font-size:19px;font-weight:600;
+  font-variant-numeric:tabular-nums;background:#fff;border:2px solid var(--linea);
+  border-radius:12px;color:var(--marron);outline:none;transition:border-color .15s}
+.campo:focus{border-color:var(--acento)}
+.campo::placeholder{color:rgba(26,8,0,.28);font-weight:500}
+.campo.sm{font-size:16px;padding:13px 14px;font-weight:500}
+.ayuda{font-size:12px;color:var(--tenue);margin-top:7px;line-height:1.45}
+.bloque{margin-top:20px}
+.chips{display:flex;flex-wrap:wrap;gap:7px}
+.chip{padding:9px 14px;border:1.5px solid var(--linea);border-radius:20px;
+  background:#fff;font-size:13.5px;font-weight:600;color:var(--marron);
+  cursor:pointer;transition:all .12s}
+.chip[aria-pressed="true"]{background:var(--marron);color:var(--crema);border-color:var(--marron)}
+.buscador{position:relative}
+.resultados{position:absolute;top:calc(100% + 5px);left:0;right:0;z-index:20;
+  background:#fff;border:2px solid var(--marron);border-radius:12px;
+  max-height:250px;overflow-y:auto;display:none;box-shadow:0 10px 28px rgba(26,8,0,.13)}
+.resultados.on{display:block}
+.res{padding:12px 14px;border-bottom:1px solid var(--linea);cursor:pointer;
+  display:flex;align-items:center;gap:10px}
+.res:last-child{border-bottom:0}
+.res:hover{background:var(--crema)}
+.res-nom{font-size:15px;font-weight:600;flex:1}
+.res-prov{font-size:11.5px;color:var(--tenue);display:block;font-weight:500;margin-top:1px}
+.pin{font-size:15px;line-height:1}
+.res-nada{padding:16px 14px;font-size:13.5px;color:var(--tenue);line-height:1.5}
+.avisozona{margin-top:9px;padding:11px 13px;border-radius:10px;font-size:13px;
+  line-height:1.45;display:none}
+.avisozona.on{display:block}
+.avisozona.si{background:rgba(30,132,73,.12);color:#146034}
+.avisozona.no{background:rgba(180,83,9,.12);color:#7c3a06}
+.btn{width:100%;margin-top:24px;padding:17px;border:0;border-radius:12px;
+  background:var(--marron);color:var(--crema);font-size:16px;font-weight:800;
+  cursor:pointer;transition:transform .1s,opacity .15s}
+.btn:active{transform:scale(.985)}
+.btn:disabled{opacity:.32;cursor:not-allowed}
+.error{margin-top:14px;padding:12px 14px;border-radius:10px;background:rgba(185,28,28,.1);
+  color:var(--rojo);font-size:13.5px;line-height:1.45;display:none}
+.error.on{display:block}
+.sello{margin-top:28px;display:none}
+.sello.on{display:block;animation:sube .35s cubic-bezier(.2,.8,.3,1)}
+@keyframes sube{from{opacity:0;transform:translateY(12px)}to{opacity:1;transform:none}}
+.troquel{background:var(--marron);color:var(--crema);border-radius:14px;
+  padding:22px 20px;position:relative;overflow:hidden}
+.troquel-eyebrow{font-size:10px;font-weight:700;letter-spacing:.16em;
+  text-transform:uppercase;color:var(--dorado)}
+.codigo{font-size:48px;font-weight:800;letter-spacing:.1em;line-height:1;margin:10px 0 14px}
+.link{font-size:12.5px;color:rgba(250,244,236,.72);word-break:break-all;
+  font-family:ui-monospace,Menlo,monospace;line-height:1.5;padding-bottom:20px;
+  border-bottom:2px dashed rgba(250,244,236,.25)}
+.acciones{display:grid;gap:9px;margin-top:16px}
+.btn-wa{padding:15px;border:0;border-radius:11px;background:var(--verde);
+  color:#fff;font-size:15px;font-weight:800;cursor:pointer}
+.btn-copy{padding:13px;border:1.5px solid rgba(250,244,236,.3);border-radius:11px;
+  background:transparent;color:var(--crema);font-size:14px;font-weight:700;cursor:pointer}
+.btn-copy.ok{border-color:var(--dorado);color:var(--dorado)}
+.btn-deriv{padding:13px;border:1.5px solid var(--dorado);border-radius:11px;
+  background:transparent;color:var(--dorado);font-size:14px;font-weight:700;cursor:pointer}
+.btn-deriv.ok{background:var(--dorado);color:var(--marron)}
+.hoy{margin-top:34px;border-top:2px solid var(--marron);padding-top:16px}
+.hoy h2{font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.09em;
+  color:var(--tenue);margin-bottom:4px}
+.hoy .leyenda{font-size:12px;color:var(--tenue);margin-bottom:12px}
+.fila{display:flex;align-items:center;gap:10px;padding:11px 0;
+  border-bottom:1px solid var(--linea);font-size:14px}
+.fila b{font-family:ui-monospace,Menlo,monospace;font-size:12.5px;
+  background:var(--dorado);color:var(--marron);padding:3px 7px;border-radius:5px;font-weight:800}
+.fila .quienes{flex:1;min-width:0}
+.fila .nom{font-weight:600;font-size:14px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.fila .loc{font-size:11.5px;color:var(--tenue)}
+.estado{font-size:10.5px;font-weight:700;padding:3px 8px;border-radius:20px;white-space:nowrap}
+.e-mandado{background:rgba(26,8,0,.08);color:var(--tenue)}
+.e-abrio{background:rgba(180,83,9,.14);color:var(--acento)}
+.e-registro{background:rgba(30,132,73,.15);color:var(--verde)}
+.e-derivado{background:var(--dorado);color:var(--marron)}
+.e-cliente{background:var(--verde);color:#fff}
+.e-descartado{background:rgba(26,8,0,.06);color:rgba(26,8,0,.4)}
+.vacio{font-size:13px;color:var(--tenue);padding:18px 0;text-align:center;line-height:1.5}
+.pantalla-error{text-align:center;padding:80px 20px}
+.pantalla-error h1{font-size:22px;margin-bottom:10px}
+.pantalla-error p{font-size:14px;color:var(--tenue);line-height:1.6}
+@media (prefers-reduced-motion:reduce){*{animation:none!important;transition:none!important}}
+</style>
+</head>
+<body>
+
+<div class="wrap" id="app" hidden>
+  <header>
+    <div class="marca">TCK<span>.</span></div>
+    <div class="quien" id="quien">…</div>
+  </header>
+
+  <h1>Nuevo lead</h1>
+  <p class="sub">Pegá el número que te escribió. Lo demás es opcional: si no lo cargás, se completa cuando el cliente se registra.</p>
+
+  <label for="tel">Teléfono de WhatsApp</label>
+  <input class="campo" id="tel" type="tel" inputmode="numeric" placeholder="2392 44 9725" autocomplete="off">
+  <p class="ayuda">Sin 0 ni 15.</p>
+
+  <div class="bloque">
+    <label for="nombre">Nombre y apellido <span class="opt">· opcional</span></label>
+    <input class="campo sm" id="nombre" type="text" placeholder="Con quién estás hablando" autocomplete="off">
+  </div>
+
+  <div class="bloque">
+    <label for="comercio">Comercio <span class="opt">· opcional</span></label>
+    <input class="campo sm" id="comercio" type="text" placeholder="Nombre del negocio" autocomplete="off">
+  </div>
+
+  <div class="bloque">
+    <label>Rubro <span class="opt">· opcional</span></label>
+    <div class="chips" id="rubros"></div>
+  </div>
+
+  <div class="bloque">
+    <label for="loc">Localidad <span class="opt">· opcional</span></label>
+    <div class="buscador">
+      <input class="campo sm" id="loc" type="text" placeholder="Escribí para buscar" autocomplete="off" role="combobox" aria-expanded="false" aria-controls="resultados">
+      <div class="resultados" id="resultados" role="listbox"></div>
+    </div>
+    <div class="avisozona" id="avisozona"></div>
+  </div>
+
+  <button class="btn" id="generar" disabled>Generar link</button>
+  <div class="error" id="error"></div>
+
+  <div class="sello" id="sello">
+    <div class="troquel">
+      <div class="troquel-eyebrow" id="selloEyebrow">Código del lead</div>
+      <div class="codigo" id="codigo">—</div>
+      <div class="link" id="linkTexto">—</div>
+      <div class="acciones">
+        <button class="btn-wa" id="abrirWa">Abrir el chat con el mensaje</button>
+        <button class="btn-copy" id="copiar">Copiar solo el link</button>
+        <button class="btn-deriv" id="derivar">Pasarle el contacto a Miguel</button>
+      </div>
+    </div>
+  </div>
+
+  <section class="hoy">
+    <h2>Leads de hoy</h2>
+    <p class="leyenda">Mandado → Abrió → Se registró → Con Miguel</p>
+    <div id="lista"><p class="vacio">Cargando…</p></div>
+  </section>
+</div>
+
+<div class="wrap pantalla-error" id="sinAcceso" hidden>
+  <h1>Link inválido</h1>
+  <p>Este enlace no corresponde a ningún operador activo.<br>Pedile el link correcto a Braian.</p>
+</div>
+
+<script>
+(function(){
+  "use strict";
+
+  // ═══════════════════════════════════════════════════════════
+  //  CONFIGURACIÓN — copiar de index.html del catálogo
+  // ═══════════════════════════════════════════════════════════
+  var SB_URL  = "";   // ej: https://xxxxx.supabase.co
+  var SB_ANON = "";   // la anon/public key
+  // ═══════════════════════════════════════════════════════════
+
+  var CATALOGO  = "https://tckcatalogo.com/";
+  var CANAL     = "wa_meta";
+  var VENDEDOR  = "Miguel";
+  var RUBROS    = ["Almac\u00E9n","Autoservicio","Carnicer\u00EDa","Rotiser\u00EDa","Supermercado","Otro"];
+
+  var MSG_BASE = "Hola! Te escribo de TCK Distribuidora \uD83D\uDC4B\n\n" +
+    "Somos mayoristas de pollo, trozados, rebozados, pastas y congelados, " +
+    "con reparto propio en el oeste bonaerense.\n\n" +
+    "Ac\u00E1 ten\u00E9s el cat\u00E1logo con precios actualizados. " +
+    "Pod\u00E9s armar el pedido desde el celular:\n";
+
+  var $ = function(id){ return document.getElementById(id); };
+  var slug = new URLSearchParams(location.search).get("o") || "";
+  var rubroSel = "", locSel = null, debounce = null, ultimoCodigo = "";
+
+  // ── helpers Supabase ──
+  function headers(){
+    return {
+      "apikey": SB_ANON,
+      "Authorization": "Bearer " + SB_ANON,
+      "Content-Type": "application/json"
+    };
+  }
+
+  async function rpc(fn, body){
+    var r = await fetch(SB_URL + "/rest/v1/rpc/" + fn, {
+      method: "POST", headers: headers(), body: JSON.stringify(body || {})
+    });
+    var data = null;
+    try { data = await r.json(); } catch(e){ data = null; }
+    if (!r.ok){
+      var msg = (data && (data.message || data.hint)) || ("error " + r.status);
+      throw new Error(msg);
+    }
+    return data;
+  }
+
+  async function sel(path){
+    var r = await fetch(SB_URL + "/rest/v1/" + path, { headers: headers() });
+    if (!r.ok) throw new Error("error " + r.status);
+    return await r.json();
+  }
+
+  function mostrarError(msg){
+    var e = $("error");
+    e.textContent = msg;
+    e.classList.add("on");
+    setTimeout(function(){ e.classList.remove("on"); }, 6000);
+  }
+
+  // ── teléfono y código ──
+  function normalizarTel(v){
+    var d = String(v || "").replace(/\D/g,"");
+    if (d.indexOf("54") === 0) d = d.slice(2);
+    if (d.indexOf("9") === 0 && d.length > 10) d = d.slice(1);
+    return d.replace(/^0+/,"");
+  }
+  function telValido(d){ return d.length >= 10 && d.length <= 11; }
+
+  // Determinístico: el mismo teléfono siempre da el mismo código.
+  // 5 caracteres sobre alfabeto de 32 = ~33M combinaciones.
+  function codigoDe(tel){
+    var abc = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
+    var h = 2166136261, base = "tck-lead-" + tel;
+    for (var i = 0; i < base.length; i++){
+      h ^= base.charCodeAt(i);
+      h = (h * 16777619) >>> 0;
+    }
+    var out = "";
+    for (var j = 0; j < 5; j++){
+      out += abc.charAt(h % abc.length);
+      h = Math.floor(h / abc.length) + (j * 7919);
+    }
+    return out;
+  }
+  function linkDe(cod){ return CATALOGO + "?v=" + CANAL + "&l=" + cod; }
+
+  // ── rubros ──
+  function pintarRubros(){
+    var cont = $("rubros"), html = "";
+    for (var i = 0; i < RUBROS.length; i++){
+      html += '<button type="button" class="chip" aria-pressed="false" data-r="'
+            + RUBROS[i] + '">' + RUBROS[i] + '</button>';
+    }
+    cont.innerHTML = html;
+    cont.addEventListener("click", function(ev){
+      var b = ev.target.closest(".chip");
+      if (!b) return;
+      var ya = b.getAttribute("aria-pressed") === "true";
+      var todos = cont.querySelectorAll(".chip");
+      for (var k = 0; k < todos.length; k++) todos[k].setAttribute("aria-pressed","false");
+      if (!ya){ b.setAttribute("aria-pressed","true"); rubroSel = b.getAttribute("data-r"); }
+      else rubroSel = "";
+    });
+  }
+
+  // ── buscador de localidades ──
+  function sinAcentos(s){
+    return String(s || "").toLowerCase()
+      .replace(/[\u00E1\u00E0\u00E4\u00E2\u00E3]/g,"a").replace(/[\u00E9\u00E8\u00EB\u00EA]/g,"e")
+      .replace(/[\u00ED\u00EC\u00EF\u00EE]/g,"i").replace(/[\u00F3\u00F2\u00F6\u00F4\u00F5]/g,"o")
+      .replace(/[\u00FA\u00F9\u00FC\u00FB]/g,"u").replace(/\u00F1/g,"n").replace(/\u00E7/g,"c");
+  }
+
+  async function buscarLocalidades(q){
+    var n = sinAcentos(q).trim();
+    if (n.length < 2) return [];
+    var esc = encodeURIComponent(n + "*");
+    var path = "localidades_ar"
+      + "?select=id,nombre,alias,provincia,departamento,tiene_reparto,zona"
+      + "&or=(nombre_norm.like." + esc + ",alias_norm.like." + esc + ")"
+      + "&order=tiene_reparto.desc,nombre.asc&limit=8";
+    return await sel(path);
+  }
+
+  function pintarResultados(res){
+    var caja = $("resultados");
+    if (!res.length){
+      caja.innerHTML = '<p class="res-nada">No encontramos esa localidad. '
+        + 'Revis\u00E1 c\u00F3mo se escribe, o dej\u00E1 el campo vac\u00EDo.</p>';
+    } else {
+      var html = "";
+      for (var i = 0; i < res.length; i++){
+        var c = res[i];
+        html += '<div class="res" role="option" data-i="' + i + '">'
+          + '<span class="pin">' + (c.tiene_reparto ? "\uD83D\uDE9A" : "\uD83D\uDCCD") + '</span>'
+          + '<span class="res-nom">' + c.nombre
+          + '<span class="res-prov">' + (c.departamento ? c.departamento + " \u00B7 " : "")
+          + c.provincia + (c.tiene_reparto ? " \u00B7 con reparto" : "") + '</span></span></div>';
+      }
+      caja.innerHTML = html;
+      caja.__res = res;
+    }
+    caja.classList.add("on");
+    $("loc").setAttribute("aria-expanded","true");
+  }
+
+  function elegirCiudad(c){
+    locSel = c;
+    $("loc").value = c.nombre;
+    $("resultados").classList.remove("on");
+    $("loc").setAttribute("aria-expanded","false");
+    var av = $("avisozona");
+    av.className = "avisozona on " + (c.tiene_reparto ? "si" : "no");
+    av.textContent = c.tiene_reparto
+      ? "\uD83D\uDE9A Repartimos ac\u00E1 (" + (c.zona || "zona asignada") + ")."
+      : "\u26A0\uFE0F Todav\u00EDa no repartimos en " + c.nombre
+        + ". Cargalo igual: queda como pedido de zona nueva.";
+  }
+
+  // ── lista del día ──
+  async function cargarLista(){
+    var cont = $("lista");
+    try {
+      var filas = await rpc("leads_del_dia", { p_slug: slug });
+      if (!filas || !filas.length){
+        cont.innerHTML = '<p class="vacio">Todav\u00EDa no cargaste ninguno hoy.<br>'
+          + 'El primero aparece ac\u00E1.</p>';
+        return;
+      }
+      var html = "";
+      for (var i = 0; i < filas.length; i++){
+        var l = filas[i];
+        var titulo = l.comercio || l.nombre || l.telefono_masked;
+        var sub = [l.rubro, l.localidad].filter(Boolean).join(" \u00B7 ") || l.telefono_masked;
+        var et = { mandado:"Mandado", abrio:"Abri\u00F3", registro:"Se registr\u00F3",
+                   derivado:"Con " + VENDEDOR, cliente:"Compr\u00F3",
+                   descartado:"Descartado" }[l.estado] || l.estado;
+        html += '<div class="fila"><b>' + l.codigo + '</b>'
+          + '<span class="quienes"><span class="nom">' + titulo + '</span>'
+          + '<span class="loc">' + sub + '</span></span>'
+          + '<span class="estado e-' + l.estado + '">' + et + '</span></div>';
+      }
+      cont.innerHTML = html;
+    } catch(e){
+      cont.innerHTML = '<p class="vacio">No se pudo cargar la lista.</p>';
+    }
+  }
+
+  // ── acciones ──
+  function bind(){
+    $("tel").addEventListener("input", function(){
+      $("generar").disabled = !telValido(normalizarTel(this.value));
+      $("sello").classList.remove("on");
+    });
+
+    $("loc").addEventListener("input", function(){
+      var v = this.value;
+      locSel = null;
+      $("avisozona").className = "avisozona";
+      clearTimeout(debounce);
+      if (sinAcentos(v).trim().length < 2){
+        $("resultados").classList.remove("on");
+        return;
+      }
+      debounce = setTimeout(async function(){
+        try { pintarResultados(await buscarLocalidades(v)); }
+        catch(e){ $("resultados").classList.remove("on"); }
+      }, 250);
+    });
+
+    $("resultados").addEventListener("click", function(ev){
+      var r = ev.target.closest(".res");
+      if (!r || !this.__res) return;
+      elegirCiudad(this.__res[parseInt(r.getAttribute("data-i"), 10)]);
+    });
+
+    document.addEventListener("click", function(ev){
+      if (!ev.target.closest(".buscador")) $("resultados").classList.remove("on");
+    });
+
+    $("generar").addEventListener("click", async function(){
+      var tel = normalizarTel($("tel").value);
+      if (!telValido(tel)) return;
+      var btn = this;
+      btn.disabled = true;
+      btn.textContent = "Guardando…";
+      try {
+        var res = await rpc("lead_alta", {
+          p_slug:      slug,
+          p_codigo:    codigoDe(tel),
+          p_telefono:  tel,
+          p_nombre:    $("nombre").value.trim() || null,
+          p_comercio:  $("comercio").value.trim() || null,
+          p_rubro:     rubroSel || null,
+          p_loc_id:    locSel ? locSel.id : null,
+          p_loc_texto: locSel ? null : ($("loc").value.trim() || null)
+        });
+        var row = Array.isArray(res) ? res[0] : res;
+        ultimoCodigo = row.codigo;
+
+        $("selloEyebrow").textContent = row.ya_existia
+          ? "Este número ya estaba cargado" : "Código del lead";
+        $("codigo").textContent = row.codigo;
+        $("linkTexto").textContent = linkDe(row.codigo);
+        $("sello").classList.add("on");
+        $("copiar").textContent = "Copiar solo el link";
+        $("copiar").classList.remove("ok");
+        $("derivar").textContent = "Pasarle el contacto a " + VENDEDOR;
+        $("derivar").classList.remove("ok");
+        $("sello").scrollIntoView({ behavior:"smooth", block:"center" });
+        cargarLista();
+      } catch(e){
+        var m = String(e.message || "");
+        if (m.indexOf("operador") >= 0) mostrarError("Tu link ya no es válido. Pedile uno nuevo a Braian.");
+        else if (m.indexOf("telefono") >= 0) mostrarError("Ese número no parece válido. Revisá la característica.");
+        else if (m.indexOf("codigo") >= 0) mostrarError("Hubo un choque de códigos. Avisale a Braian, es raro.");
+        else mostrarError("No se pudo guardar. Probá de nuevo en unos segundos.");
+      } finally {
+        btn.disabled = false;
+        btn.textContent = "Generar link";
+      }
+    });
+
+    $("abrirWa").addEventListener("click", function(){
+      var tel = normalizarTel($("tel").value);
+      if (!telValido(tel) || !ultimoCodigo) return;
+      var texto = MSG_BASE + linkDe(ultimoCodigo);
+      window.open("https://wa.me/549" + tel + "?text=" + encodeURIComponent(texto), "_blank");
+    });
+
+    $("copiar").addEventListener("click", function(){
+      var btn = this, txt = $("linkTexto").textContent;
+      var listo = function(){
+        btn.textContent = "Copiado";
+        btn.classList.add("ok");
+        setTimeout(function(){
+          btn.textContent = "Copiar solo el link";
+          btn.classList.remove("ok");
+        }, 1800);
+      };
+      if (navigator.clipboard && navigator.clipboard.writeText){
+        navigator.clipboard.writeText(txt).then(listo, function(){});
+      } else {
+        var ta = document.createElement("textarea");
+        ta.value = txt; document.body.appendChild(ta); ta.select();
+        try { document.execCommand("copy"); listo(); } catch(e){}
+        document.body.removeChild(ta);
+      }
+    });
+
+    $("derivar").addEventListener("click", async function(){
+      if (!ultimoCodigo) return;
+      var btn = this;
+      btn.disabled = true;
+      try {
+        await rpc("lead_derivar", {
+          p_slug: slug, p_codigo: ultimoCodigo, p_vendedor: VENDEDOR
+        });
+        btn.textContent = VENDEDOR + " ya lo tiene";
+        btn.classList.add("ok");
+        cargarLista();
+      } catch(e){
+        mostrarError("No se pudo derivar. Probá de nuevo.");
+      } finally {
+        btn.disabled = false;
+      }
+    });
+  }
+
+  // ── arranque ──
+  (async function init(){
+    if (!SB_URL || !SB_ANON){
+      $("sinAcceso").hidden = false;
+      $("sinAcceso").querySelector("h1").textContent = "Falta configurar";
+      $("sinAcceso").querySelector("p").innerHTML =
+        "Complet\u00E1 SB_URL y SB_ANON arriba del &lt;script&gt; de este archivo.";
+      return;
+    }
+    if (!slug){ $("sinAcceso").hidden = false; return; }
+    try {
+      var op = await rpc("lead_operador", { p_slug: slug });
+      if (!op || !op.length){ $("sinAcceso").hidden = false; return; }
+      $("quien").textContent = op[0].nombre + (op[0].rol ? " \u00B7 " + op[0].rol : "");
+      $("app").hidden = false;
+      pintarRubros();
+      bind();
+      cargarLista();
+    } catch(e){
+      $("sinAcceso").hidden = false;
+    }
+  })();
+
+})();
+</script>
+</body>
+</html>
