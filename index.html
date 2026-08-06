@@ -2,6 +2,11 @@
 <html lang="es">
 <head>
 <!-- ═══════════════════════════════════════════════════════════════════════
+     TCK VENTAS — v14.135.1 — 06/08/2026
+     v14.135.1: mi_comision ya no devuelve margen ni piso al navegador del
+        vendedor (el panel esta hecho para no exponer margen). Se cambiaron
+        por dos banderas: tiene_piso / supero_piso.
+
      TCK VENTAS — v14.135.0 — 06/08/2026
      v14.135.0: MI PLATA — SELECTOR DE MESES + CRECIMIENTO REAL
         (pedido de Braian 06/08). Tres cosas que estaban mal en el panel
@@ -19072,9 +19077,9 @@ async function mpTraerMes(mes){
     crecimiento: crec,
     cartera: cartera,
     total: (c.total != null) ? Number(c.total) : (bono + crec + cartera),
-    piso: (c.piso == null ? null : Number(c.piso)),
-    crecMargen: (c.crecimiento_margen == null ? null : Number(c.crecimiento_margen)),
-    prodMargen: Number(c.produccion_margen || 0),
+    // banderas, NO el margen ni el piso: esos numeros no salen de Supabase
+    tienePiso: !!c.tiene_piso,
+    superoPiso: !!c.supero_piso,
     pctProd: (c.pct_produccion == null ? 0.02 : Number(c.pct_produccion)),
     pctCrec: (c.pct_crecimiento == null ? 0 : Number(c.pct_crecimiento)),
     verde: verde, amar: amar, rojo: rojo,
@@ -19164,7 +19169,7 @@ async function mpVerMes(mes){
 
 function miPlataRenderOverlay(){
   var d = _miPlataData || { bono: 0, crecimiento: 0, cartera: 0, total: 0, verde: 0, amar: 0, rojo: 0,
-                            clientes: [], piso: null, crecMargen: null, prodMargen: 0,
+                            clientes: [], tienePiso: false, superoPiso: false,
                             pctProd: 0.02, pctCrec: 0 };
   var total = Number(d.total || 0);
   var esActual = mpEsMesActual(_mpMesSel);
@@ -19226,10 +19231,10 @@ function miPlataRenderOverlay(){
 
     // Crecimiento: distingue "todavia no hay piso" de "no lo superaste"
     var crecSub, crecMonto, crecSoon = false;
-    if (d.piso == null) {
+    if (!d.tienePiso) {
       crecSub = 'Cuando este tu piso del mes, se activa';
       crecMonto = '--'; crecSoon = true;
-    } else if (!d.crecMargen) {
+    } else if (!d.superoPiso) {
       crecSub = 'Todavia no superaste tu piso del mes';
       crecMonto = mpMoney(0); crecSoon = true;
     } else {
