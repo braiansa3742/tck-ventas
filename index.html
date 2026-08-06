@@ -28,6 +28,20 @@
         Requiere tck-comisiones-v2-mes-bono.sql corrido en Supabase
         (el bono de cliente nuevo pasa a imputarse al mes de aprobación).
 
+     TCK VENTAS — v14.135.0 — 06/08/2026
+     v14.135.0: BOTON "COMERCIO NUEVO — CARGO LOS DATOS DESPUES" (pedido de
+        Miguel, 05/08). Hay dos motivos por los que un pedido queda sin
+        cliente de Xubio y el sistema los trataba igual: (1) el cliente esta
+        en Xubio con otro nombre — lo resuelve el matching tolerante del
+        backend v25.107.0; (2) es un comercio NUEVO: el vendedor carga el
+        nombre de fachada ("La botella"), despues le pide los datos, lo da
+        de alta en Xubio y recien ahi factura. El caso 2 es un flujo normal,
+        no un error, pero aparecia mezclado con los que si tienen problema.
+        Ahora el vendedor lo marca desde el pedido y pasa a un bloque celeste
+        aparte ("esperando datos"); el cron de reintento deja de tocarlo.
+        La marca vive en la col 18 del Sheet, la misma que se pisa al crear
+        el presupuesto: se limpia sola.
+
      TCK VENTAS — v14.134.0 — 05/08/2026
      v14.134.0: AVISO DE PEDIDOS SIN PRESUPUESTO (reclamo de Julián 05/08:
         "el vendedor después no lo hace").
@@ -22935,6 +22949,9 @@ async function cargarPedidos(silencioso, _reintentos) {
         xubioNroPresupuesto: limpiar(cols[15]) || '',
         xubioTransaccionid:  limpiar(cols[16]) || '',
         xubioEstado:         limpiar(cols[17]) || '',
+        // v14.135.0: comercio nuevo esperando alta en Xubio. Va en la misma col 18
+        // que el estado Xubio, así se limpia sola cuando el presupuesto se crea.
+        esperaAltaCliente:   limpiar(cols[17]) === 'espera_alta_cliente',
         // v14.15.0: motivo de cancelación (col S = índice 18)
         motivoCancelacion:   limpiar(cols[18]) || '',
         fila:           i + 1
@@ -23441,7 +23458,8 @@ function renderPedidos(forzar) {
   // v14.5.0 FIX 4 — Capturar cards expandidas para restaurarlas después
   var cardsAbiertas = _capturarCardsAbiertas();
 
-  cont.innerHTML = _bannerSinPresupuesto() + lista.map(function(p){ return renderCard(p); }).join('');
+  cont.innerHTML = _bannerSinPresupuesto() + _bannerEsperaAlta()
+    + lista.map(function(p){ return renderCard(p); }).join('');
 
   // Restaurar scroll y cards. Doble rAF para asegurar que el layout terminó.
   requestAnimationFrame(function() {
@@ -25416,6 +25434,7 @@ function _pedidosSinPresupuesto() {
   var corte = new Date(); corte.setDate(corte.getDate() - 15); corte.setHours(0,0,0,0);
   return todosLosPedidos.filter(function (p) {
     if (p.xubioNroPresupuesto) return false;                       // ya tiene presupuesto
+    if (p.esperaAltaCliente) return false;                         // v14.135.0: comercio nuevo, va aparte
     if (p.estado !== 'Pendiente' && p.estado !== 'Confirmado') return false;
     var f = fechaPedido(p);
     if (!f || f.getTime() < corte.getTime()) return false;
@@ -25424,6 +25443,63 @@ function _pedidosSinPresupuesto() {
     }
     return true;
   });
+}
+
+// v14.135.0 — marca el pedido como "comercio nuevo, datos después". El pedido
+// deja de contar como error y pasa al bloque celeste del banner.
+function marcarComercioNuevo(pedidoId) {
+  if (!confirm('¿Es un comercio nuevo que todavía no está en Xubio?\n\nEl pedido queda marcado como "esperando datos del cliente" y no va a figurar más como error. Cuando lo des de alta, buscalo y creá el presupuesto.')) return;
+  fetch(APPS_SCRIPT_URL + '?accion=pedidoEsperaAltaCliente&pedidoId=' + encodeURIComponent(pedidoId)
+        + '&vendedor=' + encodeURIComponent(vendedorActual || ''))
+    .then(function (r) { return r.json(); })
+    .then(function (j) {
+      if (j && j.status === 'ok') {
+        toast('🆕 Marcado como comercio nuevo', 'ok');
+        cargarPedidos(true);
+      } else {
+        toast('No se pudo marcar: ' + ((j && j.message) || 'error'), 'err');
+      }
+    })
+    .catch(function (e) { toast('Sin conexión, probá de nuevo', 'err'); });
+}
+
+// v14.135.0 — bloque aparte para los comercios nuevos esperando datos.
+// NO es un error: es un flujo normal del vendedor (carga el nombre de fachada,
+// después pide los datos y da de alta al cliente en Xubio).
+function _bannerEsperaAlta() {
+  if (!Array.isArray(todosLosPedidos)) return '';
+  var corte = new Date(); corte.setDate(corte.getDate() - 30); corte.setHours(0,0,0,0);
+  var esperando = todosLosPedidos.filter(function (p) {
+    if (!p.esperaAltaCliente || p.xubioNroPresupuesto) return false;
+    if (p.estado !== 'Pendiente' && p.estado !== 'Confirmado') return false;
+    var f = fechaPedido(p);
+    if (!f || f.getTime() < corte.getTime()) return false;
+    if (vendedorActual && vendedorActual !== 'ADMIN') {
+      if (!p.vendedor || !p.vendedor.toLowerCase().includes(vendedorActual.toLowerCase())) return false;
+    }
+    return true;
+  });
+  if (!esperando.length) return '';
+  var nombres = esperando.slice(0, 4).map(function (p) {
+    return _escapeHtml(String(p.cliente || '').substring(0, 26));
+  }).join(' · ');
+  var resto = esperando.length > 4 ? ' y ' + (esperando.length - 4) + ' más' : '';
+  return ''
+    + '<div style="background:#E3F2FD;border:2px solid #64B5F6;border-radius:14px;'
+    +   'padding:11px 14px;margin:0 0 10px;">'
+    +   '<div style="display:flex;align-items:center;gap:8px;">'
+    +     '<span style="font-size:20px;">🆕</span>'
+    +     '<div style="font-family:Barlow Condensed,sans-serif;font-size:15px;font-weight:900;color:#0D47A1;">'
+    +       esperando.length + (esperando.length === 1 ? ' COMERCIO NUEVO' : ' COMERCIOS NUEVOS') + ' — ESPERANDO DATOS'
+    +     '</div>'
+    +   '</div>'
+    +   '<div style="font-size:12.5px;color:#0D47A1;line-height:1.5;margin-top:5px;font-weight:600;">'
+    +     nombres + resto
+    +   '</div>'
+    +   '<div style="font-size:11.5px;color:#1565C0;line-height:1.45;margin-top:6px;">'
+    +     'Cuando tengas los datos, dalos de alta en Xubio y creá el presupuesto desde el pedido.'
+    +   '</div>'
+    + '</div>';
 }
 
 function _bannerSinPresupuesto() {
@@ -26796,6 +26872,25 @@ function buildXubioPanel(p, id) {
         : '<button class="btn-remitir" id="xubio-btn-' + id + '" ' + btnDisabled
           + ' onclick="xubioCrearPresupuesto(\'' + p.pedidoId + '\',' + p.fila + ',\'' + id + '\')">'
           + '📄 Crear presupuesto'
+          + '</button>')
+
+    // v14.135.0 — COMERCIO NUEVO, DATOS DESPUÉS (pedido de Miguel, 05/08).
+    // Cuando el vendedor carga un comercio nuevo a mano ("La botella" = nombre
+    // de fachada), el cliente todavía no existe en Xubio: le pide los datos,
+    // lo da de alta y recién ahí factura. Ese flujo está BIEN, pero el sistema
+    // lo mezclaba con los pedidos que sí tienen un problema real. Con este
+    // botón el pedido queda marcado aparte y deja de figurar como error.
+    + (p.esperaAltaCliente
+        ? '<div style="background:#E3F2FD;border-left:3px solid #1976D2;padding:9px 12px;'
+          + 'border-radius:0 8px 8px 0;font-size:12px;color:#0D47A1;line-height:1.45;margin-top:10px;">'
+          + '🆕 <b>Marcado como comercio nuevo.</b> Cuando tengas los datos, dalo de alta en Xubio, '
+          + 'buscalo acá arriba y creá el presupuesto.'
+          + '</div>'
+        : '<button type="button" style="width:100%;margin-top:8px;padding:11px;background:#fff;'
+          + 'color:#1565C0;border:1.5px dashed #90CAF9;border-radius:10px;'
+          + 'font-family:Barlow Condensed,sans-serif;font-size:13px;font-weight:900;cursor:pointer;"'
+          + ' onclick="marcarComercioNuevo(\'' + p.pedidoId + '\')">'
+          + '🆕 Comercio nuevo — cargo los datos después'
           + '</button>')
     + '</div>';
 }
@@ -50641,7 +50736,7 @@ function depPollIniciar() {
    TCK_UPD_LOCAL aca Y el archivo version.json del repo.
    ============================================================ */
 (function(){
-  var TCK_UPD_LOCAL = '14.134.0';        /* <-- bump en cada deploy */
+  var TCK_UPD_LOCAL = '14.135.0';        /* <-- bump en cada deploy */
   var TCK_UPD_INTERVALO = 10 * 60 * 1000;   /* chequeo de fondo: 10 min */
   var _updUltChequeo = 0;
 
