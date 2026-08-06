@@ -2,6 +2,27 @@
 <html lang="es">
 <head>
 <!-- ═══════════════════════════════════════════════════════════════════════
+     TCK VENTAS — v14.135.0 — 06/08/2026
+     v14.135.0: MI PLATA — SELECTOR DE MESES + CRECIMIENTO REAL
+        (pedido de Braian 06/08). Tres cosas que estaban mal en el panel
+        que ve el vendedor:
+        (A) SELECTOR DE MESES. Chips arriba (may · jun · jul · ago) con el
+            total de cada mes. Podés mirar cómo salieron los meses
+            anteriores y el crecimiento que vas teniendo. Abre siempre en
+            el mes en curso; la tarjeta de Mi Ronda sigue mostrando el mes
+            en curso aunque estés mirando otro.
+        (B) CRECIMIENTO. La fila decía fijo "arranca en julio" — julio ya
+            arrancó. Ahora muestra el número real y distingue "todavía no
+            hay piso cargado" de "no superaste tu piso". Además el TOTAL
+            ahora sale de mi_comision.total: antes el front sumaba a mano
+            producción + cartera y se comía el bono de crecimiento.
+        (C) CLIENTES NUEVOS. Tres estados: suma (aprobado, cobra este mes),
+            en revisión (recompró, falta que Braian lo apruebe) y
+            esperando (abierto, sin recompra). Antes los "en revisión" no
+            se veían y parecía desactualizado.
+        Requiere tck-comisiones-v2-mes-bono.sql corrido en Supabase
+        (el bono de cliente nuevo pasa a imputarse al mes de aprobación).
+
      TCK VENTAS — v14.134.0 — 05/08/2026
      v14.134.0: AVISO DE PEDIDOS SIN PRESUPUESTO (reclamo de Julián 05/08:
         "el vendedor después no lo hace").
@@ -17842,6 +17863,23 @@ body {
   #miplata-sheet .mp-y{background:var(--mp-amar)}
   #miplata-sheet .mp-r{background:var(--mp-rojo)}
   #miplata-sheet .mp-sem-note{font-size:11px;margin-top:9px;color:var(--mp-marron2);text-align:center}
+  /* v14.135.0 — selector de mes */
+  #miplata-sheet .mp-meses{display:flex;gap:7px;overflow-x:auto;padding:11px 12px 2px;
+    -webkit-overflow-scrolling:touch;scrollbar-width:none}
+  #miplata-sheet .mp-meses::-webkit-scrollbar{display:none}
+  #miplata-sheet .mp-mchip{flex-shrink:0;border:1.5px solid var(--mp-linea);background:#fff;
+    border-radius:11px;padding:7px 12px;cursor:pointer;text-align:center;font-family:'Inter',sans-serif;
+    line-height:1.15;color:var(--mp-marron2)}
+  #miplata-sheet .mp-mchip .mn{font-size:11.5px;font-weight:700;text-transform:capitalize;display:block}
+  #miplata-sheet .mp-mchip .mv{font-family:'Barlow Condensed','Bebas Neue',sans-serif;font-size:15px;
+    font-weight:800;display:block;margin-top:1px;color:var(--mp-marron)}
+  #miplata-sheet .mp-mchip.on{background:var(--mp-marron);border-color:var(--mp-marron);color:#fff}
+  #miplata-sheet .mp-mchip.on .mv{color:var(--mp-dorado)}
+  #miplata-sheet .mp-cli-row.rev{background:#FFF8E6;border-color:#EFD79A}
+  #miplata-sheet .mp-cli-esp{color:#B9A88E;font-weight:800;flex-shrink:0}
+  #miplata-sheet .mp-cli-rev{color:#C98A00;font-weight:800;flex-shrink:0}
+  #miplata-sheet .mp-cli-tag{font-size:9.5px;font-weight:700;border-radius:6px;padding:2px 6px;
+    margin-left:auto;flex-shrink:0;background:#FDF3D6;color:#8A5A00}
   /* tarjeta resumen en Mi Ronda */
   .mp-tarjeta{display:flex;align-items:center;gap:12px;cursor:pointer;
     background:linear-gradient(135deg,#3D2410,#5A341A);color:#FBF3E7;
@@ -17873,11 +17911,12 @@ body {
     <div class="mp-head">
       <button class="mp-x" onclick="cerrarMiPlata()">&#10005;</button>
       <div class="mp-hi" id="mp-hi">Hola &#128075;</div>
-      <div class="mp-mes">Tu produccion de este mes</div>
-      <div class="mp-gano-lbl">Vas ganando este mes</div>
+      <div class="mp-mes" id="mp-mes-lbl">Tu produccion de este mes</div>
+      <div class="mp-gano-lbl" id="mp-gano-lbl">Vas ganando este mes</div>
       <div class="mp-gano" id="mp-gano"><small>$</small>0</div>
-      <div class="mp-gano-sub">Se liquida a principio del mes que viene. Sin techo.</div>
+      <div class="mp-gano-sub" id="mp-gano-sub">Se liquida a principio del mes que viene. Sin techo.</div>
     </div>
+    <div class="mp-meses" id="mp-meses"></div>
     <div class="mp-body">
       <div class="mp-card mp-hero">
         <div class="mp-card-top"><div class="mp-chip" style="background:rgba(224,161,0,.22)">&#127942;</div><div class="mp-card-t">Tu camino al millon</div></div>
@@ -17901,7 +17940,7 @@ body {
         </div>
       </div>
       <div class="mp-card">
-        <div class="mp-card-top"><div class="mp-chip" style="background:#FBE9E7">&#128678;</div><div class="mp-card-t">Tus precios de este mes</div></div>
+        <div class="mp-card-top"><div class="mp-chip" style="background:#FBE9E7">&#128678;</div><div class="mp-card-t" id="mp-sem-t">Tus precios de este mes</div></div>
         <div class="mp-sem-row" id="mp-sem"></div>
         <div class="mp-sem-note">Cuidar el precio es plata tuya: cada venta regalada te baja la produccion.</div>
       </div>
@@ -18956,18 +18995,44 @@ async function sbFetchAll(pathBase, pageSize, maxPaginas) {
 // NUNCA muestra margen ni costos: mi_comision devuelve el bono ya
 // calculado en pesos. El claim 'vendedor' del JWT filtra en Supabase,
 // asi cada uno ve unicamente lo suyo. Sin token -> no devuelve nada.
+//
+// v14.135.0 (06/08/2026, pedido de Braian):
+//   \u00B7 Selector de mes: puede mirar mayo, junio, julio, agosto...
+//   \u00B7 La fila CRECIMIENTO muestra el numero real (antes decia fijo
+//     "arranca en julio" y julio ya arranco).
+//   \u00B7 El total sale de mi_comision.total (incluye crecimiento). Antes el
+//     front sumaba produccion + cartera a mano y se comia el crecimiento.
+//   \u00B7 Clientes nuevos: tres estados (suma / en revision / esperando).
+//   Requiere tck-comisiones-v2-mes-bono.sql corrido en Supabase.
 var MP_META1 = 1000000, MP_META2 = 2000000;  // metas de comision ($1M / $2M)
-var _miPlataData = null;
+var _miPlataData = null;      // datos del mes que se esta mirando
+var _mpMesSel   = null;       // 'YYYY-MM' elegido en el selector
+var _mpHist     = null;       // [{mes,total,...}] para los chips
+var _mpCache    = {};         // mes -> datos ya cargados
 
-function mpMesActual(){
-  var d = new Date();
-  var y = d.getFullYear(), mi = d.getMonth();
+var MP_MESES = ['enero','febrero','marzo','abril','mayo','junio',
+                'julio','agosto','septiembre','octubre','noviembre','diciembre'];
+var MP_MESES_C = ['ene','feb','mar','abr','may','jun','jul','ago','sep','oct','nov','dic'];
+
+function mpMesActual(){ return mpPeriodo(null); }
+
+// Periodo de un 'YYYY-MM' (o del mes en curso si viene null)
+function mpPeriodo(mes){
+  var y, mi;
+  if (mes) { var p = String(mes).split('-'); y = parseInt(p[0],10); mi = parseInt(p[1],10) - 1; }
+  else { var d = new Date(); y = d.getFullYear(); mi = d.getMonth(); }
   var mm = ('0' + (mi + 1)).slice(-2);
   var ultimo = new Date(y, mi + 1, 0).getDate();
   return { mes: y + '-' + mm,
            desde: y + '-' + mm + '-01',
-           hasta: y + '-' + mm + '-' + ('0' + ultimo).slice(-2) };
+           hasta: y + '-' + mm + '-' + ('0' + ultimo).slice(-2),
+           nombre: MP_MESES[mi] || mm,
+           corto: MP_MESES_C[mi] || mm,
+           anio: y };
 }
+function mpMesId(){ return mpPeriodo(null).mes; }
+function mpEsMesActual(mes){ return !mes || mes === mpMesId(); }
+
 function mpPesos(n){ return '$' + Math.round(n || 0).toLocaleString('es-AR'); }
 function mpMoney(n){
   n = n || 0;
@@ -18975,33 +19040,73 @@ function mpMoney(n){
   return '$' + Math.round(n).toLocaleString('es-AR');
 }
 
-async function miPlataCargar(){
+// Trae comision + semaforo + clientes de un mes. Devuelve el objeto o null.
+async function mpTraerMes(mes){
+  var per = mpPeriodo(mes);
+  var com = await sbFetch('rpc/mi_comision', {
+    method: 'POST', body: JSON.stringify({ p_mes: per.mes })
+  });
+  var sem = await sbFetch('rpc/mi_semaforo', {
+    method: 'POST', body: JSON.stringify({ p_desde: per.desde, p_hasta: per.hasta })
+  });
+  var cli = await sbFetch('rpc/mi_clientes_nuevos', {
+    method: 'POST', body: JSON.stringify({ p_mes: per.mes })
+  });
+  var c = (com && com[0]) ? com[0] : {};
+  var verde = 0, amar = 0, rojo = 0;
+  (sem || []).forEach(function(r){
+    if (r.semaforo === 'verde') verde++;
+    else if (r.semaforo === 'amarillo') amar++;
+    else if (r.semaforo === 'rojo') rojo++;
+  });
+  var clientes = cli || [];
+  // bono_cartera lo manda el backend; si la RPC vieja no lo trae, se cuenta a mano
+  var cartera = (c.bono_cartera != null)
+    ? Number(c.bono_cartera)
+    : clientes.filter(function(x){ return x.recompro; }).length * 8000;
+  var bono = Number(c.bono_produccion || 0);
+  var crec = Number(c.bono_crecimiento || 0);
+  return {
+    mes: per.mes,
+    bono: bono,
+    crecimiento: crec,
+    cartera: cartera,
+    total: (c.total != null) ? Number(c.total) : (bono + crec + cartera),
+    piso: (c.piso == null ? null : Number(c.piso)),
+    crecMargen: (c.crecimiento_margen == null ? null : Number(c.crecimiento_margen)),
+    prodMargen: Number(c.produccion_margen || 0),
+    pctProd: (c.pct_produccion == null ? 0.02 : Number(c.pct_produccion)),
+    pctCrec: (c.pct_crecimiento == null ? 0 : Number(c.pct_crecimiento)),
+    verde: verde, amar: amar, rojo: rojo,
+    clientes: clientes
+  };
+}
+
+async function miPlataCargar(mes, forzar){
   if (typeof vendedorActual === 'undefined' || vendedorActual === 'ADMIN') return;
-  var per = mpMesActual();
-  try {
-    var com = await sbFetch('rpc/mi_comision', {
-      method: 'POST', body: JSON.stringify({ p_mes: per.mes })
-    });
-    var sem = await sbFetch('rpc/mi_semaforo', {
-      method: 'POST', body: JSON.stringify({ p_desde: per.desde, p_hasta: per.hasta })
-    });
-    var cli = await sbFetch('rpc/mi_clientes_nuevos', {
-      method: 'POST', body: JSON.stringify({ p_mes: per.mes })
-    });
-    var bono = (com && com[0] && com[0].bono_produccion != null) ? Number(com[0].bono_produccion) : 0;
-    var verde = 0, amar = 0, rojo = 0;
-    (sem || []).forEach(function(r){
-      if (r.semaforo === 'verde') verde++;
-      else if (r.semaforo === 'amarillo') amar++;
-      else if (r.semaforo === 'rojo') rojo++;
-    });
-    var clientes = cli || [];
-    var cartera = clientes.filter(function(c){ return c.recompro; }).length * 8000;
-    _miPlataData = { bono: bono, verde: verde, amar: amar, rojo: rojo, clientes: clientes, cartera: cartera };
-  } catch (e) {
-    console.warn('[miPlata] no se pudo cargar:', e && e.message);
-    _miPlataData = null;
+  var objetivo = mes || _mpMesSel || mpMesId();
+  _mpMesSel = objetivo;
+
+  if (_mpCache[objetivo] && !forzar) {
+    _miPlataData = _mpCache[objetivo];
+  } else {
+    try {
+      _miPlataData = await mpTraerMes(objetivo);
+      _mpCache[objetivo] = _miPlataData;
+    } catch (e) {
+      console.warn('[miPlata] no se pudo cargar:', e && e.message);
+      _miPlataData = null;
+    }
   }
+
+  // Historial (una sola vez): alimenta los chips de meses
+  if (_mpHist === null) {
+    try {
+      var h = await sbFetch('rpc/mi_comision_historial', { method: 'POST', body: '{}' });
+      _mpHist = Array.isArray(h) ? h : [];
+    } catch (e) { _mpHist = []; }
+  }
+
   miPlataRenderTarjeta();
   if (document.getElementById('miplata-backdrop') &&
       document.getElementById('miplata-backdrop').style.display === 'flex') {
@@ -19009,22 +19114,78 @@ async function miPlataCargar(){
   }
 }
 
+// La tarjeta de Mi Ronda muestra SIEMPRE el mes en curso
 function miPlataRenderTarjeta(){
   var tj = document.getElementById('mp-tarjeta');
   if (!tj) return;
-  if (!_miPlataData) { tj.style.display = 'none'; return; }
+  var d = _mpCache[mpMesId()];
+  if (!d) { tj.style.display = 'none'; return; }
   tj.style.display = 'flex';
   var m = document.getElementById('mp-tj-monto');
-  if (m) m.textContent = mpPesos((_miPlataData.bono || 0) + (_miPlataData.cartera || 0));
+  if (m) m.textContent = mpPesos(d.total || 0);
   var s = document.getElementById('mp-tj-sub');
-  if (s) s.textContent = 'Produccion + clientes nuevos - toca para ver';
+  if (s) s.textContent = 'Produccion + crecimiento + clientes - toca para ver';
+}
+
+// Chips de meses: los que tienen datos + siempre el mes en curso
+function mpRenderMeses(){
+  var cont = document.getElementById('mp-meses');
+  if (!cont) return;
+  var hoy = mpMesId();
+  var meses = [];
+  (_mpHist || []).forEach(function(h){ if (h && h.mes && meses.indexOf(h.mes) === -1) meses.push(h.mes); });
+  if (meses.indexOf(hoy) === -1) meses.push(hoy);
+  if (_mpMesSel && meses.indexOf(_mpMesSel) === -1) meses.push(_mpMesSel);
+  meses.sort().reverse();
+  meses = meses.slice(0, 8);
+  var totales = {};
+  (_mpHist || []).forEach(function(h){ if (h && h.mes) totales[h.mes] = Number(h.total || 0); });
+  if (_mpCache[hoy]) totales[hoy] = Number(_mpCache[hoy].total || 0);
+
+  cont.innerHTML = meses.map(function(m){
+    var per = mpPeriodo(m);
+    var val = (totales[m] != null) ? mpMoney(totales[m]) : '--';
+    return '<div class="mp-mchip' + (m === _mpMesSel ? ' on' : '') + '" onclick="mpVerMes(\'' + m + '\')">' +
+             '<span class="mn">' + per.corto + '</span>' +
+             '<span class="mv">' + val + '</span>' +
+           '</div>';
+  }).join('');
+}
+
+async function mpVerMes(mes){
+  if (mes === _mpMesSel) return;
+  _mpMesSel = mes;
+  mpRenderMeses();
+  var gano = document.getElementById('mp-gano');
+  if (gano) gano.innerHTML = '<small>$</small>...';
+  await miPlataCargar(mes);
+  miPlataRenderOverlay();
 }
 
 function miPlataRenderOverlay(){
-  var d = _miPlataData || { bono: 0, verde: 0, amar: 0, rojo: 0, clientes: [], cartera: 0 };
-  var total = (d.bono || 0) + (d.cartera || 0);
+  var d = _miPlataData || { bono: 0, crecimiento: 0, cartera: 0, total: 0, verde: 0, amar: 0, rojo: 0,
+                            clientes: [], piso: null, crecMargen: null, prodMargen: 0,
+                            pctProd: 0.02, pctCrec: 0 };
+  var total = Number(d.total || 0);
+  var esActual = mpEsMesActual(_mpMesSel);
+  var per = mpPeriodo(_mpMesSel);
+
+  mpRenderMeses();
+
   var hi = document.getElementById('mp-hi');
   if (hi) hi.textContent = 'Hola, ' + (vendedorActual || '') + ' \uD83D\uDC4B';
+  var lblMes = document.getElementById('mp-mes-lbl');
+  if (lblMes) lblMes.textContent = esActual ? 'Tu produccion de este mes'
+                                            : 'Tu produccion de ' + per.nombre + ' ' + per.anio;
+  var lblGano = document.getElementById('mp-gano-lbl');
+  if (lblGano) lblGano.textContent = esActual ? 'Vas ganando este mes' : 'Ganaste en ' + per.nombre;
+  var subGano = document.getElementById('mp-gano-sub');
+  if (subGano) subGano.textContent = esActual
+    ? 'Se liquida a principio del mes que viene. Sin techo.'
+    : 'Cerrado. Se liquido a principio del mes siguiente.';
+  var semT = document.getElementById('mp-sem-t');
+  if (semT) semT.textContent = esActual ? 'Tus precios de este mes' : 'Tus precios de ' + per.nombre;
+
   var gano = document.getElementById('mp-gano');
   if (gano) gano.innerHTML = '<small>$</small>' + Math.round(total).toLocaleString('es-AR');
   var pct = function(v){ return Math.max(0, Math.min(100, v / MP_META2 * 100)); };
@@ -19045,7 +19206,9 @@ function miPlataRenderOverlay(){
   var msgEl = document.getElementById('mp-suenomsg');
   if (msgEl) {
     var msg;
-    if (total < MP_META1) {
+    if (!esActual) {
+      msg = 'En <b>' + per.nombre + '</b> hiciste <b>' + mpMoney(total) + '</b> de comision.';
+    } else if (total < MP_META1) {
       msg = 'Llevas <b>' + mpMoney(total) + '</b> este mes. Te faltan <b>' +
             mpMoney(MP_META1 - total) + '</b> para tu <b>primer millon</b> de comision. Vas bien.';
     } else if (total < MP_META2) {
@@ -19057,10 +19220,33 @@ function miPlataRenderOverlay(){
   }
   var desg = document.getElementById('mp-desg');
   if (desg) {
+    // Produccion: el % sale del backend (comisiones_reglas), no hardcodeado
+    var pctProdTxt = (Math.round((d.pctProd || 0.02) * 1000) / 10) + '% de todo lo que vendes';
+    var pctCrecTxt = Math.round((d.pctCrec || 0) * 100);
+
+    // Crecimiento: distingue "todavia no hay piso" de "no lo superaste"
+    var crecSub, crecMonto, crecSoon = false;
+    if (d.piso == null) {
+      crecSub = 'Cuando este tu piso del mes, se activa';
+      crecMonto = '--'; crecSoon = true;
+    } else if (!d.crecMargen) {
+      crecSub = 'Todavia no superaste tu piso del mes';
+      crecMonto = mpMoney(0); crecSoon = true;
+    } else {
+      crecSub = pctCrecTxt + '% de lo que creciste sobre tu piso';
+      crecMonto = mpMoney(d.crecimiento);
+    }
+
+    // Clientes nuevos: cuantos suman este mes
+    var nSuman = Math.round((d.cartera || 0) / 8000);
+    var cliSub = nSuman
+      ? '$8.000 x ' + nSuman + ' cliente' + (nSuman === 1 ? '' : 's') + ' que recompro' + (nSuman === 1 ? '' : 'aron')
+      : '$8.000 por cada uno que recompra';
+
     desg.innerHTML =
-      '<div class="mp-drow"><div class="mp-ic" style="background:#FFEAD7">\uD83D\uDCC8</div><div class="mp-tx">Produccion<br><small>2% de todo lo que vendes</small></div><div class="mp-mo" style="color:var(--mp-naranja)">' + mpMoney(d.bono) + '</div></div>' +
-      '<div class="mp-drow"><div class="mp-ic" style="background:#FCEFC7">\uD83D\uDE80</div><div class="mp-tx">Crecimiento<br><small>10% de lo que crezcas sobre tu piso</small></div><div class="mp-mo mp-soon">arranca en julio</div></div>' +
-      '<div class="mp-drow"><div class="mp-ic" style="background:#EDE6F5">\uD83D\uDC65</div><div class="mp-tx">Clientes nuevos<br><small>$8.000 por cada uno que recompra</small></div><div class="mp-mo" style="color:var(--mp-marron)">' + mpMoney(d.cartera) + '</div></div>';
+      '<div class="mp-drow"><div class="mp-ic" style="background:#FFEAD7">\uD83D\uDCC8</div><div class="mp-tx">Produccion<br><small>' + pctProdTxt + '</small></div><div class="mp-mo" style="color:var(--mp-naranja)">' + mpMoney(d.bono) + '</div></div>' +
+      '<div class="mp-drow"><div class="mp-ic" style="background:#FCEFC7">\uD83D\uDE80</div><div class="mp-tx">Crecimiento<br><small>' + crecSub + '</small></div><div class="mp-mo' + (crecSoon ? ' mp-soon' : '') + '"' + (crecSoon ? '' : ' style="color:var(--mp-verde)"') + '>' + crecMonto + '</div></div>' +
+      '<div class="mp-drow"><div class="mp-ic" style="background:#EDE6F5">\uD83D\uDC65</div><div class="mp-tx">Clientes nuevos<br><small>' + cliSub + '</small></div><div class="mp-mo" style="color:var(--mp-marron)">' + mpMoney(d.cartera) + '</div></div>';
   }
   var sem = document.getElementById('mp-sem');
   if (sem) {
@@ -19074,21 +19260,50 @@ function miPlataRenderOverlay(){
 
 function mpEsc(s){ return String(s == null ? '' : s).replace(/[<>&]/g, function(ch){ return ({'<':'&lt;','>':'&gt;','&':'&amp;'})[ch]; }); }
 
+// v14.135.0 \u2014 tres estados: suma (aprobado, cobra este mes) \u00b7 revision
+// (recompro, falta que Braian lo apruebe) \u00b7 esperando (abierto, sin recompra)
 function mpRenderClientes(clientes){
   var res = document.getElementById('mp-cli-resumen');
   var lst = document.getElementById('mp-cli-lista');
   if (!res || !lst) return;
-  var conRec = clientes.filter(function(c){ return c.recompro; });
-  var enCamino = clientes.length - conRec.length;
-  res.innerHTML = '<b>' + conRec.length + '</b> clientes nuevos confirmados' +
-    (conRec.length ? ' &middot; <span style="color:var(--mp-verde)">' + mpPesos(conRec.length * 8000) + '</span>' : '');
+  var esActual = mpEsMesActual(_mpMesSel);
+  var per = mpPeriodo(_mpMesSel);
+
+  var suman = [], revision = [], esperando = [];
+  (clientes || []).forEach(function(c){
+    var est = c.estado || (c.recompro ? 'suma' : (c.en_revision ? 'revision' : 'esperando'));
+    if (est === 'suma') suman.push(c);
+    else if (est === 'revision') revision.push(c);
+    else esperando.push(c);
+  });
+
+  res.innerHTML = '<b>' + suman.length + '</b> cliente' + (suman.length === 1 ? '' : 's') +
+    ' nuevo' + (suman.length === 1 ? '' : 's') + (esActual ? ' este mes' : ' en ' + per.nombre) +
+    (suman.length ? ' &middot; <span style="color:var(--mp-verde)">' + mpPesos(suman.length * 8000) + '</span>' : '');
+
   var html = '';
-  conRec.forEach(function(c){
+  suman.forEach(function(c){
     html += '<div class="mp-cli-row"><span class="mp-cli-ok">\u2713</span><div class="mp-cli-nom">' +
       mpEsc(c.cliente) + '<small>' + mpEsc(c.localidad || '') + '</small></div></div>';
   });
-  if (!conRec.length) html = '<div class="mp-cli-vacio">Todavia no tenes clientes nuevos confirmados este mes.</div>';
-  if (enCamino > 0) html += '<div class="mp-cli-camino">+ ' + enCamino + ' que abriste, esperando que recompren para sumar</div>';
+  revision.forEach(function(c){
+    html += '<div class="mp-cli-row rev"><span class="mp-cli-rev">\u25cb</span><div class="mp-cli-nom">' +
+      mpEsc(c.cliente) + '<small>' + mpEsc(c.localidad || '') + '</small></div>' +
+      '<span class="mp-cli-tag">en revision</span></div>';
+  });
+  if (!suman.length && !revision.length) {
+    html = '<div class="mp-cli-vacio">' +
+      (esActual ? 'Todavia no tenes clientes nuevos confirmados este mes.'
+                : 'No tuviste clientes nuevos confirmados en ' + per.nombre + '.') + '</div>';
+  }
+  if (revision.length) {
+    html += '<div class="mp-cli-camino">Los "en revision" ya recompraron: cuando Braian los aprueba, ' +
+            'los $8.000 caen en el mes en que los aprueba.</div>';
+  }
+  if (esperando.length > 0) {
+    html += '<div class="mp-cli-camino">+ ' + esperando.length +
+            ' que abriste, esperando que recompren para sumar</div>';
+  }
   lst.innerHTML = html;
 }
 
@@ -19118,9 +19333,16 @@ async function mpEnviarReclamo(){
 function abrirMiPlata(){
   var bd = document.getElementById('miplata-backdrop');
   if (!bd) return;
+  // Siempre abre en el mes en curso
+  var hoy = mpMesId();
+  if (_mpMesSel !== hoy) {
+    _mpMesSel = hoy;
+    _miPlataData = _mpCache[hoy] || null;
+  }
   miPlataRenderOverlay();
   bd.style.display = 'flex';
   document.body.style.overflow = 'hidden';
+  if (!_mpCache[hoy]) miPlataCargar(hoy);
 }
 function cerrarMiPlata(){
   var bd = document.getElementById('miplata-backdrop');
