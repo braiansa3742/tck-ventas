@@ -2,6 +2,45 @@
 <html lang="es">
 <head>
 <!-- ═══════════════════════════════════════════════════════════════════════
+     TCK VENTAS — v14.136.0 — 10/08/2026
+     v14.136.0: COLA DE RECUPERACIÓN — ningún pedido se pierde más.
+        DISPARADOR: Lisandro reporta que cargó a Silvia Alvarez por check-in
+        y no le aparecía. Barrido de los 1.821 pedidos de campo desde el
+        01/05 contra el Sheet completo: 50 PERDIDOS, $9.640.144. Sólo en
+        agosto 11 ($2.481.200). Tasa de Lisandro en los últimos 30 días:
+        9,1% (1 de cada 11) contra 1,4% de Miguel y 0,7% de Juan — es la
+        ronda de interior, no el equipo: Juan usa el mismo Android/Chrome.
+
+        Eran DOS fallas distintas, ninguna con red de seguridad:
+        (1) guardarPedido no llega → el pedido no existe en NINGÚN lado.
+            Toast rojo, el vendedor sigue al próximo cliente, nadie se
+            entera nunca. Caso Silvia Alvarez, $382.600.
+        (2) crearPresupuestoXubio no vuelve → el pedido SÍ se guardó (con
+            camión asignado) pero queda Pendiente sin presupuesto y el
+            overlay "generando presupuesto…" trabado. Casos Acosta y Parra.
+
+        AHORA: los dos casos se encolan en localStorage y se reintentan
+        solos — al volver la señal (evento 'online'), cada 90s y al abrir
+        la app. Badge fijo con el contador; tocándolo se ve el detalle y
+        hay botón "Reintentar ahora". Si tras 6 intentos no sale, o si el
+        pedido necesita que se elija calibre, queda en ámbar pidiendo
+        acción manual con el motivo escrito.
+
+        Reintentar es seguro: guardarPedido devuelve status:'duplicate' y
+        crearPresupuestoXubio devuelve code:'YA_TIENE_PRESUPUESTO'. Los dos
+        se tratan como éxito. Esto importa porque de 20 timeouts medidos,
+        19 habían guardado igual — el reintento no puede duplicar.
+
+        BONUS: los dos fetch del flujo Xubio (detectarCalibres y
+        crearPresupuestoXubio) iban SIN AbortController. Por eso el overlay
+        se colgaba para siempre en vez de fallar y avisar. Ahora tienen
+        timeout real (25s y 60s).
+
+        NOTA: el modal de error v14.134.0 decía "el sistema lo reintenta
+        solo cada 5 min (cronReintentarPendientes)". Esa función nunca
+        existió — se prometió en el texto y no se implementó. Este módulo
+        es esa promesa cumplida.
+
      TCK VENTAS — v14.135.1 — 06/08/2026
      v14.135.1: mi_comision ya no devuelve margen ni piso al navegador del
         vendedor (el panel esta hecho para no exponer margen). Se cambiaron
@@ -18246,6 +18285,255 @@ function _telemetriaTomadorRegistrar(evento) {
   }
 }
 
+// ════════════════════════════════════════════════════════════════
+//  v14.136.0 — COLA DE RECUPERACIÓN (guardado + presupuesto)
+// ════════════════════════════════════════════════════════════════
+// POR QUÉ: barrido del 10/08/2026 sobre 1.821 pedidos de campo cruzados
+// contra el Sheet completo: 50 pedidos PERDIDOS ($9.640.144), 11 sólo en
+// agosto. Tasa de Lisandro en los últimos 30 días: 9,1% (1 de cada 11),
+// contra 1,4% de Miguel y 0,7% de Juan — es la ronda de interior, no el
+// equipo (Juan usa el mismo Android/Chrome que Lisandro).
+//
+// Había DOS puntos de falla y ninguno tenía red de seguridad:
+//   1) guardarPedido no llega  → el pedido no existe en NINGÚN lado. El
+//      vendedor ve un toast rojo, sigue al próximo cliente y nadie se
+//      entera nunca. Caso Silvia Alvarez 10/08, $382.600.
+//   2) crearPresupuestoXubio no vuelve → el pedido SÍ se guardó (Sheet +
+//      pedidos_zona, con camión asignado) pero queda Pendiente sin
+//      presupuesto, con el overlay "generando presupuesto…" colgado.
+//      Casos Acosta y Parra, 10/08.
+//
+// El modal de error v14.134.0 le dice al vendedor "el sistema lo reintenta
+// solo cada 5 min (cronReintentarPendientes)". Esa función NUNCA EXISTIÓ —
+// se prometió en el texto y no se implementó. Este módulo es esa promesa,
+// cumplida, y cubre además el punto 1 que el modal ni contemplaba.
+//
+// IDEMPOTENCIA (por qué es seguro reintentar):
+//   · guardarPedido chequea el pedidoId contra el Sheet y devuelve
+//     status:'duplicate' si ya está → reintentar el MISMO id no duplica.
+//     Esto importa: de 20 timeouts medidos, 19 habían guardado igual.
+//   · crearPresupuestoXubio devuelve code:'YA_TIENE_PRESUPUESTO'.
+// Los dos casos se tratan como éxito y salen de la cola.
+var COLA_KEY        = 'tck_cola_recuperacion';
+var COLA_MAX_INT    = 6;          // reintentos antes de pedir acción manual
+var COLA_ESPERA_MS  = 45000;      // no reintentar el mismo item antes de 45s
+var COLA_TTL_MS     = 48*3600*1000;
+var COLA_TICK_MS    = 90000;
+var _colaCorriendo  = false;
+
+function _colaLeer() {
+  try { var r = localStorage.getItem(COLA_KEY); return r ? (JSON.parse(r) || []) : []; }
+  catch(e) { return []; }
+}
+function _colaEscribir(arr) {
+  try { localStorage.setItem(COLA_KEY, JSON.stringify(arr || [])); } catch(e) {}
+  _colaPintarBadge();
+}
+function _colaQuitar(pedidoId) {
+  _colaEscribir(_colaLeer().filter(function(x){ return x.id !== pedidoId; }));
+}
+function _colaActualizar(pedidoId, cambios) {
+  var arr = _colaLeer();
+  for (var i = 0; i < arr.length; i++) {
+    if (arr[i].id === pedidoId) { for (var k in cambios) arr[i][k] = cambios[k]; break; }
+  }
+  _colaEscribir(arr);
+}
+
+// Encolar. Si el pedido ya está en la cola, actualiza la etapa (ej: pasó de
+// 'guardar' a 'presupuesto') sin perder el contador de intentos.
+function _colaEncolar(item) {
+  if (!item || !item.id) return;
+  var arr = _colaLeer();
+  var prev = arr.filter(function(x){ return x.id === item.id; })[0];
+  if (prev) {
+    for (var k in item) if (item[k] !== undefined && item[k] !== null) prev[k] = item[k];
+    prev.manual = false;
+  } else {
+    item.intentos = 0; item.creado = Date.now(); item.ultimoIntento = 0;
+    item.manual = false;
+    arr.push(item);
+  }
+  _colaEscribir(arr);
+  console.warn('[cola] encolado', item.id, 'etapa', item.etapa);
+}
+
+// ── Motor ────────────────────────────────────────────────────────
+// Secuencial a propósito: en red rural, disparar 3 fetch juntos empeora todo.
+async function _colaProcesar(forzado) {
+  if (_colaCorriendo) return;
+  var arr = _colaLeer();
+  if (!arr.length) return;
+  _colaCorriendo = true;
+  try {
+    for (var i = 0; i < arr.length; i++) {
+      var it = arr[i];
+      if (it.manual) continue;
+      if (Date.now() - it.creado > COLA_TTL_MS) { _colaActualizar(it.id, { manual: true, ultimoError: 'Venció el plazo de reintentos (48 h)' }); continue; }
+      if (!forzado && (Date.now() - (it.ultimoIntento || 0)) < COLA_ESPERA_MS) continue;
+      _colaActualizar(it.id, { ultimoIntento: Date.now(), intentos: (it.intentos || 0) + 1 });
+      try {
+        if (it.etapa === 'guardar')          await _colaReintentarGuardado(it);
+        else if (it.etapa === 'presupuesto') await _colaReintentarPresupuesto(it);
+      } catch (e) {
+        var _int = (it.intentos || 0) + 1;
+        var _msg = (e && (e.message || e.toString())) || 'error desconocido';
+        if (_int >= COLA_MAX_INT) _colaActualizar(it.id, { manual: true, ultimoError: _msg });
+        else                      _colaActualizar(it.id, { ultimoError: _msg });
+        console.warn('[cola] falló', it.id, _msg);
+      }
+    }
+  } finally {
+    _colaCorriendo = false;
+    _colaPintarBadge();
+  }
+}
+
+// Etapa 1 — reenviar el guardarPedido que nunca llegó.
+async function _colaReintentarGuardado(it) {
+  var resp = await appsScriptFetch(it.params, { timeout: 35000 });
+  var data = resp && resp.data;
+  // duplicate = el server YA lo tenía (timeout falso). Es éxito.
+  var ok = (resp && resp.ok) && (!data || data.status === 'ok' || data.status === 'duplicate' || !data.status);
+  if (!ok) throw new Error((data && data.message) || 'el server no confirmó el guardado');
+
+  _telemetriaTomadorRegistrar({
+    paso:                'cola_guardado_recuperado',
+    pedido_id_intentado: it.id,
+    cliente:             it.cliente,
+    vendedor:            it.vendedor,
+    total:               it.total
+  });
+
+  if (it.xubioClienteId) {
+    // Sigue vivo en la cola, ahora esperando presupuesto.
+    _colaActualizar(it.id, { etapa: 'presupuesto', intentos: 0, ultimoIntento: 0, ultimoError: '' });
+    toast('✅ Pedido de ' + (it.cliente || '') + ' recuperado y enviado.\nGenerando presupuesto…', 'ok');
+  } else {
+    _colaQuitar(it.id);
+    toast('✅ Pedido de ' + (it.cliente || '') + ' recuperado y enviado.', 'ok');
+  }
+  if (typeof cargarPedidos === 'function') cargarPedidos(true);
+}
+
+// Etapa 2 — crear el presupuesto que quedó colgado.
+async function _colaReintentarPresupuesto(it) {
+  // Los calibres (Pollo A/B) necesitan que el vendedor elija en un modal:
+  // eso no se puede resolver en background. Se marca manual con motivo claro.
+  var det = await _colaFetchJson(APPS_SCRIPT_URL + '?accion=detectarCalibres&pedidoId=' + encodeURIComponent(it.id), 25000);
+  if (det && det.status === 'ok' && det.necesitaModal && det.genericos && det.genericos.length) {
+    _colaActualizar(it.id, { manual: true, ultimoError: 'Hay que elegir el calibre del pollo — entrá al pedido y tocá "Crear presupuesto"' });
+    return;
+  }
+
+  var params = new URLSearchParams({ accion: 'crearPresupuestoXubio', pedidoId: it.id, xubioClienteId: it.xubioClienteId });
+  if (it.fechaISO) params.set('fechaPresupuesto', it.fechaISO);
+  var data = await _colaFetchJson(APPS_SCRIPT_URL + '?' + params.toString(), 60000);
+
+  if (data && (data.status === 'ok' || data.code === 'YA_TIENE_PRESUPUESTO')) {
+    _colaQuitar(it.id);
+    var ped = (typeof todosLosPedidos !== 'undefined') && todosLosPedidos.find(function(x){ return x.pedidoId === it.id; });
+    if (ped) { ped.estado = 'Confirmado'; ped.xubioNroPresupuesto = data.nroPresupuesto; ped.xubioEstado = 'creado'; }
+    if (typeof renderPedidos === 'function') renderPedidos();
+    _telemetriaTomadorRegistrar({
+      paso:                'cola_presupuesto_recuperado',
+      pedido_id_intentado: it.id, cliente: it.cliente, vendedor: it.vendedor, total: it.total
+    });
+    toast('✅ Presupuesto N° ' + (data.nroPresupuesto || '') + ' creado — ' + (it.cliente || ''), 'ok');
+    return;
+  }
+  // Errores que el vendedor tiene que resolver: no sirve seguir reintentando.
+  if (data && (data.code === 'PRODUCTOS_SIN_MAPEAR' || data.code === 'CLIENTE_SIN_MAPEAR')) {
+    _colaActualizar(it.id, { manual: true, ultimoError: data.message || 'Hay productos sin mapear en Xubio — avisá al admin' });
+    return;
+  }
+  throw new Error((data && data.message) || 'Xubio no respondió');
+}
+
+// fetch con timeout real. Los dos fetch del flujo Xubio iban PELADOS (sin
+// AbortController): por eso el overlay "generando presupuesto…" se quedaba
+// colgado para siempre en vez de fallar y avisar.
+function _colaFetchJson(url, timeoutMs) {
+  var ctrl = new AbortController();
+  var tid  = setTimeout(function(){ ctrl.abort(); }, timeoutMs || 30000);
+  return fetch(url, { signal: ctrl.signal })
+    .then(function(r){ clearTimeout(tid); return r.json(); })
+    .catch(function(e){ clearTimeout(tid); throw e; });
+}
+
+// ── Badge ────────────────────────────────────────────────────────
+// Va sobre la barra de navegación. Rojo = todavía reintentando; ámbar =
+// necesita que el vendedor haga algo.
+function _colaPintarBadge() {
+  var arr = _colaLeer();
+  var el  = document.getElementById('cola-badge');
+  if (!arr.length) { if (el) el.remove(); return; }
+  var manuales = arr.filter(function(x){ return x.manual; }).length;
+  var pend     = arr.length - manuales;
+  if (!el) {
+    el = document.createElement('div');
+    el.id = 'cola-badge';
+    el.style.cssText = 'position:fixed;left:10px;right:10px;bottom:78px;z-index:9998;border-radius:12px;padding:10px 14px;'
+      + 'font-family:Barlow Condensed,sans-serif;font-weight:900;font-size:14px;color:#fff;cursor:pointer;'
+      + 'box-shadow:0 4px 16px rgba(0,0,0,.28);display:flex;align-items:center;gap:10px;';
+    el.onclick = _colaMostrarDetalle;
+    document.body.appendChild(el);
+  }
+  if (manuales && !pend) {
+    el.style.background = 'linear-gradient(135deg,#E65100,#F57C00)';
+    el.innerHTML = '<span style="font-size:19px;">⚠️</span><div style="flex:1;">' + manuales + ' pedido' + (manuales>1?'s':'') + ' sin presupuesto<div style="font-size:11.5px;font-weight:600;opacity:.92;">Tocá acá para resolverlo</div></div>';
+  } else {
+    el.style.background = 'linear-gradient(135deg,#8B0000,#B71C1C)';
+    el.innerHTML = '<span style="font-size:19px;">🔄</span><div style="flex:1;">' + arr.length + ' pedido' + (arr.length>1?'s':'') + ' sin enviar<div style="font-size:11.5px;font-weight:600;opacity:.92;">Se reintenta solo. Tocá para ver.</div></div>';
+  }
+}
+
+function _colaMostrarDetalle() {
+  var arr = _colaLeer();
+  if (!arr.length) return;
+  var prev = document.getElementById('cola-modal'); if (prev) prev.remove();
+  var filas = arr.map(function(x){
+    var col = x.manual ? '#E65100' : '#8B0000';
+    var est = x.manual
+      ? '⚠️ ' + _escapeHtml(x.ultimoError || 'Necesita que lo resuelvas a mano')
+      : (x.etapa === 'guardar' ? '🔄 Reintentando el envío…' : '🔄 Reintentando el presupuesto…')
+        + ' (intento ' + (x.intentos||0) + '/' + COLA_MAX_INT + ')';
+    return '<div style="border-left:3px solid '+col+';background:#FAF4EC;padding:9px 11px;border-radius:0 8px 8px 0;margin-bottom:8px;">'
+      + '<div style="font-weight:900;font-size:13.5px;color:#333;">' + _escapeHtml(x.cliente || x.id) + ' — $' + Number(x.total||0).toLocaleString('es-AR') + '</div>'
+      + '<div style="font-size:11.5px;color:#666;margin-top:3px;line-height:1.4;">' + est + '</div></div>';
+  }).join('');
+  var m = document.createElement('div');
+  m.id = 'cola-modal';
+  m.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,.6);z-index:99999;display:flex;align-items:center;justify-content:center;padding:18px;';
+  m.innerHTML = '<div style="background:#fff;border-radius:18px;width:100%;max-width:390px;overflow:hidden;box-shadow:0 8px 32px rgba(0,0,0,.3);">'
+    + '<div style="background:linear-gradient(135deg,#8B0000,#B71C1C);padding:14px 18px;color:#fff;font-family:Barlow Condensed,sans-serif;font-size:17px;font-weight:900;">PEDIDOS PENDIENTES DE ENVÍO</div>'
+    + '<div style="padding:14px 18px;max-height:52vh;overflow-y:auto;">'
+    +   '<div style="background:#E8F5E9;border-left:3px solid #4CAF50;padding:9px 11px;border-radius:0 8px 8px 0;font-size:12px;color:#1B5E20;line-height:1.45;margin-bottom:10px;font-weight:600;">'
+    +     'Estos pedidos NO se perdieron. <b>No los cargues de nuevo</b> — se reintentan solos cuando vuelve la señal.'
+    +   '</div>' + filas + '</div>'
+    + '<div style="display:flex;gap:8px;padding:0 18px 16px;">'
+    +   '<button id="cola-cerrar" style="flex:1;padding:11px;background:#fff;color:#666;border:1.5px solid #ccc;border-radius:10px;font-family:Barlow Condensed,sans-serif;font-size:13px;font-weight:900;">Cerrar</button>'
+    +   '<button id="cola-ya" style="flex:2;padding:11px;background:linear-gradient(135deg,#8B0000,#B71C1C);color:#fff;border:none;border-radius:10px;font-family:Barlow Condensed,sans-serif;font-size:13px;font-weight:900;">🔄 Reintentar ahora</button>'
+    + '</div></div>';
+  document.body.appendChild(m);
+  document.getElementById('cola-cerrar').onclick = function(){ m.remove(); };
+  document.getElementById('cola-ya').onclick = function(){
+    m.remove();
+    // "Reintentar ahora" también despierta a los que quedaron en manual:
+    // si el vendedor lo pide expresamente, se les da otra vuelta.
+    _colaEscribir(_colaLeer().map(function(x){ return Object.assign({}, x, { manual: false, intentos: 0, ultimoIntento: 0 }); }));
+    toast('🔄 Reintentando…', 'ok');
+    _colaProcesar(true);
+  };
+}
+
+// ── Disparadores ─────────────────────────────────────────────────
+// Al volver la señal es el momento clave: el vendedor sale del bache de
+// cobertura y la cola se vacía sola sin que toque nada.
+window.addEventListener('online', function(){ console.warn('[cola] volvió la conexión'); _colaProcesar(true); });
+setInterval(function(){ if (navigator.onLine !== false) _colaProcesar(false); }, COLA_TICK_MS);
+setTimeout(function(){ _colaPintarBadge(); _colaProcesar(true); }, 4000);
+
 const SESSION_KEY   = 'tck_session';
 const SESSION_HORAS = 720; // 30 días — cada vendedor tiene su propio celular
 
@@ -27926,8 +28214,10 @@ function _tomadorEjecutarXubio(pedidoId, fila, entregaData, clienteNombre, _rein
   var idHtml = pedidoId.replace(/[^a-zA-Z0-9]/g, '-');
 
   // Paso 1: detectar calibres genéricos
-  fetch(APPS_SCRIPT_URL + '?accion=detectarCalibres&pedidoId=' + encodeURIComponent(pedidoId))
-    .then(function(r) { return r.json(); })
+  // v14.136.0: iba sin AbortController — si Apps Script no contestaba, esta
+  // promesa no resolvía NUNCA y el overlay "generando presupuesto…" quedaba
+  // trabado sin fallar ni avisar (captura de Lisandro, 10/08 09:20).
+  _colaFetchJson(APPS_SCRIPT_URL + '?accion=detectarCalibres&pedidoId=' + encodeURIComponent(pedidoId), 25000)
     .then(function(data) {
       if (data.status !== 'ok') {
         // v14.41.0: "Pedido no encontrado" casi siempre es propagación eventual
@@ -28026,8 +28316,9 @@ function _tomadorXubioFinalizar(pedidoId, fila, idHtml, calibres, fechaISO, clie
     params.set('fechaPresupuesto', fechaISO);
   }
 
-  fetch(APPS_SCRIPT_URL + '?' + params.toString())
-    .then(function(r) { return r.json(); })
+  // v14.136.0: mismo problema que detectarCalibres — fetch sin timeout.
+  // 60s porque crear el presupuesto en Xubio es genuinamente lento.
+  _colaFetchJson(APPS_SCRIPT_URL + '?' + params.toString(), 60000)
     .then(function(data) {
       _xubioActivo = false;
       _tomadorCerrarProgreso();
@@ -28079,7 +28370,10 @@ function _tomadorXubioFinalizar(pedidoId, fila, idHtml, calibres, fechaISO, clie
           mensajeErr = 'Otra operación en curso. Esperá unos segundos y reintentá.';
         }
         if (_tomadorXubioEscapado) {
-          toast('⚠️ Xubio no pudo crear el presupuesto — reintentá desde PEDIDOS', 'err');
+          // v14.136.0: encolar igual — el vendedor se fue del modal, pero el
+          // presupuesto sigue faltando y nadie lo iba a reintentar.
+          _colaEncolarPresupuesto(pedidoId, clienteNombre, entregaData, mensajeErr);
+          toast('⚠️ Xubio no pudo crear el presupuesto — se reintenta solo', 'err');
           return;
         }
         _tomadorMostrarErrorXubio(pedidoId, fila, clienteNombre, entregaData, mensajeErr);
@@ -28090,7 +28384,8 @@ function _tomadorXubioFinalizar(pedidoId, fila, idHtml, calibres, fechaISO, clie
       _xubioActivo = false;
       _tomadorCerrarProgreso();
       if (_tomadorXubioEscapado) {
-        toast('⚠️ Sin respuesta de Xubio — el pedido quedó Pendiente, reintentá desde PEDIDOS', 'err');
+        _colaEncolarPresupuesto(pedidoId, clienteNombre, entregaData, 'Sin respuesta de Xubio');
+        toast('⚠️ Sin respuesta de Xubio — el pedido quedó guardado, se reintenta solo', 'err');
         return;
       }
       _tomadorMostrarErrorXubio(pedidoId, fila, clienteNombre, entregaData,
@@ -28254,7 +28549,31 @@ function _tomadorMostrarExito(pedidoId, clienteNombre, entregaData, nroPresupues
 }
 
 // Modal de error Xubio con opción reintentar
+// v14.136.0 — encolar el presupuesto que quedó colgado. Punto único por el
+// que pasan TODOS los fallos del flujo Xubio (detectarCalibres, red, error de
+// Xubio), así que enganchando acá quedan cubiertos los cuatro caminos.
+// El pedido ya está guardado en Sheet + pedidos_zona con camión asignado: lo
+// único que falta es el presupuesto, y eso es lo que reintenta la cola.
+function _colaEncolarPresupuesto(pedidoId, clienteNombre, entregaData, motivo) {
+  try {
+    var sel = (typeof _xubioSeleccion !== 'undefined') && _xubioSeleccion[pedidoId];
+    if (!sel || !sel.clienteId) return; // sin cliente Xubio no hay nada que reintentar
+    var ped = (typeof todosLosPedidos !== 'undefined') && todosLosPedidos.find(function(x){ return x.pedidoId === pedidoId; });
+    _colaEncolar({
+      id:             pedidoId,
+      etapa:          'presupuesto',
+      cliente:        clienteNombre || (ped && ped.cliente) || '',
+      vendedor:       (typeof recuperarSesion === 'function' ? recuperarSesion() : '') || '',
+      total:          (ped && Number(String(ped.total).replace(/[^\d]/g,''))) || 0,
+      xubioClienteId: sel.clienteId,
+      fechaISO:       (entregaData && entregaData.fechaISO) || '',
+      ultimoError:    motivo || ''
+    });
+  } catch (e) { console.warn('[cola] no se pudo encolar presupuesto:', e && e.message); }
+}
+
 function _tomadorMostrarErrorXubio(pedidoId, fila, clienteNombre, entregaData, mensajeErr) {
+  _colaEncolarPresupuesto(pedidoId, clienteNombre, entregaData, mensajeErr);
   var prev = document.getElementById('tomador-xubio-error');
   if (prev) prev.remove();
 
@@ -34699,10 +35018,29 @@ async function tomadorConfirmarConEntrega(entregaData) {
     // v14.6.0 NO-CORS FIX: error real visible (antes decía "✅ Pedido enviado
     // por WhatsApp" aunque hubiera fallado el guardado en la Sheet — bug ALMIRON).
     console.error('[tomadorConfirmarConEntrega]', e);
-    var msgErrTom = '⚠️ El pedido NO se guardó';
-    if (e && e.name === 'AbortError') msgErrTom += ' (sin internet)';
+    // v14.136.0 — ANTES: acá sólo se mostraba un toast rojo y el pedido moría.
+    // El vendedor seguía al próximo cliente y esa venta no existía en ningún
+    // lado (50 pedidos perdidos, $9,6M — barrido del 10/08). Ahora se encola
+    // con su pedidoId original: guardarPedido es idempotente contra el Sheet,
+    // así que reintentar no duplica ni siquiera si el server sí lo había
+    // guardado y lo que falló fue la respuesta (19 de 20 timeouts medidos).
+    if (params) {
+      _colaEncolar({
+        id:             pedidoId,
+        etapa:          'guardar',
+        params:         params.toString(),
+        cliente:        cliente,
+        vendedor:       vendedor,
+        total:          total,
+        xubioClienteId: (_gpsCheckinActivo && _gpsCheckinActivo.xubio_id) || '',
+        fechaISO:       (entregaData && entregaData.fechaISO) || '',
+        ultimoError:    (e && (e.message || e.toString())) || ''
+      });
+    }
+    var msgErrTom = '📩 El pedido quedó guardado en el celular';
+    if (e && e.name === 'AbortError') msgErrTom += ' (sin señal)';
     else if (e && e.status) msgErrTom += ' (server ' + e.status + ')';
-    msgErrTom += '\nReintentá. Si persiste, avisá al admin.';
+    msgErrTom += '\nSe envía solo cuando vuelva la señal.\nNO lo cargues de nuevo.';
     toast(msgErrTom, 'err');
 
     // v14.44.0 — telemetría: error real en el guardado.
