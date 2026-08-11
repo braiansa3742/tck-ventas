@@ -2,6 +2,30 @@
 <html lang="es">
 <head>
 <!-- ═══════════════════════════════════════════════════════════════════════
+     TCK VENTAS — v14.139.0 — 11/08/2026
+     v14.139.0: ESCALERA DE TRAMOS VISIBLE + NUDGE DE UPSELL (opción B Braian).
+        CONTEXTO: tramos mayoristas nuevos en Pollo A/B/C (SQL precios de
+        guerra v4). La card mostraba solo "caja mayor + suelto" — con 3-4
+        tramos MENTÍA para los rangos intermedios, y el vendedor no veía
+        cuánto cobraba al cambiar la cantidad.
+        AHORA:
+        · tckCardPrecioHTML(item, qty, ctx): escalera COMPLETA (N tramos,
+          rangos "1-4 / 5-9 / 10+"), fila activa resaltada según cantidad.
+          Acuerdo VIP sigue pisando todo (sin cambios).
+        · tckNudgeHTML: a 1-2 cajas del próximo tramo, botón "➕2 → $69.900
+          c/u · ahorra $X" que completa la cantidad solo (tomadorSetQtyTramo
+          / mwaSetQtyTramo). En tramo mayorista: banda verde con el ahorro.
+        · tckEscaleraRefrescar: repinta escalera+nudge de UNA card al tocar
+          −/+ (tomador campo y manual WA), sin regenerar el body.
+        · Resumen de confirmación: badge "🏷️ mayorista xN+" por línea.
+        · tckEditarPrecioTxt: texto compacto con TODOS los tramos.
+        · REFRESH: cargarTramosVentas() ahora viaja con cada refresh de
+          precios (regla v14.65.0: nada vive "solo en el boot").
+        · FIX: _tomadorRepintarPrecios buscaba titem- con safeId '-' pero el
+          render usa '_' → el repintado en vivo del tomador campo nunca
+          encontraba la card. Ahora usa el safeId correcto por contexto y
+          pasa la cantidad vigente (la escalera no pierde la fila activa).
+
      TCK VENTAS — v14.138.0 — 11/08/2026
      v14.138.0: EL ESTADO YA NO "VUELVE PARA ATRÁS" DESPUÉS DE EDITAR.
         DISPARADOR: audio de Miguel (11/08) sobre lo engorroso que es editar
@@ -7304,6 +7328,17 @@ body {
 .tit-caja-l { font-size:8.5px; font-weight:600; color:#3B6D11; display:block; margin-top:-1px; }
 .tit-suelto { font-size:9.5px; color:#888; margin-top:3px; }
 .tit-suelto b { font-weight:700; color:#666; }
+/* v14.139.0 — escalera de tramos (opción B) + nudge de upsell */
+.tck-esc{border:1px solid var(--cream3);border-radius:8px;overflow:hidden;font-size:9.5px;margin-bottom:4px;background:#fff}
+.tck-esc-row{display:flex;justify-content:space-between;align-items:center;padding:2.5px 6px}
+.tck-esc-row+.tck-esc-row{border-top:1px solid var(--cream2)}
+.tck-esc-row .r-l{color:#6b5d49}
+.tck-esc-row .r-p{font-weight:800;font-family:'Barlow Condensed',sans-serif;font-size:11.5px;color:#444}
+.tck-esc-row.act{background:#EAF3DE}
+.tck-esc-row.act .r-l,.tck-esc-row.act .r-p{color:#27500A;font-weight:900}
+.tck-nudge{display:block;margin:4px 0;width:100%;border:none;border-radius:8px;background:linear-gradient(135deg,#FFF3D6,#FFE7AE);color:#7a4b00;font-size:9.5px;font-weight:800;padding:5px 6px;cursor:pointer;text-align:left;line-height:1.25;box-shadow:inset 0 0 0 1px #E8C77E;font-family:inherit;touch-action:manipulation}
+.tck-nudge b{font-size:10.5px}
+.tck-nudge.ok{background:#EAF3DE;box-shadow:inset 0 0 0 1px #97C459;color:#27500A;text-align:center;cursor:default}
 .tomador-qty {
   display: flex;
   align-items: center;
@@ -20334,9 +20369,12 @@ function tckEditarPrecioTxt(item) {
   var pr = (item && item.pr) || 0;
   var t = (item && item.n) ? tckTramosDe(item.n) : null;
   if (!t || t.length < 2) return '$' + pr.toLocaleString('es-AR');
-  var suelto = t[0], caja = t[t.length - 1];
-  return '<span style="color:#27500A;font-weight:700;">caja ' + caja.min + '+ $' + caja.precio.toLocaleString('es-AR')
-    + '</span> · 1 a ' + (caja.min - 1) + ' $' + suelto.precio.toLocaleString('es-AR');
+  // v14.139.0 — todos los tramos, compacto: "1-4 $74.900 · 5-9 $72.500 · 10+ $69.900"
+  var parts = [];
+  for (var i = 0; i < t.length; i++) {
+    parts.push(tckRangoLabel(t, i) + ' <b style="color:#27500A;">$' + t[i].precio.toLocaleString('es-AR') + '</b>');
+  }
+  return parts.join(' \u00B7 ');
 }
 
 // ═══════════════════════════════════════════════════════════════
@@ -20980,7 +21018,14 @@ async function acuPropEnviar(){
   }
 }
 
-function tckCardPrecioHTML(item) {
+function tckRangoLabel(t, i) {
+  // v14.139.0 — etiqueta del rango del tramo i: "1-4", "5-9", "10+", "15+"
+  var sig = t[i + 1];
+  if (t[i].min === 1) return sig ? ('1-' + (sig.min - 1)) : '1+';
+  return sig ? (t[i].min + '-' + (sig.min - 1)) : (t[i].min + '+');
+}
+
+function tckCardPrecioHTML(item, qty, ctx) {
   // v14.68.0: precio de acuerdo pisa todo lo demas en la card
   var _pa = acuVtaPrecioDe(item && item.n);
   if (_pa !== null) {
@@ -20992,13 +21037,78 @@ function tckCardPrecioHTML(item) {
   if (!t || t.length < 2) {
     return '<div class="tomador-item-precio">$' + pr.toLocaleString('es-AR') + '</div>';
   }
-  // tramos ordenados asc por min; el de mayor min = caja, el menor = suelto
-  var suelto = t[0], caja = t[t.length - 1];
-  return '<div class="tomador-item-tramos">'
-    + '<span class="tit-caja"><span class="tit-caja-p">$' + caja.precio.toLocaleString('es-AR') + '</span>'
-    + '<span class="tit-caja-l">caja ' + caja.min + '+ c/u</span></span>'
-    + '<div class="tit-suelto">1 a ' + (caja.min - 1) + ': <b>$' + suelto.precio.toLocaleString('es-AR') + '</b></div>'
-    + '</div>';
+  // v14.139.0 — escalera completa (opción B): N tramos, fila activa según qty
+  var q = Math.max(0, Number(qty) || 0);
+  var vig = tckTramoVigente(item.n, Math.max(1, q));
+  var html = '<div class="tomador-item-tramos"><div class="tck-esc">';
+  for (var i = 0; i < t.length; i++) {
+    var act = vig && vig.min === t[i].min;
+    html += '<div class="tck-esc-row' + (act ? ' act' : '') + '">'
+      + '<span class="r-l">' + tckRangoLabel(t, i) + '</span>'
+      + '<span class="r-p">$' + t[i].precio.toLocaleString('es-AR') + '</span></div>';
+  }
+  html += '</div>' + tckNudgeHTML(item, q, ctx || 'tomador') + '</div>';
+  return html;
+}
+
+// v14.139.0 — nudge de upsell. A 1-2 cajas del próximo tramo: botón que
+// completa la cantidad. En tramo mayorista: banda verde con el ahorro.
+function tckNudgeHTML(item, q, ctx) {
+  var t = (item && item.n) ? tckTramosDe(item.n) : null;
+  if (!t || t.length < 2 || !q || q <= 0) return '';
+  if (acuVtaPrecioDe(item.n) !== null) return '';
+  var prox = null;
+  for (var i = 0; i < t.length; i++) { if (q < t[i].min) { prox = t[i]; break; } }
+  var fn = (ctx === 'mwa') ? 'mwaSetQtyTramo' : 'tomadorSetQtyTramo';
+  var safeName = item.n.replace(/'/g, "\\'").replace(/"/g, '&quot;');
+  if (prox && (prox.min - q) <= 2) {
+    var actual = tckPrecioTramo(item, q);
+    var faltan = prox.min - q;
+    var ahorro = (actual - prox.precio) * prox.min;
+    return '<button class="tck-nudge" onclick="' + fn + '(&quot;' + safeName + '&quot;,' + prox.min + ')">'
+      + '\u2795' + faltan + ' caja' + (faltan > 1 ? 's' : '') + ' \u2192 <b>$' + prox.precio.toLocaleString('es-AR')
+      + '</b> c/u \u00B7 ahorra $' + ahorro.toLocaleString('es-AR') + '</button>';
+  }
+  var vig = tckTramoVigente(item.n, q);
+  if (vig && vig.min > 1) {
+    var dif = (t[0].precio - vig.precio) * q;
+    if (dif > 0) return '<div class="tck-nudge ok">\u2713 Mayorista \u00B7 ahorra $' + dif.toLocaleString('es-AR') + '</div>';
+  }
+  return '';
+}
+
+// v14.139.0 — repinta escalera + nudge de UNA card tras cambiar cantidad.
+// No regenera el body: no pisa inputs ni scroll.
+function tckEscaleraRefrescar(nombre, ctx) {
+  var item = null;
+  for (var i = 0; i < TOMADOR_CAT.length && !item; i++) {
+    for (var j = 0; j < TOMADOR_CAT[i].items.length; j++) {
+      if (TOMADOR_CAT[i].items[j].n === nombre) { item = TOMADOR_CAT[i].items[j]; break; }
+    }
+  }
+  if (!item) return;
+  var esMwa = (ctx === 'mwa');
+  var q = esMwa ? ((_manualWAQtys || {})[nombre] || 0) : ((_tomadorQtys || {})[nombre] || 0);
+  var id = esMwa
+    ? 'mwa-item-' + nombre.replace(/[^a-zA-Z0-9]/g, '-')
+    : 'titem-' + nombre.replace(/[^a-zA-Z0-9]/g, '_');
+  var card = document.getElementById(id);
+  if (!card) return;
+  var nodo = card.querySelector('.tomador-item-precio, .tomador-item-tramos');
+  if (!nodo) return;
+  var tmp = document.createElement('div');
+  tmp.innerHTML = tckCardPrecioHTML(item, q, ctx);
+  if (tmp.firstChild) nodo.replaceWith(tmp.firstChild);
+}
+
+// v14.139.0 — el botón del nudge completa la cantidad hasta el tramo.
+function tomadorSetQtyTramo(nombre, valor) {
+  var actual = _tomadorQtys[nombre] || 0;
+  if (valor > actual) tomadorCambiarQty(nombre, valor - actual);
+}
+function mwaSetQtyTramo(nombre, valor) {
+  var actual = (_manualWAQtys || {})[nombre] || 0;
+  if (valor > actual && typeof manualWAQty === 'function') manualWAQty(nombre, valor - actual);
 }
 
 // Precio unitario del tramo según cantidad. Sin tramos (o sin piso) → item.pr.
@@ -32554,6 +32664,11 @@ async function refrescarPreciosVentas(force) {
     } catch(e) {}
     _tomadorPreciosDesdeSheet = true;
     console.log('[TCK Precios] ' + n + ' productos actualizados desde productos_canonicos');
+    // v14.139.0 — los tramos viajan con el mismo refresh que los precios
+    // (regla v14.65.0: nada de fuentes dinámicas "solo en el boot").
+    if (typeof cargarTramosVentas === 'function') {
+      cargarTramosVentas().then(function(){ _tomadorRepintarPrecios(); }).catch(function(){});
+    }
   } catch(e) {
     console.warn('[TCK Precios] fetch falló — sigue el último precio aplicado:', e.message);
   }
@@ -32585,16 +32700,20 @@ function _tomadorRepintarPrecios() {
     if (!mwaOverlay && !tomOverlay) return;
     TOMADOR_CAT.forEach(function(sec) {
       sec.items.forEach(function(it) {
-        var safeId = it.n.replace(/[^a-zA-Z0-9]/g, '-');
+        // v14.139.0 FIX: el render del tomador campo usa safeId con '_' y el
+        // del manual WA con '-'. Antes se buscaba titem- con '-' y nunca se
+        // encontraba la card (el repintado en vivo del campo no funcionaba).
         var cards = [];
-        if (mwaOverlay) cards.push(document.getElementById('mwa-item-' + safeId));
-        if (tomOverlay) cards.push(document.getElementById('titem-' + safeId));
+        if (mwaOverlay) cards.push(document.getElementById('mwa-item-' + it.n.replace(/[^a-zA-Z0-9]/g, '-')));
+        if (tomOverlay) cards.push(document.getElementById('titem-' + it.n.replace(/[^a-zA-Z0-9]/g, '_')));
         cards.forEach(function(card) {
           if (!card) return;
           var nodo = card.querySelector('.tomador-item-precio, .tomador-item-tramos');
           if (!nodo) return;
+          var esMwa = card.id.indexOf('mwa-item-') === 0;
+          var q = esMwa ? ((_manualWAQtys || {})[it.n] || 0) : ((_tomadorQtys || {})[it.n] || 0);
           var tmp = document.createElement('div');
-          tmp.innerHTML = tckCardPrecioHTML(it);
+          tmp.innerHTML = tckCardPrecioHTML(it, q, esMwa ? 'mwa' : 'tomador');
           if (tmp.firstChild) nodo.replaceWith(tmp.firstChild);
         });
       });
@@ -33879,7 +33998,7 @@ function tomadorRenderProductos(catId) {
         + '<div class="tomador-item-nombre">' + item.n + '</div>'
         + '<div class="tomador-item-presentacion">' + item.p + '</div>'
         + (POLLOS_CON_CALIBRE[item.n] ? tomadorCalibreSelectorHTML(item.n) : '')
-        + tckCardPrecioHTML(item)
+        + tckCardPrecioHTML(item, qty, 'tomador')
         + stockBadge
         + '<div class="tomador-qty">'
         + '<button class="tomador-qty-btn" onclick="tomadorCambiarQty(&quot;' + safeName + '&quot;,-1)">−</button>'
@@ -34072,6 +34191,7 @@ function tomadorCambiarQty(nombre, delta) {
     if (qtyEl) qtyEl.textContent = nuevo;
     var itemEl = document.getElementById('titem-' + safeId);
     if (itemEl) itemEl.classList.toggle('tiene', nuevo > 0);
+    tckEscaleraRefrescar(nombre, 'tomador');  // v14.139.0
   }
   tomadorActualizarTotal();
 }
@@ -34196,7 +34316,8 @@ async function tomadorConfirmar() {
     var precioFinal = tckPrecioFinal(item, qty, dto ? dto.pct : 0);  // v14.23.0 tramo + dto capado
     var sub = precioFinal * qty;
     resumenTotal += sub;
-    resumenLineas.push({ nombre: nombre, qty: qty, presentacion: item.p, precio: tckPrecioTramo(item, qty), precioFinal: precioFinal, dto: dto, subtotal: sub, imgUrl: item.img2 || imgUrlR });
+    var _tvR = tckTramoVigente(nombre, qty);  // v14.139.0
+    resumenLineas.push({ nombre: nombre, qty: qty, presentacion: item.p, precio: tckPrecioTramo(item, qty), precioFinal: precioFinal, dto: dto, subtotal: sub, imgUrl: item.img2 || imgUrlR, tramoMin: (_tvR ? _tvR.min : 1) });
   });
 
   // Crear modal de resumen
@@ -34236,7 +34357,7 @@ async function tomadorConfirmar() {
         return '<div style="display:flex;align-items:center;gap:10px;padding:10px 0;border-bottom:1px solid #f0e8e8">'
           + '<img src="' + l.imgUrl + '" style="width:44px;height:44px;object-fit:cover;border-radius:8px;flex-shrink:0" onerror="this.style.display=&quot;none&quot;">'
           + '<div style="flex:1"><div style="font-weight:700;font-size:14px">' + l.nombre + '</div>'
-          + '<div style="font-size:12px;color:#888">' + l.presentacion + ' · ' + l.qty + ' unid.</div></div>'
+          + '<div style="font-size:12px;color:#888">' + l.presentacion + ' · ' + l.qty + ' unid.' + (l.tramoMin > 1 ? ' · <span style="color:#27500A;font-weight:800">\uD83C\uDFF7\uFE0F mayorista x' + l.tramoMin + '+</span>' : '') + '</div></div>'
           + '<div style="text-align:right">' + (l.dto ? '<div style="font-size:10px;color:#1565C0;font-weight:800;">-' + l.dto.pct + '% dto</div><div style="font-size:11px;color:#999;text-decoration:line-through">$' + (l.precio*l.qty).toLocaleString('es-AR') + '</div>' : '') + '<div style="font-family:Barlow Condensed,sans-serif;font-size:16px;font-weight:900;color:#8B0000">$' + l.subtotal.toLocaleString('es-AR') + '</div></div>'
           + '</div>';
       }).join('')
@@ -40189,7 +40310,7 @@ function manualWAHTML() {
           '<div class="tomador-item-nombre">' + item.n + '</div>' +
           '<div class="tomador-item-presentacion">' + item.p + '</div>' +
           (POLLOS_CON_CALIBRE[item.n] ? mwaCalibreSelectorHTML(item.n) : '') +
-          tckCardPrecioHTML(item) +
+          tckCardPrecioHTML(item, (_manualWAQtys[item.n] || 0), 'mwa') +
           stockBadge +
           '<div class="tomador-qty">' +
             '<button class="tomador-qty-btn" onclick="manualWAQty(&quot;' + safeName + '&quot;,-1)">−</button>' +
@@ -40759,6 +40880,7 @@ function manualWAQty(nombre, delta) {
   if (qtyEl) qtyEl.textContent = nuevo;
   const itemEl = document.getElementById('mwa-item-' + safeId);
   if (itemEl) itemEl.classList.toggle('tiene', nuevo > 0);
+  tckEscaleraRefrescar(nombre, 'mwa');  // v14.139.0
 
   // v12: centralizado — calcula combos + sueltos + actualiza header, contador y botón
   mwaActualizarTotal();
