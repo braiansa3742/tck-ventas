@@ -2,6 +2,29 @@
 <html lang="es">
 <head>
 <!-- ═══════════════════════════════════════════════════════════════════════
+     TCK VENTAS — v14.137.0 — 10/08/2026
+     v14.137.0: BOTÓN 🪪 DATOS DEL CLIENTE en la card del pedido.
+        PROBLEMA (bitácora 703): si un cliente pide por catálogo sin
+        contacto previo con el vendedor, quien factura no tiene con qué
+        crear el cliente en Xubio. Los datos SÍ están — el catálogo
+        guarda cuit, dirección, comercio y teléfono en pedidos_cliente —
+        pero el circuito de facturación trabaja sobre pedidos_zona, que
+        no los tiene. Nadie abría pedidos_cliente.
+        AHORA: botón en la card (vendedores y admin, no choferes) que
+        abre una ficha con comercio, contacto, CUIT, dirección,
+        localidad y teléfono, cada campo con copiar, más "copiar todo
+        para Xubio". Badge de estado: ya existe en Xubio / listo para
+        dar de alta / falta CUIT / falta dirección.
+        SEGURIDAD: lee por pedido_datos_cliente(), SECURITY DEFINER, de
+        a un pedido. NO hay GRANT sobre vw_pedido_datos_cliente: la key
+        anon está en el HTML público y la vista tiene CUIT y teléfonos
+        de todos los clientes. Mismo criterio que embudo_leads().
+        REQUIERE correr tck-pedido-datos-cliente-rpc.sql en Supabase
+        ANTES de subir este archivo. Si falta, el botón avisa HTTP 404.
+        FALLBACK: si el pedido no trae CUIT pero el cliente está
+        logueado, la función lo busca en el último pedido del MISMO
+        cliente_auth_id y lo marca como tomado de otro pedido.
+
      TCK VENTAS — v14.136.0 — 10/08/2026
      v14.136.0: COLA DE RECUPERACIÓN — ningún pedido se pierde más.
         DISPARADOR: Lisandro reporta que cargó a Silvia Alvarez por check-in
@@ -24137,6 +24160,12 @@ function renderCard(p) {
 
   var btns = '';
   var esChofer = vendedorActual === 'Joan' || vendedorActual === 'Luis' || vendedorActual === 'Juan Pablo' || vendedorActual === 'Alfredo';
+
+  // v14.137.0 — 🪪 Datos del cliente: CUIT/dirección/comercio para dar
+  // el alta en Xubio. Choferes no lo ven (no facturan).
+  if (!esChofer) {
+    btns += '<button class="btn-estado" style="background:#F3E5F5;color:#6A1B9A;border-color:#6A1B9A;" onclick="pdcAbrir(\'' + p.pedidoId + '\',event)">\uD83E\uDEAA Datos del cliente</button>';
+  }
 
   // v10: El botón "Ya remití en Xubio" (marcar manualmente como Confirmado) se eliminó.
   // El único camino al estado Confirmado es crear un presupuesto desde el panel Xubio.
@@ -51074,7 +51103,7 @@ function depPollIniciar() {
    TCK_UPD_LOCAL aca Y el archivo version.json del repo.
    ============================================================ */
 (function(){
-  var TCK_UPD_LOCAL = '14.135.0';        /* <-- bump en cada deploy */
+  var TCK_UPD_LOCAL = '14.137.0';        /* <-- bump en cada deploy */
   var TCK_UPD_INTERVALO = 10 * 60 * 1000;   /* chequeo de fondo: 10 min */
   var _updUltChequeo = 0;
 
@@ -51393,6 +51422,291 @@ function depPollIniciar() {
     setTimeout(bpInstalar, 0);
   }
 })();
+</script>
+
+<style>
+/* ── 🪪 Datos del cliente (pdc) ────────────────────────────── */
+#pdc-overlay{position:fixed;inset:0;background:rgba(26,8,0,.62);z-index:100050;
+  display:flex;align-items:center;justify-content:center;padding:16px;}
+.pdc-card{background:#FAF4EC;border-radius:16px;width:100%;max-width:440px;
+  max-height:88vh;overflow:auto;box-shadow:0 18px 50px rgba(0,0,0,.35);
+  border:1px solid rgba(180,83,9,.25);}
+.pdc-head{position:sticky;top:0;background:#1A0800;color:#FAF4EC;
+  padding:14px 46px 12px 16px;border-radius:16px 16px 0 0;}
+.pdc-title{font-family:'Barlow Condensed',sans-serif;font-weight:900;
+  font-size:19px;text-transform:uppercase;letter-spacing:.4px;line-height:1.1;}
+.pdc-pid{font-size:11px;opacity:.7;margin-top:2px;word-break:break-all;}
+.pdc-close{position:absolute;top:10px;right:10px;background:rgba(255,255,255,.14);
+  color:#FAF4EC;border:none;width:30px;height:30px;border-radius:50%;
+  font-size:15px;cursor:pointer;line-height:1;}
+.pdc-body{padding:14px 16px 18px;}
+.pdc-badge{display:inline-block;font-family:'Barlow Condensed',sans-serif;
+  font-weight:800;font-size:13px;text-transform:uppercase;letter-spacing:.3px;
+  padding:6px 12px;border-radius:20px;margin-bottom:12px;}
+.pdc-aviso{background:#FFF3E0;border-left:4px solid #E65100;color:#7A3E00;
+  font-size:12.5px;line-height:1.45;padding:9px 11px;border-radius:6px;
+  margin-bottom:12px;}
+.pdc-aviso-rojo{background:#FFEBEE;border-left-color:#B00020;color:#8A0018;}
+.pdc-row{display:flex;align-items:flex-start;gap:8px;padding:9px 0;
+  border-bottom:1px solid rgba(180,83,9,.14);}
+.pdc-row:last-of-type{border-bottom:none;}
+.pdc-lbl{flex:0 0 84px;font-family:'Barlow Condensed',sans-serif;font-weight:700;
+  font-size:12px;text-transform:uppercase;letter-spacing:.3px;color:#8B6F50;
+  padding-top:2px;}
+.pdc-val{flex:1;font-size:14.5px;color:#1A0800;word-break:break-word;line-height:1.35;}
+.pdc-copy{flex:0 0 auto;background:#FFF;border:1px solid rgba(180,83,9,.3);
+  border-radius:7px;padding:4px 7px;font-size:13px;cursor:pointer;line-height:1;}
+.pdc-copy:active{background:#F0E4D4;}
+.pdc-wa{display:inline-block;margin-left:6px;font-size:12px;font-weight:700;
+  color:#1E8449;text-decoration:none;border-bottom:1px dotted #1E8449;}
+.pdc-btn-todo{width:100%;margin-top:14px;background:#B45309;color:#FFF;border:none;
+  padding:13px;border-radius:10px;font-family:'Barlow Condensed',sans-serif;
+  font-weight:800;font-size:15px;text-transform:uppercase;letter-spacing:.4px;
+  cursor:pointer;}
+.pdc-btn-todo:active{background:#8A3F07;}
+.pdc-info{font-size:13.5px;line-height:1.5;color:#5A4632;padding:8px 0;}
+.pdc-info-error{color:#B00020;}
+</style>
+<script>
+/* ═══════════════════════════════════════════════════════════════════
+   TCK VENTAS v14.137.0 — 🪪 DATOS DEL CLIENTE (módulo pdc)
+   ═══════════════════════════════════════════════════════════════════
+   Muestra los datos fiscales del pedido (CUIT, dirección, comercio,
+   teléfono) para que quien factura pueda dar de alta el cliente en
+   Xubio sin salir a buscar la información.
+
+   POR QUÉ RPC Y NO LA VISTA: vw_pedido_datos_cliente tiene CUIT,
+   dirección y teléfono de clientes reales. La key anon viaja en el
+   HTML público de las tres apps, así que se lee SOLO por
+   pedido_datos_cliente(), SECURITY DEFINER, de a un pedido por vez.
+   Mismo criterio que embudo_leads() (decisión 04/08).
+
+   Si la función no está en Supabase el botón avisa "HTTP 404" en vez
+   de romper la card.
+   ═══════════════════════════════════════════════════════════════════ */
+var _pdcCargando = false;
+var _pdcUltimo   = null;   // último payload traído (para copiar)
+
+async function _pdcRpc(fn, body) {
+  var r = await fetch(SUPABASE_URL + '/rest/v1/rpc/' + fn, {
+    method: 'POST',
+    headers: {
+      'apikey': SUPABASE_KEY,
+      'Authorization': 'Bearer ' + (typeof _JWT !== 'undefined' && _JWT ? _JWT : SUPABASE_KEY),
+      'Content-Type': 'application/json'
+    },
+    body: JSON.stringify(body || {})
+  });
+  if (!r.ok) throw new Error('RPC ' + fn + ' HTTP ' + r.status);
+  var t = await r.text();
+  return t ? JSON.parse(t) : null;
+}
+
+function _pdcEsc(t) {
+  return String(t == null ? '' : t)
+    .replace(/&/g, '&amp;').replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+}
+
+function _pdcToast(msg, tipo) {
+  if (typeof toast === 'function') { try { toast(msg, tipo); return; } catch (e) {} }
+  console.log('[pdc] ' + msg);
+}
+
+/* Copiado con fallback: navigator.clipboard necesita contexto seguro y
+   permiso; si falla se cae al textarea + execCommand, que anda en los
+   Android viejos del equipo. */
+function _pdcCopiar(txt, queCosa) {
+  var ok = function () { _pdcToast('📋 ' + (queCosa || 'Copiado'), 'ok'); };
+  var fallback = function () {
+    try {
+      var ta = document.createElement('textarea');
+      ta.value = txt;
+      ta.setAttribute('readonly', '');
+      ta.style.position = 'fixed';
+      ta.style.left = '-9999px';
+      document.body.appendChild(ta);
+      ta.select();
+      document.execCommand('copy');
+      document.body.removeChild(ta);
+      ok();
+    } catch (e) {
+      _pdcToast('No se pudo copiar, seleccionalo a mano', 'error');
+    }
+  };
+  if (navigator.clipboard && navigator.clipboard.writeText) {
+    navigator.clipboard.writeText(txt).then(ok).catch(fallback);
+  } else {
+    fallback();
+  }
+}
+
+function _pdcCopiarCampo(btn) {
+  var v = btn.getAttribute('data-val') || '';
+  if (!v) return;
+  _pdcCopiar(v, btn.getAttribute('data-label') || 'Copiado');
+}
+
+/* Bloque listo para pegar en el alta de cliente de Xubio. */
+function _pdcTextoXubio(d) {
+  var l = [];
+  if (d.comercio)  l.push('Razón social / comercio: ' + d.comercio);
+  if (d.cliente)   l.push('Contacto: ' + d.cliente);
+  if (d.cuit)      l.push('CUIT: ' + d.cuit);
+  if (d.direccion) l.push('Dirección: ' + d.direccion);
+  if (d.localidad) l.push('Localidad: ' + d.localidad);
+  if (d.telefono)  l.push('Teléfono: ' + d.telefono);
+  l.push('Pedido: ' + (d.pedido_id || ''));
+  return l.join('\n');
+}
+
+function _pdcCopiarTodo() {
+  if (!_pdcUltimo) return;
+  _pdcCopiar(_pdcTextoXubio(_pdcUltimo), 'Datos copiados para Xubio');
+}
+
+function _pdcFila(label, valor, extraHtml) {
+  var vacio = (valor == null || String(valor).trim() === '');
+  var val = vacio
+    ? '<span style="color:#B00020;font-style:italic;">— falta —</span>'
+    : _pdcEsc(valor);
+  var btn = vacio ? '' :
+    '<button class="pdc-copy" data-label="' + _pdcEsc(label) + ' copiado" data-val="' +
+    _pdcEsc(valor) + '" onclick="_pdcCopiarCampo(this)" title="Copiar">📋</button>';
+  return '<div class="pdc-row">' +
+    '<span class="pdc-lbl">' + _pdcEsc(label) + '</span>' +
+    '<span class="pdc-val">' + val + (extraHtml || '') + '</span>' +
+    btn +
+    '</div>';
+}
+
+function _pdcBadge(estadoAlta) {
+  var e = String(estadoAlta || '');
+  var bg = '#EEE', fg = '#555', txt = e || 'sin estado';
+  if (e === 'ya existe en Xubio')        { bg = '#E8F5E9'; fg = '#1E8449'; txt = '✅ Ya existe en Xubio'; }
+  else if (e === 'listo para dar de alta') { bg = '#E3F2FD'; fg = '#1565C0'; txt = '🆕 Listo para dar de alta'; }
+  else if (e === 'FALTA CUIT')           { bg = '#FFEBEE'; fg = '#B00020'; txt = '⛔ Falta CUIT'; }
+  else if (e === 'falta direccion')      { bg = '#FFF3E0'; fg = '#E65100'; txt = '⚠️ Falta dirección'; }
+  return '<div class="pdc-badge" style="background:' + bg + ';color:' + fg + ';">' + txt + '</div>';
+}
+
+function pdcCerrar(ev) {
+  if (ev) ev.stopPropagation();
+  var o = document.getElementById('pdc-overlay');
+  if (o) o.remove();
+  document.removeEventListener('keydown', _pdcEscKey);
+}
+
+function _pdcEscKey(e) { if (e.key === 'Escape') pdcCerrar(); }
+
+function _pdcShell(inner) {
+  var o = document.getElementById('pdc-overlay');
+  if (!o) {
+    o = document.createElement('div');
+    o.id = 'pdc-overlay';
+    o.onclick = function (e) { if (e.target === o) pdcCerrar(); };
+    document.body.appendChild(o);
+    document.addEventListener('keydown', _pdcEscKey);
+  }
+  o.innerHTML = '<div class="pdc-card" onclick="event.stopPropagation()">' + inner + '</div>';
+  return o;
+}
+
+function _pdcHeader(pedidoId) {
+  return '<div class="pdc-head">' +
+    '<div class="pdc-title">🪪 Datos del cliente</div>' +
+    '<div class="pdc-pid">' + _pdcEsc(pedidoId || '') + '</div>' +
+    '<button class="pdc-close" onclick="pdcCerrar(event)">✕</button>' +
+    '</div>';
+}
+
+async function pdcAbrir(pedidoId, ev) {
+  if (ev) ev.stopPropagation();
+  if (_pdcCargando) return;
+  _pdcCargando = true;
+  _pdcUltimo = null;
+
+  _pdcShell(_pdcHeader(pedidoId) +
+    '<div class="pdc-body"><div class="pdc-info">Buscando los datos…</div></div>');
+
+  try {
+    var rows = await _pdcRpc('pedido_datos_cliente', { p_pedido_id: pedidoId });
+    var d = Array.isArray(rows) ? rows[0] : rows;
+
+    if (!d) {
+      _pdcShell(_pdcHeader(pedidoId) +
+        '<div class="pdc-body"><div class="pdc-info">' +
+        'No hay ficha para este pedido. Los pedidos que no entraron por el catálogo ' +
+        'no tienen datos fiscales guardados: hay que pedírselos al cliente.' +
+        '</div></div>');
+      return;
+    }
+
+    _pdcUltimo = d;
+
+    var wa = '';
+    if (d.telefono) {
+      var soloNum = String(d.telefono).replace(/\D/g, '');
+      if (soloNum.length >= 10) {
+        if (soloNum.length === 10) soloNum = '549' + soloNum;
+        wa = ' <a class="pdc-wa" href="https://wa.me/' + soloNum +
+             '" target="_blank" rel="noopener" onclick="event.stopPropagation()">WhatsApp</a>';
+      }
+    }
+
+    var avisoFuente = '';
+    if (d.fuente_fiscal === 'otro_pedido') {
+      var comoMatcheo = (d.fuente_match === 'nombre')
+        ? 'con el mismo nombre'
+        : 'de la misma cuenta';
+      avisoFuente = '<div class="pdc-aviso">⚠️ Este pedido no traía CUIT. Los datos fiscales ' +
+        'salen de otro pedido ' + comoMatcheo + ' (' + _pdcEsc(d.fuente_pedido_id || '') + ').' +
+        (d.fuente_match === 'nombre'
+          ? ' El match es por nombre: verificá que sea el mismo cliente antes de facturar.'
+          : ' Confirmalos antes de facturar.') +
+        '</div>';
+    } else if (d.fuente_fiscal === 'sin_datos') {
+      avisoFuente = '<div class="pdc-aviso pdc-aviso-rojo">⛔ No hay CUIT en ningún pedido de ' +
+        'este cliente. Hay que pedírselo antes de dar el alta en Xubio.</div>';
+    }
+
+    var xubioRow = d.cliente_xubio_id
+      ? _pdcFila('ID Xubio', d.cliente_xubio_id)
+      : '';
+    var factRow = d.xubio_factura_nro
+      ? _pdcFila('Factura', d.xubio_factura_nro)
+      : '';
+
+    _pdcShell(_pdcHeader(d.pedido_id) +
+      '<div class="pdc-body">' +
+        _pdcBadge(d.estado_alta_xubio) +
+        avisoFuente +
+        _pdcFila('Comercio',  d.comercio) +
+        _pdcFila('Contacto',  d.cliente) +
+        _pdcFila('CUIT',      d.cuit) +
+        _pdcFila('Dirección', d.direccion) +
+        _pdcFila('Localidad', d.localidad) +
+        _pdcFila('Teléfono',  d.telefono, wa) +
+        xubioRow +
+        factRow +
+        '<button class="pdc-btn-todo" onclick="_pdcCopiarTodo()">📋 Copiar todo para Xubio</button>' +
+      '</div>');
+
+  } catch (e) {
+    console.error('[pdc]', e);
+    var msg = String(e && e.message || e);
+    var extra = msg.indexOf('404') >= 0
+      ? '<br><br>Falta la función <b>pedido_datos_cliente</b> en Supabase. ' +
+        'Correr el SQL antes de usar el botón.'
+      : '';
+    _pdcShell(_pdcHeader(pedidoId) +
+      '<div class="pdc-body"><div class="pdc-info pdc-info-error">' +
+      'No se pudieron traer los datos.<br>' + _pdcEsc(msg) + extra +
+      '</div></div>');
+  } finally {
+    _pdcCargando = false;
+  }
+}
 </script>
 </body>
 </html>
