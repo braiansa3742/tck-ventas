@@ -18691,6 +18691,111 @@ var _stockMapVentas = {};            // { producto_tck_nombre: {stock_visible, e
 var _stockMapVentasTs = 0;
 const STOCK_VENTAS_TTL = 5 * 60 * 1000;  // 5 minutos
 
+
+/* ═══════════════════════════════════════════════════════════════════
+   CALIBRES CON STOCK (modulo cvs) — v14.140.0
+   ═══════════════════════════════════════════════════════════════════
+   POR QUE: el modal donde el vendedor elige el calibre era CIEGO al
+   stock. Solo mostraba la etiqueta y un stepper. Por eso se elegia
+   "Pollo B x7 congelado" cuando hacia 31 dias que no entraba, el
+   presupuesto salia contra un producto en cero y la factura se trababa
+   a la madrugada (5 pedidos, $1.604.320 al 11/08). El error no era del
+   vendedor: el sistema le dejaba elegir a ciegas.
+
+   QUE HACE: lee vw_cat_variantes (familia + calibre + estado +
+   hay_stock + tope_efectivo) y pinta el stock al lado de cada opcion.
+   Sin stock = fila en gris con aviso. NO bloquea la eleccion (criterio
+   Ricardo 11/08: avisar, no impedir), pero el vendedor ya no decide sin
+   saber.
+
+   DEGRADA GRACEFUL: si la vista no responde, el mapa queda vacio y el
+   modal se ve exactamente como antes. Nada se rompe.
+   ═══════════════════════════════════════════════════════════════════ */
+var _cvsMap    = {};     // { xubio_producto_id: {hay_stock, tope, presentacion} }
+var _cvsMapTs  = 0;
+var _cvsIntentado = false;   // evita reintentos en loop si la vista falla
+var CVS_TTL    = 5 * 60 * 1000;
+
+async function cargarVariantesStock() {
+  if (_cvsMapTs && (Date.now() - _cvsMapTs < CVS_TTL)) return _cvsMap;
+  try {
+    var url = SUPABASE_URL + '/rest/v1/vw_cat_variantes'
+            + '?select=familia,xubio_producto_id,presentacion,calibre,estado,hay_stock,tope_efectivo';
+    var resp = await fetch(url, {
+      headers: { 'apikey': SUPABASE_KEY, 'Authorization': 'Bearer ' + SUPABASE_KEY }
+    });
+    if (!resp.ok) throw new Error('HTTP ' + resp.status);
+    var data = await resp.json();
+    if (!Array.isArray(data)) throw new Error('Respuesta no es array');
+    var mapa = {};
+    data.forEach(function(r) {
+      if (r.xubio_producto_id === null || r.xubio_producto_id === undefined) return;
+      mapa[String(r.xubio_producto_id)] = {
+        familia:      r.familia,
+        presentacion: r.presentacion,
+        calibre:      r.calibre,
+        estado:       r.estado,
+        hay_stock:    r.hay_stock === true,
+        tope:         Number(r.tope_efectivo || 0)
+      };
+    });
+    _cvsMap   = mapa;
+    _cvsMapTs = Date.now();
+    console.log('[TCK Calibres] ' + Object.keys(mapa).length + ' variantes con stock cargadas');
+  } catch (e) {
+    console.warn('[TCK Calibres] Error cargando vw_cat_variantes:', e);
+  }
+  return _cvsMap;
+}
+
+/* Busca la variante. Primero por xubio_producto_id (op.id del Apps
+   Script). Si no matchea, cae a parseo del label ("x7 congelado"),
+   porque no esta garantizado que op.id sea el id de Xubio. */
+
+/* Precarga silenciosa a los 3s del arranque: cuando el vendedor abre el
+   modal de calibres el mapa ya esta en memoria y el stock se ve al toque. */
+try {
+  setTimeout(function() {
+    if (typeof cargarVariantesStock === 'function' && !_cvsIntentado) {
+      _cvsIntentado = true;
+      cargarVariantesStock();
+    }
+  }, 3000);
+} catch (e) { /* no romper el arranque por esto */ }
+
+function _cvsBuscar(opId, label, familia) {
+  var v = _cvsMap[String(opId)];
+  if (v) return v;
+  if (!label) return null;
+  var lb  = String(label).toLowerCase();
+  var mc  = lb.match(/x\s?(\d+)/);
+  var cal = mc ? ('x' + mc[1]) : null;
+  var est = /congel/.test(lb) ? 'congelado' : (/fresc/.test(lb) ? 'fresco' : null);
+  var fam = familia ? String(familia).toLowerCase() : null;
+  var claves = Object.keys(_cvsMap);
+  for (var i = 0; i < claves.length; i++) {
+    var c = _cvsMap[claves[i]];
+    if (cal && c.calibre !== cal) continue;
+    if (est && c.estado  !== est) continue;
+    if (fam && String(c.familia || '').toLowerCase() !== fam) continue;
+    return c;
+  }
+  return null;
+}
+
+/* HTML del indicador. Vacio si no hay dato (el modal queda como antes). */
+function _cvsBadge(opId, label, familia) {
+  var v = _cvsBuscar(opId, label, familia);
+  if (!v) return '';
+  if (!v.hay_stock || v.tope <= 0) {
+    return '<div class="cvs-tag cvs-no">Sin stock &middot; se traba la factura</div>';
+  }
+  if (v.tope <= 3) {
+    return '<div class="cvs-tag cvs-poco">Quedan ' + v.tope + '</div>';
+  }
+  return '<div class="cvs-tag cvs-ok">' + v.tope + ' disponibles</div>';
+}
+
 async function cargarStockVisibleVentas() {
   // Si el cache es válido, no recargar
   if (_stockMapVentasTs && (Date.now() - _stockMapVentasTs < STOCK_VENTAS_TTL)) {
@@ -28002,10 +28107,23 @@ function _xubioPintarPasoCalibre() {
 
   // Renderizar filas (steppers)
   var filasHtml = '';
+  // v14.140.0 — si el mapa de variantes todavia no llego, dispararlo UNA vez
+  // y re-pintar cuando resuelva. _cvsIntentado evita el loop si falla.
+  if (typeof cargarVariantesStock === 'function' && !_cvsIntentado
+      && !Object.keys(_cvsMap).length) {
+    _cvsIntentado = true;
+    cargarVariantesStock().then(function() {
+      if (_xubioCalibresState) _xubioPintarPasoCalibre();
+    });
+  }
   g.opciones.forEach(function(op) {
     var v = st.cantidades[op.id] || 0;
-    filasHtml += '<div class="xc-row" data-cal="' + op.id + '">'
-      + '<div class="xc-cal">' + op.label + '</div>'
+    // v14.140.0 — stock por variante al lado del calibre.
+    var cvsInfo = (typeof _cvsBuscar === 'function') ? _cvsBuscar(op.id, op.label, g.nombre) : null;
+    var cvsSin  = !!(cvsInfo && (!cvsInfo.hay_stock || cvsInfo.tope <= 0));
+    var cvsHtml = (typeof _cvsBadge === 'function') ? _cvsBadge(op.id, op.label, g.nombre) : '';
+    filasHtml += '<div class="xc-row' + (cvsSin ? ' cvs-row-no' : '') + '" data-cal="' + op.id + '">'
+      + '<div class="xc-cal">' + op.label + cvsHtml + '</div>'
       + '<div class="xc-step">'
       +   '<button class="xc-btn-step xc-dec" type="button" onclick="xubioCalibreDec(' + op.id + ')">−</button>'
       +   '<div class="xc-val" id="xc-val-' + op.id + '">' + v + '</div>'
@@ -51577,6 +51695,16 @@ function depPollIniciar() {
 
 <style>
 /* ── 🪪 Datos del cliente (pdc) ────────────────────────────── */
+
+/* Calibres con stock (cvs) — v14.140.0 */
+.cvs-tag{font-family:'Barlow Condensed',sans-serif;font-weight:800;font-size:11.5px;
+  text-transform:uppercase;letter-spacing:.3px;padding:2px 7px;border-radius:12px;
+  display:inline-block;margin-top:3px;}
+.cvs-ok{background:#E8F5E9;color:#2E7D32;}
+.cvs-poco{background:#FFFDE7;color:#F57F17;}
+.cvs-no{background:#FFEBEE;color:#C62828;}
+.xc-row.cvs-row-no{opacity:.62;}
+
 #pdc-overlay{position:fixed;inset:0;background:rgba(26,8,0,.62);z-index:100050;
   display:flex;align-items:center;justify-content:center;padding:16px;}
 .pdc-card{background:#FAF4EC;border-radius:16px;width:100%;max-width:440px;
