@@ -2,6 +2,24 @@
 <html lang="es">
 <head>
 <!-- ═══════════════════════════════════════════════════════════════════════
+     TCK VENTAS — v14.138.0 — 11/08/2026
+     v14.138.0: EL ESTADO YA NO "VUELVE PARA ATRÁS" DESPUÉS DE EDITAR.
+        DISPARADOR: audio de Miguel (11/08) sobre lo engorroso que es editar
+        un pedido: "cuando le anulás el presupuesto te sigue apareciendo como
+        confirmado... cerrás, abrís la app, actualizás un par de veces".
+        CAUSA: los cambios de estado locales (_estadosCambiados) se
+        respetaban por una ventana FIJA de 2 minutos, pero el CSV publicado
+        del Sheet que lee la app cachea ~5 min del lado de Google. Entre el
+        minuto 2 y el 5 el optimista ya había expirado y el Sheet TODAVÍA
+        devolvía el estado viejo → el pedido volvía a mostrarse "Confirmado"
+        después de que el presupuesto ya estaba anulado. Actualizar de nuevo
+        no ayudaba: volvía a traer el mismo CSV cacheado.
+        AHORA: el cambio se sostiene hasta que el Sheet devuelva ESE mismo
+        estado — ahí la marca se borra sola, que es la señal de que viajó de
+        verdad — con tope de 15 min por si el guardado falló.
+        Aplica a los cuatro puntos donde se marca estado: confirmar, cancelar,
+        desbloquear presupuesto y cancelar en lote.
+
      TCK VENTAS — v14.137.0 — 10/08/2026
      v14.137.0: BOTÓN 🪪 DATOS DEL CLIENTE en la card del pedido.
         PROBLEMA (bitácora 703): si un cliente pide por catálogo sin
@@ -23369,14 +23387,25 @@ async function cargarPedidos(silencioso, _reintentos) {
     });
 
     cargarNotas(pedidos);
-    // Respetar cambios locales recientes (últimos 2 min)
+    // v14.138.0 — SOSTENER EL CAMBIO HASTA QUE EL SHEET LO CONFIRME.
+    // ANTES: ventana fija de 2 minutos. El problema (audio de Miguel, 11/08):
+    // el CSV publicado de Google cachea ~5 min, así que entre el minuto 2 y el
+    // 5 el optimista ya había expirado pero el Sheet TODAVÍA devolvía el estado
+    // viejo → el pedido volvía a mostrarse "Confirmado" después de anularle el
+    // presupuesto. De ahí el "cerrás, abrís, actualizás un par de veces y nada".
+    // AHORA: el cambio se sostiene hasta que el Sheet devuelva ESE mismo estado
+    // (ahí se borra la marca sola, que es la señal de que viajó de verdad), con
+    // un tope de 15 min por si el guardado falló y el Sheet nunca lo confirma.
     var ahora = Date.now();
     pedidos.forEach(function(p) {
       var cambio = _estadosCambiados[p.pedidoId];
-      if (cambio && (ahora - cambio.ts) < 120000) {
-        p.estado = cambio.estado;
-      } else if (cambio) {
-        delete _estadosCambiados[p.pedidoId];
+      if (!cambio) return;
+      if (p.estado === cambio.estado) {
+        delete _estadosCambiados[p.pedidoId];   // el Sheet ya lo trae: listo
+      } else if ((ahora - cambio.ts) < 900000) {
+        p.estado = cambio.estado;               // todavía no llegó: sostener
+      } else {
+        delete _estadosCambiados[p.pedidoId];   // tope de seguridad (15 min)
       }
     });
     // Marcar chofer asignado en cada pedido
