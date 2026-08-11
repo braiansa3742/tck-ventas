@@ -2,6 +2,31 @@
 <html lang="es">
 <head>
 <!-- ═══════════════════════════════════════════════════════════════════════
+     TCK VENTAS — v14.141.0 — 11/08/2026
+     v14.141.0: PRECIO MANUAL DEL VENDEDOR (solo hacia ARRIBA de la tabla).
+        PEDIDO (vendedores vía Braian): hay negocios propios donde colocan
+        Pollo B/C a precio de lista EN CANTIDAD (ej. 10 Pollo C a $68.000);
+        la escalera automática los pisaba a $62.900 y regalaba margen.
+        AHORA: botón "$" en la card (tomador campo y manual WA) → precio
+        manual por producto. Reglas:
+        · PISO = tramo vigente para la cantidad: el manual solo puede ser
+          MAYOR O IGUAL a la tabla. Para vender abajo: circuito de defensa
+          (foto → Braian → acuerdo). En runtime, tckPrecioFinal usa
+          max(manual, tramo vigente): si después cambian la cantidad y el
+          tramo queda arriba del manual, cobra el tramo — nunca se filtra
+          un precio bajo tabla.
+        · Acuerdo VIP sigue pisando todo (el botón avisa y no deja).
+        · Trazado: card en azul "🔓 PRECIO MANUAL", badge "🔓 manual" en el
+          resumen, y el precio viaja como siempre en el texto del pedido.
+        · Segundo tap en el botón = quitar y volver a la tabla.
+        · Se limpia al confirmar/cancelar el pedido (no queda pegado).
+
+     TCK VENTAS — v14.140.0 — 11/08/2026
+     v14.140.0: CALIBRES CON STOCK (módulo cvs) — subido directo al repo
+        desde otra sesión: el modal donde el vendedor elige calibre muestra
+        el stock real por variante. (Entrada agregada acá el 11/08 para que
+        el changelog no mienta; el módulo vive más abajo en el archivo.)
+
      TCK VENTAS — v14.139.0 — 11/08/2026
      v14.139.0: ESCALERA DE TRAMOS VISIBLE + NUDGE DE UPSELL (opción B Braian).
         CONTEXTO: tramos mayoristas nuevos en Pollo A/B/C (SQL precios de
@@ -7393,6 +7418,18 @@ body {
   background: #E8F5E9; border-color: #A5D6A7; color: #2E7D32;
   font-size: 9px; line-height: 26px;
 }
+/* v14.141.0 — botón de precio manual (cobrar ARRIBA de tabla) */
+.tomador-man-btn {
+  position: absolute; top: 6px; right: 38px;
+  width: 28px; height: 28px; padding: 0;
+  font-size: 12px; font-weight: 900;
+  color: #9E9E9E; background: rgba(255,255,255,0.9);
+  border: 1.5px solid #E0E0E0; border-radius: 50%;
+  cursor: pointer; text-align: center; line-height: 26px;
+  -webkit-tap-highlight-color: transparent;
+  touch-action: manipulation; z-index: 2;
+}
+.tomador-man-btn.tiene-man { background: #E3F2FD; border-color: #90CAF9; color: #1565C0; font-size: 11px; }
 .dto-badge {
   position: absolute; top: 4px; right: 4px; background: #1565C0; color: #fff;
   font-size: 9px; font-weight: 900; padding: 2px 6px; border-radius: 6px;
@@ -21137,6 +21174,13 @@ function tckCardPrecioHTML(item, qty, ctx) {
     return '<div class="tomador-item-precio" style="color:#B45309;">\u2B50 $' + _pa.toLocaleString('es-AR') +
       '<div style="font-size:9px;font-weight:900;letter-spacing:.5px;">PRECIO ACUERDO</div></div>';
   }
+  // v14.141.0 — precio manual del vendedor: vista azul, sin escalera ni nudge
+  var _pmC = tckPrecioManualDe(item && item.n, ctx || 'tomador');
+  if (_pmC !== null) {
+    var _pmEf = Math.max(_pmC, tckPrecioTramo(item, Math.max(1, Number(qty) || 1)));
+    return '<div class="tomador-item-precio" style="color:#1565C0;">\uD83D\uDD13 $' + _pmEf.toLocaleString('es-AR') +
+      '<div style="font-size:9px;font-weight:900;letter-spacing:.5px;">PRECIO MANUAL</div></div>';
+  }
   var pr = (item && item.pr) || 0;
   var t = (item && item.n) ? tckTramosDe(item.n) : null;
   if (!t || t.length < 2) {
@@ -21233,11 +21277,83 @@ function tckDtoMaxPct(nombre, q) {
 // Precio FINAL (tramo + descuento capado). Centraliza la regla de facturación:
 // el descuento se calcula sobre el precio del tramo y nunca supera el cap del
 // tramo vigente para esa cantidad. Productos sin tramo → comportamiento de antes.
-function tckPrecioFinal(item, q, dtoPct) {
+// ═══════════════════════════════════════════════════════════════
+// v14.141.0 — PRECIO MANUAL del vendedor (solo hacia ARRIBA).
+// Mapa por contexto: el mismo producto puede tener manual en el tomador
+// de campo y no en el manual WA. Nunca pisa un acuerdo VIP.
+// ═══════════════════════════════════════════════════════════════
+var _tomadorPrecioManual = {};  // { nombre: { precio } }
+var _mwaPrecioManual = {};
+
+function tckPrecioManualDe(nombre, ctx) {
+  var mapa = (ctx === 'mwa') ? _mwaPrecioManual : (ctx === 'tomador' ? _tomadorPrecioManual : null);
+  var r = mapa && nombre ? mapa[nombre] : null;
+  return (r && Number(r.precio) > 0) ? Math.round(Number(r.precio)) : null;
+}
+
+function tckAbrirPrecioManual(nombre, ctx) {
+  var mapa = (ctx === 'mwa') ? _mwaPrecioManual : _tomadorPrecioManual;
+  var qty = (ctx === 'mwa') ? ((_manualWAQtys || {})[nombre] || 0) : ((_tomadorQtys || {})[nombre] || 0);
+  var item = null;
+  for (var i = 0; i < TOMADOR_CAT.length && !item; i++) {
+    for (var j = 0; j < TOMADOR_CAT[i].items.length; j++) {
+      if (TOMADOR_CAT[i].items[j].n === nombre) { item = TOMADOR_CAT[i].items[j]; break; }
+    }
+  }
+  if (!item) return;
+  if (acuVtaPrecioDe(nombre) !== null) {
+    toast('Este producto tiene PRECIO ACUERDO para el cliente — no se pisa a mano', 'err');
+    return;
+  }
+  var actual = mapa[nombre];
+  if (actual) {
+    if (confirm('Quitar el precio manual de ' + nombre + ' ($' + Number(actual.precio).toLocaleString('es-AR') + ') y volver a la tabla?')) {
+      delete mapa[nombre];
+      tckManualPostCambio(nombre, ctx);
+    }
+    return;
+  }
+  var piso = tckPrecioTramo(item, Math.max(1, qty));
+  var v = prompt('PRECIO MANUAL — ' + nombre + '\n'
+    + 'Tabla para ' + Math.max(1, qty) + ' u.: $' + piso.toLocaleString('es-AR') + ' (mínimo)\n'
+    + 'Solo se cobra HACIA ARRIBA. Para vender abajo de tabla: foto de la oferta a Braian.', String(piso));
+  if (v === null) return;
+  var n = parseInt(String(v).replace(/[^\d]/g, ''), 10);
+  if (isNaN(n) || n <= 0) return;
+  if (n < piso) {
+    toast('$' + n.toLocaleString('es-AR') + ' está ABAJO de la tabla ($' + piso.toLocaleString('es-AR') + '). Para eso: circuito de defensa con Braian.', 'err');
+    return;
+  }
+  mapa[nombre] = { precio: n };
+  tckManualPostCambio(nombre, ctx);
+}
+function tomadorAbrirPrecioManual(nombre) { tckAbrirPrecioManual(nombre, 'tomador'); }
+function mwaAbrirPrecioManual(nombre) { tckAbrirPrecioManual(nombre, 'mwa'); }
+
+function tckManualPostCambio(nombre, ctx) {
+  tckEscaleraRefrescar(nombre, ctx);
+  var esMwa = (ctx === 'mwa');
+  var id = esMwa ? 'mwa-item-' + nombre.replace(/[^a-zA-Z0-9]/g, '-')
+                 : 'titem-' + nombre.replace(/[^a-zA-Z0-9]/g, '_');
+  var card = document.getElementById(id);
+  if (card) {
+    var mapa = esMwa ? _mwaPrecioManual : _tomadorPrecioManual;
+    var b = card.querySelector('.tomador-man-btn');
+    if (b) { b.classList.toggle('tiene-man', !!mapa[nombre]); b.textContent = mapa[nombre] ? '\uD83D\uDD13' : '$'; }
+  }
+  if (esMwa) { if (typeof mwaActualizarTotal === 'function') mwaActualizarTotal(); }
+  else { if (typeof tomadorActualizarTotal === 'function') tomadorActualizarTotal(); }
+}
+
+function tckPrecioFinal(item, q, dtoPct, ctx) {
   // v14.68.0: si el cliente activo tiene acuerdo para este producto,
   // ese precio es FINAL (ignora tramos y descuentos).
   var _pa = acuVtaPrecioDe(item && item.n);
   if (_pa !== null) return _pa;
+  // v14.141.0 — precio manual del vendedor: pisa tramo y descuento pero
+  // SOLO hacia arriba (max contra el tramo vigente para esta cantidad).
+  var _pm = tckPrecioManualDe(item && item.n, ctx);
+  if (_pm !== null) return Math.max(_pm, tckPrecioTramo(item, q));
   var base = tckPrecioTramo(item, q);
   var cap  = (item && item.n) ? tckDtoMaxPct(item.n, q) : null;
   var dto  = Number(dtoPct) || 0;
@@ -33955,6 +34071,7 @@ function _tomadorAbrirInterno() {
   }
   _tomadorCompetencia = {};
   _tomadorDescuentos = {};
+  _tomadorPrecioManual = {};  // v14.141.0
   _tomadorCombos = {}; // v9.2: reset combos del pedido
   _tomadorPromos = {}; // v13.4: reset promos 1+1 del pedido
   _tomadorCatActual = 'todos';
@@ -34025,6 +34142,7 @@ function tomadorCerrar() {
     _tomadorCalibres = {};
     _tomadorPromos = {};
     _tomadorDescuentos = {};
+    _tomadorPrecioManual = {};  // v14.141.0
     _tomadorCombos = {};
     _tomadorCompetencia = {};
     _tomadorSucursalElegida = null;
@@ -34129,6 +34247,7 @@ function tomadorRenderProductos(catId) {
         + (function(){ var dto = _tomadorDescuentos[item.n]; return '<button class="tomador-dto-btn' + (dto ? ' tiene-dto' : '') + '" onclick="tomadorAbrirDescuento(&quot;' + safeName + '&quot;)" title="Aplicar descuento">'
           + (dto ? (dto.pct === 100 ? '🎁' : '-' + dto.pct + '%') : '%')
           + '</button>'; })()
+        + (function(){ var pm = _tomadorPrecioManual[item.n]; return '<button class="tomador-man-btn' + (pm ? ' tiene-man' : '') + '" onclick="tomadorAbrirPrecioManual(&quot;' + safeName + '&quot;)" title="Precio manual (solo hacia arriba)">' + (pm ? '\uD83D\uDD13' : '$') + '</button>'; })()
         + '</div></div>';
     });
     html += '</div>';
@@ -34326,7 +34445,7 @@ function tomadorActualizarTotal() {
       }
       if (item) break;
     }
-    if (item) { total += tckPrecioFinal(item, qty, (_tomadorDescuentos[nombre]||{}).pct||0) * qty; count += qty; }
+    if (item) { total += tckPrecioFinal(item, qty, (_tomadorDescuentos[nombre]||{}).pct||0, 'tomador') * qty; count += qty; }
   });
   // v13.4: sumar promos 1+1 al total
   var tp = (typeof promosTotalVentas === 'function') ? promosTotalVentas(_tomadorPromos) : { total:0, unidades:0 };
@@ -34431,11 +34550,12 @@ async function tomadorConfirmar() {
     var imgFileR = IMGMAP[item.n] || (item.img + '.jpg');
     var imgUrlR = 'https://tckcatalogo.com/img/' + encodeURIComponent(imgFileR).replace(/%20/g,'%20');
     var dto = _tomadorDescuentos[nombre];
-    var precioFinal = tckPrecioFinal(item, qty, dto ? dto.pct : 0);  // v14.23.0 tramo + dto capado
+    var precioFinal = tckPrecioFinal(item, qty, dto ? dto.pct : 0, 'tomador');  // v14.23.0 tramo + dto capado (+ manual v14.141.0)
     var sub = precioFinal * qty;
     resumenTotal += sub;
     var _tvR = tckTramoVigente(nombre, qty);  // v14.139.0
-    resumenLineas.push({ nombre: nombre, qty: qty, presentacion: item.p, precio: tckPrecioTramo(item, qty), precioFinal: precioFinal, dto: dto, subtotal: sub, imgUrl: item.img2 || imgUrlR, tramoMin: (_tvR ? _tvR.min : 1) });
+    var _esManualR = (tckPrecioManualDe(nombre, 'tomador') !== null);  // v14.141.0
+    resumenLineas.push({ nombre: nombre, qty: qty, presentacion: item.p, precio: tckPrecioTramo(item, qty), precioFinal: precioFinal, dto: dto, subtotal: sub, imgUrl: item.img2 || imgUrlR, tramoMin: (_tvR ? _tvR.min : 1), manual: _esManualR });
   });
 
   // Crear modal de resumen
@@ -34475,7 +34595,7 @@ async function tomadorConfirmar() {
         return '<div style="display:flex;align-items:center;gap:10px;padding:10px 0;border-bottom:1px solid #f0e8e8">'
           + '<img src="' + l.imgUrl + '" style="width:44px;height:44px;object-fit:cover;border-radius:8px;flex-shrink:0" onerror="this.style.display=&quot;none&quot;">'
           + '<div style="flex:1"><div style="font-weight:700;font-size:14px">' + l.nombre + '</div>'
-          + '<div style="font-size:12px;color:#888">' + l.presentacion + ' · ' + l.qty + ' unid.' + (l.tramoMin > 1 ? ' · <span style="color:#27500A;font-weight:800">\uD83C\uDFF7\uFE0F mayorista x' + l.tramoMin + '+</span>' : '') + '</div></div>'
+          + '<div style="font-size:12px;color:#888">' + l.presentacion + ' · ' + l.qty + ' unid.' + (l.manual ? ' · <span style="color:#1565C0;font-weight:800">\uD83D\uDD13 manual</span>' : (l.tramoMin > 1 ? ' · <span style="color:#27500A;font-weight:800">\uD83C\uDFF7\uFE0F mayorista x' + l.tramoMin + '+</span>' : '')) + '</div></div>'
           + '<div style="text-align:right">' + (l.dto ? '<div style="font-size:10px;color:#1565C0;font-weight:800;">-' + l.dto.pct + '% dto</div><div style="font-size:11px;color:#999;text-decoration:line-through">$' + (l.precio*l.qty).toLocaleString('es-AR') + '</div>' : '') + '<div style="font-family:Barlow Condensed,sans-serif;font-size:16px;font-weight:900;color:#8B0000">$' + l.subtotal.toLocaleString('es-AR') + '</div></div>'
           + '</div>';
       }).join('')
@@ -34983,7 +35103,7 @@ async function tomadorConfirmarConEntrega(entregaData) {
     // el resumen y WhatsApp manual. Antes usaba item.pr → guardaba/facturaba el
     // suelto al precio de caja (Suprema 1-3u salía $34k en vez de $36k) y no
     // respetaba el tope de descuento del tramo. tckPrecioFinal(item,qty,0) = tramo puro.
-    var precioDef = tckPrecioFinal(item, qty, dto ? dto.pct : 0);
+    var precioDef = tckPrecioFinal(item, qty, dto ? dto.pct : 0, 'tomador');  // v14.141.0 + manual
     var subtotal = precioDef * qty;
     total += subtotal;
     var _nombreLinea = nombre + ((POLLOS_CON_CALIBRE[nombre] && _tomadorCalibres[nombre]) ? ' ' + _tomadorCalibres[nombre] : '');
@@ -40370,6 +40490,7 @@ function abrirCargaManualWA() {
   _manualWACliente = '';
   _manualWALocalidad = '';
   _manualWADescuentos = {};
+  _mwaPrecioManual = {};  // v14.141.0
   _manualWACombos = {}; // v9.2: reset combos
   _manualWAPromos = {}; // v13.4: reset promos
 
@@ -40436,6 +40557,7 @@ function manualWAHTML() {
             '<button class="tomador-qty-btn plus" onclick="manualWAQty(&quot;' + safeName + '&quot;,1)">+</button>' +
           '</div>' +
           (function(){ var d=_manualWADescuentos[item.n]; var pr=item.pr||0; return pr>0 ? '<button class="tomador-dto-btn'+(d?' tiene-dto':'')+'" onclick="mwaAbrirDescuento(&quot;'+safeName+'&quot;)" title="Aplicar descuento">'+(d?(d.pct===100?'🎁':'-'+d.pct+'%'):'%')+'</button>' : ''; })() +
+          (function(){ var pm=_mwaPrecioManual[item.n]; return '<button class="tomador-man-btn'+(pm?' tiene-man':'')+'" onclick="mwaAbrirPrecioManual(&quot;'+safeName+'&quot;)" title="Precio manual (solo hacia arriba)">'+(pm?'\uD83D\uDD13':'$')+'</button>'; })() +
         '</div>' +
       '</div>';
     });
@@ -40655,8 +40777,9 @@ function mwaCalcularDesglose() {
     }
     if (!item) return;
     var dto = _manualWADescuentos[nombre];
-    var precioUnit = tckPrecioTramo(item, qty);          // v14.23.0 precio del tramo
-    var precioFinal = tckPrecioFinal(item, qty, dto ? dto.pct : 0);  // tramo + dto capado
+    var precioFinal = tckPrecioFinal(item, qty, dto ? dto.pct : 0, 'mwa');  // tramo + dto capado (+ manual v14.141.0)
+    // v14.141.0 — con precio manual, el unitario mostrado ES el manual (no el tramo)
+    var precioUnit = (tckPrecioManualDe(nombre, 'mwa') !== null) ? precioFinal : tckPrecioTramo(item, qty);
     var subtotal = precioFinal * qty;
 
     desglose.sueltos.push({
@@ -40713,6 +40836,7 @@ function cerrarCargaManualWA() {
   _manualWAQtys = {};
   _manualWACalibres = {};
   _manualWADescuentos = {};
+  _mwaPrecioManual = {};  // v14.141.0
   _manualWACombos = {};
   _manualWAPromos = {};
   if (typeof _acuVtaCliActivo !== 'undefined') _acuVtaCliActivo = '';
