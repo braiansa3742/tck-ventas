@@ -27459,6 +27459,290 @@ var _xubioActivo   = false;  // pausa el auto-refresh cuando Xubio está en uso
 // de progreso (Xubio lento). La respuesta tardía se avisa por toast en vez
 // de abrir el modal de éxito (cuyo auto-checkout cerraría la visita
 // EQUIVOCADA si el vendedor ya hizo check-in en otro cliente).
+/* ═══════════════════════════════════════════════════════════════════
+   CAMBIO DE CALIBRE (modulo cci) — v14.142.0
+   ═══════════════════════════════════════════════════════════════════
+   EL CASO (reunion 11/08): se vende Pollo B x7 congelado, no hay
+   congelado pero hay fresco. La factura no sale. Hoy la unica salida
+   son tres pasos sueltos (anular presupuesto, editar, re-presupuestar)
+   o meter mano en Xubio a mano — que es lo que se viene haciendo y lo
+   que rompe la correspondencia entre el pedido y el comprobante.
+
+   ESTE BOTON encadena esos tres pasos en uno, con PIN y auditoria.
+   Opcion A (decision Braian 11/08): cambio DIRECTO, sin aprobacion
+   previa. Un control que hace esperar se esquiva — es la causa R4 de
+   la auditoria del 23/07. Francisco lo ve en el aviso de las 21:00 y
+   puede revertir.
+
+   ORDEN DE LAS OPERACIONES (importa): primero se detectan los calibres
+   y se elige, DESPUES se anula y se re-presupuesta. El paso destructivo
+   ocurre solo cuando el vendedor ya confirmo. Si cancela en el modal,
+   no se toco nada.
+
+   EL PRECIO NO CAMBIA: vive en la familia, no en la variante (Pollo B
+   = $74.900 sin importar calibre ni conservacion). Cambiar la variante
+   solo cambia contra que producto de Xubio se descuenta el stock.
+
+   CLIENTE XUBIO: 174 pedidos de los ultimos 30 dias tienen
+   pedidos_zona.cliente_xubio_id en NULL. Los 174 lo tienen en
+   presupuestos_xubio. Por eso la resolucion es en cascada y no hace
+   falta tocar el Apps Script.
+   ═══════════════════════════════════════════════════════════════════ */
+
+var _cciActivo = false;
+
+/* Helpers propios: el modulo tiene que correr igual en ventas y en admin.
+   Admin no tiene _colaFetchJson ni vendedorActual, asi que no se depende
+   de nada de afuera salvo SUPABASE_*, APPS_SCRIPT_URL y toast. */
+function _cciFetchJson(url, timeoutMs) {
+  var ctrl = new AbortController();
+  var tid  = setTimeout(function () { ctrl.abort(); }, timeoutMs || 30000);
+  return fetch(url, { signal: ctrl.signal })
+    .then(function (r) { clearTimeout(tid); return r.json(); })
+    .catch(function (e) { clearTimeout(tid); throw e; });
+}
+
+function _cciQuien() {
+  try { if (typeof vendedorActual !== 'undefined' && vendedorActual) return vendedorActual; } catch (e) {}
+  try { if (typeof usuarioActual  !== 'undefined' && usuarioActual)  return usuarioActual;  } catch (e) {}
+  return 'admin';
+}
+
+/* Resuelve el cliente Xubio del pedido. Cascada:
+   1) memoria (_xubioSeleccion) — si el vendedor lo eligio en esta sesion
+   2) pedidos_zona.cliente_xubio_id
+   3) presupuestos_xubio.cliente_xubio_id (por el transaccionid)
+   Devuelve null si no aparece en ninguna: ahi se aborta SIN tocar nada. */
+async function _cciResolverCliente(pedidoId, transaccionid) {
+  try {
+    var mem = (typeof _xubioSeleccion !== 'undefined') ? _xubioSeleccion[pedidoId] : null;
+    if (mem && mem.clienteId) return String(mem.clienteId);
+  } catch (e) { /* seguir con la cascada */ }
+
+  var H = { 'apikey': SUPABASE_KEY, 'Authorization': 'Bearer ' + SUPABASE_KEY };
+
+  try {
+    var r1 = await fetch(SUPABASE_URL + '/rest/v1/pedidos_zona?pedido_id=eq.'
+      + encodeURIComponent(pedidoId) + '&select=cliente_xubio_id', { headers: H });
+    if (r1.ok) {
+      var d1 = await r1.json();
+      if (d1 && d1[0] && d1[0].cliente_xubio_id) return String(d1[0].cliente_xubio_id);
+    }
+  } catch (e) { console.warn('[cci] pedidos_zona:', e); }
+
+  if (transaccionid) {
+    try {
+      var r2 = await fetch(SUPABASE_URL + '/rest/v1/presupuestos_xubio?transaccion_id=eq.'
+        + encodeURIComponent(transaccionid) + '&select=cliente_xubio_id', { headers: H });
+      if (r2.ok) {
+        var d2 = await r2.json();
+        if (d2 && d2[0] && d2[0].cliente_xubio_id) return String(d2[0].cliente_xubio_id);
+      }
+    } catch (e) { console.warn('[cci] presupuestos_xubio:', e); }
+  }
+
+  return null;
+}
+
+/* Punto de entrada del boton. */
+async function cciCambiarCalibre(pedidoId, transaccionid, nroPresupuesto, btnEl) {
+  if (_cciActivo) { toast('⏳ Ya hay un cambio en curso. Aguardá…', 'err'); return; }
+  if (!transaccionid) {
+    toast('⚠️ Falta el ID interno de Xubio. Avisale al admin.', 'err');
+    return;
+  }
+
+  var txtOrig = '';
+  function lock(txt) {
+    if (!btnEl) return;
+    if (!txtOrig) txtOrig = btnEl.textContent;
+    btnEl.disabled = true;
+    btnEl.textContent = txt;
+  }
+  function unlock() {
+    if (!btnEl) return;
+    btnEl.disabled = false;
+    if (txtOrig) btnEl.textContent = txtOrig;
+  }
+
+  _cciActivo = true;
+  lock('⏳ Buscando calibres…');
+
+  try {
+    // ── PASO 1: cliente Xubio (antes de tocar nada) ────────────────
+    var clienteId = await _cciResolverCliente(pedidoId, transaccionid);
+    if (!clienteId) {
+      toast('⚠️ No encontré el cliente Xubio de este pedido. Usá "Editar pedido" y elegí el cliente a mano.', 'err');
+      return;
+    }
+
+    // ── PASO 2: detectar calibres. NO destructivo ──────────────────
+    var det = await _cciFetchJson(
+      APPS_SCRIPT_URL + '?accion=detectarCalibres&pedidoId=' + encodeURIComponent(pedidoId), 25000);
+
+    if (!det || det.status !== 'ok') {
+      toast('⚠️ ' + ((det && det.message) || 'No se pudo leer el pedido'), 'err');
+      return;
+    }
+    if (!det.necesitaModal || !det.genericos || !det.genericos.length) {
+      // Sin productos con calibre no hay nada que cambiar por esta via.
+      // Importante: no se anulo nada.
+      toast('Este pedido no tiene productos con calibre. Para cambiar otro producto usá "Editar pedido".', 'err');
+      return;
+    }
+
+    // ── PASO 3: modal de calibres (ya muestra stock desde v14.140.0) ──
+    _xubioCalibresState = {
+      genericos: det.genericos,
+      pasoActual: 1,
+      cantidades: {},
+      args: {
+        pedidoId: pedidoId,
+        fila: null,
+        id: pedidoId.replace(/[^a-zA-Z0-9]/g, '-'),
+        skipFechaModal: true,
+        onCalibresOK: function (calibresPayload) {
+          _cciEjecutar(pedidoId, transaccionid, nroPresupuesto, clienteId, calibresPayload, btnEl, txtOrig);
+        },
+        onCancel: function () {
+          _cciActivo = false;
+          unlock();
+          toast('Cambio cancelado. El pedido quedó como estaba.', 'ok');
+        }
+      }
+    };
+
+    var modal = document.getElementById('modal-xubio-calibre');
+    if (!modal) {
+      modal = document.createElement('div');
+      modal.id = 'modal-xubio-calibre';
+      modal.className = 'modal-overlay';
+      document.body.appendChild(modal);
+    }
+    modal.innerHTML = _xubioRenderModalCalibreShell();
+    modal.classList.add('on');
+    _xubioPintarPasoCalibre();
+    unlock();   // el modal toma el control; el boton se libera
+
+  } catch (err) {
+    console.error('[cci] error:', err);
+    toast('⚠️ Sin conexión. No se cambió nada.', 'err');
+  } finally {
+    // Ojo: si se abrio el modal, _cciActivo sigue en true a proposito
+    // hasta que el vendedor confirme o cancele.
+    if (!document.querySelector('#modal-xubio-calibre.on')) {
+      _cciActivo = false;
+      unlock();
+    }
+  }
+}
+
+/* Paso destructivo: anular el presupuesto viejo y crear el nuevo.
+   Corre SOLO despues de que el vendedor confirmo los calibres. */
+async function _cciEjecutar(pedidoId, transaccionid, nroPresupuesto, clienteId, calibres, btnEl, txtOrig) {
+  try {
+    if (btnEl) { btnEl.disabled = true; btnEl.textContent = '⏳ Anulando presupuesto…'; }
+    toast('⏳ Cambiando el calibre…', 'ok');
+
+    // ── Anular ──────────────────────────────────────────────────────
+    var pAnular = new URLSearchParams({
+      accion:         'desbloquearPedidoXubio',
+      pedidoId:       pedidoId,
+      transaccionid:  String(transaccionid),
+      nroPresupuesto: nroPresupuesto || '',
+      vendedor:       _cciQuien()
+    });
+    var dataA = await _cciFetchJson(APPS_SCRIPT_URL + '?' + pAnular.toString(), 40000);
+
+    if (!dataA || dataA.status !== 'ok') {
+      // No se anulo: el pedido sigue INTACTO con su presupuesto viejo.
+      toast('⚠️ ' + ((dataA && dataA.message) || 'No se pudo anular el presupuesto') +
+            ' — el pedido quedó como estaba.', 'err');
+      return;
+    }
+
+    // Reflejar el estado local igual que hace desbloquearPedidoXubio
+    var pm = null;
+    try {
+      pm = (typeof todosLosPedidos !== 'undefined')
+        ? todosLosPedidos.find(function (x) { return x.pedidoId === pedidoId; }) : null;
+    } catch (e) { pm = null; }
+    if (pm) {
+      pm.estado = 'Pendiente';
+      pm.xubioNroPresupuesto = '';
+      pm.xubioTransaccionid  = '';
+      pm.xubioEstado         = '';
+    }
+
+    // ── Re-presupuestar ────────────────────────────────────────────
+    if (btnEl) btnEl.textContent = '⏳ Creando presupuesto nuevo…';
+    var pNuevo = new URLSearchParams({
+      accion:         'crearPresupuestoXubio',
+      pedidoId:       pedidoId,
+      xubioClienteId: clienteId
+    });
+    if (calibres && Object.keys(calibres).length) {
+      pNuevo.set('calibres', JSON.stringify(calibres));
+    }
+
+    var dataB = await _cciFetchJson(APPS_SCRIPT_URL + '?' + pNuevo.toString(), 60000);
+
+    if (dataB && dataB.status === 'ok') {
+      if (pm) {
+        pm.estado = 'Confirmado';
+        pm.xubioNroPresupuesto = dataB.nroPresupuesto || '';
+        pm.xubioTransaccionid  = dataB.transaccionid  || '';
+      }
+      _cciAuditar(pedidoId, calibres, nroPresupuesto, dataB.nroPresupuesto);
+      toast('✅ Calibre cambiado. Presupuesto N° ' + (dataB.nroPresupuesto || 's/n'), 'ok');
+    } else {
+      // El presupuesto viejo YA no existe. El pedido quedo en Pendiente:
+      // es visible en la app y sale listado en el aviso de las 21:00 como
+      // SIN PRESUPUESTO. Hay que decirlo con todas las letras.
+      toast('⚠️ Se anuló el presupuesto viejo pero el nuevo NO se creó: ' +
+            ((dataB && dataB.message) || 'error de Xubio') +
+            '. El pedido quedó en Pendiente — hay que presupuestarlo de nuevo.', 'err');
+    }
+
+    if (typeof cargarPedidos === 'function') cargarPedidos();
+    else if (typeof renderPedidos === 'function') renderPedidos();
+
+  } catch (err) {
+    console.error('[cci] ejecutar:', err);
+    toast('⚠️ Se cortó la conexión durante el cambio. Revisá el pedido antes de reintentar.', 'err');
+  } finally {
+    _cciActivo = false;
+    if (btnEl) { btnEl.disabled = false; if (txtOrig) btnEl.textContent = txtOrig; }
+  }
+}
+
+/* Auditoria en pedido_acciones. Best-effort: nunca bloquea el cambio. */
+function _cciAuditar(pedidoId, calibres, presupViejo, presupNuevo) {
+  try {
+    fetch(SUPABASE_URL + '/rest/v1/pedido_acciones', {
+      method: 'POST',
+      headers: {
+        'apikey':        SUPABASE_KEY,
+        'Authorization': 'Bearer ' + SUPABASE_KEY,
+        'Content-Type':  'application/json',
+        'Prefer':        'return=minimal'
+      },
+      body: JSON.stringify({
+        pedido_id:          pedidoId,
+        accion:             'cambio_calibre',
+        vendedor_que_actuo: _cciQuien(),
+        motivo:             'Cambio de calibre/conservación por falta de stock',
+        metadata: {
+          calibres_nuevos:    calibres || {},
+          presupuesto_viejo:  presupViejo || '',
+          presupuesto_nuevo:  presupNuevo || ''
+        },
+        fecha_hora: new Date().toISOString()
+      })
+    }).catch(function (e) { console.warn('[cci] auditoría:', e); });
+  } catch (e) { console.warn('[cci] auditoría:', e); }
+}
+
 var _tomadorXubioEscapado = false;
 
 // Estado por pedido: { clienteId, clienteNombre, productoId, productoNombre }
@@ -27473,6 +27757,15 @@ function buildXubioPanel(p, id) {
     // Anula el presupuesto Xubio + lo pasa a Pendiente. Solo el dueño puede.
     var esVendedorDueno = vendedorActual && p.vendedor &&
       esPedidoDeEsteVendedor(p, vendedorActual);
+    // v14.142.0 — cambio de calibre en un tap. Antes esto eran tres pasos
+    // sueltos (anular, editar, re-presupuestar) y por eso se terminaba
+    // corrigiendo el item a mano en Xubio, que descoloca el pedido del
+    // comprobante. Mismo permiso que desbloquear: solo el dueño.
+    var btnCambiarCalibre = '';
+    if (esVendedorDueno) {
+      btnCambiarCalibre = '<button class="cci-btn" onclick="cciCambiarCalibre(\'' + p.pedidoId + '\', \'' + (p.xubioTransaccionid||'') + '\', \'' + (p.xubioNroPresupuesto||'') + '\', this)">\uD83D\uDD04 Cambiar calibre</button>'
+      + '<div class="cci-hint">Si no hay del calibre que pediste: se cambia, se re-presupuesta y queda registrado. El precio no cambia.</div>';
+    }
     var btnDesbloquear = '';
     if (esVendedorDueno) {
       btnDesbloquear = '<button class="xubio-btn-desbloquear" onclick="desbloquearPedidoXubio(\'' + p.pedidoId + '\', \'' + (p.xubioTransaccionid||'') + '\', \'' + (p.xubioNroPresupuesto||'') + '\', this)">🔓 Editar pedido (anula presupuesto)</button>';
@@ -27488,6 +27781,7 @@ function buildXubioPanel(p, id) {
       + '</div>'
       + '<div class="xubio-done-warning">⚠️ Si necesitás modificar este pedido, podés anular el presupuesto y editarlo nuevamente. Vas a tener que crear un presupuesto nuevo después.</div>'
       + btnDesbloquear
+      + btnCambiarCalibre
       + '</div>';
   }
 
@@ -51831,6 +52125,16 @@ function depPollIniciar() {
 
 #pdc-overlay{position:fixed;inset:0;background:rgba(26,8,0,.62);z-index:100050;
   display:flex;align-items:center;justify-content:center;padding:16px;}
+
+/* Cambio de calibre (cci) — v14.142.0 */
+.cci-btn{width:100%;margin-top:8px;background:#FFF3E0;color:#E65100;
+  border:2px solid #E65100;border-radius:10px;padding:11px;cursor:pointer;
+  font-family:'Barlow Condensed',sans-serif;font-weight:800;font-size:14.5px;
+  text-transform:uppercase;letter-spacing:.3px;}
+.cci-btn:active{background:#FFE0B2;}
+.cci-btn:disabled{opacity:.6;cursor:default;}
+.cci-hint{font-size:11.5px;line-height:1.4;color:#8B6F50;margin-top:5px;text-align:center;}
+
 .pdc-card{background:#FAF4EC;border-radius:16px;width:100%;max-width:440px;
   max-height:88vh;overflow:auto;box-shadow:0 18px 50px rgba(0,0,0,.35);
   border:1px solid rgba(180,83,9,.25);}
