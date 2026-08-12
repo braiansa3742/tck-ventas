@@ -2,6 +2,32 @@
 <html lang="es">
 <head>
 <!-- ═══════════════════════════════════════════════════════════════════════
+     TCK VENTAS — v14.142.0 — 12/08/2026
+     v14.142.0: DESCUENTOS RASTREABLES — el MOTIVO viaja al Sheet.
+       El modal de descuento siempre pidió motivo y siempre se tiró: el
+       detalle solo llevaba [-N%]. Ahora emite [-N%:motivo] y el Apps
+       Script v25.108.0 lo guarda en pedidos_items.descuento_motivo,
+       junto con precio_lista y el precio FINAL cobrado.
+       Por qué importa: hasta hoy pedidos_items guardaba el precio de
+       LISTA, así que vw_pedido_margen y las COMISIONES se calculaban
+       sobre plata que nunca entró (caso Rojas 10/08: margen real 2,5%,
+       el sistema decía 11,7% y pagaba comisión por 11,7%). Dar
+       descuento le salía gratis al vendedor. Con esto, el que descuenta
+       cobra menos comisión, automático, sin tocar el sistema de
+       comisiones.
+       · _dtoTag / _dtoMotivoSafe centralizan la emisión del tag.
+       · 4 emisores actualizados: tomador campo, editar pedido, WA manual
+         y cargas. _dupSerializarDetalle preserva el motivo al re-armar.
+       · _dupParsearDetalle acepta [-N%:motivo] y [-N%] (retrocompatible
+         con todo lo que ya está en el Sheet). Los índices de captura
+         corrieron: grupo 4 = motivo, grupo 5 = total.
+       ⚠️ EL SEPARADOR ES ':' Y NUNCA PUEDE SER '|'. El detalle se separa
+         por '|': un pipe dentro del tag parte el bloque en dos y la
+         línea se pierde entera. _dtoMotivoSafe borra | [ ] y → del
+         motivo y lo recorta a 120 chars.
+       Deploy: PRIMERO el Apps Script v25.108.0 (acepta los dos formatos,
+       así no hay ventana de riesgo), DESPUÉS este archivo.
+
      TCK VENTAS — v14.141.0 — 11/08/2026
      v14.141.0: PRECIO MANUAL DEL VENDEDOR (solo hacia ARRIBA de la tabla).
         PEDIDO (vendedores vía Braian): hay negocios propios donde colocan
@@ -21269,6 +21295,26 @@ function tckPrecioTramo(item, q) {
 }
 
 // Cap de descuento del tramo vigente. null = sin tramos = descuento libre (como hoy).
+// v14.142.0 — TAG DE DESCUENTO CON MOTIVO: [-N%:motivo]
+// El motivo lo escribe el vendedor en el modal (siempre se pidió, nunca
+// viajó). Ahora va dentro del tag y el Apps Script v25.108.0 lo registra
+// en pedidos_items.descuento_motivo. Retrocompatible: sin motivo emite
+// [-N%] igual que antes.
+// ⚠️ EL SEPARADOR ES ':' Y NUNCA PUEDE SER '|'. El detalle del pedido se
+//    separa por '|' (split en _dupParsearDetalle y en el parser del Apps
+//    Script): un '|' dentro del tag parte el bloque en dos y la línea se
+//    pierde entera. Por eso _dtoMotivoSafe borra '|', '[', ']' y '→' del
+//    motivo antes de emitirlo, y lo recorta a 120 chars.
+function _dtoMotivoSafe(m) {
+  return String(m || '').replace(/[\[\]|\u2192]/g, ' ').replace(/\s+/g, ' ').trim().substring(0, 120);
+}
+function _dtoTag(pct, motivo) {
+  var p = Number(pct) || 0;
+  if (p <= 0) return '';
+  var ms = _dtoMotivoSafe(motivo);
+  return '[-' + p + '%' + (ms ? ':' + ms : '') + ']';
+}
+
 function tckDtoMaxPct(nombre, q) {
   var tr = tckTramoVigente(nombre, q);
   return tr ? tr.dtoMax : null;
@@ -35401,7 +35447,7 @@ async function tomadorConfirmarConEntrega(entregaData) {
     var subtotal = precioDef * qty;
     total += subtotal;
     var _nombreLinea = nombre + ((POLLOS_CON_CALIBRE[nombre] && _tomadorCalibres[nombre]) ? ' ' + _tomadorCalibres[nombre] : '');
-    lineas.push(qty + 'x ' + _nombreLinea + ' (' + item.p + ')' + (dto ? ' [-' + dto.pct + '%]' : '') + ' → $' + subtotal.toLocaleString('es-AR'));
+    lineas.push(qty + 'x ' + _nombreLinea + ' (' + item.p + ')' + (dto ? ' ' + _dtoTag(dto.pct, dto.motivo) : '') + ' → $' + subtotal.toLocaleString('es-AR'));  // v14.142.0 motivo en el tag
   });
 
   // Agregar datos de competencia si hay
@@ -40521,7 +40567,7 @@ async function _editarConfirmarContinuar() {
           var _calEd = _editarCalibres[nombre];
           var _nomEd = _calEd ? (nombre + ((_calEd.sep !== undefined) ? _calEd.sep : ' · ') + ((_calEd.txt !== undefined) ? _calEd.txt : _calEd)) : nombre;
           resumenLineas.push(qty + 'x ' + _nomEd);
-          detalleParts.push(qty + 'x ' + _nomEd + ' (' + item.p + ')' + (dto?'[-'+dto.pct+'%]':'') + ' → $' + sub.toLocaleString('es-AR'));
+          detalleParts.push(qty + 'x ' + _nomEd + ' (' + item.p + ')' + (dto?_dtoTag(dto.pct, dto.motivo):'') + ' → $' + sub.toLocaleString('es-AR'));  // v14.142.0 motivo en el tag
         }
       });
     });
@@ -41762,7 +41808,7 @@ async function manualWAGuardar(cliente, localidad, entrega, sucursal) {
   // 2. Productos sueltos (formato WhatsApp esperado por parser):
   //    Nx Nombre (presentacion)[-N%] → $subtotal
   d.sueltos.forEach(function(s){
-    var dtoStr = s.dto ? '[-' + s.dto.pct + '%]' : '';
+    var dtoStr = s.dto ? _dtoTag(s.dto.pct, s.dto.motivo) : '';  // v14.142.0 motivo en el tag
     var presStr = s.presentacion ? ' (' + s.presentacion + ')' : '';
     lineas.push(s.qty + 'x ' + s.nombre + presStr + dtoStr + ' → $' + s.subtotal.toLocaleString('es-AR'));
   });
@@ -43773,12 +43819,15 @@ function _dupParsearDetalle(detalle) {
     }
 
     // WHATSAPP MANUAL: "1x Nombre (X Kg) → $XXX" con descuento opcional
-    var mWA = b.match(/^(\d+)x\s+(.+?)(?:\s*\[-(\d+(?:\.\d+)?)%\])?\s*→\s*\$?([\d.,]+)/i);
+    var mWA = b.match(/^(\d+)x\s+(.+?)(?:\s*\[-(\d+(?:\.\d+)?)%(?::([^\]]*))?\])?\s*→\s*\$?([\d.,]+)/i);  // v14.142.0 acepta [-N%:motivo]
     if (mWA) {
       var qtyWA = parseInt(mWA[1]);
       var restoWA = mWA[2].trim();
       var dtoPctWA = mWA[3] ? parseFloat(mWA[3]) : 0;
-      var totalWA = _dupParsearMontoLocal(mWA[4]);
+      // v14.142.0 — grupo 4 = motivo (nuevo), grupo 5 = total. Los índices
+      // corrieron al agregar la captura del motivo en la regex de arriba.
+      var dtoMotivoWA = (mWA[4] || '').trim() || null;
+      var totalWA = _dupParsearMontoLocal(mWA[5]);
       var mPresWA = restoWA.match(/^(.+?)\s*\(([^)]+)\)\s*$/);
       var nombreWA = mPresWA ? mPresWA[1].trim() : restoWA;
       var presWA = mPresWA ? mPresWA[2].trim() : '';
@@ -43787,7 +43836,8 @@ function _dupParsearDetalle(detalle) {
         : 0;
       out.productos.push({
         formato: 'whatsapp', emoji: '', nombre: nombreWA, qty: qtyWA,
-        presentacion: presWA, precio_unit: precioUnitCalc, total: totalWA, dtoPct: dtoPctWA
+        presentacion: presWA, precio_unit: precioUnitCalc, total: totalWA,
+        dtoPct: dtoPctWA, dtoMotivo: dtoMotivoWA
       });
       i++;
       continue;
@@ -43851,7 +43901,7 @@ function _dupSerializarDetalle(estructurado) {
   // 3) Productos normales en formato WA (compacto, parseable)
   estructurado.productos.forEach(function(pr) {
     var presenStr = pr.presentacion ? ' (' + pr.presentacion + ')' : '';
-    var dtoStr = pr.dtoPct > 0 ? '[-' + pr.dtoPct + '%]' : '';
+    var dtoStr = pr.dtoPct > 0 ? _dtoTag(pr.dtoPct, pr.dtoMotivo) : '';  // v14.142.0 preserva el motivo al re-serializar
     partes.push(pr.qty + 'x ' + pr.nombre + presenStr + dtoStr + ' → $' + pr.total.toLocaleString('es-AR'));
   });
 
@@ -50737,7 +50787,7 @@ async function mostradorGuardar(cliente, cobro) {
       lineas.push(partes.join(' | '));
     });
     d.sueltos.forEach(function(s) {
-      var dtoStr = s.dto ? '[-' + s.dto.pct + '%]' : '';
+      var dtoStr = s.dto ? _dtoTag(s.dto.pct, s.dto.motivo) : '';  // v14.142.0 motivo en el tag
       var presStr = s.presentacion ? ' (' + s.presentacion + ')' : '';
       lineas.push(s.qty + 'x ' + s.nombre + presStr + dtoStr + ' → $' + s.subtotal.toLocaleString('es-AR'));
     });
