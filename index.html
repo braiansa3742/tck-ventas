@@ -2,7 +2,71 @@
 <html lang="es">
 <head>
 <!-- ═══════════════════════════════════════════════════════════════════════
-     TCK VENTAS — v14.142.0 — 12/08/2026
+     TCK VENTAS — v14.144.0 — 13/08/2026
+     v14.144.0: INCIDENTE CARTEL ROJO — rediseño del motor de recuperación.
+       Auditoría completa post-reclamos de Lisandro y Miguel. Hallazgo
+       central (telemetría 8 días): 46 timeouts de guardado y CERO
+       recuperaciones exitosas de la cola. Los 7 "fallos" de hoy SÍ
+       llegaron al server (pedido creado en el mismo minuto); lo que se
+       pierde es la RESPUESTA (>35s). Los reintentos morían igual, a las
+       6 fallas el item pasaba a manual:true y ahí quedaba para siempre:
+       el vendedor resolvía a mano desde la card y el cartel no se
+       enteraba nunca. Marta Pereyra CANCELADA el 12/08 seguía listada
+       "sin presupuesto" el 13/08 a las 09:32.
+
+       CAMBIOS (reescritura del módulo, no parche):
+       1. CLASES en vez de contador: 'auto' (transporte: sin señal,
+          timeout, 5xx, lock) reintenta SIEMPRE con backoff exponencial
+          45s→10min, nunca se rinde. 'accion' (calibres, sin mapear,
+          TTL 48h) espera al vendedor. Se acabó el manual-por-conteo.
+       2. Reconciliación ampliada: item etapa 'guardar' cuyo pedido YA
+          está en el Sheet avanza directo a 'presupuesto' (o sale si no
+          tiene cliente Xubio). Match solo por pedidoId exacto.
+       3. detectarCalibres UNA vez por item (cache calibresOk) — antes
+          era un fetch extra por item cada 90s.
+       4. "Reintentar ahora" durante una corrida colgada ya no se pierde:
+          queda anotado y corre otra vuelta al terminar. Botón nuevo
+          "Reintentar este ahora" por item en el detalle, con countdown
+          del próximo intento.
+       5. Migración automática de items viejos manual:true al leer la
+          cola (transporte→auto reseteado; semántico→accion).
+       6. PERF: cargarPedidos saltea parseo+render si el CSV no cambió
+          (firma hash; solo silencioso y sin optimistas vivos). Tick de
+          cola se saltea con la app en background; visibilitychange
+          dispara corrida al volver.
+       7. Tests: harness node con 20 asserts (recuperación duplicate,
+          backoff, clases, reconciliación, migración, badge, re-corrida).
+
+       NO TOCA: guardado optimista, anti-dup (debounce/lock/fingerprint/
+       pedido-vivo), flujo Xubio del tomador, banner ámbar v14.134.
+       Server: el fix de los timeouts es el .gs v25.109.1 (TextFinder) —
+       requiere DEPLOY con Nueva versión; sin eso los timeouts siguen,
+       solo que ahora la app se recupera sola y no miente.
+     ─────────────────────────────────────────────────────────
+     TCK VENTAS — v14.143.0 — 13/08/2026
+     v14.143.0: EL CARTEL ROJO QUE NO SE IBA — dos bugs, un síntoma.
+       Reclamo de Lisandro y Miguel (audios 13/08): "el cartel me tapa
+       donde tengo que marcar" y "lo reinicio y sigue apareciendo".
+
+       BUG 1 — TAPABA. El badge de la cola tenía z-index:9998, y el modal
+       de check-in (.gps-modal-overlay) tiene 500. El cartel se dibujaba
+       ENCIMA del modal, justo sobre la lista de clientes y los botones.
+       Ahora va en 210: sobre la nav (.tab-nav = 200) y debajo de todo
+       modal. Además tiene ✕ para cerrarlo; vuelve a aparecer solo si la
+       cola cambia de verdad (entra o sale un pedido).
+
+       BUG 2 — NO SE IBA. La cola solo se vaciaba si su propio reintento
+       tenía éxito. Un item marcado manual:true no se reintentaba nunca
+       más → nunca se enteraba de que el pedido ya estaba resuelto en el
+       server. Vive en localStorage, así que reiniciar no lo sacaba.
+       Testigo: pedido de Eduardo alonso, presupuesto N° 8837 creado
+       09:56; el celular seguía mostrando "1 pedido sin enviar" 10:42.
+       Nuevo _colaReconciliar(): cada vez que llegan pedidos frescos del
+       Sheet, contrasta la cola y saca todo lo que ya tiene presupuesto o
+       quedó Entregado/Cancelado. Corre en cargarPedidos y en cada tick.
+       No toca la lógica de reintentos: solo limpia lo ya resuelto, así
+       que no puede perder un pedido que de verdad no llegó.
+
      v14.142.0: DESCUENTOS RASTREABLES — el MOTIVO viaja al Sheet.
        El modal de descuento siempre pidió motivo y siempre se tiró: el
        detalle solo llevaba [-N%]. Ahora emite [-N%:motivo] y el Apps
@@ -18454,15 +18518,51 @@ function _telemetriaTomadorRegistrar(evento) {
 //   · crearPresupuestoXubio devuelve code:'YA_TIENE_PRESUPUESTO'.
 // Los dos casos se tratan como éxito y salen de la cola.
 var COLA_KEY        = 'tck_cola_recuperacion';
-var COLA_MAX_INT    = 6;          // reintentos antes de pedir acción manual
-var COLA_ESPERA_MS  = 45000;      // no reintentar el mismo item antes de 45s
-var COLA_TTL_MS     = 48*3600*1000;
-var COLA_TICK_MS    = 90000;
+var COLA_BASE_MS    = 45000;            // espera base entre reintentos de un item
+var COLA_CAP_MS     = 600000;           // techo del backoff: 10 min
+var COLA_TTL_MS     = 48*3600*1000;     // a las 48 h pasa a acción manual
+var COLA_TICK_MS    = 60000;            // pulso del motor (el backoff por item manda)
 var _colaCorriendo  = false;
+var _colaOtraVuelta = false;            // v14.144.0: pedido de re-corrida mientras corre
+var _colaBadgeOculto = '';              // v14.143.0: firma de cola que el vendedor cerró con la ✕
+
+// v14.144.0 — CLASES en vez de contador de intentos:
+//   'auto'   = falla de transporte (sin señal, timeout, 5xx, lock ocupado).
+//              Se reintenta SIEMPRE, con backoff exponencial 45s→10min. Nunca
+//              se rinde: cuando vuelve la señal o el server se descongestiona,
+//              sale solo. Antes, 6 fallas seguidas lo mandaban a manual:true y
+//              ahí moría aunque el problema fuera transitorio — por eso los
+//              carteles quedaban pegados días.
+//   'accion' = el server contestó algo que un reintento no arregla: hay que
+//              elegir calibre, falta mapear producto/cliente, venció el TTL.
+//              No se reintenta solo; el vendedor lo revive desde el detalle.
+function _colaClasificarError(code, msg) {
+  var ACCION = { 'PRODUCTOS_SIN_MAPEAR':1, 'CLIENTE_SIN_MAPEAR':1, 'FALTA_CLIENTE':1,
+                 'FACTURA_NO_VERIFICABLE':1, 'PEDIDO_NO_ENCONTRADO':0, 'LOCK_OCUPADO':0 };
+  if (code && ACCION[code] === 1) return 'accion';
+  if (/calibre/i.test(msg || '')) return 'accion';
+  return 'auto';
+}
 
 function _colaLeer() {
-  try { var r = localStorage.getItem(COLA_KEY); return r ? (JSON.parse(r) || []) : []; }
+  var arr;
+  try { var r = localStorage.getItem(COLA_KEY); arr = r ? (JSON.parse(r) || []) : []; }
   catch(e) { return []; }
+  // Migración v14.144.0: items viejos traen manual:true por conteo de intentos.
+  // Si el último error fue de transporte, vuelven a 'auto' (reintentables);
+  // si fue semántico (calibre/mapeo), quedan como 'accion'.
+  var migrado = false;
+  for (var i = 0; i < arr.length; i++) {
+    var it = arr[i];
+    if (!it.clase) {
+      it.clase = it.manual ? _colaClasificarError('', it.ultimoError || '') : 'auto';
+      if (it.clase === 'auto') it.intentos = 0;
+      delete it.manual;
+      migrado = true;
+    }
+  }
+  if (migrado) { try { localStorage.setItem(COLA_KEY, JSON.stringify(arr)); } catch(e2) {} }
+  return arr;
 }
 function _colaEscribir(arr) {
   try { localStorage.setItem(COLA_KEY, JSON.stringify(arr || [])); } catch(e) {}
@@ -18487,41 +18587,59 @@ function _colaEncolar(item) {
   var prev = arr.filter(function(x){ return x.id === item.id; })[0];
   if (prev) {
     for (var k in item) if (item[k] !== undefined && item[k] !== null) prev[k] = item[k];
-    prev.manual = false;
+    prev.clase = 'auto';
   } else {
     item.intentos = 0; item.creado = Date.now(); item.ultimoIntento = 0;
-    item.manual = false;
+    item.clase = 'auto';
     arr.push(item);
   }
   _colaEscribir(arr);
   console.warn('[cola] encolado', item.id, 'etapa', item.etapa);
 }
 
+// Backoff exponencial por item: 45s, 90s, 3m, 6m, 10m, 10m, ...
+function _colaEsperaMs(intentos) {
+  var ms = COLA_BASE_MS * Math.pow(2, Math.max(0, intentos));
+  return Math.min(ms, COLA_CAP_MS);
+}
+
 // ── Motor ────────────────────────────────────────────────────────
 // Secuencial a propósito: en red rural, disparar 3 fetch juntos empeora todo.
+// v14.144.0: si alguien pide una corrida (online / Reintentar ahora) mientras
+// ya hay una en curso, se anota (_colaOtraVuelta) y se corre otra vuelta al
+// terminar — antes ese pedido se perdía en silencio y "Reintentar ahora"
+// parecía no hacer nada.
 async function _colaProcesar(forzado) {
-  if (_colaCorriendo) return;
-  var arr = _colaLeer();
-  if (!arr.length) return;
+  if (_colaCorriendo) { if (forzado) _colaOtraVuelta = true; return; }
   _colaCorriendo = true;
   try {
-    for (var i = 0; i < arr.length; i++) {
-      var it = arr[i];
-      if (it.manual) continue;
-      if (Date.now() - it.creado > COLA_TTL_MS) { _colaActualizar(it.id, { manual: true, ultimoError: 'Venció el plazo de reintentos (48 h)' }); continue; }
-      if (!forzado && (Date.now() - (it.ultimoIntento || 0)) < COLA_ESPERA_MS) continue;
-      _colaActualizar(it.id, { ultimoIntento: Date.now(), intentos: (it.intentos || 0) + 1 });
-      try {
-        if (it.etapa === 'guardar')          await _colaReintentarGuardado(it);
-        else if (it.etapa === 'presupuesto') await _colaReintentarPresupuesto(it);
-      } catch (e) {
-        var _int = (it.intentos || 0) + 1;
-        var _msg = (e && (e.message || e.toString())) || 'error desconocido';
-        if (_int >= COLA_MAX_INT) _colaActualizar(it.id, { manual: true, ultimoError: _msg });
-        else                      _colaActualizar(it.id, { ultimoError: _msg });
-        console.warn('[cola] falló', it.id, _msg);
+    do {
+      _colaOtraVuelta = false;
+      var arr = _colaLeer();
+      if (!arr.length) break;
+      // v14.144.0: reconciliar primero — lo que el server ya resolvió sale
+      // sin gastar ni un fetch.
+      try { _colaReconciliar(); } catch(eRec) {}
+      arr = _colaLeer();
+      for (var i = 0; i < arr.length; i++) {
+        var it = arr[i];
+        if (it.clase === 'accion') continue;
+        if (Date.now() - it.creado > COLA_TTL_MS) {
+          _colaActualizar(it.id, { clase: 'accion', ultimoError: 'Venció el plazo de reintentos (48 h) — abrí el pedido y resolvelo a mano' });
+          continue;
+        }
+        if (!forzado && (Date.now() - (it.ultimoIntento || 0)) < _colaEsperaMs(it.intentos || 0)) continue;
+        _colaActualizar(it.id, { ultimoIntento: Date.now(), intentos: (it.intentos || 0) + 1 });
+        try {
+          if (it.etapa === 'guardar')          await _colaReintentarGuardado(it);
+          else if (it.etapa === 'presupuesto') await _colaReintentarPresupuesto(it);
+        } catch (e) {
+          var _msg = (e && (e.message || e.toString())) || 'error desconocido';
+          _colaActualizar(it.id, { ultimoError: _msg });
+          console.warn('[cola] falló', it.id, _msg);
+        }
       }
-    }
+    } while (_colaOtraVuelta);
   } finally {
     _colaCorriendo = false;
     _colaPintarBadge();
@@ -18546,7 +18664,7 @@ async function _colaReintentarGuardado(it) {
 
   if (it.xubioClienteId) {
     // Sigue vivo en la cola, ahora esperando presupuesto.
-    _colaActualizar(it.id, { etapa: 'presupuesto', intentos: 0, ultimoIntento: 0, ultimoError: '' });
+    _colaActualizar(it.id, { etapa: 'presupuesto', intentos: 0, ultimoIntento: 0, ultimoError: '', clase: 'auto' });
     toast('✅ Pedido de ' + (it.cliente || '') + ' recuperado y enviado.\nGenerando presupuesto…', 'ok');
   } else {
     _colaQuitar(it.id);
@@ -18558,11 +18676,16 @@ async function _colaReintentarGuardado(it) {
 // Etapa 2 — crear el presupuesto que quedó colgado.
 async function _colaReintentarPresupuesto(it) {
   // Los calibres (Pollo A/B) necesitan que el vendedor elija en un modal:
-  // eso no se puede resolver en background. Se marca manual con motivo claro.
-  var det = await _colaFetchJson(APPS_SCRIPT_URL + '?accion=detectarCalibres&pedidoId=' + encodeURIComponent(it.id), 25000);
-  if (det && det.status === 'ok' && det.necesitaModal && det.genericos && det.genericos.length) {
-    _colaActualizar(it.id, { manual: true, ultimoError: 'Hay que elegir el calibre del pollo — entrá al pedido y tocá "Crear presupuesto"' });
-    return;
+  // eso no se puede resolver en background. Se marca acción con motivo claro.
+  // v14.144.0: el chequeo de calibres se hace UNA vez por item (calibresOk),
+  // no en cada reintento — antes era un fetch extra cada 90s por item.
+  if (!it.calibresOk) {
+    var det = await _colaFetchJson(APPS_SCRIPT_URL + '?accion=detectarCalibres&pedidoId=' + encodeURIComponent(it.id), 25000);
+    if (det && det.status === 'ok' && det.necesitaModal && det.genericos && det.genericos.length) {
+      _colaActualizar(it.id, { clase: 'accion', ultimoError: 'Hay que elegir el calibre del pollo — entrá al pedido y tocá "Crear presupuesto"' });
+      return;
+    }
+    if (det && det.status === 'ok') _colaActualizar(it.id, { calibresOk: true });
   }
 
   var params = new URLSearchParams({ accion: 'crearPresupuestoXubio', pedidoId: it.id, xubioClienteId: it.xubioClienteId });
@@ -18581,9 +18704,9 @@ async function _colaReintentarPresupuesto(it) {
     toast('✅ Presupuesto N° ' + (data.nroPresupuesto || '') + ' creado — ' + (it.cliente || ''), 'ok');
     return;
   }
-  // Errores que el vendedor tiene que resolver: no sirve seguir reintentando.
-  if (data && (data.code === 'PRODUCTOS_SIN_MAPEAR' || data.code === 'CLIENTE_SIN_MAPEAR')) {
-    _colaActualizar(it.id, { manual: true, ultimoError: data.message || 'Hay productos sin mapear en Xubio — avisá al admin' });
+  // Errores que un reintento no arregla → acción del vendedor, con motivo.
+  if (data && data.status === 'error' && _colaClasificarError(data.code, data.message) === 'accion') {
+    _colaActualizar(it.id, { clase: 'accion', ultimoError: data.message || 'Necesita que lo resuelvas a mano — avisá al admin' });
     return;
   }
   throw new Error((data && data.message) || 'Xubio no respondió');
@@ -18600,31 +18723,120 @@ function _colaFetchJson(url, timeoutMs) {
     .catch(function(e){ clearTimeout(tid); throw e; });
 }
 
+// ── Reconciliación con la realidad ───────────────────────────────
+// v14.143.0/v14.144.0 — La cola sólo se vaciaba si SU PROPIO reintento tenía
+// éxito. Con el server lento, los reintentos también morían por timeout, el
+// item quedaba clavado y el cartel no se iba más — aunque el pedido ya
+// estuviera resuelto (por el reintento cuya respuesta se perdió, o por el
+// vendedor creando el presupuesto a mano desde la card). Caso testigo 13/08:
+// presupuesto N° 8837 creado 09:56, el celular seguía en "1 pedido sin
+// enviar" a las 10:42; y Marta Pereyra CANCELADA el 12/08 seguía listada.
+// Ahora, con cada foto fresca del Sheet, la cola se contrasta contra la
+// realidad y sale todo lo que ya está resuelto. Matcheo SOLO por pedidoId
+// exacto: un pendiente legítimo (que no está en el Sheet) no se toca nunca.
+function _colaReconciliar() {
+  try {
+    var arr = _colaLeer();
+    if (!arr.length) return 0;
+    var lista = null;
+    // todosLosPedidos se declara con let más abajo: typeof sobre una let en TDZ
+    // tira ReferenceError, por eso el try.
+    try { lista = todosLosPedidos; } catch(e) { return 0; }
+    if (!lista || !lista.length) return 0;
+    var idx = {};
+    for (var i = 0; i < lista.length; i++) {
+      if (lista[i] && lista[i].pedidoId) idx[lista[i].pedidoId] = lista[i];
+    }
+    var sacados = [], cambiados = 0;
+    var quedan  = arr.filter(function(it){
+      var p = idx[it.id];
+      if (!p) return true;                    // todavía no llegó al Sheet: sigue en cola
+      var resuelto = !!p.xubioNroPresupuesto  // ya tiene presupuesto → listo
+                  || p.estado === 'Cancelado'
+                  || p.estado === 'Entregado';
+      if (resuelto) { sacados.push(it); return false; }
+      // v14.144.0: el pedido YA está en el Sheet pero el item sigue en etapa
+      // 'guardar' (la respuesta del guardado se perdió). No hay nada que
+      // reenviar: si tiene cliente Xubio pasa directo a pedir presupuesto;
+      // si no lo tiene, no queda nada por hacer y sale.
+      if (it.etapa === 'guardar') {
+        if (it.xubioClienteId) {
+          it.etapa = 'presupuesto'; it.intentos = 0; it.ultimoIntento = 0;
+          it.ultimoError = ''; it.clase = 'auto';
+          cambiados++;
+        } else { sacados.push(it); return false; }
+      }
+      return true;
+    });
+    if (!sacados.length && !cambiados) return 0;
+    _colaEscribir(quedan);
+    for (var j = 0; j < sacados.length; j++) {
+      try {
+        _telemetriaTomadorRegistrar({
+          paso:                'cola_reconciliada',
+          pedido_id_intentado: sacados[j].id,
+          cliente:             sacados[j].cliente,
+          vendedor:            sacados[j].vendedor,
+          total:               sacados[j].total
+        });
+      } catch(e) {}
+    }
+    if (sacados.length) console.warn('[cola] reconciliados y sacados:', sacados.map(function(x){ return x.id; }).join(', '));
+    return sacados.length;
+  } catch(e) { console.warn('[cola] reconciliar falló', e); return 0; }
+}
+
 // ── Badge ────────────────────────────────────────────────────────
-// Va sobre la barra de navegación. Rojo = todavía reintentando; ámbar =
+// Va sobre la barra de navegación. Rojo = reintentando solo; ámbar =
 // necesita que el vendedor haga algo.
 function _colaPintarBadge() {
   var arr = _colaLeer();
   var el  = document.getElementById('cola-badge');
-  if (!arr.length) { if (el) el.remove(); return; }
-  var manuales = arr.filter(function(x){ return x.manual; }).length;
+  if (!arr.length) { if (el) el.remove(); _colaBadgeOculto = ''; return; }
+  // v14.143.0: firma de la cola. Si el vendedor cerró el cartel con la ✕ y la
+  // cola sigue igual, no se vuelve a dibujar. Si entra o sale un pedido, sí.
+  var firma = arr.map(function(x){ return x.id + ':' + (x.clase === 'accion' ? 'm' : 'p'); }).sort().join('|');
+  if (_colaBadgeOculto === firma) { if (el) el.remove(); return; }
+  var manuales = arr.filter(function(x){ return x.clase === 'accion'; }).length;
   var pend     = arr.length - manuales;
   if (!el) {
     el = document.createElement('div');
     el.id = 'cola-badge';
-    el.style.cssText = 'position:fixed;left:10px;right:10px;bottom:78px;z-index:9998;border-radius:12px;padding:10px 14px;'
+    // v14.143.0: z-index 210, era 9998. Con 9998 el cartel se dibujaba por ENCIMA
+    // del modal de check-in (.gps-modal-overlay = 500) y tapaba justo la lista de
+    // clientes y los botones de acción. Reclamo de Lisandro y Miguel, 13/08.
+    // 210 lo deja sobre la nav (.tab-nav = 200) y debajo de cualquier modal.
+    el.style.cssText = 'position:fixed;left:10px;right:10px;bottom:78px;z-index:210;border-radius:12px;padding:10px 14px;'
       + 'font-family:Barlow Condensed,sans-serif;font-weight:900;font-size:14px;color:#fff;cursor:pointer;'
       + 'box-shadow:0 4px 16px rgba(0,0,0,.28);display:flex;align-items:center;gap:10px;';
-    el.onclick = _colaMostrarDetalle;
     document.body.appendChild(el);
   }
+  var btnX = '<button id="cola-badge-x" aria-label="Cerrar" style="flex:0 0 auto;background:rgba(255,255,255,.2);'
+    + 'border:none;color:#fff;width:30px;height:30px;border-radius:50%;font-size:17px;font-weight:900;'
+    + 'line-height:1;cursor:pointer;font-family:inherit;">&times;</button>';
   if (manuales && !pend) {
     el.style.background = 'linear-gradient(135deg,#E65100,#F57C00)';
-    el.innerHTML = '<span style="font-size:19px;">⚠️</span><div style="flex:1;">' + manuales + ' pedido' + (manuales>1?'s':'') + ' sin presupuesto<div style="font-size:11.5px;font-weight:600;opacity:.92;">Tocá acá para resolverlo</div></div>';
+    el.innerHTML = '<span style="font-size:19px;">\u26A0\uFE0F</span><div style="flex:1;">' + manuales + ' pedido' + (manuales>1?'s':'') + ' espera' + (manuales>1?'n':'') + ' tu acci\u00f3n<div style="font-size:11.5px;font-weight:600;opacity:.92;">Toc\u00e1 ac\u00e1 para resolverlo</div></div>' + btnX;
   } else {
     el.style.background = 'linear-gradient(135deg,#8B0000,#B71C1C)';
-    el.innerHTML = '<span style="font-size:19px;">🔄</span><div style="flex:1;">' + arr.length + ' pedido' + (arr.length>1?'s':'') + ' sin enviar<div style="font-size:11.5px;font-weight:600;opacity:.92;">Se reintenta solo. Tocá para ver.</div></div>';
+    el.innerHTML = '<span style="font-size:19px;">\uD83D\uDD04</span><div style="flex:1;">' + arr.length + ' pedido' + (arr.length>1?'s':'') + ' sin enviar<div style="font-size:11.5px;font-weight:600;opacity:.92;">Se reintenta solo. Toc\u00e1 para ver.</div></div>' + btnX;
   }
+  el.onclick = _colaMostrarDetalle;
+  var x = document.getElementById('cola-badge-x');
+  if (x) x.onclick = function(ev){
+    if (ev && ev.stopPropagation) ev.stopPropagation();
+    _colaBadgeOculto = firma;
+    var e2 = document.getElementById('cola-badge'); if (e2) e2.remove();
+  };
+}
+
+// v14.144.0 — revivir UN item desde el detalle: vuelve a 'auto' con el
+// contador en cero y dispara una corrida ya.
+function _colaReintentarUno(pedidoId) {
+  _colaActualizar(pedidoId, { clase: 'auto', intentos: 0, ultimoIntento: 0 });
+  var m = document.getElementById('cola-modal'); if (m) m.remove();
+  toast('🔄 Reintentando…', 'ok');
+  _colaProcesar(true);
 }
 
 function _colaMostrarDetalle() {
@@ -18632,14 +18844,24 @@ function _colaMostrarDetalle() {
   if (!arr.length) return;
   var prev = document.getElementById('cola-modal'); if (prev) prev.remove();
   var filas = arr.map(function(x){
-    var col = x.manual ? '#E65100' : '#8B0000';
-    var est = x.manual
-      ? '⚠️ ' + _escapeHtml(x.ultimoError || 'Necesita que lo resuelvas a mano')
-      : (x.etapa === 'guardar' ? '🔄 Reintentando el envío…' : '🔄 Reintentando el presupuesto…')
-        + ' (intento ' + (x.intentos||0) + '/' + COLA_MAX_INT + ')';
+    var esAccion = x.clase === 'accion';
+    var col = esAccion ? '#E65100' : '#8B0000';
+    var est;
+    if (esAccion) {
+      est = '⚠️ ' + _escapeHtml(x.ultimoError || 'Necesita que lo resuelvas a mano');
+    } else {
+      var faltaMs = Math.max(0, _colaEsperaMs(x.intentos || 0) - (Date.now() - (x.ultimoIntento || 0)));
+      var falta = faltaMs > 60000 ? Math.round(faltaMs/60000) + ' min' : Math.round(faltaMs/1000) + ' s';
+      est = (x.etapa === 'guardar' ? '🔄 Reintentando el envío' : '🔄 Reintentando el presupuesto')
+          + ' — próximo intento en ~' + falta;
+    }
+    var btnUno = '<button onclick="_colaReintentarUno(\'' + String(x.id).replace(/'/g,'') + '\')" '
+      + 'style="margin-top:6px;padding:6px 12px;background:#fff;color:' + col + ';border:1.5px solid ' + col + ';'
+      + 'border-radius:8px;font-family:Barlow Condensed,sans-serif;font-size:12px;font-weight:900;cursor:pointer;">Reintentar este ahora</button>';
     return '<div style="border-left:3px solid '+col+';background:#FAF4EC;padding:9px 11px;border-radius:0 8px 8px 0;margin-bottom:8px;">'
       + '<div style="font-weight:900;font-size:13.5px;color:#333;">' + _escapeHtml(x.cliente || x.id) + ' — $' + Number(x.total||0).toLocaleString('es-AR') + '</div>'
-      + '<div style="font-size:11.5px;color:#666;margin-top:3px;line-height:1.4;">' + est + '</div></div>';
+      + '<div style="font-size:11.5px;color:#666;margin-top:3px;line-height:1.4;">' + est + '</div>'
+      + btnUno + '</div>';
   }).join('');
   var m = document.createElement('div');
   m.id = 'cola-modal';
@@ -18658,9 +18880,9 @@ function _colaMostrarDetalle() {
   document.getElementById('cola-cerrar').onclick = function(){ m.remove(); };
   document.getElementById('cola-ya').onclick = function(){
     m.remove();
-    // "Reintentar ahora" también despierta a los que quedaron en manual:
+    // "Reintentar ahora" también despierta a los que quedaron en acción:
     // si el vendedor lo pide expresamente, se les da otra vuelta.
-    _colaEscribir(_colaLeer().map(function(x){ return Object.assign({}, x, { manual: false, intentos: 0, ultimoIntento: 0 }); }));
+    _colaEscribir(_colaLeer().map(function(x){ return Object.assign({}, x, { clase: 'auto', intentos: 0, ultimoIntento: 0 }); }));
     toast('🔄 Reintentando…', 'ok');
     _colaProcesar(true);
   };
@@ -18668,9 +18890,12 @@ function _colaMostrarDetalle() {
 
 // ── Disparadores ─────────────────────────────────────────────────
 // Al volver la señal es el momento clave: el vendedor sale del bache de
-// cobertura y la cola se vacía sola sin que toque nada.
+// cobertura y la cola se vacía sola sin que toque nada. v14.144.0: también
+// al volver la app a primer plano (el celular corta timers en background),
+// y el tick se saltea si la pestaña está oculta (ahorra datos y batería).
 window.addEventListener('online', function(){ console.warn('[cola] volvió la conexión'); _colaProcesar(true); });
-setInterval(function(){ if (navigator.onLine !== false) _colaProcesar(false); }, COLA_TICK_MS);
+document.addEventListener('visibilitychange', function(){ if (!document.hidden) _colaProcesar(true); });
+setInterval(function(){ if (navigator.onLine !== false && !document.hidden) _colaProcesar(false); }, COLA_TICK_MS);
 setTimeout(function(){ _colaPintarBadge(); _colaProcesar(true); }, 4000);
 
 const SESSION_KEY   = 'tck_session';
@@ -23628,6 +23853,27 @@ async function cargarPedidos(silencioso, _reintentos) {
   try {
     var res = await fetch(SHEET_CSV_RECIENTES + '&t=' + Date.now());
     var csv = await res.text();
+    // v14.144.0 PERF: si el CSV es idéntico al anterior, no hay nada nuevo —
+    // saltear parseo + detección de duplicados + render (en celulares de
+    // gama baja el re-render completo cada 60s era jank puro). Solo en
+    // modo silencioso y sin optimistas vivos (esos necesitan el merge para
+    // expirar). Un hash simple alcanza: mismo texto ⇒ mismo estado.
+    if (silencioso && typeof _optimisticPedidos !== 'undefined' && _optimisticPedidos.size === 0) {
+      var _h = 0;
+      for (var _hi = 0; _hi < csv.length; _hi++) { _h = ((_h << 5) - _h + csv.charCodeAt(_hi)) | 0; }
+      var _firmaCsv = csv.length + ':' + _h;
+      if (window._ultimaFirmaCsv === _firmaCsv) {
+        var _tsEl = document.getElementById('ultima-actualizacion');
+        if (_tsEl) {
+          var _ah = new Date();
+          _tsEl.textContent = 'Actualizado ' + _ah.getHours().toString().padStart(2,'0') + ':' + _ah.getMinutes().toString().padStart(2,'0');
+          _tsEl.style.color = 'var(--green2)';
+        }
+        try { _colaReconciliar(); } catch(eRc) {}
+        return;
+      }
+      window._ultimaFirmaCsv = _firmaCsv;
+    } else if (silencioso) { window._ultimaFirmaCsv = null; }
     var lines = csv.trim().split('\n');
     var pedidos = [];
     for (var i = 1; i < lines.length; i++) {
@@ -23809,6 +24055,18 @@ async function cargarPedidos(silencioso, _reintentos) {
     pedidos = _dedupePedidosPorId(pedidos); // v14.128.0: nunca dos cards del mismo pedidoId
     _pedidosCache = pedidos.slice(); // actualizar cache
     todosLosPedidos = pedidos;
+    // v14.144.0: firmar el CSV recién parseado (si vino por carga manual u
+    // optimistas, la firma de arriba no se seteó y el próximo poll silencioso
+    // debe comparar contra ESTE contenido).
+    try {
+      var _h2 = 0;
+      for (var _hj = 0; _hj < csv.length; _hj++) { _h2 = ((_h2 << 5) - _h2 + csv.charCodeAt(_hj)) | 0; }
+      window._ultimaFirmaCsv = csv.length + ':' + _h2;
+    } catch(eFm) {}
+
+    // v14.143.0: con la foto fresca del Sheet, limpiar de la cola todo pedido
+    // que ya esté resuelto. Es lo que hace desaparecer solo el cartel rojo.
+    try { _colaReconciliar(); } catch(e) {}
 
     // v13: cargar pares "no duplicado" desde Supabase y re-procesar badges.
     // Es fire-and-forget para no bloquear el primer render. Si Supabase responde
