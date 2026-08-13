@@ -2,6 +2,24 @@
 <html lang="es">
 <head>
 <!-- ═══════════════════════════════════════════════════════════════════════
+     TCK VENTAS — v14.145.0 — 13/08/2026
+     v14.145.0: TELEMETRÍA POR CAPA (hipótesis Julián: ¿Xubio lento?).
+       Hasta hoy ningún dato separaba señal del celular vs Apps Script vs
+       Xubio vs Google. Ahora cada evento de tomador_eventos lleva:
+       · dur_ms: cuánto tardó el request visto desde el celular.
+       · gs_*: desglose del server (viene en la respuesta como _t desde
+         el .gs v25.110.0): total, xubio_ms/n, lock_ms, supa_ms, resto.
+       · conn_*: tipo de red, RTT y ancho de banda del teléfono al momento
+         (navigator.connection).
+       Con eso: señal = dur_ms - gs_ms · script = gs_resto_ms ·
+       Xubio = gs_xubio_ms · cola entre vendedores = gs_lock_ms.
+       Instrumentado en: guardado del tomador (ok/timeout/error/bloqueado)
+       y recuperaciones de la cola (guardado + presupuesto). El detalle
+       por endpoint Xubio queda server-side en la tabla gs_timing.
+       Requiere: ALTER TABLE tomador_eventos (sql adjunto) + deploy del
+       .gs v25.110.0. Sin el ALTER, PostgREST rechaza el insert y la
+       telemetría vieja sigue — los campos nuevos se pierden, nada más.
+     ─────────────────────────────────────────────────────────
      TCK VENTAS — v14.144.0 — 13/08/2026
      v14.144.0: INCIDENTE CARTEL ROJO — rediseño del motor de recuperación.
        Auditoría completa post-reclamos de Lisandro y Miguel. Hallazgo
@@ -18472,8 +18490,28 @@ function _telemetriaTomadorRegistrar(evento) {
       fingerprint:         evento.fingerprint || null,
       error_msg:           evento.error_msg || null,
       error_status:        (evento.error_status != null) ? Number(evento.error_status) : null,
-      user_agent:          (navigator && navigator.userAgent) ? navigator.userAgent.substring(0, 200) : null
+      user_agent:          (navigator && navigator.userAgent) ? navigator.userAgent.substring(0, 200) : null,
+      // v14.145.0 — separar capas: duración vista por el celular + desglose
+      // del server (viene en la respuesta como _t, .gs v25.110.0) + estado
+      // de red del teléfono en ese momento. Con esto: señal = dur_ms - gs_ms;
+      // script = gs_resto_ms; Xubio = gs_xubio_ms; lock = gs_lock_ms.
+      dur_ms:              (evento.dur_ms != null) ? Math.round(Number(evento.dur_ms)) : null,
+      gs_ms:               (evento.gs && evento.gs.ms != null) ? Math.round(evento.gs.ms) : null,
+      gs_xubio_ms:         (evento.gs && evento.gs.xubio_ms != null) ? Math.round(evento.gs.xubio_ms) : null,
+      gs_xubio_n:          (evento.gs && evento.gs.xubio_n != null) ? Number(evento.gs.xubio_n) : null,
+      gs_lock_ms:          (evento.gs && evento.gs.lock_ms != null) ? Math.round(evento.gs.lock_ms) : null,
+      gs_supa_ms:          (evento.gs && evento.gs.supa_ms != null) ? Math.round(evento.gs.supa_ms) : null,
+      gs_resto_ms:         (evento.gs && evento.gs.resto_ms != null) ? Math.round(evento.gs.resto_ms) : null,
+      conn_tipo:           null, conn_rtt: null, conn_down: null
     };
+    try {
+      var _c = navigator.connection || navigator.mozConnection || navigator.webkitConnection;
+      if (_c) {
+        payload.conn_tipo = _c.effectiveType || null;
+        payload.conn_rtt  = (_c.rtt != null) ? Number(_c.rtt) : null;
+        payload.conn_down = (_c.downlink != null) ? Number(_c.downlink) : null;
+      }
+    } catch (eConn) {}
     // Fire-and-forget: no await, no .then exitoso, solo log si rompe.
     sbFetch('tomador_eventos', {
       method:  'POST',
@@ -18648,6 +18686,7 @@ async function _colaProcesar(forzado) {
 
 // Etapa 1 — reenviar el guardarPedido que nunca llegó.
 async function _colaReintentarGuardado(it) {
+  var _t0 = Date.now();  // v14.145.0
   var resp = await appsScriptFetch(it.params, { timeout: 35000 });
   var data = resp && resp.data;
   // duplicate = el server YA lo tenía (timeout falso). Es éxito.
@@ -18659,7 +18698,9 @@ async function _colaReintentarGuardado(it) {
     pedido_id_intentado: it.id,
     cliente:             it.cliente,
     vendedor:            it.vendedor,
-    total:               it.total
+    total:               it.total,
+    dur_ms:              Date.now() - _t0,
+    gs:                  (data && data._t) || null
   });
 
   if (it.xubioClienteId) {
@@ -18690,6 +18731,7 @@ async function _colaReintentarPresupuesto(it) {
 
   var params = new URLSearchParams({ accion: 'crearPresupuestoXubio', pedidoId: it.id, xubioClienteId: it.xubioClienteId });
   if (it.fechaISO) params.set('fechaPresupuesto', it.fechaISO);
+  var _t0p = Date.now();  // v14.145.0
   var data = await _colaFetchJson(APPS_SCRIPT_URL + '?' + params.toString(), 60000);
 
   if (data && (data.status === 'ok' || data.code === 'YA_TIENE_PRESUPUESTO')) {
@@ -18699,7 +18741,9 @@ async function _colaReintentarPresupuesto(it) {
     if (typeof renderPedidos === 'function') renderPedidos();
     _telemetriaTomadorRegistrar({
       paso:                'cola_presupuesto_recuperado',
-      pedido_id_intentado: it.id, cliente: it.cliente, vendedor: it.vendedor, total: it.total
+      pedido_id_intentado: it.id, cliente: it.cliente, vendedor: it.vendedor, total: it.total,
+      dur_ms:              Date.now() - _t0p,
+      gs:                  (data && data._t) || null
     });
     toast('✅ Presupuesto N° ' + (data.nroPresupuesto || '') + ' creado — ' + (it.cliente || ''), 'ok');
     return;
@@ -35897,7 +35941,10 @@ async function tomadorConfirmarConEntrega(entregaData) {
     // las ramas que no siguen a Xubio; la rama Xubio lo re-muestra.
     _tomadorMostrarProgreso(cliente, 'guardando');
 
+    var _t0Guardar = Date.now();  // v14.145.0: duración vista por el celular
     var _respGuardar = await appsScriptFetch(params, { timeout: 35000 });
+    var _durGuardar = Date.now() - _t0Guardar;
+    var _gsGuardar  = (_respGuardar && _respGuardar.data && _respGuardar.data._t) || null;
 
     // v14.44.0 FIX CRÍTICO — chequeo server-side anti-dup.
     // Si Apps Script (v25.32+) detectó que ya existe un pedido idéntico en
@@ -35924,7 +35971,9 @@ async function tomadorConfirmarConEntrega(entregaData) {
         cliente:              cliente,
         vendedor:             vendedor,
         total:                total,
-        fingerprint:          _tomadorFingerprint()
+        fingerprint:          _tomadorFingerprint(),
+        dur_ms:               _durGuardar,
+        gs:                   _gsGuardar
       });
       tomadorCerrar();
       return; // NO mete optimista, NO arranca Xubio
@@ -35942,7 +35991,9 @@ async function tomadorConfirmarConEntrega(entregaData) {
       cliente:              cliente,
       vendedor:             vendedor,
       total:                total,
-      fingerprint:          _tomadorFingerprint()
+      fingerprint:          _tomadorFingerprint(),
+      dur_ms:               _durGuardar,
+      gs:                   _gsGuardar
     });
 
     // v14.54.0 PEDIDO VIVO: el vendedor eligió REEMPLAZA → cancelar el pedido
@@ -36066,6 +36117,7 @@ async function tomadorConfirmarConEntrega(entregaData) {
       vendedor:             vendedor,
       total:                total,
       fingerprint:          _tomadorFingerprint(),
+      dur_ms:               (typeof _t0Guardar === 'number' && _t0Guardar) ? (Date.now() - _t0Guardar) : null,
       error_msg:            (e && (e.message || e.toString())) || 'desconocido',
       error_status:         (e && e.status) || null
     });
