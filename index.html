@@ -2,6 +2,22 @@
 <html lang="es">
 <head>
 <!-- ═══════════════════════════════════════════════════════════════════════
+     TCK VENTAS — v14.147.0 — 13/08/2026
+     v14.147.0: AVISO DE CANTIDAD vs STOCK VISIBLE (caso Barrera 13/08:
+       se vendieron 35 unidades Tapa Manía que Xubio decía tener y la
+       cámara no — factura completa, entrega a medias). Decisión de
+       Braian: SOLO AVISAR, nunca frenar la venta.
+       1. En tomadorCambiarQty: al CRUZAR el umbral hacia arriba (pedís
+          más de lo que hay en vw_stock_visible), toast naranja con el
+          número real. Una vez por cruce, no por tap.
+       2. Al confirmar: resumen único de todos los ítems por encima del
+          visible ("7 pedidas / 3 en depósito"). El flujo sigue igual.
+       Usa el mapa numérico ya existente (obtenerStockVentas →
+       vw_stock_visible, que desde hoy también compromete lo Entregado
+       sin facturar). Sin dato de stock → silencio, cero falsos gritos.
+       Complemento server: .gs v25.112.0 agrega FALTANTES PARA MANANA
+       al mail de las 21:00 (producto, cuánto falta, qué clientes).
+     ─────────────────────────────────────────────────────────
      TCK VENTAS — v14.146.0 — 13/08/2026
      v14.146.0: LA ✕ DEL CARTEL AHORA SE ACUERDA (reclamo 13/08 PM:
        "tiene la cruz pero sigue apareciendo"). El cierre era una variable
@@ -35114,6 +35130,14 @@ function tomadorCambiarQty(nombre, delta) {
     if (itemEl) itemEl.classList.toggle('tiene', nuevo > 0);
     tckEscaleraRefrescar(nombre, 'tomador');  // v14.139.0
   }
+  // v14.147.0 — aviso de cantidad vs stock visible (decisión 13/08: solo
+  // avisar, nunca frenar). Suena una vez, al CRUZAR el umbral hacia arriba.
+  try {
+    var _stk = (typeof obtenerStockVentas === 'function') ? obtenerStockVentas(nombre) : null;
+    if (_stk && typeof _stk.stock_visible === 'number' && nuevo > _stk.stock_visible && actual <= _stk.stock_visible) {
+      toast('⚠️ ' + nombre + ': pedís ' + nuevo + ' — hay ' + Math.max(0, _stk.stock_visible) + ' según depósito.\nSe puede vender igual; avisale al cliente si va a faltar.', 'warn');
+    }
+  } catch (eStk) {}
   tomadorActualizarTotal();
 }
 
@@ -35753,6 +35777,17 @@ async function tomadorConfirmarConEntrega(entregaData) {
   try {
   var items = Object.keys(_tomadorQtys);
   // v14.105.0 — exigir calibre en los pollos antes de guardar (evita facturar el calibre equivocado)
+  // v14.147.0 — resumen de sobreventa al confirmar (informa, no frena).
+  try {
+    var _sobre = items.filter(function(n){
+      var sx = (typeof obtenerStockVentas === 'function') ? obtenerStockVentas(n) : null;
+      return sx && typeof sx.stock_visible === 'number' && (_tomadorQtys[n] || 0) > sx.stock_visible;
+    }).map(function(n){
+      var sx = obtenerStockVentas(n);
+      return n + ' (' + _tomadorQtys[n] + ' pedidas / ' + Math.max(0, sx.stock_visible) + ' en depósito)';
+    });
+    if (_sobre.length) toast('⚠️ Por encima del stock visible:\n' + _sobre.join('\n') + '\nSe carga igual — avisá al cliente si algo falta.', 'warn');
+  } catch (eSb) {}
   var _faltaCalibre = items.filter(function(n) { return POLLOS_CON_CALIBRE[n] && _tomadorQtys[n] > 0 && !_tomadorCalibres[n]; });
   if (_faltaCalibre.length) { toast('Elegí calibre/estado del pollo en: ' + _faltaCalibre.join(', '), 'err'); return; }
   var cliente   = _gpsCheckinActivo ? _gpsCheckinActivo.nombre_cliente : 'Cliente';
