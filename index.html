@@ -2,6 +2,19 @@
 <html lang="es">
 <head>
 <!-- ═══════════════════════════════════════════════════════════════════════
+     TCK VENTAS — v14.146.0 — 13/08/2026
+     v14.146.0: LA ✕ DEL CARTEL AHORA SE ACUERDA (reclamo 13/08 PM:
+       "tiene la cruz pero sigue apareciendo"). El cierre era una variable
+       en memoria: cerrar y reabrir la app lo reseteaba. Ahora persiste en
+       localStorage como mapa {pedidoId: estado} y el cartel reaparece
+       SOLO ante novedad real: (a) entró un pedido nuevo a la cola, o
+       (b) uno que reintentaba solo pasó a necesitar acción del vendedor.
+       Que un pedido salga de la cola (se recuperó) NO lo hace volver.
+       Cola vacía limpia el recuerdo. Harness: 8 asserts nuevos (25/25).
+       NOTA: la reaparición frecuente de hoy era el síntoma del convoy
+       del lock (cada timeout = pedido nuevo en cola = cartel de nuevo).
+       La causa se ataca en el .gs v25.111.0 (mutex propio del guardado).
+     ─────────────────────────────────────────────────────────
      TCK VENTAS — v14.145.0 — 13/08/2026
      v14.145.0: TELEMETRÍA POR CAPA (hipótesis Julián: ¿Xubio lento?).
        Hasta hoy ningún dato separaba señal del celular vs Apps Script vs
@@ -18562,7 +18575,23 @@ var COLA_TTL_MS     = 48*3600*1000;     // a las 48 h pasa a acción manual
 var COLA_TICK_MS    = 60000;            // pulso del motor (el backoff por item manda)
 var _colaCorriendo  = false;
 var _colaOtraVuelta = false;            // v14.144.0: pedido de re-corrida mientras corre
-var _colaBadgeOculto = '';              // v14.143.0: firma de cola que el vendedor cerró con la ✕
+// v14.146.0 — la ✕ del cartel ahora persiste entre sesiones (localStorage).
+// Antes era una variable en memoria: cerrar y reabrir la app la reseteaba y
+// el cartel volvía aunque la cola no hubiera cambiado (reclamo 13/08 PM).
+// Guarda un mapa {pedidoId: 'p'|'m'} y el cartel solo reaparece si (a) entra
+// un pedido NUEVO a la cola, o (b) uno que reintentaba solo pasa a necesitar
+// acción del vendedor. Que un pedido SALGA de la cola no lo hace reaparecer.
+var COLA_BADGE_OCULTO_KEY = 'tck_cola_badge_oculto';
+function _colaBadgeOcultoLeer() {
+  try { return JSON.parse(localStorage.getItem(COLA_BADGE_OCULTO_KEY) || 'null') || null; }
+  catch (e) { return null; }
+}
+function _colaBadgeOcultoGuardar(mapa) {
+  try {
+    if (mapa && Object.keys(mapa).length) localStorage.setItem(COLA_BADGE_OCULTO_KEY, JSON.stringify(mapa));
+    else localStorage.removeItem(COLA_BADGE_OCULTO_KEY);
+  } catch (e) {}
+}
 
 // v14.144.0 — CLASES en vez de contador de intentos:
 //   'auto'   = falla de transporte (sin señal, timeout, 5xx, lock ocupado).
@@ -18836,11 +18865,24 @@ function _colaReconciliar() {
 function _colaPintarBadge() {
   var arr = _colaLeer();
   var el  = document.getElementById('cola-badge');
-  if (!arr.length) { if (el) el.remove(); _colaBadgeOculto = ''; return; }
-  // v14.143.0: firma de la cola. Si el vendedor cerró el cartel con la ✕ y la
-  // cola sigue igual, no se vuelve a dibujar. Si entra o sale un pedido, sí.
-  var firma = arr.map(function(x){ return x.id + ':' + (x.clase === 'accion' ? 'm' : 'p'); }).sort().join('|');
-  if (_colaBadgeOculto === firma) { if (el) el.remove(); return; }
+  if (!arr.length) { if (el) el.remove(); _colaBadgeOcultoGuardar(null); return; }
+  // v14.146.0: mapa actual de la cola (id → p=auto / m=acción).
+  var mapaCola = {};
+  for (var mi = 0; mi < arr.length; mi++) mapaCola[arr[mi].id] = (arr[mi].clase === 'accion' ? 'm' : 'p');
+  var oculto = _colaBadgeOcultoLeer();
+  if (oculto) {
+    var hayNovedad = false;
+    for (var idc in mapaCola) {
+      if (!(idc in oculto)) { hayNovedad = true; break; }                 // pedido nuevo en cola
+      if (mapaCola[idc] === 'm' && oculto[idc] !== 'm') { hayNovedad = true; break; }  // pasó a necesitar acción
+    }
+    if (!hayNovedad) {
+      _colaBadgeOcultoGuardar(mapaCola);  // los que salieron, salen también del recuerdo
+      if (el) el.remove();
+      return;
+    }
+    _colaBadgeOcultoGuardar(null);        // hay novedad: el cartel vuelve a hablar
+  }
   var manuales = arr.filter(function(x){ return x.clase === 'accion'; }).length;
   var pend     = arr.length - manuales;
   if (!el) {
@@ -18869,7 +18911,7 @@ function _colaPintarBadge() {
   var x = document.getElementById('cola-badge-x');
   if (x) x.onclick = function(ev){
     if (ev && ev.stopPropagation) ev.stopPropagation();
-    _colaBadgeOculto = firma;
+    _colaBadgeOcultoGuardar(mapaCola);
     var e2 = document.getElementById('cola-badge'); if (e2) e2.remove();
   };
 }
