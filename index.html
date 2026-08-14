@@ -2,6 +2,84 @@
 <html lang="es">
 <head>
 <!-- ═══════════════════════════════════════════════════════════════════════
+     TCK VENTAS — v14.151.0 — 14/08/2026
+     v14.151.0: LA LISTA SALE DE SUPABASE. EL CSV DEJA DE SER LA VERDAD.
+
+       EL PROBLEMA DE FONDO (auditoría 14/08 sobre producción):
+       la lista se armaba de SHEET_CSV_RECIENTES, que es el CSV publicado de
+       la hoja pedidos_recientes. Esa hoja no es una hoja: es la fórmula
+         QUERY(Pedidos!A:S, "select * offset " & MAX(0,COUNTA(Pedidos!A:A)-1500), 1)
+       Entonces cada escritura tenía que atravesar TRES relojes distintos:
+       escritura en Pedidos → recálculo del QUERY → regeneración del CSV
+       publicado (cache de Google, ~5 min). De ahí que Actualizar mostrara C
+       y F5 mostrara D: son dos hits distintos al CDN de publicación.
+       Encima el archivo bajaba 1.501 filas (420 KB) de TODOS los vendedores
+       cada 60 segundos.
+
+       Sobre esa fuente atrasada había CUATRO capas de parche que se pisaban
+       entre sí: _estadosCambiados (sostenía SOLO el estado), _pedidosReconciliados
+       (estado+total), _optimisticPedidos y _pedidosCache. La combinación
+       producía estados imposibles — "Pendiente $35.500" con la base en
+       "Pendiente $71.000" — porque una capa sostenía el estado nuevo y el
+       total salía del CSV viejo. Es el incidente PATRICIO ROJAS del 13/08.
+
+       AHORA: 1 request a vw_pedidos_ventas (~30 ms, medido). Una sola
+       verdad. Las cuatro capas se van: con 30 ms de latencia no hay nada
+       que sostener.
+
+       1. LECTURA CANÓNICA. cargarPedidos() lee vw_pedidos_ventas con la
+          anon key. NO usa sbFetch: sbFetch ejecuta jwtLimpiar() ante un 401
+          y eso destruye la sesión de toda la app (P0 de v14.149.0). El
+          camino nuevo usa sbGetAislado(), que no puede tocar la sesión ni
+          aunque quiera. La vista no necesita JWT.
+
+       2. LAST KNOWN GOOD. _snap guarda la última lista buena. Ninguna
+          función escribe la pantalla hasta tener un snapshot completo y
+          válido; recién ahí hace swap atómico. Si el refresh falla, se
+          conservan los pedidos que había y aparece un chip discreto
+          "datos de HH:MM · Reintentar". Se eliminó el
+          innerHTML="Cargando pedidos..." que borraba la lista ANTES del
+          fetch (era la causa directa de la pantalla vacía).
+          Guarda extra: una respuesta con 0 pedidos NO le gana a un snapshot
+          que tenía pedidos. Se rechaza y se trata como fallo.
+
+       3. UN SOLO REFRESH EN VUELO. _refreshEnVuelo: el segundo toque de
+          Actualizar se engancha a la promesa en curso en vez de largar otra
+          cadena. Antes cada toque disparaba una cadena nueva y ganaba la
+          última en terminar, sin importar cuál había pedido primero.
+
+       4. TIMEOUT REAL. AbortController en todos los fetch. El fetch del CSV
+          no tenía ninguno: si Google no cerraba la conexión, el await no
+          resolvía nunca, no entraba al catch y la pantalla quedaba en
+          "Cargando pedidos..." para siempre. Ese era el síntoma 11.
+
+       5. ANTI FUERA-DE-ORDEN. Secuencia monotónica por refresh + updated_at
+          por pedido. Una respuesta vieja no puede pisar a una nueva.
+
+       6. READ AFTER WRITE. Después de mutar se lee ESE pedido con
+          ?accion=pedidoEstadoActual (GAS v25.118.x, ya sin Sheet: ~300 ms).
+          Se aplica lo que el servidor confirmó, nunca lo que envió el front.
+
+       7. IDEMPOTENCIA. Los 3 puntos que anulan presupuestos en Xubio mandan
+          op_id. Un retry devuelve el resultado guardado en vez de hacer un
+          segundo DELETE (que podía borrar el presupuesto NUEVO).
+
+       8. CSV DEGRADADO A FALLBACK. Solo se usa si la lectura canónica falla
+          Y no hay snapshot. Switch FUENTE_LISTA = "canonico" | "csv" para
+          volver atrás sin revertir el deploy.
+
+       MEDICIONES (Lisandro, 45 días, gzip como viaja en la red):
+         CSV hoy      1.500 filas · 461 KB · 85,9 KB gzip · +5 min de retraso
+         Canónico       526 filas · 435 KB · 40,1 KB gzip · ~30 ms
+         Requests por Actualizar: 14 (1 CSV + 1 Supabase + 12 GAS) → 1
+
+       REQUIERE: GAS v25.118.2 y las vistas de la Etapa 1.
+
+       (·) FIX DE ETIQUETADO: version.json estaba en 14.149.0 con el archivo
+           en v14.150.0, así que el banner de actualización nunca disparaba.
+           Queda alineado en 14.151.0. REGLA: al deployar se suben SIEMPRE
+           los dos, index.html y version.json.
+     ═══════════════════════════════════════════════════════════════════════
      TCK VENTAS — v14.150.0 — 14/08/2026
      v14.150.0: RECONCILIACIÓN AISLADA + LECTURA CANÓNICA.
        Base: v14.148.0 estable. v14.149.0 NO se usó como base: su
@@ -23122,8 +23200,12 @@ async function pedidoSucursalesMapCargar() {
   try {
     // Traer TODOS los vínculos (sin filtro de fecha — la tabla es chica).
     // Incluye el JOIN con cliente_sucursales usando embed de PostgREST.
+    // v14.151.0 — sbGetAislado en vez de sbFetch: sbFetch ejecuta
+    // jwtLimpiar() ante un 401 y destruye la sesión de toda la app. Esta
+    // lectura auxiliar estaba en el camino crítico de cargarPedidos() y era
+    // una de las formas de quedarse sin lista con el wifi andando.
     var path = 'pedido_sucursales?select=pedido_id,sucursal_id,cliente_sucursales(id,nombre_suc,direccion,localidad,cliente_norm)&limit=5000';
-    var data = await sbFetch(path);
+    var data = await sbGetAislado(SUPABASE_URL + '/rest/v1/' + path, 8000);
     if (!Array.isArray(data)) return;
     var m = {};
     data.forEach(function(row) {
@@ -23189,8 +23271,25 @@ var _gpsHizoPedido  = false; // true si tomó pedido en el checkin activo
 
 let vendedorActual = null;
 let todosLosPedidos = [];
-let _pedidosCache   = []; // cache para no perder pedidos entre refreshes
-var _estadosCambiados = {}; // pedidoId -> {estado, ts}
+// ══ v14.151.0 — _pedidosCache DEPRECADO ══════════════════════════════
+// Reemplazado por _snap (LAST KNOWN GOOD), que es explícito, atómico y
+// tiene marca de tiempo. El viejo reinyectaba pedidos de generaciones
+// anteriores cuando el CSV devolvía menos filas, mezclando objetos ya
+// mutados con objetos nuevos. Queda inerte por las 3 escrituras que
+// sobreviven en el tomador y en la carga manual.
+let _pedidosCache   = []; // DEPRECADO v14.151.0 — usar _snap
+// ══ v14.151.0 — _estadosCambiados DEPRECADO ═══════════════════════════
+// Era el parche que sostenía SOLO p.estado mientras el CSV publicado del
+// Sheet seguía ~5 min atrasado. Al sostener el estado pero no el total ni
+// el detalle, producía combinaciones que nunca existieron en la base:
+// "Pendiente $35.500" con el servidor en "Pendiente $71.000" (incidente
+// PATRICIO ROJAS, 13/08). Con la lectura canónica en ~30 ms no hay nada
+// que sostener.
+// Queda como objeto inerte para no romper las 5 escrituras que sobreviven
+// en flujos de mutación: escriben, nadie lee. cargarPedidos() ya no lo
+// consulta. El estado real llega por read-after-write o por el próximo
+// refresh canónico.
+var _estadosCambiados = {}; // DEPRECADO v14.151.0 — se escribe, no se lee
 let filtroActual = 'todos';
 let filtroFecha = 'hoy';
 let filtroVendedor = 'todos';
@@ -23345,36 +23444,14 @@ function _registrarOptimistico(pedido) {
 }
 
 function _mergeOptimisticos(pedidosFromServer) {
-  // Quitar optimistas vencidos antes de mergear
-  const ahora = Date.now();
-  const idsServer = new Set(pedidosFromServer.map(function(p){ return p.pedidoId; }));
-  const result = pedidosFromServer.slice();
-  var _cambioLS = false; // v14.40.0
-
-  _optimisticPedidos.forEach(function(entry, id) {
-    if (ahora - entry.creadoEn > OPTIMISTIC_TTL_MS) {
-      // Vencido: ya no lo defendemos. Si el server lo tiene, lo veremos
-      // en el siguiente fetch. Si no, se perdió.
-      _optimisticPedidos.delete(id);
-      _cambioLS = true;
-      return;
-    }
-    if (!idsServer.has(id)) {
-      // Server aún no lo tiene → defenderlo, agregarlo al inicio.
-      // v14.122.0: solo si el pedido es del vendedor logueado (los optimistas
-      // ya NO se borran al cerrar sesión; el filtro por dueño evita que se
-      // crucen entre vendedores en un mismo celular).
-      if (entry.datos && (!entry.datos.vendedor || entry.datos.vendedor === vendedorActual)) {
-        result.unshift(entry.datos);
-      }
-    } else {
-      // Server lo confirmó → soltar el optimista
-      _optimisticPedidos.delete(id);
-      _cambioLS = true;
-    }
-  });
-  if (_cambioLS) _optimisticGuardarLS(); // v14.40.0: persistir los que se soltaron
-  return result;
+  // ══ v14.151.0 — NO-OP ═══════════════════════════════════════════════
+  // El optimismo existía porque un pedido recién creado tardaba hasta 5 min
+  // en aparecer en el CSV publicado. La lectura canónica lo trae en ~30 ms:
+  // el pedido ya está ahí cuando termina el guardado. Mantener la capa
+  // significaba que un objeto local podía competir con el del servidor.
+  // Se conserva la función (la llaman el tomador y la carga manual) pero
+  // devuelve la lista del servidor tal cual.
+  return pedidosFromServer;
 }
 
 // v14.128.0 — DEDUPE POR pedidoId (fix "me apareció doble y cancelé los dos").
@@ -23518,7 +23595,9 @@ function _xubioProcConfirmar(pedidoId, nroPresupuesto) {
     pedido.xubioEstado = 'creado';
     if (nroPresupuesto) pedido.xubioNroPresupuesto = nroPresupuesto;
     // Proteger el Confirmado contra el CSV viejo (mismo mecanismo que cambiarEstado).
-    _estadosCambiados[pedidoId] = { estado: 'Confirmado', ts: Date.now() };
+    // v14.151.0 — _estadosCambiados quedó inerte (ver su declaración). El
+    // estado real llega por read-after-write contra la fuente canónica.
+    try { _pedidoReconciliar(pedidoId).catch(function(){}); } catch (_) {}
   }
   _xubioActivo = false;
   renderPedidos(true);
@@ -24008,310 +24087,424 @@ function salir() {
 }
 
 // ── CARGAR PEDIDOS ───────────────────────────────────────────────
-async function cargarPedidos(silencioso, _reintentos) {
-  silencioso = silencioso || false;
-  _reintentos = _reintentos === undefined ? 0 : _reintentos;
-  if (!silencioso) document.getElementById('lista-pedidos').innerHTML =
-    '<div class="loading"><div class="loading-spinner"></div>Cargando pedidos...</div>';
+// ════════════════════════════════════════════════════════════════════════
+//  v14.151.0 — LECTURA CANÓNICA + LAST KNOWN GOOD
+//  ─────────────────────────────────────────────────────────────────────
+//  Reemplaza a la cargarPedidos() que leía el CSV publicado del Sheet.
+//  Ver el detalle completo en el header del archivo.
+// ════════════════════════════════════════════════════════════════════════
+
+/* Switch de rollback operativo. Cambiar a "csv" y recargar vuelve al camino
+   viejo sin revertir el deploy ni tocar el repo. */
+var FUENTE_LISTA      = "canonico";   // "canonico" | "csv"
+var LISTA_DIAS        = 21;           // ventana por defecto (el filtro personalizado la amplía)
+var LISTA_DIAS_MAX    = 45;           // tope: es lo que expone la vista
+var LISTA_TIMEOUT_MS  = 8000;
+var CSV_TIMEOUT_MS    = 12000;
+var VW_LISTA_URL      = SUPABASE_URL + "/rest/v1/vw_pedidos_ventas";
+
+/* LAST KNOWN GOOD: la última lista completa y válida. Nada pisa la pantalla
+   hasta tener un reemplazo entero; recién ahí se hace swap atómico. */
+var _snap = { pedidos: [], at: null, fuente: null };
+var _refreshEnVuelo = null;          // promesa del refresh en curso
+var _refreshSeq = 0;                 // secuencia monotónica de pedidos de refresh
+var _refreshSeqAplicado = 0;         // la última secuencia que llegó a pintar
+var _listaDegradada = false;         // true = estamos mostrando datos viejos
+var _listaVentanaDias = LISTA_DIAS;
+
+/* Perfilado en memoria para las pruebas. Ver window.__tckPerf en la consola. */
+window.__tckPerf = [];
+function _perf(evento, t0, extra) {
   try {
-    var res = await fetch(SHEET_CSV_RECIENTES + '&t=' + Date.now());
-    var csv = await res.text();
-    // v14.144.0 PERF: si el CSV es idéntico al anterior, no hay nada nuevo —
-    // saltear parseo + detección de duplicados + render (en celulares de
-    // gama baja el re-render completo cada 60s era jank puro). Solo en
-    // modo silencioso y sin optimistas vivos (esos necesitan el merge para
-    // expirar). Un hash simple alcanza: mismo texto ⇒ mismo estado.
-    if (silencioso && typeof _optimisticPedidos !== 'undefined' && _optimisticPedidos.size === 0) {
-      var _h = 0;
-      for (var _hi = 0; _hi < csv.length; _hi++) { _h = ((_h << 5) - _h + csv.charCodeAt(_hi)) | 0; }
-      var _firmaCsv = csv.length + ':' + _h;
-      if (window._ultimaFirmaCsv === _firmaCsv) {
-        var _tsEl = document.getElementById('ultima-actualizacion');
-        if (_tsEl) {
-          var _ah = new Date();
-          _tsEl.textContent = 'Actualizado ' + _ah.getHours().toString().padStart(2,'0') + ':' + _ah.getMinutes().toString().padStart(2,'0');
-          _tsEl.style.color = 'var(--green2)';
-        }
-        try { _colaReconciliar(); } catch(eRc) {}
-        return;
-      }
-      window._ultimaFirmaCsv = _firmaCsv;
-    } else if (silencioso) { window._ultimaFirmaCsv = null; }
-    var lines = csv.trim().split('\n');
-    var pedidos = [];
-    for (var i = 1; i < lines.length; i++) {
-      var cols = parseCsv(lines[i]);
-      if (!cols[0] || limpiar(cols[0]) === '') continue;
-      // Saltar filas separadoras (no tienen formato TCK-YYYYMMDD-...)
-      if (!/^TCK-\d{8}-/.test(limpiar(cols[0]))) continue;
-      pedidos.push({
-        pedidoId:  limpiar(cols[0]),
-        fechaHora: limpiar(cols[1]),
-        vendedor:  limpiar(cols[2]),
-        cliente:   limpiar(cols[3]),
-        comercio:  limpiar(cols[4]),
-        localidad: limpiar(cols[5]),
-        total:     limpiar(cols[6]),
-        items:     limpiar(cols[7]),
-        resumen:   limpiar(cols[8]),
-        detalle:   limpiar(cols[9]),
-        estado:         limpiar(cols[10]) || 'Pendiente',
-        fechaEntrega:   limpiar(cols[11]) || '',
-        turnoEntrega:   limpiar(cols[12]) || '',
-        origen:         limpiar(cols[13]) || '',   // v8.4.1: leer origen del Sheet
-        telefono:       limpiar(cols[14]) || '',   // v8.4.1: leer telefono/nota del Sheet
-        // v10: columnas Xubio (presupuesto)
-        xubioNroPresupuesto: limpiar(cols[15]) || '',
-        xubioTransaccionid:  limpiar(cols[16]) || '',
-        xubioEstado:         limpiar(cols[17]) || '',
-        // v14.135.0: comercio nuevo esperando alta en Xubio. Va en la misma col 18
-        // que el estado Xubio, así se limpia sola cuando el presupuesto se crea.
-        esperaAltaCliente:   limpiar(cols[17]) === 'espera_alta_cliente',
-        // v14.15.0: motivo de cancelación (col S = índice 18)
-        motivoCancelacion:   limpiar(cols[18]) || '',
-        fila:           i + 1
+    var e = { evento: evento, ms: Math.round(performance.now() - t0), hora: new Date().toLocaleTimeString("es-AR") };
+    if (extra) for (var k in extra) e[k] = extra[k];
+    window.__tckPerf.push(e);
+    if (window.__tckPerf.length > 200) window.__tckPerf.shift();
+    console.log("[perf]", e.evento, e.ms + "ms", extra || "");
+  } catch (_) {}
+}
+
+/* GET a Supabase AISLADO. No usa sbFetch a propósito: sbFetch ejecuta
+   jwtLimpiar() ante un 401 y eso destruye la sesión de toda la app. Fue el P0
+   de v14.149.0 (bitácora #831) y seguía vivo dentro de cargarPedidos() vía
+   pedidoSucursalesMapCargar(). Acá va la anon key sola: la vista no necesita
+   JWT, así que un 401 es imposible por identidad. */
+async function sbGetAislado(url, timeoutMs) {
+  var ctrl = (typeof AbortController !== "undefined") ? new AbortController() : null;
+  var timer = setTimeout(function () { if (ctrl) ctrl.abort(); }, timeoutMs || LISTA_TIMEOUT_MS);
+  try {
+    var resp = await fetch(url, {
+      headers: { "apikey": SUPABASE_KEY, "Authorization": "Bearer " + SUPABASE_KEY,
+                 "Accept": "application/json" },
+      signal: ctrl ? ctrl.signal : undefined
+    });
+    clearTimeout(timer);
+    if (!resp.ok) {
+      var txt = "";
+      try { txt = (await resp.text()).substring(0, 200); } catch (_) {}
+      throw { tipo: "http", status: resp.status, msg: txt };
+    }
+    return await resp.json();
+  } catch (e) {
+    clearTimeout(timer);
+    if (e && e.name === "AbortError") throw { tipo: "timeout" };
+    if (e && e.tipo) throw e;
+    if (typeof navigator !== "undefined" && navigator && navigator.onLine === false) throw { tipo: "offline" };
+    throw { tipo: "red", msg: String(e && e.message || e) };
+  }
+}
+
+/* Traduce una fila de vw_pedidos_ventas al objeto que ya consume renderCard.
+   Los tipos importan: fmtTotal() hace (t||"").replace(...) y revienta con un
+   número, así que `total` e `items` viajan como STRING con el mismo formato
+   que traía el CSV. Cero cambios en renderCard por este lado. */
+function _mapVista(r) {
+  var totalNum = Number(r.total || 0);
+  var fh = "";
+  try {
+    var d = new Date(r.creado_at);
+    var pad = function (n) { return String(n).padStart(2, "0"); };
+    fh = d.getFullYear() + "-" + pad(d.getMonth() + 1) + "-" + pad(d.getDate()) + " " +
+         pad(d.getHours()) + ":" + pad(d.getMinutes()) + ":" + pad(d.getSeconds());
+  } catch (_) { fh = String(r.creado_at || ""); }
+  return {
+    pedidoId:  r.pedido_id,
+    fechaHora: fh,
+    vendedor:  r.vendedor || "",
+    cliente:   r.cliente || "",
+    comercio:  r.comercio || "",
+    localidad: r.localidad || "",
+    total:     "$" + totalNum.toLocaleString("es-AR"),
+    items:     (r.items_totales === null || r.items_totales === undefined) ? "" : String(r.items_totales),
+    resumen:   r.resumen || "",
+    detalle:   r.detalle || "",
+    estado:    r.estado || "Pendiente",
+    fechaEntrega: r.fecha_entrega || "",
+    turnoEntrega: r.turno_entrega || "",
+    origen:    r.origen || "",
+    telefono:  r.telefono || "",
+    xubioNroPresupuesto: r.xubio_presupuesto_nro || "",
+    xubioTransaccionid:  r.xubio_presupuesto_id ? String(r.xubio_presupuesto_id) : "",
+    xubioEstado:         r.xubio_estado || "",
+    esperaAltaCliente:   (r.xubio_estado === "espera_alta_cliente"),
+    motivoCancelacion:   r.motivo_cancelacion || "",
+    /* v14.151.0 — `fila` era el índice del CSV de pedidos_recientes (1..1501)
+       y NO tiene relación con la fila real de la hoja Pedidos (6.996). El GAS
+       v25.118.0 lo ignora por completo; se manda vacío para no romper firmas. */
+    fila: "",
+    /* Campos nuevos que el CSV no podía dar */
+    viajeId:      r.viaje_id || null,
+    zona:         r.zona || "",
+    facturaNro:   r.xubio_factura_nro || null,
+    facturacionEstado: r.facturacion_estado || null,
+    coherente:    r.coherente,
+    updatedAt:    r.updated_at || null,
+    _productos:   r.productos || []   // para el detector de duplicados, sin parsear texto
+  };
+}
+
+/* Detección de duplicados. Antes parseaba el texto del detalle con regex;
+   ahora usa el array `productos` que arma la vista desde pedidos_items. */
+function _prodsDePedido(p) {
+  var s = new Set();
+  if (p._productos && p._productos.length) {
+    p._productos.forEach(function (n) { if (n) s.add(n); });
+    return s;
+  }
+  if (p.detalle) {
+    try {
+      parseProds(p.detalle).forEach(function (pr) {
+        var n = _normProdVent(pr.name); if (n) s.add(n);
       });
+    } catch (_) {}
+  }
+  return s;
+}
+
+function _normProdVent(nombre) {
+  return (nombre || "").toLowerCase()
+    .replace(/[°º]/g, "")
+    .replace(/[áàä]/g, "a").replace(/[éèë]/g, "e").replace(/[íìï]/g, "i")
+    .replace(/[óòö]/g, "o").replace(/[úùü]/g, "u").replace(/ñ/g, "n")
+    .replace(/[^a-z0-9]+/g, " ").replace(/\s+/g, " ").trim();
+}
+
+/* Marca duplicados sobre la lista ya armada (mismo criterio de siempre:
+   mismo cliente + mismo día). */
+function _marcarDuplicados(pedidos) {
+  var mapa = {};
+  pedidos.forEach(function (p) {
+    if (p.estado === "Cancelado") return;
+    var m = (p.pedidoId || "").match(/TCK-(\d{8})/);
+    var dia = m ? m[1] : (p.fechaHora || "").substring(0, 10).replace(/-/g, "");
+    if (!dia) return;
+    var k = (dia + (p.cliente || "")).toLowerCase().replace(/\s/g, "");
+    (mapa[k] = mapa[k] || []).push(p);
+  });
+  pedidos.forEach(function (p) {
+    p.esDuplicado = false; p.tipoDuplicado = null; p.duplicadoCon = "";
+    if (p.estado === "Cancelado") return;
+    var m = (p.pedidoId || "").match(/TCK-(\d{8})/);
+    var dia = m ? m[1] : (p.fechaHora || "").substring(0, 10).replace(/-/g, "");
+    if (!dia) return;
+    var grupo = mapa[(dia + (p.cliente || "")).toLowerCase().replace(/\s/g, "")];
+    if (!grupo || grupo.length < 2) return;
+    try { if (gruposVaSucursalesDistintas(grupo)) return; } catch (_) {}
+    var otros = grupo.filter(function (x) { return x.pedidoId !== p.pedidoId; });
+    var todosDistintos = otros.length > 0 && otros.every(function (x) {
+      try { return dupEstaMarcadoComoDistinto(p.pedidoId, x.pedidoId); } catch (_) { return false; }
+    });
+    if (todosDistintos) return;
+    var mios = _prodsDePedido(p);
+    var comun = otros.some(function (x) {
+      var sus = _prodsDePedido(x);
+      for (var n of mios) { if (sus.has(n)) return true; }
+      return false;
+    });
+    p.esDuplicado = true;
+    p.tipoDuplicado = comun ? "exacto" : "parcial";
+    p.duplicadoCon = otros.map(function (x) { return x.vendedor || "otro vendedor"; })
+      .filter(function (v, i, a) { return a.indexOf(v) === i; }).join(", ");
+  });
+  return pedidos;
+}
+
+/* ── LECTURA CANÓNICA (fuente primaria) ───────────────────────────────── */
+async function _leerListaCanonica() {
+  var t0 = performance.now();
+  // Guard: si la ventana quedara en NaN, toISOString() tira RangeError y la
+  // lista NO carga nunca. Es barato blindarlo y carísimo que pase.
+  var dias = Number(_listaVentanaDias);
+  if (!isFinite(dias) || dias <= 0) dias = 21;
+  var desde = new Date(Date.now() - dias * 86400000).toISOString();
+  var qs = "?select=*&order=creado_at.desc&creado_at=gte." + encodeURIComponent(desde);
+  if (vendedorActual && vendedorActual !== "ADMIN") {
+    /* El vendedor online también atiende el tráfico de publicidad (TCK Online). */
+    if (vendedorActual === VENDEDOR_ONLINE) {
+      qs += "&or=(vendedor.ilike.*" + encodeURIComponent(vendedorActual) +
+            "*,vendedor.ilike.*tck online*)";
+    } else {
+      qs += "&vendedor=ilike.*" + encodeURIComponent(vendedorActual) + "*";
     }
+  }
+  var filas = await sbGetAislado(VW_LISTA_URL + qs, LISTA_TIMEOUT_MS);
+  if (!Array.isArray(filas)) throw { tipo: "parse", msg: "la vista no devolvió un array" };
+  var pedidos = filas.map(_mapVista);
+  _perf("lista_canonica", t0, { filas: pedidos.length, dias: dias });
+  return pedidos;
+}
+
+/* ── FALLBACK CSV (solo emergencia) ───────────────────────────────────── */
+/* Se conserva aislado para poder volver atrás sin dejar a los vendedores sin
+   operar. NO es la verdad: llega con ~5 min de retraso de Google. */
+async function _leerListaCsv() {
+  var t0 = performance.now();
+  var ctrl = (typeof AbortController !== "undefined") ? new AbortController() : null;
+  var timer = setTimeout(function () { if (ctrl) ctrl.abort(); }, CSV_TIMEOUT_MS);
+  var csv;
+  try {
+    var res = await fetch(SHEET_CSV_RECIENTES + "&t=" + Date.now(),
+                          ctrl ? { signal: ctrl.signal } : {});
+    clearTimeout(timer);
+    if (!res.ok) throw { tipo: "http", status: res.status };
+    csv = await res.text();
+  } catch (e) {
+    clearTimeout(timer);
+    if (e && e.name === "AbortError") throw { tipo: "timeout" };
+    throw (e && e.tipo) ? e : { tipo: "red", msg: String(e && e.message || e) };
+  }
+  var lines = csv.trim().split("\n");
+  var pedidos = [];
+  for (var i = 1; i < lines.length; i++) {
+    var cols = parseCsv(lines[i]);
+    if (!cols[0] || limpiar(cols[0]) === "") continue;
+    if (!/^TCK-\d{8}-/.test(limpiar(cols[0]))) continue;
+    pedidos.push({
+      pedidoId: limpiar(cols[0]), fechaHora: limpiar(cols[1]), vendedor: limpiar(cols[2]),
+      cliente: limpiar(cols[3]), comercio: limpiar(cols[4]), localidad: limpiar(cols[5]),
+      total: limpiar(cols[6]), items: limpiar(cols[7]), resumen: limpiar(cols[8]),
+      detalle: limpiar(cols[9]), estado: limpiar(cols[10]) || "Pendiente",
+      fechaEntrega: limpiar(cols[11]) || "", turnoEntrega: limpiar(cols[12]) || "",
+      origen: limpiar(cols[13]) || "", telefono: limpiar(cols[14]) || "",
+      xubioNroPresupuesto: limpiar(cols[15]) || "", xubioTransaccionid: limpiar(cols[16]) || "",
+      xubioEstado: limpiar(cols[17]) || "",
+      esperaAltaCliente: limpiar(cols[17]) === "espera_alta_cliente",
+      motivoCancelacion: limpiar(cols[18]) || "",
+      fila: "", _productos: [], updatedAt: null
+    });
+  }
+  if (vendedorActual && vendedorActual !== "ADMIN") {
+    pedidos = pedidos.filter(function (p) { return esPedidoDeEsteVendedor(p, vendedorActual); });
+  }
+  _perf("lista_csv_fallback", t0, { filas: pedidos.length });
+  return pedidos;
+}
+
+/* Chip discreto de estado degradado. NUNCA reemplaza la lista. */
+function _chipDegradado(mostrar, motivo) {
+  var el = document.getElementById("chip-degradado");
+  if (!mostrar) { if (el) el.remove(); _listaDegradada = false; return; }
+  _listaDegradada = true;
+  if (!el) {
+    el = document.createElement("div");
+    el.id = "chip-degradado";
+    el.style.cssText = "margin:8px 0;padding:8px 12px;border-radius:10px;" +
+      "background:#FFF3E0;border:1px solid #FFB74D;color:#E65100;" +
+      "font-size:13px;display:flex;align-items:center;gap:8px;justify-content:space-between;";
+    var cont = document.getElementById("lista-pedidos");
+    if (cont && cont.parentNode) cont.parentNode.insertBefore(el, cont);
+  }
+  var hh = _snap.at ? _snap.at.getHours().toString().padStart(2, "0") + ":" +
+                      _snap.at.getMinutes().toString().padStart(2, "0") : "--:--";
+  el.innerHTML = "<span>\u26A0\uFE0F No pudimos actualizar (" + (motivo || "sin detalle") +
+                 "). Mostrando datos de " + hh + ".</span>" +
+                 "<button onclick=\"cargarPedidos(false)\" style=\"background:#E65100;color:#fff;" +
+                 "border:0;border-radius:8px;padding:5px 12px;font-weight:700;cursor:pointer;\">Reintentar</button>";
+}
+
+function _motivoLegible(err) {
+  if (!err) return "error desconocido";
+  if (err.tipo === "offline") return "sin conexión";
+  if (err.tipo === "timeout") return "el servidor tardó demasiado";
+  if (err.tipo === "http")    return "el servidor respondió " + (err.status || "error");
+  if (err.tipo === "parse")   return "respuesta ilegible";
+  if (err.tipo === "red")     return "problema de red";
+  return String(err.msg || err.tipo || "error");
+}
+
+/* ══════════════════════════════════════════════════════════════════════
+   cargarPedidos(silencioso)
+   · un solo refresh en vuelo
+   · timeout real
+   · secuencia monotónica (una respuesta vieja no pisa a una nueva)
+   · swap atómico contra el snapshot
+   · si falla: NO se toca la pantalla
+   ══════════════════════════════════════════════════════════════════════ */
+async function cargarPedidos(silencioso) {
+  silencioso = silencioso || false;
+
+  /* Dedupe: el segundo toque se engancha al refresh en curso. Sin esto, cada
+     toque de Actualizar largaba una cadena nueva y ganaba la última en
+     terminar, sin importar cuál se había pedido primero. */
+  if (_refreshEnVuelo) {
+    _perf("refresh_deduplicado", performance.now());
+    return _refreshEnVuelo;
+  }
+
+  var seq = ++_refreshSeq;
+  var t0 = performance.now();
+
+  /* Spinner SOLO en la primera carga real. Si ya hay lista, no se toca nada
+     hasta tener el reemplazo completo. */
+  var cont = document.getElementById("lista-pedidos");
+  if (!silencioso && !_snap.pedidos.length && cont) {
+    cont.innerHTML = '<div class="loading"><div class="loading-spinner"></div>Cargando pedidos...</div>';
+  }
+
+  _refreshEnVuelo = (async function () {
+    var pedidos = null, fuente = null, errCanon = null;
+
+    if (FUENTE_LISTA === "canonico") {
+      try { pedidos = await _leerListaCanonica(); fuente = "canonico"; }
+      catch (e) { errCanon = e; console.warn("[lista] canónica falló:", e); }
+    }
+    if (pedidos === null) {
+      try { pedidos = await _leerListaCsv(); fuente = "csv"; }
+      catch (e2) {
+        _perf("refresh_fallido", t0, { motivo: _motivoLegible(errCanon || e2) });
+        /* NO se toca la pantalla. El snapshot queda intacto. */
+        if (_snap.pedidos.length) {
+          _chipDegradado(true, _motivoLegible(errCanon || e2));
+        } else if (cont) {
+          cont.innerHTML = "<div class=\"empty\">\u26A0\uFE0F No pudimos cargar los pedidos (" +
+            _motivoLegible(errCanon || e2) + ").<br>" +
+            "<button onclick=\"cargarPedidos(false)\" style=\"margin-top:10px;background:#8B0000;" +
+            "color:#fff;border:0;border-radius:8px;padding:8px 16px;font-weight:700;cursor:pointer;\">Reintentar</button></div>";
+        }
+        return false;
+      }
+    }
+
+    /* Anti fuera-de-orden: si mientras tanto entró y pintó un refresh más
+       nuevo, esta respuesta se descarta. */
+    if (seq < _refreshSeqAplicado) {
+      console.warn("[lista] respuesta vieja descartada, seq", seq, "<", _refreshSeqAplicado);
+      _perf("respuesta_vieja_descartada", t0, { seq: seq });
+      return false;
+    }
+
+    /* Guarda: una lista vacía NUNCA le gana a un snapshot con pedidos. */
+    if (!pedidos.length && _snap.pedidos.length) {
+      console.warn("[lista] respuesta vacía rechazada (el snapshot tiene", _snap.pedidos.length, ")");
+      _perf("respuesta_vacia_rechazada", t0);
+      _chipDegradado(true, "respuesta vacía");
+      return false;
+    }
+
     sortPedidos(pedidos);
-
-    // Actualizar timestamp de última carga
-    var ahoraEl = document.getElementById('ultima-actualizacion');
-    if (ahoraEl) {
-      var ahora = new Date();
-      var hh = ahora.getHours().toString().padStart(2,'0');
-      var mm = ahora.getMinutes().toString().padStart(2,'0');
-      ahoraEl.textContent = 'Actualizado ' + hh + ':' + mm;
-      ahoraEl.style.color = 'var(--green2)';
-    }
-
-    // v8.7: cargar mapa de vínculos pedido→sucursal para detector + render de cards
-    await pedidoSucursalesMapCargar();
-
-    // Detectar duplicados — mismo cliente + mismo día, distinguir por productos comunes
-    // 🔴 DUPLICADO = mismo producto · 🟠 PEDIDO DOBLE = productos distintos
-    // v8.7: si los pedidos del grupo van a sucursales DISTINTAS → NO marcar (son legítimos)
-    var mapTotal = {};
-    var _normProdVent = function(nombre) {
-      return (nombre || '').toLowerCase()
-        .replace(/[°º]/g, '')
-        .replace(/[áàä]/g,'a').replace(/[éèë]/g,'e').replace(/[íìï]/g,'i')
-        .replace(/[óòö]/g,'o').replace(/[úùü]/g,'u').replace(/ñ/g,'n')
-        .replace(/[^a-z0-9]+/g, ' ').replace(/\s+/g,' ').trim();
-    };
-    var _setProdsVent = function(p) {
-      var s = new Set();
-      // Intentar detalle
-      if (p.detalle) {
-        parseProds(p.detalle).forEach(function(pr) {
-          var n = _normProdVent(pr.name); if (n) s.add(n);
-        });
-      }
-      // Fallback resumen
-      if (s.size === 0 && p.resumen) {
-        (p.resumen.split(/\s*[,|]\s*/)).forEach(function(parte) {
-          var m = parte.trim().match(/^\d+\s*[x×]\s*(.+?)(?:\s*[\(→]|$)/i);
-          if (m) { var n = _normProdVent(m[1]); if (n) s.add(n); }
-        });
-      }
-      return s;
-    };
-
-    pedidos.forEach(function(p) {
-      if (p.estado === 'Cancelado') return;
-      var mFecha = (p.pedidoId || '').match(/TCK-(\d{8})/);
-      var fechaDia = mFecha ? mFecha[1] : (p.fechaHora || '').substring(0, 10).replace(/-/g,'');
-      if (!fechaDia) return;
-      var kCliente = (fechaDia + (p.cliente||'')).toLowerCase().replace(/\s/g,'');
-      if (!mapTotal[kCliente]) mapTotal[kCliente] = [];
-      mapTotal[kCliente].push(p);
-    });
-    pedidos.forEach(function(p) {
-      if (p.estado === 'Cancelado') { p.esDuplicado = false; p.tipoDuplicado = null; p.duplicadoCon = ''; return; }
-      var mFecha = (p.pedidoId || '').match(/TCK-(\d{8})/);
-      var fechaDia = mFecha ? mFecha[1] : (p.fechaHora || '').substring(0, 10).replace(/-/g,'');
-      if (!fechaDia) { p.esDuplicado = false; p.tipoDuplicado = null; p.duplicadoCon = ''; return; }
-      var kCliente = (fechaDia + (p.cliente||'')).toLowerCase().replace(/\s/g,'');
-      var grupo = mapTotal[kCliente];
-      if (grupo && grupo.length > 1) {
-        // v8.7: si TODOS los pedidos del grupo van a sucursales distintas, NO marcar.
-        // Son pedidos legítimos del mismo cliente a direcciones distintas.
-        if (gruposVaSucursalesDistintas(grupo)) {
-          p.esDuplicado = false;
-          p.tipoDuplicado = null;
-          p.duplicadoCon = '';
-          return;
-        }
-        // Hay 2+ del mismo cliente mismo día → siempre marcar
-        var misProds = _setProdsVent(p);
-        var otros = grupo.filter(function(x){ return x.pedidoId !== p.pedidoId; });
-        var hayProdComun = otros.some(function(x) {
-          var sus = _setProdsVent(x);
-          for (var n of misProds) { if (sus.has(n)) return true; }
-          return false;
-        });
-
-        // v13: si TODOS los otros pedidos del grupo están marcados como
-        // "legítimos" con este pedido → no marcar como duplicado.
-        // Consulta el Set global _dupNoDupSet populado por dupCargarNoDuplicados().
-        var todosDistintos = otros.length > 0 && otros.every(function(x) {
-          return dupEstaMarcadoComoDistinto(p.pedidoId, x.pedidoId);
-        });
-        if (todosDistintos) {
-          p.esDuplicado = false;
-          p.tipoDuplicado = null;
-          p.duplicadoCon = '';
-          return;
-        }
-
-        p.esDuplicado = true;
-        p.tipoDuplicado = hayProdComun ? 'exacto' : 'parcial';
-        p.duplicadoCon = otros.map(function(x){return x.vendedor||'otro vendedor';})
-          .filter(function(v,i,a){return a.indexOf(v)===i;}).join(', ');
-      } else {
-        p.esDuplicado = false; p.tipoDuplicado = null; p.duplicadoCon = '';
-      }
-    });
-
-    cargarNotas(pedidos);
-    // v14.138.0 — SOSTENER EL CAMBIO HASTA QUE EL SHEET LO CONFIRME.
-    // ANTES: ventana fija de 2 minutos. El problema (audio de Miguel, 11/08):
-    // el CSV publicado de Google cachea ~5 min, así que entre el minuto 2 y el
-    // 5 el optimista ya había expirado pero el Sheet TODAVÍA devolvía el estado
-    // viejo → el pedido volvía a mostrarse "Confirmado" después de anularle el
-    // presupuesto. De ahí el "cerrás, abrís, actualizás un par de veces y nada".
-    // AHORA: el cambio se sostiene hasta que el Sheet devuelva ESE mismo estado
-    // (ahí se borra la marca sola, que es la señal de que viajó de verdad), con
-    // un tope de 15 min por si el guardado falló y el Sheet nunca lo confirma.
-    var ahora = Date.now();
-    // v14.150.0 — los RECONCILIADOS (datos del servidor) sostienen estado +
-    // total + detalle JUNTOS. El mecanismo viejo solo sostenía el estado y
-    // dejaba "Pendiente con 1 medallón" cuando la base ya tenía 2.
-    pedidos.forEach(function(p) {
-      var d = (typeof _pedidosReconciliados !== 'undefined')
-                ? _pedidosReconciliados.get(p.pedidoId) : null;
-      if (!d) return;
-      var csvIgual = (String(p.estado || '') === String(d.estado || '')) &&
-                     (Math.abs(_recoNum(p.total) - _recoNum(d.total)) < 1);
-      if (csvIgual) {
-        _pedidosReconciliados.delete(p.pedidoId);
-        delete _estadosCambiados[p.pedidoId];
-      } else if ((ahora - d.ts) < _RECO_TTL_MS) {
-        _recoAplicarA(p, d);
-      } else {
-        _pedidosReconciliados.delete(p.pedidoId);
-      }
-    });
-    pedidos.forEach(function(p) {
-      if (typeof _pedidosReconciliados !== 'undefined' &&
-          _pedidosReconciliados.has(p.pedidoId)) return;
-      var cambio = _estadosCambiados[p.pedidoId];
-      if (!cambio) return;
-      if (p.estado === cambio.estado) {
-        delete _estadosCambiados[p.pedidoId];   // el Sheet ya lo trae: listo
-      } else if ((ahora - cambio.ts) < 900000) {
-        p.estado = cambio.estado;               // todavía no llegó: sostener
-      } else {
-        delete _estadosCambiados[p.pedidoId];   // tope de seguridad (15 min)
-      }
-    });
-    // Marcar chofer asignado en cada pedido
-    pedidos.forEach(function(p) {
+    _marcarDuplicados(pedidos);
+    try { cargarNotas(pedidos); } catch (_) {}
+    pedidos.forEach(function (p) {
       if (_asignaciones[p.pedidoId]) p.choferAsignado = _asignaciones[p.pedidoId];
     });
 
-    // ── CACHE: nunca perder pedidos que ya se vieron ──────────
-    // Si el Sheet devolvió menos pedidos de los que teníamos (latencia/cache de Google),
-    // mantener los que ya habíamos visto hasta el próximo refresh que los confirme ausentes.
-    if (_pedidosCache.length > 0 && pedidos.length < _pedidosCache.length) {
-      var idsNuevos = new Set(pedidos.map(function(p) { return p.pedidoId; }));
-      _pedidosCache.forEach(function(cp) {
-        if (!idsNuevos.has(cp.pedidoId)) {
-          // Pedido que teníamos pero no está en la nueva carga — mantenerlo con estado provisional
-          pedidos.push(cp);
-        }
-      });
-    }
-    // v14.5.0 OPTIMISTIC: mergear pedidos optimistas (creados localmente
-    // hace <90s que aún no aparecen en la Sheet) antes de pisar el array.
-    pedidos = _mergeOptimisticos(pedidos);
-    pedidos = _xubioProcAplicarMarcador(pedidos); // v14.109.0: mantener el badge "procesando" hasta que la base confirme
-    pedidos = _dedupePedidosPorId(pedidos); // v14.128.0: nunca dos cards del mismo pedidoId
-    _pedidosCache = pedidos.slice(); // actualizar cache
+    /* ── SWAP ATÓMICO ── */
+    _refreshSeqAplicado = seq;
     todosLosPedidos = pedidos;
-    // v14.144.0: firmar el CSV recién parseado (si vino por carga manual u
-    // optimistas, la firma de arriba no se seteó y el próximo poll silencioso
-    // debe comparar contra ESTE contenido).
-    try {
-      var _h2 = 0;
-      for (var _hj = 0; _hj < csv.length; _hj++) { _h2 = ((_h2 << 5) - _h2 + csv.charCodeAt(_hj)) | 0; }
-      window._ultimaFirmaCsv = csv.length + ':' + _h2;
-    } catch(eFm) {}
+    _snap = { pedidos: pedidos, at: new Date(), fuente: fuente };
+    _chipDegradado(false);
 
-    // v14.143.0: con la foto fresca del Sheet, limpiar de la cola todo pedido
-    // que ya esté resuelto. Es lo que hace desaparecer solo el cartel rojo.
-    try { _colaReconciliar(); } catch(e) {}
+    var el = document.getElementById("ultima-actualizacion");
+    if (el) {
+      var a = new Date();
+      el.textContent = "Actualizado " + a.getHours().toString().padStart(2, "0") + ":" +
+                       a.getMinutes().toString().padStart(2, "0") +
+                       (fuente === "csv" ? " (modo respaldo)" : "");
+      el.style.color = (fuente === "csv") ? "var(--amber, #E65100)" : "var(--green2)";
+    }
 
-    // v13: cargar pares "no duplicado" desde Supabase y re-procesar badges.
-    // Es fire-and-forget para no bloquear el primer render. Si Supabase responde
-    // antes del render (lo normal), los badges ya salen filtrados. Si responde
-    // después, se actualiza la UI cuando llegue.
-    (async function _aplicarNoDuplicadosAsync() {
-      try {
-        await dupCargarNoDuplicados();
-        // Re-aplicar la detección de duplicados con el set actualizado
-        todosLosPedidos.forEach(function(p) {
-          if (!p.esDuplicado) return; // solo re-evaluar los que están marcados
-          var mFecha = (p.pedidoId || '').match(/TCK-(\d{8})/);
-          var fechaDia = mFecha ? mFecha[1] : (p.fechaHora || '').substring(0,10).replace(/-/g,'');
-          if (!fechaDia) return;
-          var cliKey = (p.cliente || '').toLowerCase().replace(/\s+/g,' ').trim();
-          var grupo = todosLosPedidos.filter(function(x) {
-            if (x.estado === 'Cancelado' || x.pedidoId === p.pedidoId) return false;
-            var xf = (x.pedidoId || '').match(/TCK-(\d{8})/);
-            var xfd = xf ? xf[1] : (x.fechaHora || '').substring(0,10).replace(/-/g,'');
-            var xcli = (x.cliente || '').toLowerCase().replace(/\s+/g,' ').trim();
-            return xfd === fechaDia && xcli === cliKey;
-          });
-          if (grupo.length === 0) return;
-          var todosDistintos = grupo.every(function(x) {
-            return dupEstaMarcadoComoDistinto(p.pedidoId, x.pedidoId);
-          });
-          if (todosDistintos) {
-            p.esDuplicado = false;
-            p.tipoDuplicado = null;
-            p.duplicadoCon = '';
-          }
-        });
-        // Re-render si algún badge cambió (seguro, idempotente)
-        if (typeof renderPedidos === 'function') renderPedidos();
-      } catch(e) {
-        // Fallar silenciosamente — si no se pudo cargar, los badges se muestran normales
-      }
-    })();
+    actualizarStats();
+    renderPedidos(true);
+    try { actualizarMiDiaSiAbierto(); } catch (_) {}
+    if (_tabActual === "logistica") { try { renderLogistica(); } catch (_) {} }
 
     if (!silencioso) {
-      var hoyStr = new Date().toISOString().slice(0,10).replace(/-/g,'');
-      var dups = pedidos.filter(function(p){
+      var hoyStr = new Date().toISOString().slice(0, 10).replace(/-/g, "");
+      var dups = pedidos.filter(function (p) {
         if (!p.esDuplicado) return false;
-        var mFecha = (p.pedidoId||'').match(/TCK-(\d{8})/);
-        var fechaDia = mFecha ? mFecha[1] : (p.fechaHora||'').substring(0,10).replace(/-/g,'');
-        return fechaDia === hoyStr;
+        var m = (p.pedidoId || "").match(/TCK-(\d{8})/);
+        return (m ? m[1] : "") === hoyStr;
       });
-      if (dups.length > 0) notificarDuplicados(dups);
+      if (dups.length > 0) { try { notificarDuplicados(dups); } catch (_) {} }
     }
-    actualizarStats();
-    renderPedidos();
-    actualizarMiDiaSiAbierto();
-    } catch(e) {
-    if (_reintentos < 3) {
-      // Retry automático: 1s, 3s, 6s
-      var delays = [1000, 3000, 6000];
-      setTimeout(function() { cargarPedidos(silencioso, _reintentos + 1); }, delays[_reintentos]);
-    } else {
-      if (!silencioso) document.getElementById('lista-pedidos').innerHTML =
-        '<div class="empty">❌ Error al cargar pedidos.<br>Verificá tu conexión.</div>';
-    }
-  }
+
+    /* Auxiliares en segundo plano: NUNCA en el camino crítico y NUNCA con
+       sbFetch (que puede matar la sesión). Si fallan, la lista ya está. */
+    (async function () {
+      try {
+        await dupCargarNoDuplicados();
+        var cambio = false;
+        todosLosPedidos.forEach(function (p) {
+          if (!p.esDuplicado) return;
+          var otros = todosLosPedidos.filter(function (x) {
+            return x.pedidoId !== p.pedidoId && x.cliente === p.cliente;
+          });
+          if (otros.length && otros.every(function (x) {
+                return dupEstaMarcadoComoDistinto(p.pedidoId, x.pedidoId); })) {
+            p.esDuplicado = false; p.tipoDuplicado = null; p.duplicadoCon = ""; cambio = true;
+          }
+        });
+        if (cambio) renderPedidos(true);
+      } catch (_) {}
+    })();
+    (async function () { try { await pedidoSucursalesMapCargar(); } catch (_) {} })();
+
+    _perf("refresh_ok", t0, { filas: pedidos.length, fuente: fuente, seq: seq });
+    return true;
+  })();
+
+  try { return await _refreshEnVuelo; }
+  finally { _refreshEnVuelo = null; }
 }
 
 function limpiar(s) { return s ? s.trim().replace(/^"|"$/g,'').trim() : ''; }
@@ -24385,6 +24578,18 @@ function setFiltroFecha(f, btn) {
   filtroFecha = f;
   document.querySelectorAll('#filtros-fecha .filtro-btn').forEach(function(b){b.classList.remove('on');});
   btn.classList.add('on');
+  // v14.151.0 — VENTANA DINÁMICA. La lista canónica trae 21 días por
+  // defecto (~30 KB gzip contra los 86 KB del CSV, que además bajaba los
+  // pedidos de TODOS los vendedores). Si el vendedor pide 'Todos' o un
+  // rango, se amplía a 45 (el tope que expone la vista) y se recarga UNA
+  // vez. Volver a un filtro corto no dispara nada: los datos ya están.
+  try {
+    var quiereAncho = (f === 'todos' || f === 'personalizado');
+    if (quiereAncho && _listaVentanaDias < LISTA_DIAS_MAX) {
+      _listaVentanaDias = LISTA_DIAS_MAX;
+      cargarPedidos(true);
+    }
+  } catch (_) {}
   var rango = document.getElementById('rango-fechas');
   if (f === 'personalizado') {
     rango.style.display = 'block';
@@ -24551,7 +24756,10 @@ function _hashPedido(p) {
     // v14.150.0 — hash del TEXTO del detalle (no su longitud: "Papa Balcarce"
     // y "McCain Baston" miden igual) + presupuesto + sello de reconciliación.
     _hashTxt(p.detalle || '') + '|' + (p.xubioNroPresupuesto || '') + '|' +
-    (p._recoTs || '');
+    // v14.151.0 — updatedAt del servidor: si cambió cualquier cosa del pedido
+    // (aunque el total quede igual), el sello cambia y la card se repinta.
+    // Es lo que garantiza el caso Balcarce -> McCain al mismo importe.
+    (p.updatedAt || '') + '|' + (p._recoTs || '');
 }
 
 function _hashLista(lista) {
@@ -25766,7 +25974,8 @@ async function _cancelarConXubio(pedidoId, fila, p, motivo) {
       pedidoId:       pedidoId,
       transaccionid:  String(p.xubioTransaccionid),
       nroPresupuesto: p.xubioNroPresupuesto || '',
-      vendedor:       vendedorActual || ''
+      vendedor:       vendedorActual || '',
+      op_id:          _opId('cancel', pedidoId, p.xubioTransaccionid)   // v14.151.0
     });
     var resp = await appsScriptFetch(params, { timeout: 30000 });
     var data = await resp.response.json();
@@ -25843,6 +26052,17 @@ async function cambiarEstado(pedidoId, fila, nuevoEstado, event, motivo) {
 // v14.7.0: Desbloquear pedido con presupuesto Xubio creado.
 // Solo el vendedor dueño puede usarlo. Anula el presupuesto en Xubio
 // (DELETE /presupuestoBean/{id}) y deja el pedido como Pendiente para editar.
+/* v14.151.0 — IDEMPOTENCIA. Anular un presupuesto hace un DELETE real en
+   Xubio: no se puede repetir. Con el GAS en 9-15 s y el fetch cortando a 30-40 s,
+   un segundo toque del vendedor hacía un SEGUNDO DELETE — y si el presupuesto
+   nuevo ya existía, borraba el NUEVO. El op_id viaja al GAS v25.118.x, que lo
+   guarda en gs_operaciones con PK: un retry devuelve el resultado del primer
+   intento en vez de volver a ejecutar. La clave incluye el transaccionid, así
+   que reintentar la MISMA anulación es idempotente pero anular un presupuesto
+   distinto sigue siendo una operación nueva. */
+function _opId(accion, pedidoId, ref) {
+  return accion + ":" + pedidoId + ":" + (ref || "") ;
+}
 async function desbloquearPedidoXubio(pedidoId, transaccionid, nroPresupuesto, btnEl) {
   // Validación previa
   if (!transaccionid) {
@@ -25868,7 +26088,8 @@ async function desbloquearPedidoXubio(pedidoId, transaccionid, nroPresupuesto, b
       pedidoId:       pedidoId,
       transaccionid:  String(transaccionid),
       nroPresupuesto: nroPresupuesto || '',
-      vendedor:       vendedorActual || ''
+      vendedor:       vendedorActual || '',
+      op_id:          _opId('desbloq', pedidoId, transaccionid)   // v14.151.0
     });
     // Estricto: el vendedor TIENE que saber si falló.
     var resp = await appsScriptFetch(params, { timeout: 30000 });
@@ -25890,11 +26111,15 @@ async function desbloquearPedidoXubio(pedidoId, transaccionid, nroPresupuesto, b
       p.xubioNroPresupuesto = '';
       p.xubioTransaccionid  = '';
       p.xubioEstado         = '';
-      _estadosCambiados[pedidoId] = { estado: 'Pendiente', ts: Date.now() };
+      // v14.151.0 — se fue _estadosCambiados: era el parche que sostenía
+      // SOLO el estado mientras el CSV seguía atrasado, y producía
+      // combinaciones imposibles (estado nuevo + total viejo). Con la
+      // lectura canónica en ~30 ms no hay nada que sostener.
     }
-    renderPedidos(true); // forzar render aunque el hash diga igual
-    // v14.150.0 — confirmar contra la lectura canónica (aislado: no puede
-    // afectar la sesión ni la lista).
+    renderPedidos(true); // pintado optimista inmediato
+    // v14.151.0 — READ AFTER WRITE: lo que quede en pantalla sale del
+    // servidor, no de lo que el front supone. Aislado: si falla, afecta a
+    // ESTE pedido y a nada más.
     _pedidoReconciliar(pedidoId).catch(function () {});
     toast('✅ Presupuesto N° ' + nroPresupuesto + ' anulado. Editá el pedido y creá uno nuevo.', 'ok');
 
@@ -28150,7 +28375,8 @@ async function _cciEjecutar(pedidoId, transaccionid, nroPresupuesto, clienteId, 
       pedidoId:       pedidoId,
       transaccionid:  String(transaccionid),
       nroPresupuesto: nroPresupuesto || '',
-      vendedor:       _cciQuien()
+      vendedor:       _cciQuien(),
+      op_id:          _opId('calibre', pedidoId, transaccionid)   // v14.151.0
     });
     var dataA = await _cciFetchJson(APPS_SCRIPT_URL + '?' + pAnular.toString(), 40000);
 
@@ -52380,7 +52606,7 @@ function depPollIniciar() {
    TCK_UPD_LOCAL aca Y el archivo version.json del repo.
    ============================================================ */
 (function(){
-  var TCK_UPD_LOCAL = '14.150.0';        /* <-- bump en cada deploy */
+  var TCK_UPD_LOCAL = '14.151.0';        /* <-- bump en cada deploy */
   var TCK_UPD_INTERVALO = 10 * 60 * 1000;   /* chequeo de fondo: 10 min */
   var _updUltChequeo = 0;
 
@@ -53011,96 +53237,38 @@ async function pdcAbrir(pedidoId, ev) {
 //  Reemplaza al mecanismo de v14.149.0 (que usaba sbFetch y podía matar la sesión).
 // ════════════════════════════════════════════════════════════════════════════
 
-// pedidoId -> { datos del SERVIDOR, ts, seq }  · nunca lo que envió el front
-var _pedidosReconciliados = new Map();
-var _recoPendientes = new Set();      // pedidos que no se pudieron confirmar
-var _RECO_TTL_MS = 15 * 60 * 1000;
+// ════════════════════════════════════════════════════════════════════════
+//  v14.151.0 — READ AFTER WRITE (por pedido, no por lista)
+//  ─────────────────────────────────────────────────────────────────────
+//  Después de una mutación se lee ESE pedido contra la fuente canónica y se
+//  aplica lo que el servidor confirmó. Nunca lo que envió el front.
+//
+//  Va por ?accion=pedidoEstadoActual (GAS v25.118.x). Desde v25.118.0 ese
+//  endpoint no toca el Sheet: dos lecturas a Supabase, ~300 ms. Antes hacía
+//  getDataRange() sobre 6.996 filas x 22 columnas y encima pedía una columna
+//  inexistente, así que devolvía error para TODOS los pedidos: la
+//  reconciliación de v14.150.0 nunca funcionó ni una sola vez.
+//
+//  Y NO usa sbFetch a propósito: sbFetch ejecuta jwtLimpiar() ante un 401 y
+//  eso destruye la sesión de toda la app.
+// ════════════════════════════════════════════════════════════════════════
+
 var _RECO_TIMEOUT_MS = 12000;
 var _recoSeq = {}, _recoSeqAplicado = {};
 
 function _recoNum(x) {
   if (x === null || x === undefined) return 0;
-  var n = Number(String(x).replace(/[^\d.-]/g, ''));
+  var n = Number(String(x).replace(/[^\d.-]/g, ""));
   return isNaN(n) ? 0 : n;
 }
 
-/** Clasifica el fallo: "verificá tu conexión" no puede ser el catch de todo. */
 function _recoMotivoError(e, tipo) {
-  if (typeof navigator !== 'undefined' && navigator && navigator.onLine === false) {
-    return 'Sin conexión a internet';
-  }
-  if (tipo === 'timeout') return 'El servidor tardó demasiado (Apps Script lento)';
-  if (tipo === 'http')    return 'El servidor respondió con error';
-  if (tipo === 'backend') return 'El servidor no pudo leer el pedido';
-  if (tipo === 'parse')   return 'Respuesta ilegible del servidor';
-  return (e && e.message) ? e.message : 'Error desconocido';
-}
-
-/**
- * LECTURA CANÓNICA post-mutación: una sola llamada a Apps Script
- * (?accion=pedidoEstadoActual). Devuelve estado, total, detalle, items,
- * presupuesto y viaje tal como quedaron PERSISTIDOS.
- *
- * Va por Apps Script y NO por sbFetch a propósito: sbFetch ejecuta
- * jwtLimpiar() ante un 401 y eso destruye la sesión de toda la app —
- * fue la causa del P0 de v14.149.0. Acá un fallo afecta a ESTE pedido y a
- * nada más: nunca lanza, nunca toca la sesión, nunca aborta la lista.
- *
- * @return {ok:true, datos} | {ok:false, motivo, tipo}
- */
-async function _pedidoReconciliar(pedidoId) {
-  if (!pedidoId) return { ok: false, motivo: 'falta pedido_id', tipo: 'param' };
-  var seq = (_recoSeq[pedidoId] = (_recoSeq[pedidoId] || 0) + 1);
-
-  var ctrl = (typeof AbortController !== 'undefined') ? new AbortController() : null;
-  var timer = setTimeout(function () { if (ctrl) ctrl.abort(); }, _RECO_TIMEOUT_MS);
-  try {
-    var url = APPS_SCRIPT_URL + '?accion=pedidoEstadoActual&pedido_id=' +
-              encodeURIComponent(pedidoId) + '&_cb=' + Date.now();
-    var resp = await fetch(url, ctrl ? { signal: ctrl.signal } : {});
-    clearTimeout(timer);
-    if (!resp.ok) {
-      return _recoFallo(pedidoId, null, 'http');
-    }
-    var d;
-    try { d = await resp.json(); } catch (eP) { return _recoFallo(pedidoId, eP, 'parse'); }
-    if (!d || d.status !== 'ok') {
-      return _recoFallo(pedidoId, { message: (d && d.message) || '' }, 'backend');
-    }
-
-    // Fuera de orden: una respuesta más vieja no pisa a una más nueva.
-    if (seq < (_recoSeqAplicado[pedidoId] || 0)) {
-      console.warn('[reco] respuesta vieja descartada', pedidoId, seq);
-      return { ok: true, descartada: true };
-    }
-    _recoSeqAplicado[pedidoId] = seq;
-
-    var datos = {
-      estado: d.estado || '', total: _recoNum(d.total),
-      detalle: (d.detalle === null || d.detalle === undefined) ? null : String(d.detalle),
-      resumen: d.resumen || null,
-      items: d.items || [], coherente: d.coherente,
-      presupNro: d.presupuesto_nro || '', presupId: d.presupuesto_id || '',
-      presupEstado: d.presupuesto_estado || '',
-      facturaNro: d.factura_nro || null,
-      ts: Date.now(), seq: seq
-    };
-    _pedidosReconciliados.set(pedidoId, datos);
-    _recoPendientes.delete(pedidoId);
-    _recoAplicarA(_buscarPedidoLocal(pedidoId), datos);
-    renderPedidos(true);
-    return { ok: true, datos: datos, coherente: d.coherente };
-  } catch (e) {
-    clearTimeout(timer);
-    var tipo = (e && e.name === 'AbortError') ? 'timeout' : 'red';
-    return _recoFallo(pedidoId, e, tipo);
-  }
-}
-
-function _recoFallo(pedidoId, e, tipo) {
-  _recoPendientes.add(pedidoId);
-  try { renderPedidos(true); } catch (eR) {}
-  return { ok: false, tipo: tipo, motivo: _recoMotivoError(e, tipo) };
+  if (typeof navigator !== "undefined" && navigator && navigator.onLine === false) return "Sin conexión a internet";
+  if (tipo === "timeout") return "El servidor tardó demasiado";
+  if (tipo === "http")    return "El servidor respondió con error";
+  if (tipo === "backend") return "El servidor no pudo leer el pedido";
+  if (tipo === "parse")   return "Respuesta ilegible del servidor";
+  return (e && e.message) ? e.message : "Error desconocido";
 }
 
 function _buscarPedidoLocal(pedidoId) {
@@ -53108,79 +53276,127 @@ function _buscarPedidoLocal(pedidoId) {
   catch (e) { return null; }
 }
 
-/** Vuelca SOLO datos del servidor sobre el objeto que pinta renderCard. */
+/* Vuelca SOLO datos del servidor sobre el objeto que pinta renderCard, y
+   sobre el snapshot, para que un refresh posterior no lo revierta. */
 function _recoAplicarA(p, d) {
   if (!p || !d) return;
+  /* Anti fuera-de-orden por pedido: si el objeto ya tiene un sello MÁS NUEVO
+     que el que trae la respuesta, no se pisa. */
+  if (p.updatedAt && d.updated_at && String(d.updated_at) < String(p.updatedAt)) {
+    console.warn("[reco] respuesta con updated_at viejo, descartada:", p.pedidoId);
+    return;
+  }
   p.estado = d.estado;
-  p.total  = d.total;
-  p._itemsCanon = d.items;
-  p._recoTs = d.ts;
-  p._recoIncoherente = (d.coherente === false);
-  // El detalle solo se pisa si el servidor lo devolvió. Si vino null (no se
-  // pudo leer el Sheet) se conserva el anterior: no se inventa.
+  p.total  = "$" + _recoNum(d.total).toLocaleString("es-AR");
+  p.items  = (d.items_totales === null || d.items_totales === undefined) ? p.items : String(d.items_totales);
+  /* El detalle solo se pisa si el servidor lo devolvió. null = el espejo
+     todavía no lo tiene: se conserva el anterior en vez de inventar. */
   if (d.detalle !== null && d.detalle !== undefined) p.detalle = d.detalle;
-  p.xubioNroPresupuesto = d.presupNro || '';
-  p.xubioTransaccionid  = d.presupId  || '';
-  p.xubioEstado         = d.presupEstado || (d.presupId ? 'creado' : '');
+  if (d.resumen !== null && d.resumen !== undefined) p.resumen = d.resumen;
+  p.xubioNroPresupuesto = d.presupuesto_nro || "";
+  p.xubioTransaccionid  = d.presupuesto_id  || "";
+  p.xubioEstado         = d.presupuesto_estado || (d.presupuesto_id ? "creado" : "");
+  p.esperaAltaCliente   = (d.presupuesto_estado === "espera_alta_cliente");
+  if (d.fecha_entrega !== undefined && d.fecha_entrega !== null && d.fecha_entrega !== "") p.fechaEntrega = d.fecha_entrega;
+  if (d.turno_entrega !== undefined && d.turno_entrega !== null && d.turno_entrega !== "") p.turnoEntrega = d.turno_entrega;
+  p.facturaNro   = d.factura_nro || null;
+  p.coherente    = d.coherente;
+  p.updatedAt    = d.updated_at || p.updatedAt;
+  p._recoTs      = Date.now();
+  p._recoIncoherente = (d.coherente === false);
+  p._itemsCanon  = d.items;
+  /* El snapshot referencia los MISMOS objetos que todosLosPedidos, así que
+     mutarlo acá alcanza. Se deja explícito para que no se pierda en un
+     refactor futuro. */
+  try {
+    var enSnap = _snap.pedidos.find(function (x) { return x.pedidoId === p.pedidoId; });
+    if (enSnap && enSnap !== p) _recoAplicarA(enSnap, d);
+  } catch (_) {}
 }
 
 /**
- * Envoltura de mutaciones: WRITE → READ AFTER WRITE → recién ahí éxito.
+ * Lectura canónica de UN pedido después de una mutación.
+ * Nunca lanza. Un fallo afecta a ESE pedido y a nada más: jamás tira la lista.
+ * @return {ok:true, datos} | {ok:false, motivo, tipo}
+ */
+async function _pedidoReconciliar(pedidoId) {
+  if (!pedidoId) return { ok: false, motivo: "falta pedido_id", tipo: "param" };
+  var seq = (_recoSeq[pedidoId] = (_recoSeq[pedidoId] || 0) + 1);
+  var t0 = performance.now();
+  var ctrl = (typeof AbortController !== "undefined") ? new AbortController() : null;
+  var timer = setTimeout(function () { if (ctrl) ctrl.abort(); }, _RECO_TIMEOUT_MS);
+  try {
+    var url = APPS_SCRIPT_URL + "?accion=pedidoEstadoActual&pedido_id=" +
+              encodeURIComponent(pedidoId) + "&_cb=" + Date.now();
+    var resp = await fetch(url, ctrl ? { signal: ctrl.signal } : {});
+    clearTimeout(timer);
+    if (!resp.ok) return _recoFallo(pedidoId, null, "http");
+    var d;
+    try { d = await resp.json(); } catch (eP) { return _recoFallo(pedidoId, eP, "parse"); }
+    if (!d || d.status !== "ok") {
+      return _recoFallo(pedidoId, { message: (d && d.message) || "" }, "backend");
+    }
+    if (seq < (_recoSeqAplicado[pedidoId] || 0)) {
+      console.warn("[reco] respuesta vieja descartada", pedidoId, seq);
+      return { ok: true, descartada: true };
+    }
+    _recoSeqAplicado[pedidoId] = seq;
+    _recoAplicarA(_buscarPedidoLocal(pedidoId), d);
+    renderPedidos(true);
+    _perf("read_after_write", t0, { pedido: pedidoId, coherente: d.coherente });
+    return { ok: true, datos: d, coherente: d.coherente };
+  } catch (e) {
+    clearTimeout(timer);
+    return _recoFallo(pedidoId, e, (e && e.name === "AbortError") ? "timeout" : "red");
+  }
+}
+
+function _recoFallo(pedidoId, e, tipo) {
+  var m = _recoMotivoError(e, tipo);
+  console.warn("[reco] falló", pedidoId, tipo, m);
+  return { ok: false, tipo: tipo, motivo: m };
+}
+
+/**
+ * Envoltura de mutaciones: WRITE -> READ AFTER WRITE -> recién ahí éxito.
  * Nunca declara "✅" sin confirmación del servidor.
  */
 async function _mutarYConfirmar(pedidoId, opts) {
   opts = opts || {};
-  toast('⏳ Guardado, verificando datos…', 'ok');
+  toast("⏳ Guardado, verificando datos…", "ok");
   var r = await _pedidoReconciliar(pedidoId);
   if (!r.ok) {
-    toast('⚠️ Se guardó, pero no pudimos confirmar los datos (' + r.motivo +
-          '). Tocá 🔄 Actualizar para reintentar.', 'err');
+    toast("⚠️ Se guardó, pero no pudimos confirmar los datos (" + r.motivo +
+          "). Tocá 🔄 Actualizar para verlo.", "err");
     return r;
   }
   if (r.coherente === false) {
-    toast('⚠️ Guardado, pero el detalle y el total del servidor no coinciden. Revisá el pedido.', 'err');
+    toast("⚠️ Guardado, pero el detalle y el total del servidor no coinciden. Revisá el pedido.", "err");
     return r;
   }
-  if (opts.mensajeOk) toast(opts.mensajeOk, 'ok');
+  if (opts.mensajeOk) toast(opts.mensajeOk, "ok");
   return r;
 }
 
 /**
- * Botón Actualizar. Orden deliberado:
- *   1. la lista SIEMPRE carga primero y se renderiza;
- *   2. después se reconcilian los pedidos con mutación reciente o pendientes;
- *   3. cada uno aislado: si uno falla, los demás siguen y la lista queda intacta.
- * Regla: una reconciliación individual NUNCA tira abajo la lista completa.
+ * Botón Actualizar.
+ * v14.151.0: UN request. Antes eran 14 (1 CSV + 1 Supabase + hasta 12 al
+ * mismo /exec de Apps Script, que serializa por deployment). La lista canónica
+ * ya trae el estado real de todos los pedidos: no hay nada que reconciliar
+ * pedido por pedido en un refresh general.
  */
 async function actualizarListaYReconciliar() {
-  try { await cargarPedidos(false); }
-  catch (e) { console.error('[actualizar] la lista falló', e); }
-
-  var ids = [];
-  _recoPendientes.forEach(function (id) { ids.push(id); });
-  _pedidosReconciliados.forEach(function (d, id) {
-    if (Date.now() - d.ts < _RECO_TTL_MS && ids.indexOf(id) < 0) ids.push(id);
-  });
-  if (!ids.length) return;
-
-  var fallidos = 0;
-  var lote = ids.slice(0, 12);
-  var res = await Promise.all(lote.map(function (id) {
-    // .catch defensivo: ni una excepción puede escapar de acá.
-    return _pedidoReconciliar(id).catch(function () { return { ok: false, motivo: 'excepción' }; });
-  }));
-  res.forEach(function (r) { if (!r || !r.ok) fallidos++; });
-
-  renderPedidos(true);
-  if (fallidos) {
-    toast('⚠️ ' + fallidos + ' pedido(s) quedaron sin confirmar. La lista está actualizada; tocá Actualizar de nuevo.', 'err');
-  }
+  var t0 = performance.now();
+  var ok = await cargarPedidos(false);
+  _perf("boton_actualizar", t0, { ok: ok });
+  return ok;
 }
 
 /** Reintento manual de un solo pedido (badge "actualización pendiente"). */
 async function recoReintentarPedido(pedidoId) {
   var r = await _pedidoReconciliar(pedidoId);
-  toast(r.ok ? '✅ Pedido actualizado' : ('⚠️ ' + r.motivo), r.ok ? 'ok' : 'err');
+  toast(r.ok ? "✅ Pedido actualizado" : ("⚠️ " + r.motivo), r.ok ? "ok" : "err");
+  return r;
 }
 
 </script>
