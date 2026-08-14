@@ -2,6 +2,43 @@
 <html lang="es">
 <head>
 <!-- ═══════════════════════════════════════════════════════════════════════
+     TCK VENTAS — v14.149.0 — 14/08/2026
+     v14.149.0: LA PANTALLA DEJA DE MOSTRAR EL PASADO (caso Pedro Vicente).
+       CAUSA RAÍZ: la lista se arma del CSV publicado del Sheet, que Google
+       regenera cada ~5 min. El optimista anterior (_estadosCambiados)
+       sostenía SOLO p.estado — no p.total ni p.detalle. Por eso se veían
+       combinaciones imposibles: "Pendiente con 1 medallón" cuando en la
+       base ya había 2. Y tras editar, el código hacía
+       toast('✅ Pedido actualizado') → cargarPedidos() → releía el CSV
+       VIEJO: le declaraba éxito al vendedor y repintaba datos anteriores.
+       El botón Actualizar no era el problema: hace lo mismo que F5 con los
+       datos. F5 "funcionaba" porque llegaba minutos después, con el CSV ya
+       regenerado, y porque borra los optimistas de memoria.
+       (Es el mismo bug del audio de Miguel del 11/08.)
+       1. _pedidoReconciliar(pedidoId): lee pedidos_zona + pedidos_items
+          (canónicos desde GAS v25.115) y deja el objeto local COMPLETO:
+          estado, total, presupuesto, detalle e items. El string `detalle`
+          NO se reconstruye desde items — alimenta el editor vía
+          data-detalle y reconstruirlo mal rompería la edición: se usa el
+          texto que el propio editor acaba de enviar. pedidos_items sirve
+          para VERIFICAR que el backend guardó lo mismo.
+       2. _pedidosReconciliados reemplaza al optimista parcial: sostiene
+          estado + total + detalle JUNTOS hasta que el CSV traiga esa misma
+          versión (misma señal de expiración, tope 15 min).
+       3. Anti fuera-de-orden: secuencia por pedido. Una respuesta que
+          llega tarde nunca pisa a una más nueva.
+       4. Sin inventar estado: primero "⏳ Pedido guardado, verificando
+          datos…"; si no se puede confirmar, "⚠️ se guardó pero no pudimos
+          actualizar la vista, tocá Actualizar para reintentar".
+       5. Botón Actualizar: relee la lista Y reconcilia contra el servidor
+          solo los pedidos con mutaciones recientes (no N consultas).
+       6. FIX EXTRA: _hashPedido no incluía `detalle` ni el presupuesto —
+          una edición que cambiara productos SIN cambiar el total (el caso
+          Correa: Balcarce -> McCain al mismo precio) nunca repintaba la
+          card. Ahora sí.
+       Aplicado en: desbloquear presupuesto, editar pedido, confirmar
+       presupuesto y cambiar estado.
+     ═══════════════════════════════════════════════════════════════════════
      TCK VENTAS — v14.148.0 — 14/08/2026
      v14.148.0: ETAPA 2 — DEPÓSITO LEE LA MISMA VERSIÓN QUE EL PDF.
        Backend requerido: Apps Script v25.116.0 + tck_circuito_v3.sql.
@@ -16903,7 +16940,7 @@ body {
         </div>
       </div>
       <div class="dash-actions">
-        <button class="dash-act-btn refresh" onclick="cargarPedidos()">🔄 Actualizar</button>
+        <button class="dash-act-btn refresh" onclick="actualizarListaYReconciliar()">🔄 Actualizar</button>
         <button class="dash-act-btn send" onclick="abrirExport()">📤 Enviar</button>
       </div>
       <button id="btn-carga-wa" onclick="abrirCargaManualWA()" style="display:none;width:100%;padding:12px;margin-bottom:8px;background:linear-gradient(135deg,#1B5E20,#2E7D32);border:none;border-radius:12px;color:#fff;font-family:'Barlow Condensed',sans-serif;font-size:17px;font-weight:900;cursor:pointer;letter-spacing:.3px;">📲 Cargar pedido por WhatsApp</button>
@@ -23482,9 +23519,14 @@ function _xubioProcConfirmar(pedidoId, nroPresupuesto) {
     _estadosCambiados[pedidoId] = { estado: 'Confirmado', ts: Date.now() };
   }
   _xubioActivo = false;
-  renderPedidos();
+  renderPedidos(true);
   actualizarMiDiaSiAbierto && actualizarMiDiaSiAbierto();
   toast('✅ Presupuesto ' + (nroPresupuesto ? ('N° ' + nroPresupuesto + ' ') : '') + 'confirmado', 'ok');
+  // v14.149.0 — traer estado/total/detalle canónicos: el CSV todavía trae la
+  // versión anterior y la card quedaba con el detalle viejo.
+  _pedidoReconciliar(pedidoId).then(function (r) {
+    if (!r.ok) toast('⚠️ Confirmado, pero no pudimos refrescar la vista. Tocá Actualizar.', 'err');
+  });
 }
 
 // Expiración a los 5 min sin confirmar: vuelve a Pendiente para reintentar.
@@ -24142,7 +24184,25 @@ async function cargarPedidos(silencioso, _reintentos) {
     // (ahí se borra la marca sola, que es la señal de que viajó de verdad), con
     // un tope de 15 min por si el guardado falló y el Sheet nunca lo confirma.
     var ahora = Date.now();
+    // v14.149.0 — RECONCILIADOS primero: sostienen estado + total + detalle
+    // JUNTOS. El mecanismo viejo solo sostenía el estado y por eso quedaban
+    // "Pendiente con 1 medallón" cuando la base ya tenía 2.
     pedidos.forEach(function(p) {
+      var d = _pedidosReconciliados.get(p.pedidoId);
+      if (!d) return;
+      var csvIgual = (String(p.estado || '') === String(d.estado || '')) &&
+                     (Math.abs(_recoNum(p.total) - _recoNum(d.total)) < 1);
+      if (csvIgual) {
+        _pedidosReconciliados.delete(p.pedidoId);  // el Sheet alcanzó esta versión
+        delete _estadosCambiados[p.pedidoId];
+      } else if ((ahora - d.ts) < _RECO_TTL_MS) {
+        _recoAplicarA(p, d);                       // sostener la versión canónica
+      } else {
+        _pedidosReconciliados.delete(p.pedidoId);  // tope de seguridad (15 min)
+      }
+    });
+    pedidos.forEach(function(p) {
+      if (_pedidosReconciliados.has(p.pedidoId)) return;   // ya resuelto arriba
       var cambio = _estadosCambiados[p.pedidoId];
       if (!cambio) return;
       if (p.estado === cambio.estado) {
@@ -24472,6 +24532,13 @@ function pedidosFiltrados() {
 let _ultimoRenderHash = null;
 let _ultimoRenderLista = [];
 
+// v14.149.0 — hash del texto, NO su longitud: "10x Papa Balcarce" y
+// "10x McCain Baston" miden igual y el cambio pasaba inadvertido (caso Correa).
+function _hashTxt(s) {
+  var h = 0; s = String(s || '');
+  for (var i = 0; i < s.length; i++) { h = ((h << 5) - h + s.charCodeAt(i)) | 0; }
+  return h;
+}
 function _hashPedido(p) {
   // Hash mínimo que represente "el render visible de este pedido cambió".
   // Si alguno de estos campos cambia, hay que re-renderizar la card.
@@ -24481,7 +24548,11 @@ function _hashPedido(p) {
     (p.xubioEstado || '') + '|' +
     (p.choferAsignado || '') + '|' +
     (p.fechaEntrega || '') + '|' +
-    (p.esDuplicado ? '1' : '0');
+    (p.esDuplicado ? '1' : '0') + '|' +
+    // v14.149.0 — sin esto, una edición que cambia productos sin cambiar el
+    // total (Balcarce -> McCain al mismo precio) no repintaba nunca la card.
+    _hashTxt(p.detalle || '') + '|' + (p.xubioNroPresupuesto || '') + '|' +
+    (p._recoTs || '');
 }
 
 function _hashLista(lista) {
@@ -25754,8 +25825,10 @@ async function cambiarEstado(pedidoId, fila, nuevoEstado, event, motivo) {
       if (motivo && nuevoEstado === 'Cancelado') p.motivoCancelacion = motivo;
     }
     _estadosCambiados[pedidoId] = { estado: nuevoEstado, ts: Date.now() };
-    renderPedidos();
+    renderPedidos(true);
     toast('Estado: '+nuevoEstado, 'ok');
+    // v14.149.0 — confirmar contra el servidor (no depender del CSV)
+    _pedidoReconciliar(pedidoId).catch(function () {});
   } catch(e) {
     if (btn) { btn.disabled = false; btn.textContent = txtOrig; }
     // v14.6.0 NO-CORS FIX: mostrar el error real al vendedor.
@@ -25822,6 +25895,9 @@ async function desbloquearPedidoXubio(pedidoId, transaccionid, nroPresupuesto, b
       _estadosCambiados[pedidoId] = { estado: 'Pendiente', ts: Date.now() };
     }
     renderPedidos(true); // forzar render aunque el hash diga igual
+    // v14.149.0 — confirmar contra la fuente canónica antes de dar por hecho
+    // el cambio (el CSV tarda ~5 min y mostraba "Confirmado" igual).
+    try { await _pedidoReconciliar(pedidoId); } catch (eReco) {}
     toast('✅ Presupuesto N° ' + nroPresupuesto + ' anulado. Editá el pedido y creá uno nuevo.', 'ok');
 
   } catch(e) {
@@ -41065,9 +41141,22 @@ async function _editarConfirmarContinuar() {
       // (misma lógica que aplica combos: solo los recién agregados en _editarCombos).
       // En la práctica los vendedores no editan pedidos para subir qty de promos;
       // si lo hacen, Braian puede ajustar manualmente en Supabase.
-      toast('✅ Pedido actualizado', 'ok');
+      // v14.149.0 — antes: toast de éxito + cargarPedidos() que releía el CSV
+      // viejo. El vendedor veía "✅ Pedido actualizado" y la card con el
+      // contenido ANTERIOR. Ahora se confirma contra pedidos_zona/pedidos_items
+      // y recién ahí se declara éxito.
       editarCerrar();
-      cargarPedidos(false); // recargar para ver los cambios
+      toast('⏳ Pedido guardado, verificando datos…', 'ok');
+      var _recoEd = await _pedidoReconciliar(_editarPedidoId,
+        { detalle: detalle, totalEsperado: total });
+      if (!_recoEd.ok) {
+        toast('⚠️ El pedido se guardó pero no pudimos actualizar la vista. Tocá Actualizar para reintentar.', 'err');
+      } else if (_recoEd.coincide === false) {
+        toast('⚠️ Se guardó pero el total del servidor no coincide con lo enviado. Verificá el pedido.', 'err');
+      } else {
+        toast('✅ Pedido actualizado', 'ok');
+      }
+      cargarPedidos(true); // refresco silencioso: la card ya muestra lo canónico
     } else {
       toast('❌ Error al guardar: ' + (data.message||''), 'err');
       if (btn) { btn.disabled = false; btn.textContent = 'Guardar cambios'; }
@@ -52302,7 +52391,7 @@ function depPollIniciar() {
    TCK_UPD_LOCAL aca Y el archivo version.json del repo.
    ============================================================ */
 (function(){
-  var TCK_UPD_LOCAL = '14.148.0';        /* <-- bump en cada deploy */
+  var TCK_UPD_LOCAL = '14.149.0';        /* <-- bump en cada deploy */
   var TCK_UPD_INTERVALO = 10 * 60 * 1000;   /* chequeo de fondo: 10 min */
   var _updUltChequeo = 0;
 
@@ -52926,6 +53015,162 @@ async function pdcAbrir(pedidoId, ev) {
     _pdcCargando = false;
   }
 }
+</script>
+<script>
+// ════════════════════════════════════════════════════════════════════════════
+//  v14.149.0 — RECONCILIACIÓN CONTRA LA FUENTE CANÓNICA
+//  Regla: ninguna mutación declara éxito hasta confirmar contra el servidor.
+//  Causa que cierra: la lista se arma del CSV publicado del Sheet, que Google
+//  regenera cada ~5 min. El optimista anterior (_estadosCambiados) sostenía
+//  SOLO el estado, no el total ni el detalle → "Pendiente con 1 medallón"
+//  cuando en la base ya había 2. (Audio de Miguel 11/08, caso Pedro Vicente 14/08.)
+// ════════════════════════════════════════════════════════════════════════════
+
+// pedidoId -> { estado, total, detalle, itemsCanon, presup, ts, seq }
+var _pedidosReconciliados = new Map();
+var _RECO_TTL_MS = 15 * 60 * 1000;   // mismo tope que el mecanismo anterior
+
+// Anti fuera-de-orden: una respuesta vieja nunca pisa a una nueva.
+var _recoSeq = {};        // pedidoId -> último seq emitido
+var _recoSeqAplicado = {};// pedidoId -> último seq aplicado
+
+function _recoNum(x) {
+  if (x === null || x === undefined) return 0;
+  var n = Number(String(x).replace(/[^\d.-]/g, ''));
+  return isNaN(n) ? 0 : n;
+}
+
+/**
+ * Lee el pedido de la fuente canónica (pedidos_zona + pedidos_items) y deja el
+ * objeto local completo y coherente: estado, total, presupuesto, detalle e items.
+ *
+ * El STRING `detalle` no se reconstruye desde items: alimenta el editor vía
+ * data-detalle y reconstruirlo mal rompería la edición. Cuando la mutación es
+ * una edición, el caller pasa opts.detalle (el mismo texto que acaba de enviar).
+ * `pedidos_items` se usa para VERIFICAR que el backend guardó lo mismo y para
+ * pintar el detalle en la card.
+ *
+ * @return {ok:true, pedido, items, coincide} | {ok:false, error}
+ */
+async function _pedidoReconciliar(pedidoId, opts) {
+  opts = opts || {};
+  if (!pedidoId) return { ok: false, error: 'falta pedido_id' };
+
+  var seq = (_recoSeq[pedidoId] = (_recoSeq[pedidoId] || 0) + 1);
+
+  try {
+    var res = await Promise.all([
+      sbFetch('pedidos_zona?pedido_id=eq.' + encodeURIComponent(pedidoId) +
+        '&select=pedido_id,estado,total,xubio_presupuesto_id,xubio_factura_nro,' +
+        'facturacion_estado,salida_planificada,turno,viaje_id&limit=1'),
+      sbFetch('pedidos_items?pedido_id=eq.' + encodeURIComponent(pedidoId) +
+        '&select=producto_tck_nombre,cantidad,precio_unitario,subtotal,calibre' +
+        '&order=producto_tck_nombre.asc&limit=200')
+    ]);
+    var pz = (res[0] || [])[0] || null;
+    var its = res[1] || [];
+    if (!pz) return { ok: false, error: 'el pedido no está en pedidos_zona' };
+
+    // Fuera de orden: llegó una respuesta más vieja que la ya aplicada.
+    if (seq < (_recoSeqAplicado[pedidoId] || 0)) {
+      console.warn('[reco] respuesta vieja descartada', pedidoId, seq);
+      return { ok: true, descartada: true };
+    }
+    _recoSeqAplicado[pedidoId] = seq;
+
+    var itemsCanon = its.map(function (i) {
+      return { producto: i.producto_tck_nombre, cantidad: _recoNum(i.cantidad),
+               calibre: i.calibre || null, subtotal: _recoNum(i.subtotal) };
+    });
+
+    var datos = {
+      estado: pz.estado || '',
+      total: _recoNum(pz.total),
+      presup: pz.xubio_presupuesto_id ? String(pz.xubio_presupuesto_id) : '',
+      detalle: (opts.detalle !== undefined && opts.detalle !== null) ? String(opts.detalle) : null,
+      itemsCanon: itemsCanon,
+      ts: Date.now(), seq: seq
+    };
+    _pedidosReconciliados.set(pedidoId, datos);
+    _recoAplicarA(_buscarPedidoLocal(pedidoId), datos);
+
+    // Verificación: ¿el backend guardó lo mismo que se envió?
+    var coincide = true;
+    if (opts.totalEsperado !== undefined) {
+      coincide = Math.abs(_recoNum(opts.totalEsperado) - datos.total) < 1;
+    }
+    renderPedidos(true);   // forzar: el hash puede no notar un cambio solo de detalle
+    return { ok: true, pedido: datos, items: itemsCanon, coincide: coincide };
+  } catch (e) {
+    console.error('[reco] falló', pedidoId, e);
+    return { ok: false, error: (e && e.message) || String(e) };
+  }
+}
+
+function _buscarPedidoLocal(pedidoId) {
+  var p = null;
+  try { p = todosLosPedidos.find(function (x) { return x.pedidoId === pedidoId; }) || null; } catch (e) {}
+  return p;
+}
+
+/** Vuelca los datos canónicos sobre el objeto que pinta renderCard. */
+function _recoAplicarA(p, d) {
+  if (!p || !d) return;
+  p.estado = d.estado;
+  p.total = d.total;
+  p._itemsCanon = d.itemsCanon;
+  p._recoTs = d.ts;
+  if (d.detalle !== null && d.detalle !== undefined) p.detalle = d.detalle;
+  if (d.presup) {
+    p.xubioTransaccionid = d.presup;
+    if (!p.xubioNroPresupuesto) p.xubioEstado = p.xubioEstado || 'creado';
+  } else {
+    // Presupuesto anulado: limpiar para que la card ofrezca crear uno nuevo.
+    p.xubioNroPresupuesto = '';
+    p.xubioTransaccionid = '';
+    p.xubioEstado = '';
+  }
+}
+
+/**
+ * Envoltura de las mutaciones: ejecuta la acción, reconcilia y RECIÉN AHÍ
+ * declara éxito. Si no puede confirmar, no inventa: avisa y ofrece reintentar.
+ */
+async function _mutarYReconciliar(pedidoId, fnAccion, opts) {
+  opts = opts || {};
+  var r = await fnAccion();
+  if (r && r.ok === false) return r;
+
+  toast('⏳ Pedido guardado, verificando datos…', 'ok');
+  var reco = await _pedidoReconciliar(pedidoId, opts);
+  if (!reco.ok) {
+    toast('⚠️ El pedido se guardó pero no pudimos actualizar la vista. Tocá Actualizar para reintentar.', 'err');
+    return { ok: true, reconciliado: false };
+  }
+  if (reco.coincide === false) {
+    toast('⚠️ El pedido se guardó pero los datos del servidor no coinciden con lo enviado. Verificá antes de seguir.', 'err');
+    return { ok: true, reconciliado: true, coincide: false };
+  }
+  if (opts.mensajeOk) toast(opts.mensajeOk, 'ok');
+  return { ok: true, reconciliado: true };
+}
+
+/**
+ * Botón Actualizar: relee la lista Y reconcilia contra el servidor los pedidos
+ * con mutaciones recientes (solo esos: no convierte la app en N consultas).
+ */
+async function actualizarListaYReconciliar() {
+  await cargarPedidos(false);
+  var ids = [];
+  _pedidosReconciliados.forEach(function (d, id) {
+    if (Date.now() - d.ts < _RECO_TTL_MS) ids.push(id);
+  });
+  for (var i = 0; i < ids.length && i < 12; i++) {
+    await _pedidoReconciliar(ids[i]);
+  }
+  if (ids.length) renderPedidos(true);
+}
+
 </script>
 </body>
 </html>
