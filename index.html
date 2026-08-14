@@ -51418,6 +51418,25 @@ function _depCargasPendientes() {
        + _depHuerfanosHoy.length;   // v14.88.0: pedidos sin viaje también cuentan
 }
 
+// v14.138.0 — version de planilla vigente por viaje y aviso si quedo vieja
+var _depPlanillaVersion = {};
+var _depPlanillaAviso = {};
+function _depBannerPlanilla(viajeId) {
+  var v = _depPlanillaVersion[viajeId];
+  var av = _depPlanillaAviso[viajeId];
+  if (!v && !av) return '';
+  if (av) {
+    var n = av.cambios ? ((av.cambios.agregados || []).length + (av.cambios.quitados || []).length) : 0;
+    return '<div style="background:#FFEBEE;border:2px solid #C62828;border-radius:10px;padding:10px 12px;' +
+           'margin:8px 0;font-size:13px;color:#B71C1C;font-weight:700;">' +
+           '⚠ LA PLANILLA v' + av.version + ' QUEDÓ VIEJA — el pedido cambió después de imprimirla' +
+           (n ? ' (' + n + ' pedido' + (n > 1 ? 's' : '') + ' de diferencia)' : '') +
+           '<div style="font-weight:500;margin-top:4px;">No cargues con esta lista: pedile a Francisco que genere la versión nueva.</div></div>';
+  }
+  return '<div style="background:#E8F5E9;border:1.5px solid #A5D6A7;border-radius:10px;padding:6px 10px;' +
+         'margin:8px 0;font-size:12px;color:#1B5E20;font-weight:700;">📄 Cargando por PLANILLA v' + v + '</div>';
+}
+
 var _depCargasCargando = false;
 async function depCargasRecargar() {
   if (_depCargasCargando) return;
@@ -51451,14 +51470,49 @@ async function depCargasRecargar() {
       _depItemsPorPedido = {}; _depComprobante = {};
       if (_pids.length) {
         var inL = '(' + _pids.join(',') + ')';
-        try {
-          var its = await sbFetch('pedidos_items?select=pedido_id,producto_tck_nombre,cantidad,calibre&pedido_id=in.' + inL + '&limit=3000') || [];
-          its.forEach(function(it) {
-            (_depItemsPorPedido[it.pedido_id] = _depItemsPorPedido[it.pedido_id] || []).push({
-              nombre: it.producto_tck_nombre || '—', qty: Number(it.cantidad) || 0, calibre: it.calibre || ''
+        // ── v14.138.0 — ETAPA 2: DEPOSITO LEE LA MISMA VERSION QUE EL PDF ──
+        // Antes esto reconstruia la lista desde pedidos_items VIVO. El PDF, en
+        // cambio, se armaba desde el Sheet. Resultado real (Correa 13/08):
+        // planilla McCain / Deposito Balcarce para el mismo pedido.
+        // Ahora la fuente es planillaVigente (snapshot vN de viajes_planillas).
+        // Fallback a pedidos_items solo si el viaje todavia no tiene planilla
+        // generada — asi no rompemos la operacion mientras se adopta el circuito.
+        _depPlanillaVersion = {}; _depPlanillaAviso = {};
+        var _pidsConSnapshot = {};
+        for (var _vi = 0; _vi < _depViajesHoy.length; _vi++) {
+          var _vId = _depViajesHoy[_vi].id;
+          try {
+            var _rPv = await fetch(APPS_SCRIPT_URL + '?accion=planillaVigente&viaje_id=' +
+              encodeURIComponent(_vId) + '&_cb=' + Date.now());
+            var _pv = await _rPv.json();
+            if (_pv && _pv.status === 'ok' && Array.isArray(_pv.pedidos)) {
+              _depPlanillaVersion[_vId] = _pv.version;
+              if (!_pv.vigente || _pv.desactualizada_flag) {
+                _depPlanillaAviso[_vId] = { version: _pv.version, cambios: _pv.cambios || null,
+                                            texto: _pv.aviso || 'El viaje cambio despues de generar esta planilla.' };
+              }
+              _pv.pedidos.forEach(function(p) {
+                _pidsConSnapshot[p.pedido_id] = true;
+                _depItemsPorPedido[p.pedido_id] = (p.items || []).map(function(i) {
+                  return { nombre: i.producto || '—', qty: Number(i.cantidad) || 0, calibre: i.calibre || '' };
+                });
+              });
+            }
+          } catch (ePv) { console.warn('[dep planillaVigente]', _vId, ePv); }
+        }
+        // Fallback: pedidos sin snapshot (viaje sin planilla generada todavia)
+        var _pidsFallback = _pids.filter(function(x) { return !_pidsConSnapshot[x]; });
+        if (_pidsFallback.length) {
+          try {
+            var its = await sbFetch('pedidos_items?select=pedido_id,producto_tck_nombre,cantidad,calibre&pedido_id=in.(' +
+              _pidsFallback.join(',') + ')&limit=3000') || [];
+            its.forEach(function(it) {
+              (_depItemsPorPedido[it.pedido_id] = _depItemsPorPedido[it.pedido_id] || []).push({
+                nombre: it.producto_tck_nombre || '—', qty: Number(it.cantidad) || 0, calibre: it.calibre || ''
+              });
             });
-          });
-        } catch (eIt) { console.error('[dep items]', eIt); }
+          } catch (eIt) { console.error('[dep items fallback]', eIt); }
+        }
         try {
           var pzs = await sbFetch('pedidos_zona?select=pedido_id,xubio_factura_nro,xubio_factura_id,xubio_presupuesto_id&pedido_id=in.' + inL + '&limit=3000') || [];
           pzs.forEach(function(pz) {
@@ -51637,6 +51691,7 @@ function _depViajeCard(v) {
   var factOk = totalEnt - sinFact.length;
 
   var h = '<div class="dep-viaje-card">';
+  h += _depBannerPlanilla(v.id);   // v14.138.0 — versión de planilla / aviso de cambio
   // Header compacto
   h += '<div style="display:flex;align-items:center;justify-content:space-between;gap:8px;">';
   h += '  <span class="dep-viaje-head">🚚 ' + _mostEsc(_depZonaLabel(v.zona)) + '</span>';
@@ -52227,7 +52282,7 @@ function depPollIniciar() {
    TCK_UPD_LOCAL aca Y el archivo version.json del repo.
    ============================================================ */
 (function(){
-  var TCK_UPD_LOCAL = '14.137.0';        /* <-- bump en cada deploy */
+  var TCK_UPD_LOCAL = '14.138.0';        /* <-- bump en cada deploy */
   var TCK_UPD_INTERVALO = 10 * 60 * 1000;   /* chequeo de fondo: 10 min */
   var _updUltChequeo = 0;
 
