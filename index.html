@@ -2,6 +2,26 @@
 <html lang="es">
 <head>
 <!-- ═══════════════════════════════════════════════════════════════════════
+     TCK VENTAS — v14.148.0 — 14/08/2026
+     v14.148.0: ETAPA 2 — DEPÓSITO LEE LA MISMA VERSIÓN QUE EL PDF.
+       Backend requerido: Apps Script v25.116.0 + tck_circuito_v3.sql.
+       1. La pantalla de Depósito (Pancho) dejaba de reconstruir la lista
+          desde pedidos_items VIVO: ahora pide `planillaVigente` y usa el
+          snapshot vN de viajes_planillas. El PDF del admin lee ESE MISMO
+          endpoint. Antes el PDF se armaba del Sheet y Depósito de
+          pedidos_items: el 13/08 eso dio planilla=McCain y
+          Depósito=Balcarce para el pedido de Correa.
+       2. Fallback a pedidos_items solo si el viaje todavía no tiene
+          planilla generada (adopción gradual, no rompe la operación).
+       3. Banner por viaje: verde "Cargando por PLANILLA vN", o rojo
+          "LA PLANILLA vN QUEDÓ VIEJA — el pedido cambió después de
+          imprimirla / No cargues con esta lista". Depósito ya no puede
+          operar en silencio sobre una versión vencida.
+       (·) FIX DE ETIQUETADO: TCK_UPD_LOCAL venía en 14.137.0 con el
+           archivo real en v14.147.0 y version.json en 14.147.0. El
+           desfasaje hace que el cartel de "hay versión nueva" salte en
+           loop. Queda alineado en 14.148.0 (subir también version.json).
+     ═══════════════════════════════════════════════════════════════════════
      TCK VENTAS — v14.147.0 — 13/08/2026
      v14.147.0: AVISO DE CANTIDAD vs STOCK VISIBLE (caso Barrera 13/08:
        se vendieron 35 unidades Tapa Manía que Xubio decía tener y la
@@ -52282,7 +52302,7 @@ function depPollIniciar() {
    TCK_UPD_LOCAL aca Y el archivo version.json del repo.
    ============================================================ */
 (function(){
-  var TCK_UPD_LOCAL = '14.138.0';        /* <-- bump en cada deploy */
+  var TCK_UPD_LOCAL = '14.148.0';        /* <-- bump en cada deploy */
   var TCK_UPD_INTERVALO = 10 * 60 * 1000;   /* chequeo de fondo: 10 min */
   var _updUltChequeo = 0;
 
