@@ -2,6 +2,37 @@
 <html lang="es">
 <head>
 <!-- ═══════════════════════════════════════════════════════════════════════
+     TCK VENTAS — v14.151.2 — 14/08/2026
+     v14.151.2: `fila` SALE DEL FLUJO DE BOTONES (cierre P0 Jorge Morales).
+
+       HTML REAL capturado de producción (harness_dom.js sobre v14.151.0):
+         <button id="xubio-btn-xb1"  onclick="xubioCrearPresupuesto(
+           'TCK-20260814-1516-LIS-WCJJY',,'xb1')">
+       Esa doble coma es un SyntaxError. btn.onclick queda en null: el
+       navegador NO compila el atributo, el click no ejecuta nada y no aparece
+       ningún error. El vendedor toca y no pasa nada.
+
+       Y un SEGUNDO camino al mismo síntoma: el botón salía con el atributo
+       `disabled` cuando no había cliente de Xubio elegido. Un botón disabled
+       tampoco dispara onclick, así que tampoco llegaba el toast que explicaba
+       qué faltaba. Dos causas distintas, el mismo "no hace nada".
+
+       FIX ESTRUCTURAL (no compatibilidad eterna con fila:0):
+         · xubioCrearPresupuesto(pedidoId, idBoton) — `fila` fuera de la
+           firma. Se acepta la vieja de 3 argumentos por si quedó alguna
+           llamada suelta.
+         · CERO interpolaciones de p.fila en onclick y data-fila (eran 8).
+         · El botón ya no sale `disabled`: siempre responde. Si falta el
+           cliente lo dice, abre el buscador y hace foco en el input.
+         · `fila` sigue numérica en _mapVista como red de seguridad.
+
+       El backend identifica por pedido_id desde el GAS v25.118.0: `fila` no
+       cumplía ninguna función desde entonces.
+
+       VERIFICADO CON DOM REAL (jsdom), no con strings: se renderiza la card
+       de Jorge, se hace click sobre el botón y se exige que el modal de fecha
+       aparezca en el DOM. Contra v14.151.0 el mismo harness falla en D4/D5/D7.
+     ═══════════════════════════════════════════════════════════════════════
      TCK VENTAS — v14.151.1 — 14/08/2026
      v14.151.1: HOTFIX P0 — BOTONES MUERTOS (caso JORGE MORALES).
 
@@ -16773,6 +16804,9 @@ body {
 .nv-mot.bad{border-color:#EF9A9A;}
 .nv-empty{text-align:center;padding:36px 16px;color:#8a7a90;font-size:13px;line-height:1.5;}
 .nv-empty .nv-empty-ic{font-size:42px;margin-bottom:8px;}
+/* v14.151.2 — botón Crear presupuesto cuando falta elegir el cliente:
+   se ve que falta algo, pero SIGUE clickeable para poder avisar qué. */
+.btn-remitir.btn-falta-cliente { opacity:.72; }
 </style>
 <style id="perf-patch-v1444">
 /* ===== v14.44 — PARCHE DE PERFORMANCE (solo CSS, sin tocar logica) =====
@@ -25176,7 +25210,7 @@ function _v23EntregaBoxHtml(p) {
   }
   var esFechaReal = p.fechaEntrega && /^(Lunes|Martes|Mi|Jueves|Viernes|S|Domingo)/i.test(p.fechaEntrega);
   if (!esFechaReal) {
-    return '<div class="cv23-entrega-box sin-fecha" data-pid="' + p.pedidoId + '" data-fila="' + p.fila + '" onclick="definirEntregaBtn(this,event)">'
+    return '<div class="cv23-entrega-box sin-fecha" data-pid="' + p.pedidoId + '" data-fila="0" onclick="definirEntregaBtn(this,event)">'
       + '<div class="cv23-entrega-icon">📅</div>'
       + '<div>'
       +   '<div class="cv23-entrega-fecha">Sin fecha asignada</div>'
@@ -25275,8 +25309,8 @@ function renderCard(p) {
   // El único camino al estado Confirmado es crear un presupuesto desde el panel Xubio.
 
   // Entregado solo lo puede marcar el Admin (los choferes lo marcan desde su panel)
-  if (esAdmin && p.estado !== 'Entregado') btns += '<button class="btn-estado btn-entregar" onclick="cambiarEstado(\'' + p.pedidoId + '\',' + p.fila + ',\'Entregado\',event)">📦 Entregado</button>';
-  if (esAdmin && p.estado !== 'Pendiente') btns += '<button class="btn-estado btn-pendiente-again" onclick="cambiarEstado(\'' + p.pedidoId + '\',' + p.fila + ',\'Pendiente\',event)">⏳ Pendiente</button>';
+  if (esAdmin && p.estado !== 'Entregado') btns += '<button class="btn-estado btn-entregar" onclick="cambiarEstado(\'' + p.pedidoId + '\',0,\'Entregado\',event)">📦 Entregado</button>';
+  if (esAdmin && p.estado !== 'Pendiente') btns += '<button class="btn-estado btn-pendiente-again" onclick="cambiarEstado(\'' + p.pedidoId + '\',0,\'Pendiente\',event)">⏳ Pendiente</button>';
 
   // v14.15.0: ahora los vendedores pueden cancelar SUS propios pedidos.
   // Reglas:
@@ -25289,7 +25323,7 @@ function renderCard(p) {
   var puedeVendedorCancelar = esPedidoPropio && (p.estado === 'Pendiente' || p.estado === 'Confirmado');
   var puedeAdminCancelar = esAdmin && p.estado !== 'Cancelado';
   if (puedeAdminCancelar || puedeVendedorCancelar) {
-    btns += '<button class="btn-estado btn-cancelar" onclick="confirmarCancelar(\'' + p.pedidoId + '\',' + p.fila + ',event)">❌ Cancelar</button>';
+    btns += '<button class="btn-estado btn-cancelar" onclick="confirmarCancelar(\'' + p.pedidoId + '\',0,event)">❌ Cancelar</button>';
   }
 
   // Editar pedido — vendedor puede sumar productos a pedido pendiente o confirmado
@@ -25315,7 +25349,7 @@ function renderCard(p) {
     var entregaStyle = esFechaReal
       ? 'background:#E3F2FD;color:#1565C0;border-color:#1565C0;'
       : 'background:#FFF3E0;color:#E65100;border-color:#E65100;';
-    btns += '<button class="btn-estado" style="' + entregaStyle + '" data-pid="' + p.pedidoId + '" data-fila="' + p.fila + '" onclick="definirEntregaBtn(this,event)">' + entregaLabel + '</button>';
+    btns += '<button class="btn-estado" style="' + entregaStyle + '" data-pid="' + p.pedidoId + '" data-fila="0" onclick="definirEntregaBtn(this,event)">' + entregaLabel + '</button>';
   }
   // Botón asignar chofer — solo ADMIN y pedidos confirmados
   var asignarHtml = '';
@@ -25458,10 +25492,10 @@ function renderCard(p) {
   if (!esChofer && !tienePresupuesto && (p.estado === 'Pendiente' || p.estado === 'Confirmado')) {
     var esFechaReal2 = p.fechaEntrega && /^(Lunes|Martes|Mi|Jueves|Viernes|S|Domingo)/i.test(p.fechaEntrega);
     if (!esFechaReal2) {
-      accBtns += '<button class="cv23-btn entrega principal" data-pid="' + p.pedidoId + '" data-fila="' + p.fila + '" onclick="definirEntregaBtn(this,event)">📅 Definir entrega</button>';
+      accBtns += '<button class="cv23-btn entrega principal" data-pid="' + p.pedidoId + '" data-fila="0" onclick="definirEntregaBtn(this,event)">📅 Definir entrega</button>';
     } else {
       // Botón secundario para cambiar fecha
-      accBtns += '<button class="cv23-btn entrega" data-pid="' + p.pedidoId + '" data-fila="' + p.fila + '" onclick="definirEntregaBtn(this,event)">📅 Cambiar fecha</button>';
+      accBtns += '<button class="cv23-btn entrega" data-pid="' + p.pedidoId + '" data-fila="0" onclick="definirEntregaBtn(this,event)">📅 Cambiar fecha</button>';
     }
   }
   // Editar pedido
@@ -25474,17 +25508,17 @@ function renderCard(p) {
   }
   // Admin: Entregado / Pendiente
   if (esAdmin && p.estado !== 'Entregado') {
-    accBtns += '<button class="cv23-btn entregar" onclick="cambiarEstado(\'' + p.pedidoId + '\',' + p.fila + ',\'Entregado\',event)">📦 Entregado</button>';
+    accBtns += '<button class="cv23-btn entregar" onclick="cambiarEstado(\'' + p.pedidoId + '\',0,\'Entregado\',event)">📦 Entregado</button>';
   }
   if (esAdmin && p.estado !== 'Pendiente') {
-    accBtns += '<button class="cv23-btn pendiente" onclick="cambiarEstado(\'' + p.pedidoId + '\',' + p.fila + ',\'Pendiente\',event)">⏳ Pendiente</button>';
+    accBtns += '<button class="cv23-btn pendiente" onclick="cambiarEstado(\'' + p.pedidoId + '\',0,\'Pendiente\',event)">⏳ Pendiente</button>';
   }
   // Cancelar (admin todos != Cancelado, vendedor solo SUS Pendiente/Confirmado)
   var esPedidoPropioV23 = !esAdmin && !esChofer && esPedidoDeEsteVendedor(p, vendedorActual);
   var puedeCancelar = (esAdmin && p.estado !== 'Cancelado')
                    || (esPedidoPropioV23 && (p.estado === 'Pendiente' || p.estado === 'Confirmado'));
   if (puedeCancelar) {
-    accBtns += '<button class="cv23-btn cancelar" onclick="confirmarCancelar(\'' + p.pedidoId + '\',' + p.fila + ',event)">❌ Cancelar</button>';
+    accBtns += '<button class="cv23-btn cancelar" onclick="confirmarCancelar(\'' + p.pedidoId + '\',0,event)">❌ Cancelar</button>';
   }
 
   // Chofer asignado: reemplaza el botón "Asignar" con un badge
@@ -28599,7 +28633,9 @@ function buildXubioPanel(p, id) {
     : '<div class="xubio-cliente-sel" id="xubio-sel-' + id + '"></div>';
 
   // Botón habilitado solo si hay cliente seleccionado
-  var btnDisabled = clienteSel ? '' : 'disabled';
+  /* v14.151.2 — ya no se usa `disabled` (ver el botón más abajo). Se
+     conserva la variable por si algún otro punto la lee. */
+  var btnDisabled = '';
 
   return '<div class="xubio-panel">'
     + '<div class="xubio-panel-titulo">📄 Crear presupuesto en Xubio</div>'
@@ -28628,8 +28664,13 @@ function buildXubioPanel(p, id) {
     // Botón crear presupuesto — o cartel "creando…" si está en proceso (v14.109.0)
     + (_xubioProcActivo(p.pedidoId)
         ? '<div class="xubio-panel-intro" style="text-align:center;color:#1565C0;font-weight:600;">⏳ Creando el presupuesto… podés cerrar y seguir trabajando. Se confirma solo en unos segundos.</div>'
-        : '<button class="btn-remitir" id="xubio-btn-' + id + '" ' + btnDisabled
-          + ' onclick="xubioCrearPresupuesto(\'' + p.pedidoId + '\',' + p.fila + ',\'' + id + '\')">'
+        /* v14.151.2 — sin `fila` en el onclick (era el índice del CSV; el GAS
+           identifica por pedido_id) y sin `disabled`: un botón deshabilitado no
+           dispara onclick, así que el vendedor tocaba y no pasaba NADA, sin
+           enterarse de que le faltaba elegir el cliente. Ahora siempre responde
+           y xubioCrearPresupuesto explica qué falta. */
+        : '<button class="btn-remitir' + (clienteSel ? '' : ' btn-falta-cliente') + '" id="xubio-btn-' + id + '"'
+          + ' onclick="xubioCrearPresupuesto(\'' + p.pedidoId + '\',\'' + id + '\')">'
           + '📄 Crear presupuesto'
           + '</button>')
 
@@ -29152,9 +29193,34 @@ function xubioSeleccionarVariante(pedidoId, id, idx, prodId, prodNombre) {
 // ── Crear presupuesto en Xubio (v10) ──────────────────────────────
 // Antes de crear, chequea si el pedido tiene Pollo A/B genéricos
 // que requieren selección de calibre → abre modal.
-function xubioCrearPresupuesto(pedidoId, fila, id) {
+/* v14.151.2 — FIRMA SIN `fila`.
+   `fila` era el índice del CSV de pedidos_recientes y se arrastraba hasta
+   acá sin usarse para nada: el GAS identifica por pedido_id desde v25.118.0.
+   Peor: renderCard la interpolaba DENTRO del onclick sin comillas, así que
+   cualquier valor no numérico rompía el handler y el botón quedaba mudo.
+   Segundo argumento pasa a ser el id del botón. Se acepta la firma vieja
+   de 3 argumentos para no romper llamadas que hayan quedado sueltas. */
+function xubioCrearPresupuesto(pedidoId, idBoton, idLegacy) {
+  /* Compat: si vinieron 3 argumentos, el del medio era `fila` y se descarta. */
+  var id = (arguments.length >= 3 && idLegacy !== undefined && idLegacy !== null)
+             ? idLegacy : idBoton;
+
   var sel = _xubioSeleccion[pedidoId];
-  if (!sel || !sel.clienteId) { toast('Seleccioná un cliente primero', 'err'); return; }
+  if (!sel || !sel.clienteId) {
+    /* v14.151.2 — este return era SILENCIOSO desde la vista del vendedor:
+       el botón venía `disabled`, así que el click ni siquiera llegaba acá y
+       no aparecía ningún mensaje. Tocaba y no pasaba nada. Ahora el botón
+       siempre responde y el mensaje dice qué falta. */
+    toast('👤 Elegí primero el cliente de Xubio en el buscador de arriba', 'err');
+    var wrapC = document.getElementById('xubio-search-wrap-' + id);
+    if (wrapC) {
+      wrapC.style.display = '';
+      try { wrapC.scrollIntoView({ behavior: "smooth", block: "center" }); } catch (e) {}
+    }
+    var inpC = document.getElementById('xubio-input-' + id);
+    if (inpC) { try { inpC.focus(); } catch (e) {} }
+    return;
+  }
 
   var btn = document.getElementById('xubio-btn-' + id);
   if (btn) { btn.disabled = true; btn.textContent = 'Verificando...'; }
@@ -29171,11 +29237,11 @@ function xubioCrearPresupuesto(pedidoId, fila, id) {
 
       if (data.necesitaModal && data.genericos && data.genericos.length) {
         // Abrir modal de selección de calibres
-        xubioAbrirModalCalibre(pedidoId, fila, id, data.genericos);
+        xubioAbrirModalCalibre(pedidoId, 0, id, data.genericos);   // v14.151.2: fila ya no viaja
         if (btn) { btn.disabled = false; btn.textContent = '📄 Crear presupuesto'; }
       } else {
         // Sin genéricos → ir directo al modal de fecha
-        xubioAbrirModalFecha(pedidoId, fila, id, null);
+        xubioAbrirModalFecha(pedidoId, 0, id, null);   // v14.151.2: fila ya no viaja
         if (btn) { btn.disabled = false; btn.textContent = '📄 Crear presupuesto'; }
       }
     })
@@ -52668,7 +52734,7 @@ function depPollIniciar() {
    TCK_UPD_LOCAL aca Y el archivo version.json del repo.
    ============================================================ */
 (function(){
-  var TCK_UPD_LOCAL = '14.151.1';        /* <-- bump en cada deploy */
+  var TCK_UPD_LOCAL = '14.151.2';        /* <-- bump en cada deploy */
   var TCK_UPD_INTERVALO = 10 * 60 * 1000;   /* chequeo de fondo: 10 min */
   var _updUltChequeo = 0;
 
