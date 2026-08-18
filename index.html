@@ -2,6 +2,76 @@
 <html lang="es">
 <head>
 <!-- ═══════════════════════════════════════════════════════════════════════
+     TCK VENTAS — v14.152.0 — 18/08/2026
+     v14.152.0: EL PANEL DEL CHOFER NO SE QUEDA MAS EN "CARGANDO ENTREGAS...".
+
+       REPORTE: 18/08 11:57. Juan Pablo (viaje zona1b, 72 entregas,
+       $14.929.750) manda una captura con el resumen azul cargado
+       —$14.858.750, 0/71— y debajo "Cargando entregas..." para siempre.
+       Joan, que HOY NO TIENE VIAJE en_ruta, ve lo mismo. O sea: no es un dato
+       podrido de un viaje, es el camino de carga.
+
+       Que el resumen este pintado y la lista no prueba el orden de los
+       hechos: cargarEntregas() pinta renderEntregas() ANTES que
+       renderResumenChofer(), asi que hubo una pasada COMPLETA que dejo la
+       pantalla bien, y despues ALGO la volvio a poner en "Cargando".
+       Ese algo es el auto-refresh de 45 s (v14.124.0).
+
+       TRES DEFECTOS ENCADENADOS:
+
+       1. cargarEntregas() BORRABA la lista antes de pedir los datos
+          (innerHTML = "Cargando entregas..." en la primera linea). Es
+          identico al innerHTML="Cargando pedidos..." que v14.151.0 saco del
+          lado del vendedor por ser "la causa directa de la pantalla vacia".
+          Nadie lo porto a la app del chofer.
+
+       2. cargarViajeActivo() y cargarProximosViajes() iban a Apps Script
+          (?accion=viajeListar) con fetch() PELADO, sin AbortController.
+          Medido hoy contra produccion: 24,7 s en frio, 2,7-4,0 s en caliente.
+          Si Google no cierra la conexion, ese await no resuelve NUNCA: no
+          entra al catch, no hay error en consola, la pantalla queda en
+          "Cargando entregas...". Es el sintoma 11 de v14.151.0, palabra por
+          palabra, en el otro rol. Para Joan es peor todavia: sin viaje
+          activo, renderSinViajeActivo() ESPERA a cargarProximosViajes()
+          antes de escribir una sola linea en el DOM.
+
+       3. El setInterval de 45 s no tenia guard de "ya hay uno corriendo".
+          Un ciclo que tardaba mas de 45 s se pisaba con el siguiente, que
+          volvia a blanquear la lista. El chofer no salia nunca del cartel.
+
+       QUE CAMBIA:
+
+       A. viajes se lee DIRECTO de Supabase, no por Apps Script. La tabla ya
+          se lee asi desde el tab Deposito con la misma sesion (authenticated
+          tiene SELECT; anon no, por el blindaje RLS). ~50 ms contra 3-25 s, y
+          se van los dos fetch sin timeout de un saque. La forma de la fila es
+          la misma: viajeListar hacia select=* y devolvia el row tal cual.
+
+       B. sbFetch acepta options.timeoutMs (AbortController). OPT-IN: sin el
+          parametro se comporta exactamente como antes. No se prende por
+          defecto a proposito — hay PATCHes lentos en la app que no queremos
+          abortar de prepo. Lo usan las 4 consultas del camino del chofer.
+
+       C. LAST KNOWN GOOD. La lista solo dice "Cargando" si NO hay nada bueno
+          en pantalla. Si el refresh falla, la lista QUEDA y aparece un chip
+          ambar "datos de HH:MM - Tocá para reintentar". Si nunca hubo lista,
+          en vez del "Error al cargar" mudo va un boton Reintentar de verdad.
+
+       D. UN SOLO REFRESH EN VUELO. El automatico se engancha a la promesa en
+          curso; el manual espera a que termine y recien ahi larga el suyo.
+
+       E. Un fallo de red YA NO dice "No tenés viaje activo". Antes el catch
+          de cargarViajeActivo() ponia _viajeActivo=null, asi que dos segundos
+          de mala senal le borraban el viaje de la pantalla al que estaba
+          arriba del camion cargado. Ahora se conserva y se marca el error.
+
+       F. salir() resetea el estado del chofer (_entregasPintadoOk, cache,
+          viaje) — si no, el que entra despues hereda la pantalla del anterior.
+
+       NO TOCADO: el intervalo sigue en 45 s, los guards document.hidden /
+       hayAlgoAbierto() siguen igual, y no se cambio nada del flujo de cobro,
+       rendicion ni del lado del vendedor.
+     ═══════════════════════════════════════════════════════════════════════
      TCK VENTAS — v14.151.2 — 14/08/2026
      v14.151.2: `fila` SALE DEL FLUJO DE BOTONES (cierre P0 Jorge Morales).
 
@@ -20013,7 +20083,29 @@ async function sbFetch(path, options = {}) {
     'Prefer': options.prefer || 'return=representation',
     ...options.headers
   };
-  let resp = await fetch(url, { ...options, headers });
+  // v14.152.0 — TIMEOUT OPCIONAL (options.timeoutMs). Sin el parámetro se
+  // comporta igual que antes: fetch pelado, sin AbortController. Lo usa el
+  // panel del chofer, donde un fetch que no resolvía nunca dejaba la pantalla
+  // en "Cargando entregas..." para siempre (mismo síntoma 11 que v14.151.0
+  // arregló del lado del vendedor). No se activa por defecto a propósito: hay
+  // PATCHes lentos en la app que no queremos abortar de prepo.
+  const _sbGo = async function (hdrs) {
+    const _to = options.timeoutMs || 0;
+    if (!_to) return fetch(url, { ...options, headers: hdrs });
+    const ctrl  = (typeof AbortController !== 'undefined') ? new AbortController() : null;
+    const timer = ctrl ? setTimeout(function () { try { ctrl.abort(); } catch (_) {} }, _to) : null;
+    try {
+      return await fetch(url, { ...options, headers: hdrs, signal: ctrl ? ctrl.signal : undefined });
+    } catch (e) {
+      if (e && e.name === 'AbortError') {
+        const te = new Error('Timeout: Supabase no respondió en ' + _to + ' ms');
+        te.esTimeout = true;
+        throw te;
+      }
+      throw e;
+    } finally { if (timer) clearTimeout(timer); }
+  };
+  let resp = await _sbGo(headers);
   // v14.64.0: token vencido/rechazado → limpiar y reintentar 1 vez con anon.
   // v14.106.1: si el reintento anon TAMBIÉN falla por permisos (401/403 del
   // blindaje RLS), la sesión venció de verdad → avisar re-login con PIN.
@@ -20021,7 +20113,7 @@ async function sbFetch(path, options = {}) {
     console.warn('[sbFetch] JWT rechazado (401): limpio token y reintento con anon');
     jwtLimpiar();
     headers['Authorization'] = 'Bearer ' + SUPABASE_KEY;
-    resp = await fetch(url, { ...options, headers });
+    resp = await _sbGo(headers);
   }
   // v14.111.0: 401/403 sin JWT válido = sesión no autenticada. Cubre los DOS
   // casos: (a) el token se acaba de limpiar arriba y el reintento anon lo
@@ -24099,6 +24191,13 @@ function salir() {
   trackingDetener();
   entregasFrenarRefresh();   // v14.124.0 — que no siga puliendo entregas del chofer anterior
   _entregasFirmaPrev = null; // y que el próximo no reciba un aviso de cambio que no es suyo
+  // v14.152.0 — el que entra después no puede heredar la pantalla del anterior:
+  // con _entregasPintadoOk en true no vería "Cargando" y se quedaría mirando
+  // las entregas del compañero hasta que termine el primer fetch.
+  _entregasPintadoOk = false;
+  _entregasUltimoOk  = null;
+  _entregasCache     = [];
+  _viajeActivo = null; _viajesActivos = []; _viajeSeleccionadoId = null; _viajeActivoError = null;
   const bienvenidaEl = document.querySelector('.bienvenida');
   if (bienvenidaEl) bienvenidaEl.style.display = '';
   const panelEl = document.getElementById('panel');
@@ -36724,7 +36823,8 @@ async function cargarRutasOrden() {
     return _rutasCache;
   }
   try {
-    const data = await sbFetch('rutas?select=ciudad,orden,zona&activo=eq.true&order=orden.asc');
+    const data = await sbFetch('rutas?select=ciudad,orden,zona&activo=eq.true&order=orden.asc',
+      { timeoutMs: VIAJE_TIMEOUT_MS });   // v14.152.0: va dentro del Promise.all
     const map = {};
     if (Array.isArray(data)) {
       data.forEach(function(r) {
@@ -36918,19 +37018,33 @@ function scrollAProximaCiudad() {
 let _viajesActivos = [];   // todos los en_ruta del chofer
 let _viajeSeleccionadoId = null; // id del viaje que está mostrando ahora
 
+// ── v14.152.0 — ESTO YA NO PASA POR APPS SCRIPT ─────────────────
+// Iba a ?accion=viajeListar con un fetch() pelado, SIN AbortController.
+// Medido el 18/08 contra producción: 24,7 s en frío y 2,7-4 s en caliente.
+// Con la red del celular, si Google no cerraba la conexión el await no
+// resolvía nunca — no entraba nunca al catch — y el chofer quedaba mirando
+// "Cargando entregas..." para siempre. Es el mismo síntoma 11 que v14.151.0
+// arregló del lado del vendedor; nadie lo había portado a la app del chofer.
+// La tabla viajes ya se lee directo desde el tab Depósito con esta misma
+// sesión (authenticated tiene SELECT), así que vamos por ahí: ~50 ms, y con
+// timeout de verdad.
+var VIAJE_TIMEOUT_MS = 12000;
+var _viajeActivoError = null;   // último error de carga (null = la última salió bien)
+
 async function cargarViajeActivo() {
   if (!vendedorActual) return null;
   try {
     // Traer TODOS los viajes en_ruta del chofer (no limit:1)
-    const url = APPS_SCRIPT_URL +
-      '?accion=viajeListar' +
-      '&chofer=' + encodeURIComponent(vendedorActual) +
-      '&estado=en_ruta' +
-      '&orden=fecha_salida.desc';
-    const resp = await fetch(url);
-    const data = await resp.json();
-    if (data.status === 'ok' && Array.isArray(data.viajes) && data.viajes.length > 0) {
-      _viajesActivos = data.viajes;
+    const viajes = await sbFetch(
+      'viajes?select=*' +
+      '&chofer=eq.' + encodeURIComponent(vendedorActual) +
+      '&estado=eq.en_ruta' +
+      '&order=fecha_salida.desc&limit=20',
+      { timeoutMs: VIAJE_TIMEOUT_MS }
+    );
+    _viajeActivoError = null;
+    if (Array.isArray(viajes) && viajes.length > 0) {
+      _viajesActivos = viajes;
       // Si no hay seleccionado o el seleccionado ya no está en la lista,
       // tomar el más reciente (el primero, porque vino orden desc)
       if (!_viajeSeleccionadoId ||
@@ -36946,10 +37060,12 @@ async function cargarViajeActivo() {
     _viajeActivoLoadedAt = new Date();
     return _viajeActivo;
   } catch(err) {
-    console.error('[v14.0] cargarViajeActivo:', err);
-    _viajesActivos = [];
-    _viajeActivo = null;
-    return null;
+    // v14.152.0 — NO borramos _viajeActivo. Antes un corte de red de 2 s lo
+    // dejaba en null y el chofer veía "No tenés viaje activo" con el camión
+    // cargado. Guardamos el error y que decida el caller.
+    console.error('[v14.152.0] cargarViajeActivo:', err);
+    _viajeActivoError = err;
+    return _viajeActivo;
   }
 }
 
@@ -36973,20 +37089,20 @@ async function seleccionarViaje(viajeId) {
 async function cargarProximosViajes() {
   if (!vendedorActual) return [];
   try {
-    const url = APPS_SCRIPT_URL +
-      '?accion=viajeListar' +
-      '&chofer=' + encodeURIComponent(vendedorActual) +
-      '&estados=' + encodeURIComponent('planificado,preparando') +
-      '&orden=fecha_salida.asc' +
-      '&limit=5';
-    const resp = await fetch(url);
-    const data = await resp.json();
-    if (data.status === 'ok' && Array.isArray(data.viajes)) {
-      return data.viajes;
-    }
-    return [];
+    // v14.152.0 — directo a Supabase y con timeout. Antes era otro fetch
+    // pelado a Apps Script: es el que colgaba la pantalla del chofer SIN
+    // viaje activo (caso Joan, 18/08), porque renderSinViajeActivo() lo
+    // espera antes de escribir una sola línea en el DOM.
+    const viajes = await sbFetch(
+      'viajes?select=*' +
+      '&chofer=eq.' + encodeURIComponent(vendedorActual) +
+      '&estado=in.(planificado,preparando)' +
+      '&order=fecha_salida.asc&limit=5',
+      { timeoutMs: VIAJE_TIMEOUT_MS }
+    );
+    return Array.isArray(viajes) ? viajes : [];
   } catch(err) {
-    console.error('[v14.0] cargarProximosViajes:', err);
+    console.error('[v14.152.0] cargarProximosViajes:', err);
     return [];
   }
 }
@@ -37350,16 +37466,19 @@ async function mvCargarHistorial() {
     desde.setDate(desde.getDate() - dias);
     const desdeISO = desde.toISOString().substring(0, 10);
 
-    const url = APPS_SCRIPT_URL +
-      '?accion=viajeListar' +
-      '&chofer=' + encodeURIComponent(vendedorActual) +
-      '&estado=cerrado' +
-      '&desde=' + encodeURIComponent(desdeISO) +
-      '&orden=fecha_salida.desc' +
-      '&limit=50';
-    const resp = await fetch(url);
-    const data = await resp.json();
-    _mvHistorial = (data.status === 'ok' && Array.isArray(data.viajes)) ? data.viajes : [];
+    // v14.152.0 — era el último fetch pelado a Apps Script del lado del
+    // chofer: si Google no contestaba, el tab "Mis Viajes" se quedaba a mitad
+    // de camino (mvRenderHistorial() nunca llegaba a correr) justo cuando el
+    // chofer va a cerrar el viaje y rendir.
+    const viajes = await sbFetch(
+      'viajes?select=*' +
+      '&chofer=eq.' + encodeURIComponent(vendedorActual) +
+      '&estado=eq.cerrado' +
+      '&fecha_salida=gte.' + encodeURIComponent(desdeISO) +
+      '&order=fecha_salida.desc&limit=50',
+      { timeoutMs: VIAJE_TIMEOUT_MS }
+    );
+    _mvHistorial = Array.isArray(viajes) ? viajes : [];
   } catch(err) {
     console.error('[mv hist]', err);
     _mvHistorial = [];
@@ -37890,13 +38009,63 @@ function entregasFrenarRefresh() {
   if (_entregasRefreshTimer) { clearInterval(_entregasRefreshTimer); _entregasRefreshTimer = null; }
 }
 
+// ── v14.152.0 — LAST KNOWN GOOD + UN SOLO REFRESH EN VUELO ──────
+// Dos bugs juntos dejaban al chofer mirando "Cargando entregas..." (reporte
+// de Juan Pablo y Joan, 18/08 11:57, viaje zona1b de 72 entregas):
+//   1. cargarEntregas() BORRABA la lista antes de pedir los datos. Con el
+//      auto-refresh de 45 s (v14.124.0) la pantalla se vaciaba sola cada 45 s
+//      y no volvía hasta que TODA la cadena terminara — cadena que arrancaba
+//      con un fetch a Apps Script que podía no terminar nunca. Es exactamente
+//      el innerHTML="Cargando pedidos..." que v14.151.0 sacó del vendedor.
+//   2. No había guard de "ya hay uno corriendo": si un ciclo tardaba más de
+//      45 s el siguiente arrancaba igual y volvía a blanquear la lista, así
+//      que el chofer no salía nunca del cartel.
+// Ahora la lista solo dice "Cargando" si NO hay nada bueno en pantalla, y si
+// el refresh falla se conserva lo que había con un chip "datos de HH:MM".
+var _entregasEnVuelo   = null;   // promesa de la carga en curso
+var _entregasPintadoOk = false;  // ya hay una pantalla válida pintada
+var _entregasUltimoOk  = null;   // cuándo se pintó por última vez
+
+function _entregasChipViejo(hora) {
+  var el = document.getElementById('entregas-lista');
+  if (!el) return;
+  var prev = document.getElementById('entregas-chip-viejo');
+  if (prev) prev.parentNode.removeChild(prev);
+  el.insertAdjacentHTML('afterbegin',
+    '<div id="entregas-chip-viejo" onclick="cargarEntregas()" ' +
+    'style="margin:8px 14px;padding:8px 12px;border-radius:10px;background:#FFF4E0;' +
+    'border:1px solid #E8C87A;font-family:\'Barlow Condensed\',sans-serif;font-size:13px;' +
+    'font-weight:700;color:#8A6D1F;text-align:center;cursor:pointer;touch-action:manipulation;">' +
+    '⚠️ No pude actualizar — datos de ' + hora + ' · Tocá para reintentar</div>');
+}
+
 async function cargarEntregas(esRefresh) {
+  // Un refresh automático nunca compite con la carga que ya está corriendo.
+  if (_entregasEnVuelo) {
+    if (esRefresh) return _entregasEnVuelo;
+    try { await _entregasEnVuelo; } catch (_) {}
+  }
+  var p = _cargarEntregasInterno(esRefresh);
+  _entregasEnVuelo = p;
+  try { return await p; }
+  finally { if (_entregasEnVuelo === p) _entregasEnVuelo = null; }
+}
+
+async function _cargarEntregasInterno(esRefresh) {
   const el = document.getElementById('entregas-lista');
-  el.innerHTML = '<div style="text-align:center;padding:40px;color:var(--text3);">Cargando entregas...</div>';
+  // Solo blanqueamos si no hay nada bueno para mostrar (primera carga).
+  if (el && !_entregasPintadoOk) {
+    el.innerHTML = '<div style="text-align:center;padding:40px;color:var(--text3);">Cargando entregas...</div>';
+  }
 
   try {
     // v14.0: Primero cargar el viaje activo del chofer
     await cargarViajeActivo();
+
+    // v14.152.0 — si la consulta de viajes falló no sabemos si tiene viaje o
+    // no. Decirle "No tenés viaje activo" al que salió con el camión cargado
+    // es peor que mostrar un error: va al catch y conserva lo que había.
+    if (_viajeActivoError && !_viajeActivo) throw _viajeActivoError;
 
     // Si no hay viaje activo, mostrar pantalla "Sin viaje activo"
     if (!_viajeActivo) {
@@ -37905,13 +38074,16 @@ async function cargarEntregas(esRefresh) {
       el.innerHTML = html;
       const res = document.getElementById('entregas-resumen');
       if (res) res.innerHTML = '';
+      _entregasPintadoOk = true;
+      _entregasUltimoOk  = new Date();
       return;
     }
 
     // v14.0: Filtrar entregas por viaje_id (no por chofer global)
     let entregas = await sbFetch(
       'entregas?viaje_id=eq.' + encodeURIComponent(_viajeActivo.id) +
-      '&select=*&order=ciudad.asc'
+      '&select=*&order=ciudad.asc',
+      { timeoutMs: VIAJE_TIMEOUT_MS }   // v14.152.0
     );
 
     // Mantener filtro por estado (mismo que antes):
@@ -37938,6 +38110,8 @@ async function cargarEntregas(esRefresh) {
         '<div style="text-align:center;padding:40px 20px;color:var(--text3);font-size:14px;">📭 Tu viaje no tiene entregas aún.<br><span style="font-size:12px;margin-top:8px;display:block;">Esto es raro — avisá a Francisco.</span></div>';
       const res = document.getElementById('entregas-resumen');
       if (res) res.style.display = 'none';
+      _entregasPintadoOk = true;
+      _entregasUltimoOk  = new Date();
       return;
     }
 
@@ -38015,13 +38189,31 @@ async function cargarEntregas(esRefresh) {
     ]);
     renderEntregas(_entregasCache);
     renderResumenChofer(_entregasCache);
-    
+    _entregasPintadoOk = true;          // v14.152.0
+    _entregasUltimoOk  = new Date();
+
     // v14.8: auto-scroll a la próxima ciudad pendiente
     setTimeout(scrollAProximaCiudad, 100);
 
   } catch(e) {
-    el.innerHTML = '<div style="text-align:center;padding:40px;color:var(--text3);">Error al cargar. Tocá para reintentar.</div>';
     console.error('cargarEntregas:', e);
+    // v14.152.0 — si ya hay una lista buena en pantalla NO la borramos: el
+    // chofer sigue trabajando con lo último bueno y ve de cuándo es.
+    if (_entregasPintadoOk && _entregasCache && _entregasCache.length) {
+      var _h = _entregasUltimoOk
+        ? _entregasUltimoOk.toLocaleTimeString('es-AR', { hour: '2-digit', minute: '2-digit' })
+        : '?';
+      _entregasChipViejo(_h);
+    } else if (el) {
+      el.innerHTML =
+        '<div style="text-align:center;padding:40px 20px;color:var(--text3);font-size:14px;">' +
+        'No pude cargar tus entregas.<br>' +
+        '<span style="font-size:12px;">Fijate la señal y tocá el botón.</span>' +
+        '<div onclick="cargarEntregas()" style="margin:16px auto 0;max-width:220px;background:#8B0000;' +
+        'color:#fff;border-radius:10px;padding:10px;font-family:\'Barlow Condensed\',sans-serif;' +
+        'font-size:15px;font-weight:900;cursor:pointer;touch-action:manipulation;">🔄 Reintentar</div>' +
+        '</div>';
+    }
   }
 }
 
@@ -38111,7 +38303,8 @@ async function cargarCoordsClientes(entregas) {
     const rows = await sbFetch(
       'clientes_ubicaciones?nombre_cliente=in.(' +
       nombres.map(n => encodeURIComponent('"' + n + '"')).join(',') +
-      ')&select=nombre_cliente,lat,lng&lat=not.is.null'
+      ')&select=nombre_cliente,lat,lng&lat=not.is.null',
+      { timeoutMs: VIAJE_TIMEOUT_MS }   // v14.152.0: va dentro del Promise.all
     );
     if (rows && rows.length) {
       rows.forEach(r => {
@@ -52734,7 +52927,7 @@ function depPollIniciar() {
    TCK_UPD_LOCAL aca Y el archivo version.json del repo.
    ============================================================ */
 (function(){
-  var TCK_UPD_LOCAL = '14.151.2';        /* <-- bump en cada deploy */
+  var TCK_UPD_LOCAL = '14.152.0';        /* <-- bump en cada deploy */
   var TCK_UPD_INTERVALO = 10 * 60 * 1000;   /* chequeo de fondo: 10 min */
   var _updUltChequeo = 0;
 
