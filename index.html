@@ -2,7 +2,48 @@
 <html lang="es">
 <head>
 <!-- ═══════════════════════════════════════════════════════════════════════
-     TCK VENTAS — v14.154.1 — 21/08/2026
+     TCK VENTAS — v14.155.0 — 21/08/2026
+v14.155.0: FASE 2 — VARIANTE OBLIGATORIA EN EL EDITOR DE PEDIDOS.
+PROBLEMA: el editor era el unico de los 3 flujos de carga sin validacion ni
+selector de calibre/estado. El tomador valida desde v14.105.0 y la carga WA
+desde v14.105.1, ambas del 30/06. El editor solo PRESERVABA el calibre que ya
+venia en el string (_editarCalibres + _editarSepararCalibre) y mostraba una
+nota verde NO bloqueante. Si el pollo llegaba sin variante, o si el vendedor
+AGREGABA un pollo dentro del editor, no habia forma de elegirla.
+EVIDENCIA: de las 13 lineas de pollo sin calibre posteriores al 23/07, las 13
+tienen pedidos_zona.editado_at no nulo. Las 10 anteriores al 20/07, ninguna.
+QUE CAMBIA:
+  1. POLLO_VARIANTES · Pollo C queda en ['x5 Fresco','x6 Fresco','x7 Fresco'].
+     Se sacan las 'Congelado' (regla dura Braian 21/08: el Pollo C se compra y
+     se vende siempre fresco) y x8 (nunca comprado ni vendido). Las tres
+     variantes congeladas apuntaban a productos Xubio sin una sola entrada de
+     compra: 29 cajones en 60 dias facturados contra stock inexistente.
+  2. SELECTOR UNIFICADO. Habia dos copias del mismo componente (tomador y mwa).
+     Ahora hay uno solo: _calSelectorHTML / _calSet / _calEsValida /
+     _calPendientes / _calNormalizar / _calStock. Los wrappers
+     tomadorCalibreSelectorHTML, tomadorSetCalibre, mwaCalibreSelectorHTML y
+     mwaSetCalibre conservan su firma y delegan: ningun call site cambia.
+     Se agregan editarCalibreSelectorHTML y editarSetCalibre.
+  3. BADGE DE STOCK POR VARIANTE en los tres flujos. El boton muestra las
+     unidades disponibles leidas de vw_stock_visible (indexado por
+     producto_tck_nombre, que ya trae los nombres compuestos). Sin stock se
+     pinta ambar con ' · 0' y tooltip, pero SE PUEDE ELEGIR IGUAL: puede haber
+     mercaderia por entrar. No se bloquea al vendedor.
+  4. NORMALIZACION AL ABRIR. Un "calibre x6" heredado del catalogo web con
+     opciones ['x6','x7'] se auto-selecciona. Un "calibre x7" con
+     ['x7 Fresco','x7 Congelado'] queda ambiguo A PROPOSITO y hay que elegir.
+  5. GUARD EN editarConfirmar. Mismo criterio que _faltaCalibre y _mwaFaltaCal.
+     Si falta variante, toast + scroll al primer selector pendiente y no guarda.
+NO SE TOCA: Supabase, Apps Script, catalogo, admin, facturacion, mappings ni
+pedidos historicos. El formato emitido es identico al del tomador
+("Pollo B x6 Congelado"); si el pedido venia del catalogo web con
+"· calibre x7" y no se toca la variante, se re-serializa igual que antes.
+PENDIENTE FASE 3: Pollo B x5 Congelado y x8 NO se agregaron al selector aunque
+existen en producto_variantes y en Xubio, porque falta la fila en
+productos_xubio_mapping y la factura fallaria. Alta pendiente antes de
+ofrecerlos.
+
+TCK VENTAS — v14.154.1 — 21/08/2026
 v14.154.1: solo comentario. La v14.154.0 anotaba mal el id de Xubio
 (decia que compra y venta compartian el 3413501). Son dos ids. Ver abajo.
 v14.154.0: ALTA de "Cuarto Trasero B" en TROZADOS. Cuarto trasero de segunda,
@@ -34286,34 +34327,144 @@ var POLLO_VARIANTES = {
   'Pollo B': ['x6 Fresco', 'x6 Congelado', 'x7 Fresco', 'x7 Congelado'],
   // v14.129.0 — Pollo C completo: x5 solo fresco (no existe congelado en Xubio),
   // x6/x7/x8 en ambos estados. Coincide 1:1 con productos_xubio_mapping.
-  'Pollo C': ['x5 Fresco', 'x6 Fresco', 'x6 Congelado', 'x7 Fresco', 'x7 Congelado', 'x8 Fresco', 'x8 Congelado']
+  // v14.155.0 — SOLO FRESCO. Regla dura (Braian 21/08): el Pollo C se compra
+  // y se vende siempre fresco. Las variantes 'Congelado' apuntaban a productos
+  // Xubio que nunca tuvieron una entrada de compra (3358554/3358555/3358556):
+  // 29 cajones en 60 dias se facturaron contra stock inexistente. Dadas de baja
+  // tambien en producto_variantes el 21/08. x8 sale: nunca comprado ni vendido.
+  'Pollo C': ['x5 Fresco', 'x6 Fresco', 'x7 Fresco']
 };
-function _tomadorCalSafe(n) { return String(n).replace(/[^a-zA-Z0-9]/g, '_'); }
-function tomadorCalibreSelectorHTML(nombre) {
-  var safe = _tomadorCalSafe(nombre), sel = _tomadorCalibres[nombre] || '';
-  var vars = POLLO_VARIANTES[nombre] || ['x6', 'x7'];
-  var btns = vars.map(function(v, ix) {
-    var on = sel === v;
-    return '<button type="button" id="tcalb-' + safe + '-' + ix + '"'
-      + ' onclick="tomadorSetCalibre(&quot;' + String(nombre).replace(/"/g, '&quot;') + '&quot;,&quot;' + v + '&quot;)"'
-      + ' style="flex:1 1 44%;padding:6px 2px;border:1.5px solid ' + (on ? '#8B0000' : '#E0E0E0') + ';background:' + (on ? '#8B0000' : '#fff') + ';color:' + (on ? '#fff' : '#777') + ';border-radius:8px;font-family:Barlow Condensed,sans-serif;font-weight:900;font-size:12px;cursor:pointer;touch-action:manipulation;">' + v + '</button>';
+// ═══════════════════════════════════════════════════════════════════════
+// v14.155.0 — SELECTOR DE VARIANTE UNIFICADO (tomador · WA · editar)
+// Antes habia dos copias del mismo selector (tomador y mwa) y el editor NO
+// tenia ninguna: se podia guardar un pollo sin calibre/estado. Las 13 lineas
+// sin variante posteriores al 23/07 pasaron TODAS por el editor.
+// Ahora los tres flujos llaman al mismo componente. Los wrappers conservan
+// su firma original, asi que ningun call site cambia.
+//
+// Formato del store por contexto:
+//   tomador / mwa -> string plano        'x6 Congelado'
+//   editar        -> { txt, sep }        { txt:'x6 Congelado', sep:' ' }
+// El editor necesita `sep` para re-serializar en el formato de origen: el
+// tomador emite "Pollo B x6 Congelado" (sep ' ') y el catalogo web emite
+// "Pollo B · calibre x7" (sep ' · '). Los dos existen en
+// productos_xubio_mapping, por eso se preserva el de origen si no se toca.
+// ═══════════════════════════════════════════════════════════════════════
+var _CAL_CTX = {
+  tomador: { pref: 'tcalb',   store: function(){ return _tomadorCalibres; } },
+  mwa:     { pref: 'mwacalb', store: function(){ return _manualWACalibres; } },
+  editar:  { pref: 'ecalb',   store: function(){ return _editarCalibres; } }
+};
+function _calSafeId(n) { return String(n).replace(/[^a-zA-Z0-9]/g, '_'); }
+function _calVariantes(nombre) { return POLLO_VARIANTES[nombre] || ['x6', 'x7']; }
+// Normaliza el valor del store a string, sea plano u objeto {txt,sep}.
+function _calTxt(v) {
+  if (v === undefined || v === null) return '';
+  return (typeof v === 'object' && v.txt !== undefined) ? String(v.txt) : String(v);
+}
+function _calGet(nombre, ctx) {
+  try { return _calTxt(_CAL_CTX[ctx].store()[nombre]); } catch (e) { return ''; }
+}
+// Una seleccion es VALIDA solo si coincide exacto con una variante ofrecida.
+// Un "calibre x7" heredado del catalogo web NO es valido para Pollo B porque
+// no dice el estado — es ambiguo y hay que elegir (requisito 4).
+function _calEsValida(nombre, ctx) {
+  var v = _calGet(nombre, ctx);
+  if (!v) return false;
+  return _calVariantes(nombre).indexOf(v) !== -1;
+}
+// Al abrir un pedido viejo el valor puede venir en formato antiguo.
+// Si hay UN solo candidato compatible se auto-selecciona; si hay mas de uno
+// queda ambiguo a proposito y el guard obliga a elegir.
+function _calNormalizar(nombre, valorTxt) {
+  var vars = _calVariantes(nombre);
+  if (!valorTxt) return null;
+  if (vars.indexOf(valorTxt) !== -1) return valorTxt;
+  var num = String(valorTxt).match(/x\s?(\d{1,2})/i);
+  if (!num) return null;
+  var cands = vars.filter(function(v){
+    var n2 = String(v).match(/x\s?(\d{1,2})/i);
+    return n2 && n2[1] === num[1];
+  });
+  return cands.length === 1 ? cands[0] : null;
+}
+// Stock de la variante concreta. _stockMapVentas viene de vw_stock_visible y
+// esta indexado por producto_tck_nombre, que ya incluye los nombres
+// compuestos ("Pollo B x6 Congelado"). Si no hay dato, devuelve null y el
+// boton se pinta sin badge (no se inventa "sin stock").
+function _calStock(nombre, variante) {
+  try {
+    if (typeof obtenerStockVentas !== 'function') return null;
+    var st = obtenerStockVentas(nombre + ' ' + variante);
+    return st ? Number(st.stock_visible) : null;
+  } catch (e) { return null; }
+}
+function _calSelectorHTML(nombre, ctx) {
+  var c = _CAL_CTX[ctx]; if (!c) return '';
+  var safe = _calSafeId(nombre), sel = _calGet(nombre, ctx);
+  var nomEsc = String(nombre).replace(/"/g, '&quot;');
+  var btns = _calVariantes(nombre).map(function(v, ix) {
+    var on  = (sel === v);
+    var stk = _calStock(nombre, v);
+    // requisito 5: sin stock se advierte, NO se bloquea. El vendedor puede
+    // cargarla igual (mercaderia por entrar / decision operativa).
+    var cero = (stk !== null && stk <= 0);
+    var borde = on ? '#8B0000' : (cero ? '#E0A800' : '#E0E0E0');
+    var fondo = on ? '#8B0000' : (cero ? '#FFFDF2' : '#fff');
+    var texto = on ? '#fff'    : (cero ? '#9A7B00' : '#777');
+    var etiq  = v + (cero ? ' · 0' : (stk !== null && stk > 0 ? ' · ' + stk : ''));
+    var tit   = cero ? 'Sin stock — se puede cargar igual, avisale al cliente' : (stk !== null ? stk + ' disponibles' : '');
+    return '<button type="button" id="' + c.pref + '-' + safe + '-' + ix + '"'
+      + ' title="' + tit + '"'
+      + ' onclick="_calSet(&quot;' + nomEsc + '&quot;,&quot;' + v + '&quot;,&quot;' + ctx + '&quot;)"'
+      + ' style="flex:1 1 44%;padding:6px 2px;border:1.5px solid ' + borde + ';background:' + fondo
+      + ';color:' + texto + ';border-radius:8px;font-family:Barlow Condensed,sans-serif;font-weight:900;'
+      + 'font-size:12px;cursor:pointer;touch-action:manipulation;">' + etiq + '</button>';
   }).join('');
+  var falta = !_calEsValida(nombre, ctx);
   return '<div style="margin:4px 0 2px;">'
-    + '<div style="font-size:10px;font-weight:800;color:#8B0000;text-transform:uppercase;letter-spacing:.4px;margin-bottom:3px;">Calibre / estado</div>'
+    + '<div style="font-size:10px;font-weight:800;color:' + (falta ? '#C62828' : '#8B0000')
+    + ';text-transform:uppercase;letter-spacing:.4px;margin-bottom:3px;">'
+    + (falta ? 'Calibre / estado — elegí uno' : 'Calibre / estado') + '</div>'
     + '<div style="display:flex;flex-wrap:wrap;gap:4px;">' + btns + '</div></div>';
 }
-function tomadorSetCalibre(nombre, cal) {
-  _tomadorCalibres[nombre] = cal;
-  var safe = _tomadorCalSafe(nombre);
-  (POLLO_VARIANTES[nombre] || ['x6', 'x7']).forEach(function(v, ix) {
-    var btn = document.getElementById('tcalb-' + safe + '-' + ix);
+function _calSet(nombre, cal, ctx) {
+  var c = _CAL_CTX[ctx]; if (!c) return;
+  var store = c.store();
+  if (ctx === 'editar') {
+    // Se normaliza al separador del tomador porque es el que coincide exacto
+    // con productos_xubio_mapping.producto_tck_nombre ("Pollo B x6 Congelado").
+    store[nombre] = { txt: cal, sep: ' ' };
+  } else {
+    store[nombre] = cal;
+  }
+  var safe = _calSafeId(nombre);
+  _calVariantes(nombre).forEach(function(v, ix) {
+    var btn = document.getElementById(c.pref + '-' + safe + '-' + ix);
     if (!btn) return;
-    var on = (v === cal);
-    btn.style.borderColor = on ? '#8B0000' : '#E0E0E0';
-    btn.style.background  = on ? '#8B0000' : '#fff';
-    btn.style.color       = on ? '#fff' : '#777';
+    var on  = (v === cal);
+    var stk = _calStock(nombre, v);
+    var cero = (stk !== null && stk <= 0);
+    btn.style.borderColor = on ? '#8B0000' : (cero ? '#E0A800' : '#E0E0E0');
+    btn.style.background  = on ? '#8B0000' : (cero ? '#FFFDF2' : '#fff');
+    btn.style.color       = on ? '#fff'    : (cero ? '#9A7B00' : '#777');
+  });
+  // repintar el rotulo rojo de "elegí uno" si ya quedo resuelto
+  try {
+    var cont = document.getElementById(c.pref + '-' + safe + '-0');
+    var rot  = cont && cont.parentNode && cont.parentNode.previousSibling;
+    if (rot && rot.style) { rot.style.color = '#8B0000'; rot.textContent = 'Calibre / estado'; }
+  } catch (e) {}
+}
+// Lista de productos con variante pendiente en un contexto dado.
+function _calPendientes(qtys, ctx) {
+  return Object.keys(qtys || {}).filter(function(n) {
+    return POLLOS_CON_CALIBRE[n] && (qtys[n] > 0) && !_calEsValida(n, ctx);
   });
 }
+function _tomadorCalSafe(n) { return _calSafeId(n); }
+function tomadorCalibreSelectorHTML(nombre) { return _calSelectorHTML(nombre, 'tomador'); }
+function tomadorSetCalibre(nombre, cal) { _calSet(nombre, cal, 'tomador'); }
 var _tomadorCompetencia = {};
 var _tomadorDescuentos  = {}; // { nombreProducto: { pct: 5, motivo: 'volumen' } } // { nombreProducto: { precio, competencia } }
 var _tomadorSucursalElegida = null; // v8.6: sucursal elegida al confirmar, se vincula al pedido
@@ -41211,7 +41362,14 @@ function _abrirEditarPedidoInterno(p, detalle) {
     _editarQtys[r.base] = (_editarQtys[r.base] || 0) + (parseInt(r.qty) || 1);
     // v14.110: guardar también el separador para re-serializar en el MISMO
     // formato de origen (tomador: "Pollo B x6 Congelado" / web: "· calibre x7")
-    _editarCalibres[r.base] = { txt: r.calibre, sep: r.sep || ' · ' };
+    // v14.155.0 — normalizar el valor heredado contra las variantes vigentes.
+    // "calibre x6" del catalogo web con opciones ['x6','x7'] resuelve solo;
+    // "calibre x7" con ['x7 Fresco','x7 Congelado'] queda ambiguo a proposito
+    // y el guard de editarConfirmar obliga a elegir (requisito 4).
+    var _norm = _calNormalizar(r.base, r.calibre);
+    _editarCalibres[r.base] = _norm
+      ? { txt: _norm, sep: ' ' }
+      : { txt: r.calibre, sep: r.sep || ' · ' };
   });
   // Los huérfanos también se sacan de _editarQtys para no arrastrar basura
   _editarQtysHuerfanos.forEach(function(n){ delete _editarQtys[n]; });
@@ -41401,6 +41559,8 @@ function editarRenderItems() {
         '<div class="editar-item-info">' +
           '<div class="editar-item-nombre">' + item.n + '</div>' +
           '<div class="editar-item-pres">' + item.p + ' · ' + tckEditarPrecioTxt(item) + '</div>' +
+          // v14.155.0 — selector de variante, mismo componente que tomador y WA
+          (POLLOS_CON_CALIBRE[item.n] ? editarCalibreSelectorHTML(item.n) : '') +
           stockBadge +
         '</div>' +
         '<div class="editar-qty-ctrl">' +
@@ -41598,6 +41758,20 @@ async function editarConfirmar() {
   var _hayPromosEd = Object.keys(_editarPromos||{}).some(function(k){ return _editarPromos[k] > 0; });
   var _hayCombosEd = Object.keys(_editarCombos||{}).some(function(k){ return _editarCombos[k] > 0; });
   if (Object.keys(_editarQtys).length === 0 && !_hayPromosEd && !_hayCombosEd) return;
+
+  // v14.155.0 — VARIANTE OBLIGATORIA. Mismo criterio que el tomador
+  // (_faltaCalibre) y la carga WA (_mwaFaltaCal). Aplica tanto al pollo
+  // agregado dentro del editor como al pedido historico que llego ambiguo.
+  var _edFaltaCal = _calPendientes(_editarQtys, 'editar');
+  if (_edFaltaCal.length) {
+    toast('Elegí calibre/estado del pollo en: ' + _edFaltaCal.join(', '), 'err');
+    try {
+      var _n0 = _edFaltaCal[0];
+      var _b0 = document.getElementById('ecalb-' + _calSafeId(_n0) + '-0');
+      if (_b0 && _b0.scrollIntoView) _b0.scrollIntoView({ behavior:'smooth', block:'center' });
+    } catch (e) {}
+    return;
+  }
 
   // v14.13.6: BLOQUEO OBLIGATORIO de canal antes de guardar la edición.
   // Si el cliente del pedido no tiene canal asignado, modal sin escape.
@@ -41895,29 +42069,10 @@ var _manualWAPromos = {};
 
 var _manualWACalibres = {}; // v14.105.1 — calibre por pollo en el flujo mostrador/WA
 function _mwaCalSafe(n) { return String(n).replace(/[^a-zA-Z0-9]/g, '-'); }
-function mwaCalibreSelectorHTML(nombre) {
-  var safe = _mwaCalSafe(nombre), sel = _manualWACalibres[nombre] || '';
-  var vars = POLLO_VARIANTES[nombre] || ['x6', 'x7'];
-  var btns = vars.map(function(v, ix) {
-    var on = sel === v;
-    return '<button type="button" id="mwacalb-' + safe + '-' + ix + '"'
-      + ' onclick="mwaSetCalibre(&quot;' + String(nombre).replace(/"/g, '&quot;') + '&quot;,&quot;' + v + '&quot;)"'
-      + ' style="flex:1 1 44%;padding:6px 2px;border:1.5px solid ' + (on ? '#8B0000' : '#E0E0E0') + ';background:' + (on ? '#8B0000' : '#fff') + ';color:' + (on ? '#fff' : '#777') + ';border-radius:8px;font-family:Barlow Condensed,sans-serif;font-weight:900;font-size:12px;cursor:pointer;touch-action:manipulation;">' + v + '</button>';
-  }).join('');
-  return '<div style="margin:4px 0 2px;"><div style="font-size:10px;font-weight:800;color:#8B0000;text-transform:uppercase;letter-spacing:.4px;margin-bottom:3px;">Calibre / estado</div><div style="display:flex;flex-wrap:wrap;gap:4px;">' + btns + '</div></div>';
-}
-function mwaSetCalibre(nombre, cal) {
-  _manualWACalibres[nombre] = cal;
-  var safe = _mwaCalSafe(nombre);
-  (POLLO_VARIANTES[nombre] || ['x6', 'x7']).forEach(function(v, ix) {
-    var btn = document.getElementById('mwacalb-' + safe + '-' + ix);
-    if (!btn) return;
-    var on = (v === cal);
-    btn.style.borderColor = on ? '#8B0000' : '#E0E0E0';
-    btn.style.background  = on ? '#8B0000' : '#fff';
-    btn.style.color       = on ? '#fff' : '#777';
-  });
-}
+function mwaCalibreSelectorHTML(nombre) { return _calSelectorHTML(nombre, 'mwa'); }
+function mwaSetCalibre(nombre, cal) { _calSet(nombre, cal, 'mwa'); }
+function editarCalibreSelectorHTML(nombre) { return _calSelectorHTML(nombre, 'editar'); }
+function editarSetCalibre(nombre, cal) { _calSet(nombre, cal, 'editar'); }
 function abrirCargaManualWA() {
   _acuVtaCliActivo = '';   // v14.68.0: limpiar acuerdo del flujo anterior
   _manualWAQtys = {};
