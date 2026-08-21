@@ -22110,6 +22110,112 @@ function tckDtoMaxPct(nombre, q) {
 var _tomadorPrecioManual = {};  // { nombre: { precio } }
 var _mwaPrecioManual = {};
 
+// ============================================================================
+//  v14.158.0 - FASE 2A: EMISION EN SOMBRA DEL CONTRATO ESTRUCTURADO v2
+//  Serializa el MISMO objeto `d` de mwaCalcularDesglose() que ya produce el
+//  detalle_txt legacy. NO recalcula precios, descuentos, cantidades ni total.
+//  NO parsea texto. NO consulta red. Transformacion local y pura.
+//  EL JSON VIAJA EN EL REQUEST Y NADIE LO CONSUME: el Apps Script lee sus
+//  parametros por nombre e ignora los que no conoce.
+//  Fuentes deterministas (nunca se infiere del nombre ni del texto):
+//    precio manual -> tckPrecioManualDe(nombre,'mwa')  [_mwaPrecioManual]
+//    calibre       -> _manualWACalibres[nombre]        [POLLOS_CON_CALIBRE]
+//    descuento     -> s.dto {pct, motivo}              [_manualWADescuentos]
+//    forma de pago -> objeto `cobro` de mostradorGuardar
+// ============================================================================
+function _tckSerializarPedidoV2(d, cab) {
+  var items = [];
+  var n = 0;
+  (d.promos || []).forEach(function (pr) {
+    n++;
+    items.push({
+      linea_id: n, tipo: 'promo',
+      nombre_canonico: pr.nombre || '',
+      cantidad: Number(pr.qty) || 0,
+      precio_lista: Number(pr.precio_unitario) || 0,
+      precio_unitario: Number(pr.precio_unitario) || 0,
+      subtotal: Number(pr.subtotal) || 0,
+      precio_manual: false, promo_id: pr.id || null
+    });
+  });
+  // COMBO: linea comercial CON componentes. NO se aplana: el prorrateo
+  // a componentes es una decision posterior de Xubio, no del pedido.
+  (d.combos || []).forEach(function (c) {
+    n++;
+    items.push({
+      linea_id: n, tipo: 'combo',
+      nombre_canonico: c.nombre || '',
+      cantidad: Number(c.qty) || 0,
+      precio_lista: Number(c.precio_lista) || 0,
+      precio_unitario: Number(c.precio_combo) || 0,
+      subtotal: Number(c.subtotal) || 0,
+      precio_manual: false, combo_id: c.id || null,
+      descuento: (Number(c.descuento_pct) > 0)
+        ? { pct: Number(c.descuento_pct), motivo: 'combo', origen: 'combo' } : null,
+      componentes: (c.productos || []).map(function (p) {
+        return { nombre_canonico: p.nombre || '',
+                 cantidad: Number(p.qty) || 0,
+                 precio_unitario: Number(p.precio) || 0 };
+      })
+    });
+  });
+  (d.sueltos || []).forEach(function (s) {
+    n++;
+    // El desglose trae el calibre concatenado para presentacion. Aca se separa
+    // con la fuente explicita _manualWACalibres, sin parsear el string.
+    var nomVisual = String(s.nombre || '');
+    var nomBase = nomVisual, cal = null;
+    try {
+      var mapaCal = (typeof _manualWACalibres !== 'undefined') ? _manualWACalibres : {};
+      for (var k in mapaCal) {
+        if (!mapaCal[k]) continue;
+        if (nomVisual === k + ' ' + mapaCal[k]) { nomBase = k; cal = String(mapaCal[k]); break; }
+      }
+    } catch (eCal) { /* sin calibre explicito: nombre visual y calibre null */ }
+    // Precio manual: fuente explicita. NO se infiere de precio_final != precio_unit.
+    var pm = null;
+    try { pm = (typeof tckPrecioManualDe === 'function') ? tckPrecioManualDe(nomBase, 'mwa') : null; }
+    catch (ePm) { pm = null; }
+    var esManual = (pm !== null);
+    items.push({
+      linea_id: n, tipo: cal ? 'producto_calibre' : 'producto',
+      nombre_canonico: nomBase, calibre: cal,
+      cantidad: Number(s.qty) || 0,
+      precio_lista: Number(s.precio_unit) || 0,
+      precio_unitario: Number(s.precio_final) || 0,
+      subtotal: Number(s.subtotal) || 0,
+      presentacion: s.presentacion || '',
+      descuento: (s.dto && Number(s.dto.pct) > 0)
+        ? { pct: Number(s.dto.pct), motivo: s.dto.motivo || null, origen: 'vendedor' } : null,
+      precio_manual: esManual,
+      precio_manual_valor: esManual ? pm : null
+    });
+  });
+  var c = cab || {};
+  return {
+    v: 2, pedido_id: c.pedido_id || null, canal: c.canal || null,
+    cliente: c.cliente || null,
+    comercio: (c.comercio !== undefined) ? c.comercio : null,
+    telefono: (c.telefono !== undefined) ? c.telefono : null,
+    localidad: c.localidad || null, vendedor: c.vendedor || null,
+    origen: c.origen || null,
+    total: Number(d.total) || 0,
+    subtotal: (Number(d.totalSueltos)||0) + (Number(d.totalCombos)||0) + (Number(d.totalPromos)||0),
+    items_count: Number(d.itemsCount) || 0,
+    cupon: null,
+    observaciones: (c.observaciones !== undefined) ? c.observaciones : null,
+    forma_pago: c.forma_pago || null,
+    cuit: null, direccion: null, condicion_iva: null,
+    items: items
+  };
+}
+
+// Envuelve la serializacion: ningun fallo puede romper el guardado.
+function _tckPedidoV2Param(d, cab) {
+  try { return JSON.stringify(_tckSerializarPedidoV2(d, cab)); }
+  catch (e) { console.warn('[v2] serializacion fallo (no bloquea):', e); return null; }
+}
+
 function tckPrecioManualDe(nombre, ctx) {
   var mapa = (ctx === 'mwa') ? _mwaPrecioManual : (ctx === 'tomador' ? _tomadorPrecioManual : null);
   var r = mapa && nombre ? mapa[nombre] : null;
@@ -43246,6 +43352,16 @@ async function manualWAGuardar(cliente, localidad, entrega, sucursal) {
     turno_entrega: entrega.turno
   });
 
+  // v14.158.0 FASE 2A - emision en sombra del contrato v2 (nadie lo consume).
+  try {
+    var _v2WA = _tckPedidoV2Param(d, {
+      pedido_id: pedidoId, canal: 'whatsapp', cliente: cliente,
+      localidad: localidad, vendedor: vendedor, origen: 'whatsapp',
+      observaciones: notaFinalMWA
+    });
+    if (_v2WA) params.append('detalle_estructurado_v2', _v2WA);
+  } catch (_eV2WA) { /* jamas bloquea el guardado */ }
+
   // v14.17.0 (N43): si el vendedor eligió un viaje especial, pasarlo
   // al backend como override del cálculo automático.
   if (window._viajeEspElegido) {
@@ -52185,6 +52301,18 @@ async function mostradorGuardar(cliente, cobro) {
       fecha_entrega: '',
       turno_entrega: ''
     });
+
+    // v14.158.0 FASE 2A - emision en sombra del contrato v2 (nadie lo consume).
+    try {
+      var _v2MOS = _tckPedidoV2Param(d, {
+        pedido_id: pedidoId, canal: 'mostrador', cliente: cliente,
+        localidad: 'Trenque Lauquen', vendedor: 'Mostrador', origen: 'mostrador',
+        observaciones: nota,
+        forma_pago: { forma: (cobro && cobro.forma) || null,
+                      detalle: (cobro && cobro.detalle) || null }
+      });
+      if (_v2MOS) params.append('detalle_estructurado_v2', _v2MOS);
+    } catch (_eV2MOS) { /* jamas bloquea el guardado */ }
     var respG = await fetch(APPS_SCRIPT_URL + '?' + params.toString());
     var dataG = await respG.json();
     if (dataG.status === 'duplicate') {
