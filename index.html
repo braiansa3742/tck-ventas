@@ -22161,25 +22161,43 @@ function _tckSerializarPedidoV2(d, cab) {
   });
   (d.sueltos || []).forEach(function (s) {
     n++;
-    // El desglose trae el calibre concatenado para presentacion. Aca se separa
-    // con la fuente explicita _manualWACalibres, sin parsear el string.
+    // v14.158.1 - VARIANTE != CALIBRE.
+    // _manualWACalibres NO guarda un calibre: guarda la VARIANTE COMERCIAL
+    // completa, que es la llave exacta de productos_xubio_mapping.
+    //   Pollo A -> 'x6' | 'x7'                        (sin estado)
+    //   Pollo B -> 'x6 Fresco' | 'x6 Congelado' | ... (calibre + estado)
+    //   Pollo C -> 'x5 Fresco' | 'x6 Fresco' | ...    (v14.155.0: solo fresco)
+    // `variante` se preserva SIEMPRE intacta. calibre/estado son su lectura
+    // legible y quedan null si la descomposicion no es segura: ante una
+    // variante futura desconocida no se descarta informacion.
+    // nombre_mapping NO se persiste: es derivable como
+    // nombre_canonico + ' ' + variante (verificado contra las 9 variantes
+    // vigentes de POLLO_VARIANTES en productos_xubio_mapping).
     var nomVisual = String(s.nombre || '');
-    var nomBase = nomVisual, cal = null;
+    var nomBase = nomVisual, variante = null, cal = null, estado = null;
     try {
       var mapaCal = (typeof _manualWACalibres !== 'undefined') ? _manualWACalibres : {};
       for (var k in mapaCal) {
         if (!mapaCal[k]) continue;
-        if (nomVisual === k + ' ' + mapaCal[k]) { nomBase = k; cal = String(mapaCal[k]); break; }
+        if (nomVisual === k + ' ' + mapaCal[k]) { nomBase = k; variante = String(mapaCal[k]); break; }
       }
-    } catch (eCal) { /* sin calibre explicito: nombre visual y calibre null */ }
+      if (variante) {
+        var mCal = variante.match(/^(x\d+)\b\s*(.*)$/);
+        if (mCal) {
+          cal = mCal[1];
+          estado = (mCal[2] && mCal[2].trim()) ? mCal[2].trim() : null;
+        }
+        // sin match: variante sobrevive intacta, calibre y estado quedan null
+      }
+    } catch (eCal) { /* sin variante explicita: nombre visual, variante null */ }
     // Precio manual: fuente explicita. NO se infiere de precio_final != precio_unit.
     var pm = null;
     try { pm = (typeof tckPrecioManualDe === 'function') ? tckPrecioManualDe(nomBase, 'mwa') : null; }
     catch (ePm) { pm = null; }
     var esManual = (pm !== null);
     items.push({
-      linea_id: n, tipo: cal ? 'producto_calibre' : 'producto',
-      nombre_canonico: nomBase, calibre: cal,
+      linea_id: n, tipo: variante ? 'producto_calibre' : 'producto',
+      nombre_canonico: nomBase, variante: variante, calibre: cal, estado: estado,
       cantidad: Number(s.qty) || 0,
       precio_lista: Number(s.precio_unit) || 0,
       precio_unitario: Number(s.precio_final) || 0,
