@@ -2,7 +2,33 @@
 <html lang="es">
 <head>
 <!-- ═══════════════════════════════════════════════════════════════════════
-     TCK VENTAS — v14.156.0 — 21/08/2026
+     TCK VENTAS — v14.157.0 — 21/08/2026
+v14.157.0: SEMANTICA DE STOCK ENTENDIBLE PARA EL VENDEDOR.
+PROBLEMA: "124 disponibles - 53 comp." obliga a preguntarse si las 124 son
+antes o despues de las 53. stock_visible YA descuenta el comprometido
+(stock_xubio - comprometido + devuelto_fisico), asi que el termino correcto
+es LIBRES: lo que queda para seguir vendiendo.
+  P2.1 - Productos CON variantes: sin badge de ningun tipo. Se elimina el
+         rotulo "Stock por variante" de la v14.156.0: cada boton ya dice lo
+         suyo y dos lugares para el mismo dato es peor que uno.
+  P2.2 - Productos SIMPLES: "N disponibles" -> "N libres". El comprometido
+         sale de la tarjeta de carga rapida y queda solo en el title, junto
+         con el deposito Xubio y el devuelto. Cero / negativo pasan a rojo.
+  P2.3 - Botones de variante: segunda linea con "N libres", "SIN STOCK" o
+         "SOBREVENTA N". El color de STOCK va en esa linea; el borde y el
+         fondo comunican unicamente SELECCION. Antes el ambar de "sin stock"
+         competia con el bordo de "elegido".
+COLORES (convencion unica de stock, no se tocan precio/botones/branding):
+  verde #2E7D32    libre suficiente (> stock_minimo)
+  amarillo #F57F17 queda poco (1..stock_minimo)
+  rojo #C62828     sin stock (0) o sobreventa (<0)
+NO SE TOCA: stock 0 advierte pero NO bloquea. El vendedor sigue pudiendo
+seleccionar y cargar una variante sin stock. Es deliberado.
+NO SE TOCA: precio, cantidad, descuentos, tramos, serializacion, catalogo.
+ACLARACION: stock_visible NO es conteo fisico de camara. Es disponibilidad
+operacional = Xubio - comprometido + devolucion fisica pendiente de NC.
+
+TCK VENTAS — v14.156.0 — 21/08/2026
 v14.156.0: P2-1 — EL BADGE DE STOCK NO MIENTE MAS EN PRODUCTOS CON VARIANTES.
 PROBLEMA (auditoria forense del pedido WZP4U): la tarjeta de un pollo mostraba
 el stock del producto Xubio al que apunta su fila generica en stock_productos,
@@ -19665,40 +19691,47 @@ function badgeStockHTML(nombreTomador) {
   // comprometido y sobreventa; el stock real ya esta en cada boton.
   // NO se suman los calibres a proposito: un total familiar es una lectura
   // comercial enganosa (no se puede entregar x6 a quien pidio x5).
-  if (typeof _tieneVariantes === 'function' && _tieneVariantes(nombreTomador)) {
-    return '<div class="stock-line-ventas" style="display:inline-block;background:#F5F5F5;'
-      + 'color:#8A8A8A;font-size:11px;font-weight:800;padding:2px 8px;border-radius:6px;'
-      + 'font-family:Barlow Condensed,sans-serif;letter-spacing:.3px;margin-top:3px;" '
-      + 'title="Este producto tiene variantes. El stock de cada calibre/estado se muestra en su boton.">'
-      + 'Stock por variante &#8593;</div>';
-  }
+  // v14.157.0 — P2.1: un producto CON VARIANTES no lleva badge de ningun tipo.
+  // La v14.156.0 dejaba un rotulo "Stock por variante" que no aportaba nada:
+  // cada boton ya dice su propia disponibilidad. Devolver '' evita que el
+  // vendedor tenga dos lugares donde mirar el mismo dato.
+  if (typeof _tieneVariantes === 'function' && _tieneVariantes(nombreTomador)) return '';
   var st = obtenerStockVentas(nombreTomador);
   if (!st) return '';
 
+  // v14.157.0 — P2.2: SEMANTICA. stock_visible YA tiene descontado el
+  // comprometido (stock_xubio - comprometido + devuelto_fisico), asi que
+  // "disponibles" era ambiguo: el vendedor veia "124 disponibles - 53 comp." y
+  // no sabia si las 124 eran antes o despues de las 53. El termino correcto es
+  // LIBRES: lo que queda para seguir vendiendo. El comprometido sale de la
+  // tarjeta de carga rapida (queda en el title, para quien lo necesite).
+  //
+  // COLORES (v14.157.0, convencion unica de stock):
+  //   verde    hay libre suficiente        (> stock_minimo)
+  //   amarillo queda poco                  (1 .. stock_minimo)
+  //   rojo     sin stock o sobreventa      (<= 0)
   var visible = st.stock_visible;
   var color, bgFondo, txt;
 
   if (visible < 0) {
-    // Sobreventa: rojo
     color = '#C62828'; bgFondo = '#FFEBEE';
-    txt = '🚨 Sobreventa (' + visible + ')';
+    txt = '\ud83d\udea8 SOBREVENTA ' + Math.abs(visible);
   } else if (visible === 0) {
-    color = '#D84315'; bgFondo = '#FFF3E0';
-    txt = '🚫 Sin stock';
+    color = '#C62828'; bgFondo = '#FFEBEE';
+    txt = '\u26a0\ufe0f SIN STOCK';
   } else if (visible <= st.stock_minimo) {
     color = '#F57F17'; bgFondo = '#FFFDE7';
-    txt = '⚠️ ' + visible + ' disponibles';
+    txt = '\u26a0\ufe0f ' + visible + ' libres';
   } else {
     color = '#2E7D32'; bgFondo = '#E8F5E9';
-    txt = '✓ ' + visible + ' disponibles';
+    txt = '\u2713 ' + visible + ' libres';
   }
 
-  // v14.110: Braian pidió que el vendedor vea también el COMPROMETIDO (lo que
-  // ya está confirmado en presupuestos/viajes) además del neto disponible.
-  if (st.comprometido > 0) txt += ' · 🔒 ' + st.comprometido + ' comp.';
-  var titleStock = 'Depósito (Xubio): ' + st.stock_xubio
-    + ' · Comprometido en presupuestos/viajes: ' + st.comprometido
-    + ' · Disponible: ' + visible;
+  var titleStock = 'Libre para vender: ' + visible
+    + ' \u00b7 Deposito (Xubio): ' + st.stock_xubio
+    + ' \u00b7 Comprometido en pedidos/viajes: ' + st.comprometido
+    + (st.devuelto_fisico ? ' \u00b7 Devuelto en buen estado: ' + st.devuelto_fisico : '')
+    + ' \u00b7 No es conteo fisico de camara.';
 
   return '<div class="stock-line-ventas" style="display:inline-block;background:' + bgFondo + ';color:' + color + ';font-size:11px;font-weight:800;padding:2px 8px;border-radius:6px;font-family:Barlow Condensed,sans-serif;letter-spacing:.3px;margin-top:3px;" title="' + titleStock + '">' + txt + '</div>';
 }
@@ -34448,27 +34481,50 @@ function _calStock(nombre, variante) {
     return st ? Number(st.stock_visible) : null;
   } catch (e) { return null; }
 }
+// v14.157.0 — minimo de la variante, para decidir amarillo vs verde.
+function _calStockMin(nombre, variante) {
+  try {
+    if (typeof obtenerStockVentas !== 'function') return 5;
+    var st = obtenerStockVentas(nombre + ' ' + variante);
+    return (st && st.stock_minimo != null) ? Number(st.stock_minimo) : 5;
+  } catch (e) { return 5; }
+}
 function _calSelectorHTML(nombre, ctx) {
   var c = _CAL_CTX[ctx]; if (!c) return '';
   var safe = _calSafeId(nombre), sel = _calGet(nombre, ctx);
   var nomEsc = String(nombre).replace(/"/g, '&quot;');
   var btns = _calVariantes(nombre).map(function(v, ix) {
-    var on  = (sel === v);
-    var stk = _calStock(nombre, v);
-    // requisito 5: sin stock se advierte, NO se bloquea. El vendedor puede
-    // cargarla igual (mercaderia por entrar / decision operativa).
-    var cero = (stk !== null && stk <= 0);
-    var borde = on ? '#8B0000' : (cero ? '#E0A800' : '#E0E0E0');
-    var fondo = on ? '#8B0000' : (cero ? '#FFFDF2' : '#fff');
-    var texto = on ? '#fff'    : (cero ? '#9A7B00' : '#777');
-    var etiq  = v + (cero ? ' · 0' : (stk !== null && stk > 0 ? ' · ' + stk : ''));
-    var tit   = cero ? 'Sin stock — se puede cargar igual, avisale al cliente' : (stk !== null ? stk + ' disponibles' : '');
+    // v14.157.0 — P2.3: cada boton explica su propia disponibilidad.
+    // El estado de STOCK va en el texto de abajo (verde/amarillo/rojo);
+    // el estado de SELECCION va en el fondo. Separarlos evita que el rojo de
+    // "sin stock" se confunda con el borrde de "elegido".
+    var on   = (sel === v);
+    var st   = _calStock(nombre, v);
+    var stMin = _calStockMin(nombre, v);
+    var linea, colStk;
+    if (st === null)      { linea = '';              colStk = '#9E9E9E'; }
+    else if (st < 0)      { linea = 'SOBREVENTA ' + Math.abs(st); colStk = '#C62828'; }
+    else if (st === 0)    { linea = 'SIN STOCK';     colStk = '#C62828'; }
+    else if (st <= stMin) { linea = st + ' libres';  colStk = '#F57F17'; }
+    else                  { linea = st + ' libres';  colStk = '#2E7D32'; }
+    // REGLA QUE NO SE TOCA: stock 0 advierte pero NO bloquea. El vendedor
+    // puede cargar igual (mercaderia por entrar / decision operativa).
+    var borde = on ? '#8B0000' : '#E0E0E0';
+    var fondo = on ? '#8B0000' : '#fff';
+    var texto = on ? '#fff'    : '#555';
+    var tit = (st === null) ? 'Sin dato de stock'
+            : (st <= 0 ? 'Sin stock \u2014 se puede cargar igual, avisale al cliente'
+                       : st + ' libres para vender');
     return '<button type="button" id="' + c.pref + '-' + safe + '-' + ix + '"'
       + ' title="' + tit + '"'
       + ' onclick="_calSet(&quot;' + nomEsc + '&quot;,&quot;' + v + '&quot;,&quot;' + ctx + '&quot;)"'
-      + ' style="flex:1 1 44%;padding:6px 2px;border:1.5px solid ' + borde + ';background:' + fondo
+      + ' style="flex:1 1 44%;padding:5px 2px;border:1.5px solid ' + borde + ';background:' + fondo
       + ';color:' + texto + ';border-radius:8px;font-family:Barlow Condensed,sans-serif;font-weight:900;'
-      + 'font-size:12px;cursor:pointer;touch-action:manipulation;">' + etiq + '</button>';
+      + 'font-size:12px;line-height:1.15;cursor:pointer;touch-action:manipulation;">'
+      + v
+      + (linea ? '<span style="display:block;font-size:10px;font-weight:800;margin-top:1px;color:'
+                 + (on ? '#FFD9D9' : colStk) + ';">' + linea + '</span>' : '')
+      + '</button>';
   }).join('');
   var falta = !_calEsValida(nombre, ctx);
   return '<div style="margin:4px 0 2px;">'
@@ -34491,12 +34547,19 @@ function _calSet(nombre, cal, ctx) {
   _calVariantes(nombre).forEach(function(v, ix) {
     var btn = document.getElementById(c.pref + '-' + safe + '-' + ix);
     if (!btn) return;
-    var on  = (v === cal);
-    var stk = _calStock(nombre, v);
-    var cero = (stk !== null && stk <= 0);
-    btn.style.borderColor = on ? '#8B0000' : (cero ? '#E0A800' : '#E0E0E0');
-    btn.style.background  = on ? '#8B0000' : (cero ? '#FFFDF2' : '#fff');
-    btn.style.color       = on ? '#fff'    : (cero ? '#9A7B00' : '#777');
+    var on = (v === cal);
+    // v14.157.0 — el borde/fondo solo comunica SELECCION. El estado de stock
+    // vive en la linea de texto, que se recolorea para que se lea sobre bordo.
+    btn.style.borderColor = on ? '#8B0000' : '#E0E0E0';
+    btn.style.background  = on ? '#8B0000' : '#fff';
+    btn.style.color       = on ? '#fff'    : '#555';
+    var sp = btn.querySelector('span');
+    if (sp) {
+      var st2 = _calStock(nombre, v), mn2 = _calStockMin(nombre, v);
+      sp.style.color = on ? '#FFD9D9'
+        : (st2 === null ? '#9E9E9E'
+        : (st2 <= 0 ? '#C62828' : (st2 <= mn2 ? '#F57F17' : '#2E7D32')));
+    }
   });
   // repintar el rotulo rojo de "elegí uno" si ya quedo resuelto
   try {
