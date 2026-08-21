@@ -2,6 +2,42 @@
 <html lang="es">
 <head>
 <!-- ═══════════════════════════════════════════════════════════════════════
+     TCK VENTAS — v14.159.0 — 21/08/2026
+
+v14.159.0: FASE 2A-bis — EL CONTRATO v2 SALE DE LA URL Y ATERRIZA EN SUPABASE.
+  El payload v2 que v14.158.0 metia como parametro de guardarPedido ahora
+  viaja por una RPC propia (pedido_v2_registrar). Motivo medido sobre 2.526
+  pedidos reales de 45 dias: la URL legacy tiene p50 481 y maximo historico
+  1.503 chars; con el v2 encima pasaba a p50 1.908 y cola de 8.756 (WA) y
+  10.767 (campo proyectado). El techo real de Apps Script es desconocido y
+  hay al menos dos capas fuera de nuestro control (GFE y proxies moviles).
+  Un rechazo por largo NO seria silencioso — el vendedor ve el toast — pero
+  es DETERMINISTA: el mismo pedido falla siempre, y el vendedor termina
+  sacando lineas hasta que entre. Ese es el dano real.
+  P1 - Se eliminan los dos params.append('detalle_estructurado_v2', ...).
+       La URL vuelve exactamente a su tamano pre-2A.
+  P2 - Nuevo _tckShadowV2Enviar(): fire-and-forget a Supabase. Sin await,
+       sin return, sin throw, sin tocar una sola variable del flujo legacy.
+  P3 - Se dispara INMEDIATAMENTE ANTES del fetch, con params ya completo:
+       en WA hay un params.append('viaje_id_elegido') POSTERIOR al bloque v2,
+       asi que medir la URL en el lugar viejo habria dado un largo incompleto.
+  P4 - NO usa sbFetch. sbFetch, ante 401, ejecuta jwtLimpiar() y
+       _sbAvisarSesionVencida(): un fallo del shadow podria desloguear al
+       vendedor en medio de un guardado. Se usa fetch crudo con la anon key
+       y SIN JWT: el shadow no puede tocar la sesion ni mostrar nada en
+       pantalla. Ademas funciona aunque la sesion del vendedor haya vencido.
+  P5 - TCK_UPD_LOCAL pasa a 14.159.0 y se expone como window.TCK_APP_VERSION.
+       Estaba en 14.152.0 con el build en 14.158.1: todo vendedor con la
+       ultima version veia el banner "Nueva version disponible" una vez por
+       sesion. Mismo desfasaje ya documentado en 14.109, 14.128, 14.137 y
+       14.147. Ahora es fuente unica: la telemetria del shadow lo delata solo.
+NO SE TOCA: Campo (tomadorConfirmarConEntrega sigue sin emitir v2), Apps
+Script, Xubio, Sheet, pedidos_zona, stock ni facturacion.
+
+     TCK VENTAS — v14.158.x — 21/08/2026 (sin banner propio en su momento)
+     v14.158.0/158.1: Fase 2A, emision en sombra del contrato v2.
+     Ver bitacora id 943.
+
      TCK VENTAS — v14.157.0 — 21/08/2026
 v14.157.0: SEMANTICA DE STOCK ENTENDIBLE PARA EL VENDEDOR.
 PROBLEMA: "124 disponibles - 53 comp." obliga a preguntarse si las 124 son
@@ -22115,8 +22151,9 @@ var _mwaPrecioManual = {};
 //  Serializa el MISMO objeto `d` de mwaCalcularDesglose() que ya produce el
 //  detalle_txt legacy. NO recalcula precios, descuentos, cantidades ni total.
 //  NO parsea texto. NO consulta red. Transformacion local y pura.
-//  EL JSON VIAJA EN EL REQUEST Y NADIE LO CONSUME: el Apps Script lee sus
-//  parametros por nombre e ignora los que no conoce.
+//  v14.159.0: EL JSON YA NO VIAJA EN EL REQUEST DE guardarPedido. Sale por
+//  la RPC pedido_v2_registrar hacia la tabla shadow pedidos_payload_v2.
+//  Sigue SIN consumidores productivos: el Sheet sigue siendo autoridad.
 //  Fuentes deterministas (nunca se infiere del nombre ni del texto):
 //    precio manual -> tckPrecioManualDe(nombre,'mwa')  [_mwaPrecioManual]
 //    calibre       -> _manualWACalibres[nombre]        [POLLOS_CON_CALIBRE]
@@ -22232,6 +22269,58 @@ function _tckSerializarPedidoV2(d, cab) {
 function _tckPedidoV2Param(d, cab) {
   try { return JSON.stringify(_tckSerializarPedidoV2(d, cab)); }
   catch (e) { console.warn('[v2] serializacion fallo (no bloquea):', e); return null; }
+}
+
+// ============================================================================
+//  v14.159.0 FASE 2A-bis — TRANSPORTE DEL CONTRATO v2 A LA LANDING ZONE
+//  Fire-and-forget absoluto. Contrato de esta funcion:
+//    - NUNCA lanza    (try/catch externo + .catch en la promesa)
+//    - NUNCA devuelve nada que el caller mire
+//    - NUNCA toca una variable del flujo del pedido
+//    - NUNCA usa sbFetch: ante 401 ese helper hace jwtLimpiar() y
+//      _sbAvisarSesionVencida(), o sea que un fallo del shadow podria
+//      desloguear al vendedor en medio de un guardado. Acá se usa fetch
+//      crudo con la anon key y SIN JWT. Consecuencia lateral buena: el
+//      shadow tambien registra cuando la sesion del vendedor esta vencida.
+//  La identidad no se pierde: `vendedor` ya viaja dentro del payload v2.
+// ============================================================================
+function _tckShadowV2Enviar(v2Str, canal, pedidoId, urlLen) {
+  try {
+    if (!v2Str || !pedidoId) return;
+    var obj = null;
+    try { obj = JSON.parse(v2Str); } catch (eParse) { return; }
+    // typeof [] === 'object': hay que excluir arrays explicitamente.
+    // Detectado por el smoke test: sin esto, un '[1,2,3]' disparaba un request
+    // que la RPC iba a rechazar igual (payload_no_objeto). Mejor no mandarlo.
+    if (!obj || typeof obj !== 'object' || Array.isArray(obj)) return;
+    if (Number(obj.v) !== 2) return;   // mismo criterio que el rechazo duro de la RPC
+
+    fetch(SUPABASE_URL + '/rest/v1/rpc/pedido_v2_registrar', {
+      method: 'POST',
+      keepalive: true,
+      headers: {
+        'apikey': SUPABASE_KEY,
+        'Authorization': 'Bearer ' + SUPABASE_KEY,
+        'Content-Type': 'application/json',
+        'Prefer': 'return=representation'
+      },
+      body: JSON.stringify({
+        p_pedido_id:   pedidoId,
+        p_canal:       canal || null,
+        p_payload:     obj,
+        p_idem_key:    'v2:' + pedidoId,
+        p_url_len:     (typeof urlLen === 'number') ? urlLen : null,
+        p_app_version: (typeof window !== 'undefined' && window.TCK_APP_VERSION) || null,
+        p_cliente_ts:  new Date().toISOString()
+      })
+    }).catch(function (eNet) {
+      console.warn('[shadow v2] no registrado (no bloquea el pedido):',
+                   eNet && eNet.message);
+    });
+  } catch (eShadow) {
+    console.warn('[shadow v2] excepcion contenida (no bloquea el pedido):',
+                 eShadow && eShadow.message);
+  }
 }
 
 function tckPrecioManualDe(nombre, ctx) {
@@ -43377,7 +43466,6 @@ async function manualWAGuardar(cliente, localidad, entrega, sucursal) {
       localidad: localidad, vendedor: vendedor, origen: 'whatsapp',
       observaciones: notaFinalMWA
     });
-    if (_v2WA) params.append('detalle_estructurado_v2', _v2WA);
   } catch (_eV2WA) { /* jamas bloquea el guardado */ }
 
   // v14.17.0 (N43): si el vendedor eligió un viaje especial, pasarlo
@@ -43391,6 +43479,13 @@ async function manualWAGuardar(cliente, localidad, entrega, sucursal) {
   // v14.44.0: detectar status:'duplicate' del anti-dup server-side y NO
   // tratarlo como error genérico. Adopta el ID existente y muestra toast.
   try {
+    // v14.159.0 FASE 2A-bis — shadow v2. Aca `params` ya esta completo
+    // (incluye viaje_id_elegido), asi que url_len_legacy es el largo real.
+    try {
+      _tckShadowV2Enviar(_v2WA, 'whatsapp', pedidoId,
+        APPS_SCRIPT_URL.length + 1 + params.toString().length);
+    } catch (_eShWA) { /* jamas afecta el guardado */ }
+
     const respGuardar = await fetch(APPS_SCRIPT_URL + '?' + params.toString());
     const dataGuardar = await respGuardar.json();
     if (dataGuardar.status === 'duplicate') {
@@ -52329,8 +52424,13 @@ async function mostradorGuardar(cliente, cobro) {
         forma_pago: { forma: (cobro && cobro.forma) || null,
                       detalle: (cobro && cobro.detalle) || null }
       });
-      if (_v2MOS) params.append('detalle_estructurado_v2', _v2MOS);
     } catch (_eV2MOS) { /* jamas bloquea el guardado */ }
+    // v14.159.0 FASE 2A-bis — shadow v2, mismo contrato que manualWA.
+    try {
+      _tckShadowV2Enviar(_v2MOS, 'mostrador', pedidoId,
+        APPS_SCRIPT_URL.length + 1 + params.toString().length);
+    } catch (_eShMOS) { /* jamas afecta el guardado */ }
+
     var respG = await fetch(APPS_SCRIPT_URL + '?' + params.toString());
     var dataG = await respG.json();
     if (dataG.status === 'duplicate') {
@@ -53403,7 +53503,11 @@ function depPollIniciar() {
    TCK_UPD_LOCAL aca Y el archivo version.json del repo.
    ============================================================ */
 (function(){
-  var TCK_UPD_LOCAL = '14.152.0';        /* <-- bump en cada deploy */
+  var TCK_UPD_LOCAL = '14.159.0';        /* <-- bump en cada deploy */
+  /* v14.159.0: fuente UNICA de version. La telemetria del shadow la reporta,
+     asi que un desfasaje contra version.json se ve solo en el primer pedido
+     (paso 4 veces sin que nadie lo notara: 14.109, 14.128, 14.137, 14.147). */
+  try { window.TCK_APP_VERSION = TCK_UPD_LOCAL; } catch (eVer) {}
   var TCK_UPD_INTERVALO = 10 * 60 * 1000;   /* chequeo de fondo: 10 min */
   var _updUltChequeo = 0;
 
