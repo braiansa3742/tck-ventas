@@ -2,7 +2,28 @@
 <html lang="es">
 <head>
 <!-- ═══════════════════════════════════════════════════════════════════════
-     TCK VENTAS — v14.155.0 — 21/08/2026
+     TCK VENTAS — v14.156.0 — 21/08/2026
+v14.156.0: P2-1 — EL BADGE DE STOCK NO MIENTE MAS EN PRODUCTOS CON VARIANTES.
+PROBLEMA (auditoria forense del pedido WZP4U): la tarjeta de un pollo mostraba
+el stock del producto Xubio al que apunta su fila generica en stock_productos,
+no el de la familia. Pollo C -> 3358577 (x6 fresco): la tarjeta decia
+"Sobreventa (-4) - 62 comp." mientras los botones mostraban x5=8, x6=0, x7=0.
+Pollo B -> 2859575 (x7 congelado): decia "12 disponibles - 1 comp.". El
+vendedor no tenia forma de saber que ese numero describia UN calibre.
+QUE CAMBIA: badgeStockHTML() devuelve un rotulo neutro gris ("Stock por
+variante") cuando el producto tiene variantes. Se ocultan disponibles,
+comprometido y sobreventa. Los productos SIN variantes quedan exactamente
+igual que antes.
+NO se suma un total por familia a proposito: 89 cajas de x6 + 3 de x7 no son
+"92 disponibles" para quien pidio x7. Sumar calibres es una lectura comercial
+enganosa. El stock real por variante ya esta en cada boton desde v14.155.0.
+Helper nuevo _tieneVariantes(), derivado de POLLOS_CON_CALIBRE + POLLO_VARIANTES
+en vez de una lista nueva, para que siga andando cuando las variantes pasen a
+leerse de vw_cat_variantes.
+NO SE TOCA: la regla de que stock 0 NO bloquea la venta. El vendedor sigue
+pudiendo elegir y cargar una variante sin stock.
+
+TCK VENTAS — v14.155.0 — 21/08/2026
 v14.155.0: FASE 2 — VARIANTE OBLIGATORIA EN EL EDITOR DE PEDIDOS.
 PROBLEMA: el editor era el unico de los 3 flujos de carga sin validacion ni
 selector de calibre/estado. El tomador valida desde v14.105.0 y la carga WA
@@ -19634,6 +19655,23 @@ function obtenerStockVentas(nombreTomador) {
  * Devuelve string vacío si no hay datos de stock (cache vacío o producto no mapeado).
  */
 function badgeStockHTML(nombreTomador) {
+  // v14.156.0 — P2-1: un producto CON VARIANTES no puede mostrar un badge
+  // agregado, porque el número que sale no es de la familia: es el de la
+  // variante a la que apunta la fila generica de stock_productos.
+  //   Pollo C -> Xubio 3358577 = x6 fresco   (mostraba "Sobreventa (-4)")
+  //   Pollo B -> Xubio 2859575 = x7 congelado
+  // El vendedor leia eso como si describiera todo Pollo C / Pollo B mientras
+  // los botones de variante mostraban otros numeros. Se oculta disponibles,
+  // comprometido y sobreventa; el stock real ya esta en cada boton.
+  // NO se suman los calibres a proposito: un total familiar es una lectura
+  // comercial enganosa (no se puede entregar x6 a quien pidio x5).
+  if (typeof _tieneVariantes === 'function' && _tieneVariantes(nombreTomador)) {
+    return '<div class="stock-line-ventas" style="display:inline-block;background:#F5F5F5;'
+      + 'color:#8A8A8A;font-size:11px;font-weight:800;padding:2px 8px;border-radius:6px;'
+      + 'font-family:Barlow Condensed,sans-serif;letter-spacing:.3px;margin-top:3px;" '
+      + 'title="Este producto tiene variantes. El stock de cada calibre/estado se muestra en su boton.">'
+      + 'Stock por variante &#8593;</div>';
+  }
   var st = obtenerStockVentas(nombreTomador);
   if (!st) return '';
 
@@ -34357,6 +34395,17 @@ var _CAL_CTX = {
 };
 function _calSafeId(n) { return String(n).replace(/[^a-zA-Z0-9]/g, '_'); }
 function _calVariantes(nombre) { return POLLO_VARIANTES[nombre] || ['x6', 'x7']; }
+// v14.156.0 — un producto "tiene variantes" si esta declarado en
+// POLLOS_CON_CALIBRE y ofrece al menos 2 opciones reales. Se deriva, no se
+// hardcodea otra lista: cuando POLLO_VARIANTES pase a leerse de
+// vw_cat_variantes (Fase 3) esto sigue funcionando sin tocarlo.
+function _tieneVariantes(nombre) {
+  try {
+    if (!POLLOS_CON_CALIBRE || !POLLOS_CON_CALIBRE[nombre]) return false;
+    var v = POLLO_VARIANTES[nombre];
+    return !!(v && v.length >= 2);
+  } catch (e) { return false; }
+}
 // Normaliza el valor del store a string, sea plano u objeto {txt,sep}.
 function _calTxt(v) {
   if (v === undefined || v === null) return '';
