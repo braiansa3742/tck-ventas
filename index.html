@@ -2,7 +2,42 @@
 <html lang="es">
 <head>
 <!-- ═══════════════════════════════════════════════════════════════════════
-     TCK VENTAS — v14.159.0 — 21/08/2026
+     TCK VENTAS — v14.160.0 — 21/08/2026
+
+v14.160.0: PASO 0 DE F2b — GUARD DE COLISION DE VARIANTES EN EL EDITOR.
+  Un solo guard, cero cambios de comportamiento en pedidos normales.
+
+  PROBLEMA MEDIDO (simulacion offline con las funciones reales de los tres
+  archivos de produccion): _editarQtys y _editarCalibres estan indexados por
+  FAMILIA, no por variante. Si un pedido trae dos variantes del mismo pollo,
+  el segundo _remapCalibre PISA al primero y las dos cantidades terminan
+  facturadas contra un solo producto Xubio.
+    x6 Fresco x2 + x7 Congelado x1  ->  3x Pollo B x7 Congelado  (2859575)
+    las 2 cajas de x6 Fresco (2859571) desaparecen como identidad.
+
+  POR QUE AHORA: hoy eso queda tapado por accidente. El texto del catalogo
+  ('Pollo B - calibre x6') no normaliza contra POLLO_VARIANTES, asi que el
+  guard _edFaltaCal de la v14.155.0 dispara y frena. Cuando el catalogo pase
+  a escribir la variante completa ('Pollo B x6 Fresco') — paso 1 de F2b — las
+  dos variantes normalizan bien, _edFaltaCal DEJA de disparar, y el colapso
+  pasa a ser SILENCIOSO. Este guard tiene que estar ANTES de ese cambio.
+
+  QUE HACE: al abrir el editor, mientras _remapCalibre todavia tiene las dos
+  entradas, registra que familias vinieron con mas de una variante. Al
+  guardar, si hay alguna, muestra un toast con familia y variantes y hace
+  return. Dos lineas con la MISMA variante NO son colision: se siguen sumando.
+
+  DONDE: el guard va en editarConfirmar ANTES de _edFaltaCal y antes de
+  canalClienteChequearYAbrir, que es lo primero que puede abrir un modal o
+  escribir. El boton NO se toca: recien se deshabilita dentro de
+  _editarConfirmarContinuar(), asi que queda utilizable despues del bloqueo.
+
+  NO ARREGLA multivariante (P1.1, fase propia). Convierte una corrupcion
+  silenciosa en un stop explicito, que es lo que se aprobo.
+
+NO SE TOCA: cantidades, precios, descuentos, la re-serializacion del detalle,
+_edFaltaCal, el catalogo, Apps Script, Supabase, mappings ni stock.
+Base: v14.159.0 (sha256 b222ccfc...).
 
 v14.159.0: FASE 2A-bis — EL CONTRATO v2 SALE DE LA URL Y ATERRIZA EN SUPABASE.
   El payload v2 que v14.158.0 metia como parametro de guardarPedido ahora
@@ -41512,6 +41547,13 @@ let _editarTotalOriginal    = 0;   // total del pedido al abrir el editor
 let _editarLineasNoParseadas = []; // líneas del detalle que no matcheó la regex
 let _editarQtysHuerfanos    = []; // productos parseados que no existen en TOMADOR_CAT
 let _editarCalibres         = {}; // v14.33.0: nombre base → calibre detectado (ej "Pollo B" → "calibre x7")
+// v14.160.0 — COLISION DE VARIANTES. _editarQtys y _editarCalibres estan
+// indexados por FAMILIA, no por variante: si el pedido trae dos variantes del
+// mismo pollo, la segunda PISA a la primera y las dos cantidades se facturan
+// contra un solo producto Xubio. Acá se registra que familias vinieron con mas
+// de una variante para que editarConfirmar pueda frenar antes de escribir.
+// { 'Pollo B': ['x6 Fresco','x7 Congelado'] }
+let _editarVariantesColision = {};
 
 // v14.33.0: separa el calibre embebido en el nombre de un Pollo genérico.
 // "Pollo B · calibre x7" → { base:"Pollo B", calibre:"calibre x7", sep:" · " }.
@@ -41660,6 +41702,7 @@ function _abrirEditarPedidoInterno(p, detalle) {
   // Xubio reconoce "Pollo B · calibre x7", así que el presupuesto sale igual).
   _editarQtysHuerfanos = [];
   _editarCalibres = {};
+  _editarVariantesColision = {};   // v14.160.0 — se resetea con cada apertura
   var _remapCalibre = [];
   Object.keys(_editarQtys).forEach(function(nombre){
     var existe = false;
@@ -41692,9 +41735,24 @@ function _abrirEditarPedidoInterno(p, detalle) {
     // "calibre x7" con ['x7 Fresco','x7 Congelado'] queda ambiguo a proposito
     // y el guard de editarConfirmar obliga a elegir (requisito 4).
     var _norm = _calNormalizar(r.base, r.calibre);
-    _editarCalibres[r.base] = _norm
+    // v14.160.0 — DETECCION DE COLISION (no cambia cantidades ni la seleccion).
+    // Se compara la variante que ya estaba guardada para esta familia contra la
+    // que trae esta linea. Si difieren, el pedido tiene 2 variantes del mismo
+    // pollo y el editor solo puede representar una. Dos lineas con la MISMA
+    // variante no son colision: son un duplicado legitimo y se suman.
+    var _varNueva = _norm
       ? { txt: _norm, sep: ' ' }
       : { txt: r.calibre, sep: r.sep || ' · ' };
+    var _varPrev = _editarCalibres[r.base];
+    if (_varPrev && _calTxt(_varPrev) !== _calTxt(_varNueva)) {
+      if (!_editarVariantesColision[r.base]) {
+        _editarVariantesColision[r.base] = [_calTxt(_varPrev)];
+      }
+      if (_editarVariantesColision[r.base].indexOf(_calTxt(_varNueva)) === -1) {
+        _editarVariantesColision[r.base].push(_calTxt(_varNueva));
+      }
+    }
+    _editarCalibres[r.base] = _varNueva;
   });
   // Los huérfanos también se sacan de _editarQtys para no arrastrar basura
   _editarQtysHuerfanos.forEach(function(n){ delete _editarQtys[n]; });
@@ -42087,6 +42145,26 @@ async function editarConfirmar() {
   // v14.155.0 — VARIANTE OBLIGATORIA. Mismo criterio que el tomador
   // (_faltaCalibre) y la carga WA (_mwaFaltaCal). Aplica tanto al pollo
   // agregado dentro del editor como al pedido historico que llego ambiguo.
+  // v14.160.0 — GUARD DE COLISION DE VARIANTES.
+  // Va ANTES de _edFaltaCal y antes de canalClienteChequearYAbrir, que es lo
+  // primero que puede abrir un modal o escribir. Igual que _edFaltaCal, hace
+  // return sin tocar el boton: el boton recien se deshabilita dentro de
+  // _editarConfirmarContinuar(), asi que sigue utilizable.
+  // NO arregla multivariante (fase propia): frena el guardado para que la
+  // perdida de identidad no sea silenciosa.
+  var _edColision = Object.keys(_editarVariantesColision || {});
+  if (_edColision.length) {
+    var _colDet = _edColision.map(function (fam) {
+      return fam + ' (' + (_editarVariantesColision[fam] || []).join(' + ') + ')';
+    }).join(', ');
+    toast('Este pedido tiene DOS variantes de ' + _colDet +
+          '. El editor todavia no las puede manejar juntas: guardar perderia una. ' +
+          'NO se guardo — avisale a Braian.', 'err');
+    console.warn('[v14.160.0] Colision de variantes, edicion bloqueada:',
+                 _editarPedidoId, JSON.parse(JSON.stringify(_editarVariantesColision)));
+    return;
+  }
+
   var _edFaltaCal = _calPendientes(_editarQtys, 'editar');
   if (_edFaltaCal.length) {
     toast('Elegí calibre/estado del pollo en: ' + _edFaltaCal.join(', '), 'err');
@@ -53503,7 +53581,7 @@ function depPollIniciar() {
    TCK_UPD_LOCAL aca Y el archivo version.json del repo.
    ============================================================ */
 (function(){
-  var TCK_UPD_LOCAL = '14.159.0';        /* <-- bump en cada deploy */
+  var TCK_UPD_LOCAL = '14.160.0';        /* <-- bump en cada deploy */
   /* v14.159.0: fuente UNICA de version. La telemetria del shadow la reporta,
      asi que un desfasaje contra version.json se ve solo en el primer pedido
      (paso 4 veces sin que nadie lo notara: 14.109, 14.128, 14.137, 14.147). */
