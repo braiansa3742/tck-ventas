@@ -2,6 +2,21 @@
 <html lang="es">
 <head>
 <!-- ═══════════════════════════════════════════════════════════════════════
+     TCK VENTAS — v14.161.0 — 24/08/2026
+v14.161.0: MOSTRADOR — SE TERMINAN LAS VENTAS DOBLES.
+PROBLEMA: el lock anti-doble-tap se armaba en el PRIMER tap con timer de
+90s, el modal de cobro consumia parte de ese presupuesto y la factura
+Xubio tarda >90s en el 12% de las ventas: el timer liberaba el lock EN
+PLENO VUELO, el boton volvia a "Confirmar pedido" y la cajera tocaba de
+nuevo → venta y factura DOBLES (36 de 58 pares de agosto, gap 95-130s).
+  F1 - mostradorGuardar re-arma el lock a 300s al iniciar el trabajo de
+       red y levanta el overlay bloqueante (era el unico flujo critico
+       sin overlay). Se oculta en el finally.
+  F2 - status 'duplicate' del server (v25.126.0: ventana 600s mostrador /
+       180s Consumidor Final + carrito identico) ahora abre confirm():
+       "¿venta NUEVA de otra persona?" → reintenta con forzar=1; si no,
+       no se duplica. Antes solo habia un toast pasivo.
+     ─────────────────────────────────────────────────────────────────────
      TCK VENTAS — v14.160.0 — 21/08/2026
 
 v14.160.0: PASO 0 DE F2b — GUARD DE COLISION DE VARIANTES EN EL EDITOR.
@@ -52434,6 +52449,24 @@ function _mostGenerarCodigo() {
 
 async function mostradorGuardar(cliente, cobro) {
   try {
+    // v14.161.0 — ANTI-DUP MOSTRADOR. El timer de liberación se armó en el
+    // PRIMER tap (manualWAConfirmar, 90s) y el modal de cobro ya se comió
+    // parte de ese presupuesto: con la factura Xubio en vuelo (12% de las
+    // ventas tarda >90s) el lock se liberaba solo, el botón volvía a
+    // "Confirmar pedido" y la cajera tocaba de nuevo → venta Y factura
+    // dobles (36 de 58 pares de agosto, gap 95-130s). Re-armar acá a 300s
+    // y bloquear la pantalla con el overlay mientras dura la red.
+    window._mwaEnviando = true;
+    if (window._mwaLockTimeout) clearTimeout(window._mwaLockTimeout);
+    window._mwaLockTimeout = setTimeout(function () {
+      if (window._mwaEnviando) {
+        console.warn('[ANTI-DUP] mostradorGuardar timeout 300s — liberando lock colgado');
+        _mwaLiberarLock();
+        if (typeof _tomadorLockOverlayOcultar === 'function') _tomadorLockOverlayOcultar();
+      }
+    }, 300000);
+    if (typeof _tomadorLockOverlayMostrar === 'function') _tomadorLockOverlayMostrar('Guardando y facturando la venta de mostrador…');
+
     var hoy = new Date();
     var hh = hoy.getHours().toString().padStart(2, '0');
     var mm = hoy.getMinutes().toString().padStart(2, '0');
@@ -52512,8 +52545,27 @@ async function mostradorGuardar(cliente, cobro) {
     var respG = await fetch(APPS_SCRIPT_URL + '?' + params.toString());
     var dataG = await respG.json();
     if (dataG.status === 'duplicate') {
-      toast('⚠️ Esta venta ya estaba registrada (ID ' + (dataG.id || pedidoId) + ')', 'warn');
-      return;
+      // v14.161.0 — el server bloqueó por venta idéntica reciente (v25.126.0:
+      // 600s nominado / 180s Consumidor Final, mismo carrito). Lo típico es
+      // el reenvío de la MISMA venta; pero puede ser otra persona comprando
+      // exactamente lo mismo. La cajera decide, y forzar=1 saltea el guard.
+      var _minDup = Math.max(1, Math.round((Number(dataG.ventana) || 600) / 60));
+      var _esVentaNueva = confirm(
+        '⚠️ Ya se registró una venta IGUAL hace menos de ' + _minDup + ' min (' + (dataG.id || '') + ').\n\n' +
+        '¿Es una venta NUEVA de OTRA persona por lo mismo?\n\n' +
+        'Aceptar = registrarla igual · Cancelar = NO duplicar'
+      );
+      if (!_esVentaNueva) {
+        toast('⚠️ Venta ya registrada (ID ' + (dataG.id || pedidoId) + ') — no se duplicó', 'warn');
+        return;
+      }
+      params.set('forzar', '1');
+      respG = await fetch(APPS_SCRIPT_URL + '?' + params.toString());
+      dataG = await respG.json();
+      if (dataG.status === 'duplicate') {
+        toast('⚠️ Venta ya registrada (ID ' + (dataG.id || pedidoId) + ')', 'warn');
+        return;
+      }
     }
     if (dataG.status !== 'ok') {
       toast('❌ ' + (dataG.message || 'No se pudo guardar la venta'), 'err');
@@ -52623,6 +52675,8 @@ async function mostradorGuardar(cliente, cobro) {
     toast('❌ Error inesperado — revisá si la venta quedó en Pedidos antes de reintentar', 'err');
   } finally {
     if (typeof _mwaLiberarLock === 'function') _mwaLiberarLock();
+    // v14.161.0 — el overlay se levanta al entrar a mostradorGuardar
+    if (typeof _tomadorLockOverlayOcultar === 'function') _tomadorLockOverlayOcultar();
   }
 }
 
