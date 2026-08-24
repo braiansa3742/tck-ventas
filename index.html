@@ -2,6 +2,15 @@
 <html lang="es">
 <head>
 <!-- ═══════════════════════════════════════════════════════════════════════
+     TCK VENTAS — v14.164.0 — 24/08/2026
+v14.164.0: PILDORAS DE GRUPOS TAMBIEN EN "CARGAR PEDIDO POR WA".
+  La v14.163.0 las puso solo en el tomador de campo; los vendedores
+  cargan mas por WA (captura de Julian 16:52). Chips bajo el buscador
+  (Todos + 9 grupos, .sel desde _mwaGrupoActual porque el body se
+  reconstruye en descuentos), secciones marcadas con data-cat, y
+  mwaAplicarBusquedaProd combina grupo + texto ocultando por display
+  (sin re-render). Reset de busqueda y grupo al abrir la pantalla.
+     ─────────────────────────────────────────────────────────────────────
      TCK VENTAS — v14.163.0 — 24/08/2026
 v14.163.0: CHIPS POR GRUPO — Opcion B "pildoras" elegida por Braian.
   Las 13 secciones se agrupan en 9 chips: Pollos / Trozados (+cerdo) /
@@ -42643,6 +42652,8 @@ function abrirCargaManualWA() {
   _mwaPrecioManual = {};  // v14.141.0
   _manualWACombos = {}; // v9.2: reset combos
   _manualWAPromos = {}; // v13.4: reset promos
+  window._mwaBusquedaProd = '';   // v14.164.0: sin arrastre del flujo anterior
+  window._mwaGrupoActual = 'todos'; // v14.164.0
 
   // v14.16.0 — Refrescar stock al abrir
   if (typeof cargarStockVisibleVentas === 'function') {
@@ -42677,8 +42688,10 @@ function manualWAHTML() {
   // Construir grilla de productos igual al tomador
   let prodsHtml = '';
   TOMADOR_CAT.forEach(function(cat) {
-    prodsHtml += '<div class="tomador-sec-titulo">' + cat.sec + '</div>';
-    prodsHtml += '<div class="tomador-grid">';
+    // v14.164.0 — data-cat: lo usa el filtro por grupo (píldoras) para
+    // ocultar secciones enteras sin re-render.
+    prodsHtml += '<div class="tomador-sec-titulo" data-cat="' + cat.id + '">' + cat.sec + '</div>';
+    prodsHtml += '<div class="tomador-grid" data-cat="' + cat.id + '">';
     cat.items.forEach(function(item) {
       const sinStock = TOMADOR_SIN_STOCK.has(item.n);
       const imgFile = IMGMAP[item.n] || (item.img + '.jpg');
@@ -42756,6 +42769,14 @@ function manualWAHTML() {
       '<input class="manual-wa-input mwa-buscar-inp" id="mwa-buscar-prod" type="text" ' +
         'placeholder="🔍 Buscar producto..." value="' + String(window._mwaBusquedaProd || '').replace(/"/g, '&quot;') + '" ' +
         'oninput="mwaBuscarProducto(this.value)" autocomplete="off">' +
+    '</div>' +
+    // v14.164.0 — píldoras de grupos (Opción B, Braian 24/08), mismas 9 del
+    // tomador. El .sel sale del estado porque el body se reconstruye entero.
+    '<div class="tomador-cats" style="padding-left:0;padding-right:0;background:transparent;border-bottom:none;">' +
+      '<button class="tomador-cat-btn' + ((window._mwaGrupoActual || 'todos') === 'todos' ? ' sel' : '') + '" onclick="mwaFiltrarGrupo(&quot;todos&quot;)">Todos</button>' +
+      TOMADOR_GRUPOS.map(function(g) {
+        return '<button class="tomador-cat-btn' + (window._mwaGrupoActual === g.id ? ' sel' : '') + '" onclick="mwaFiltrarGrupo(&quot;' + g.id + '&quot;)">' + g.label + '</button>';
+      }).join('') +
     '</div>' +
     '<div id="mwa-promos-bloque">' + promosRenderCarousel('manualwa', 'manualWAAgregarPromo', 'manualWAQuitarPromo', _manualWAPromos) + '</div>' +
     '<div id="mwa-combos-bloque">' + combosRenderBotones('manualwa', 'manualWAAgregarCombo', 'manualWAQuitarCombo', _manualWACombos) + '</div>' +
@@ -52304,21 +52325,60 @@ function mostradorDecorarModal() {
 // todas las palabras tienen que matchear). Mientras hay búsqueda se
 // ocultan promos y combos para que los resultados queden arriba.
 window._mwaBusquedaProd = '';
+window._mwaGrupoActual = 'todos'; // v14.164.0 — píldora de grupo activa
 function mwaBuscarProducto(q) {
   window._mwaBusquedaProd = q || '';
   mwaAplicarBusquedaProd();
+}
+// v14.164.0 — filtro por grupo (píldoras): setea estado, repinta el .sel
+// de los chips y delega en mwaAplicarBusquedaProd (que combina grupo+texto).
+function mwaFiltrarGrupo(grupoId) {
+  window._mwaGrupoActual = grupoId || 'todos';
+  var ov = document.getElementById('manual-wa-overlay');
+  if (ov) {
+    var chips = ov.querySelectorAll('.tomador-cat-btn');
+    for (var c = 0; c < chips.length; c++) chips[c].classList.remove('sel');
+    // el orden de los chips es Todos + TOMADOR_GRUPOS
+    var idx = (grupoId === 'todos') ? 0 : -1;
+    if (idx < 0) {
+      for (var g = 0; g < TOMADOR_GRUPOS.length; g++) {
+        if (TOMADOR_GRUPOS[g].id === grupoId) { idx = g + 1; break; }
+      }
+    }
+    if (idx >= 0 && chips[idx]) chips[idx].classList.add('sel');
+  }
+  mwaAplicarBusquedaProd();
+}
+// v14.164.0 — ¿la sección (cat.id) pasa el filtro de grupo activo?
+function _mwaGrupoPermite(catId) {
+  var gid = window._mwaGrupoActual || 'todos';
+  if (gid === 'todos' || !catId) return true;
+  for (var g = 0; g < TOMADOR_GRUPOS.length; g++) {
+    if (TOMADOR_GRUPOS[g].id === gid) return TOMADOR_GRUPOS[g].cats.indexOf(catId) !== -1;
+  }
+  return true;
 }
 function mwaAplicarBusquedaProd() {
   var ov = document.getElementById('manual-wa-overlay');
   if (!ov) return;
   var q = _mwaNormalizarTexto(window._mwaBusquedaProd);
   var palabras = q ? q.split(/\s+/) : [];
+  var filtrando = q || (window._mwaGrupoActual || 'todos') !== 'todos';
   var promos = document.getElementById('mwa-promos-bloque');
-  if (promos) promos.style.display = q ? 'none' : '';
+  if (promos) promos.style.display = filtrando ? 'none' : '';
   var combos = document.getElementById('mwa-combos-bloque');
-  if (combos) combos.style.display = q ? 'none' : '';
+  if (combos) combos.style.display = filtrando ? 'none' : '';
   var grids = ov.querySelectorAll('.manual-wa-body .tomador-grid');
   for (var g = 0; g < grids.length; g++) {
+    var tit = grids[g].previousElementSibling;
+    var esTitulo = tit && String(tit.className).indexOf('tomador-sec-titulo') !== -1;
+    // v14.164.0 — sección fuera del grupo activo: se oculta entera
+    if (!_mwaGrupoPermite(grids[g].getAttribute('data-cat'))) {
+      grids[g].style.display = 'none';
+      if (esTitulo) tit.style.display = 'none';
+      continue;
+    }
+    grids[g].style.display = '';
     var items = grids[g].querySelectorAll('.tomador-item');
     var visibles = 0;
     for (var i = 0; i < items.length; i++) {
@@ -52332,11 +52392,7 @@ function mwaAplicarBusquedaProd() {
       items[i].style.display = ok ? '' : 'none';
       if (ok) visibles++;
     }
-    // El título de la sección es el hermano anterior de la grilla
-    var tit = grids[g].previousElementSibling;
-    if (tit && String(tit.className).indexOf('tomador-sec-titulo') !== -1) {
-      tit.style.display = visibles ? '' : 'none';
-    }
+    if (esTitulo) tit.style.display = visibles ? '' : 'none';
   }
 }
 
