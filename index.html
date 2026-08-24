@@ -2,6 +2,15 @@
 <html lang="es">
 <head>
 <!-- ═══════════════════════════════════════════════════════════════════════
+     TCK VENTAS — v14.163.0 — 24/08/2026
+v14.163.0: CHIPS POR GRUPO — Opcion B "pildoras" elegida por Braian.
+  Las 13 secciones se agrupan en 9 chips: Pollos / Trozados (+cerdo) /
+  Rebozados (Shaddai+Premium) / Milanesas y Hamb. / Salchichas (UG) /
+  Pastas / Panificados (Tapa Mania) / Papas y Verd. (+veggie) / Huevos.
+  Nueva const TOMADOR_GRUPOS; tomadorRenderProductos acepta grupo o
+  categoria suelta (compat). El listado completo no cambia: los chips
+  filtran secciones, "Todos" sigue siendo el default.
+     ─────────────────────────────────────────────────────────────────────
      TCK VENTAS — v14.162.0 — 24/08/2026
 v14.162.0: BUSCADOR DE PRODUCTOS + AVISO DE CARTERA (pedidos Braian 24/08).
   B1 - Buscador de productos en el TOMADOR (port del de mostrador
@@ -36013,17 +36022,31 @@ function tomadorCerrar() {
   } catch (eClr) { /* defensivo: nunca rompemos el cierre */ }
 }
 
+// v14.163.0 — GRUPOS DE CATEGORÍAS (Opción B "píldoras", elegida por
+// Braian 24/08 sobre la preview). Las 13 secciones se agrupan en 9 chips;
+// el listado completo no cambia, los chips solo filtran qué secciones se
+// muestran. Cubre las 13 categorías de TOMADOR_CAT — si se agrega una
+// categoría nueva, sumarla acá o no va a aparecer al filtrar por grupo.
+var TOMADOR_GRUPOS = [
+  { id: 'g-pollos',      label: 'Pollos',            cats: ['pollos'] },
+  { id: 'g-trozados',    label: 'Trozados',          cats: ['trozados', 'cerdo'] },
+  { id: 'g-rebozados',   label: 'Rebozados',         cats: ['shaddai', 'premium'] },
+  { id: 'g-mila',        label: 'Milanesas y Hamb.', cats: ['mila'] },
+  { id: 'g-salchichas',  label: 'Salchichas',        cats: ['unionganadera'] },
+  { id: 'g-pastas',      label: 'Pastas',            cats: ['pastas'] },
+  { id: 'g-panificados', label: 'Panificados',       cats: ['tapamania'] },
+  { id: 'g-papasverd',   label: 'Papas y Verd.',     cats: ['papas', 'verd', 'veggie'] },
+  { id: 'g-huevos',      label: 'Huevos',            cats: ['huevos'] }
+];
+
 function tomadorHTML() {
   var cliente = _gpsCheckinActivo ? _gpsCheckinActivo.nombre_cliente : '';
   var hora = new Date().toLocaleTimeString('es-AR', {hour:'2-digit',minute:'2-digit'});
 
-  // Categorías para el filtro
+  // v14.163.0 — chips por GRUPO (antes: uno por categoría, 13 chips)
   var cats = '<button class="tomador-cat-btn sel" id="tcat-todos" onclick="tomadorFiltrar(&quot;todos&quot;)">Todos</button>';
-  TOMADOR_CAT.forEach(function(c) {
-    // v14.162.0 — label completo: split(' ')[0] generaba "REBOZADOS" dos
-    // veces (Shaddai y Premium) y cortaba "UNIÓN"/"TAPA". La fila ya
-    // scrollea horizontal, aguanta el texto entero.
-    cats += '<button class="tomador-cat-btn" id="tcat-' + c.id + '" onclick="tomadorFiltrar(&quot;' + c.id + '&quot;)">' + c.sec + '</button>';
+  TOMADOR_GRUPOS.forEach(function(g) {
+    cats += '<button class="tomador-cat-btn" id="tcat-' + g.id + '" onclick="tomadorFiltrar(&quot;' + g.id + '&quot;)">' + g.label + '</button>';
   });
 
   // v8.6: si hay sucursal elegida, la mostramos en el subtitle
@@ -36146,8 +36169,19 @@ function tomadorAplicarBusquedaProd() {
 
 function tomadorRenderProductos(catId) {
   var html = '';
+  // v14.163.0 — catId puede ser un GRUPO ('g-...') que abarca varias
+  // categorías. Un id de categoría suelta sigue funcionando (compat).
+  var _grupoSel = null;
+  if (catId !== 'todos') {
+    for (var _g = 0; _g < TOMADOR_GRUPOS.length; _g++) {
+      if (TOMADOR_GRUPOS[_g].id === catId) { _grupoSel = TOMADOR_GRUPOS[_g]; break; }
+    }
+  }
   TOMADOR_CAT.forEach(function(cat) {
-    if (catId !== 'todos' && cat.id !== catId) return;
+    if (catId !== 'todos') {
+      if (_grupoSel) { if (_grupoSel.cats.indexOf(cat.id) === -1) return; }
+      else if (cat.id !== catId) return;
+    }
     html += '<div class="tomador-sec-titulo">' + cat.sec + '</div>';
     html += '<div class="tomador-grid">';
     cat.items.forEach(function(item) {
