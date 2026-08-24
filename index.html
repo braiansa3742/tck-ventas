@@ -2,6 +2,23 @@
 <html lang="es">
 <head>
 <!-- ═══════════════════════════════════════════════════════════════════════
+     TCK VENTAS — v14.162.0 — 24/08/2026
+v14.162.0: BUSCADOR DE PRODUCTOS + AVISO DE CARTERA (pedidos Braian 24/08).
+  B1 - Buscador de productos en el TOMADOR (port del de mostrador
+       v14.127.0): input sticky arriba de los chips, filtra ocultando
+       cards (display:none) — preserva cantidades (_tomadorQtys) y los
+       listeners anti-doble-tap que el re-render destruye. Se re-aplica
+       tras cada rebuild (filtro, descuentos, combos).
+  B2 - El buscador de manualWA deja de ser solo-mostrador: aparece
+       siempre (carga WA de vendedores tambien).
+  B3 - Chips de categoria con el nombre COMPLETO (antes split(" ")[0]:
+       "REBOZADOS" aparecia dos veces y "UNION"/"TAPA" cortados).
+  B4 - Aviso de cartera al abrir el tomador: si el cliente del check-in
+       figura en la cartera de OTRO vendedor, banner naranja "la venta
+       va a quedar a tu nombre". NO bloquea ni reasigna nada: el dato
+       para la decision de negocio (26% de los pedidos de 60 dias se
+       cargan fuera de cartera, $123M) quedo en la bitacora 24/08.
+     ─────────────────────────────────────────────────────────────────────
      TCK VENTAS — v14.161.0 — 24/08/2026
 v14.161.0: MOSTRADOR — SE TERMINAN LAS VENTAS DOBLES.
 PROBLEMA: el lock anti-doble-tap se armaba en el PRIMER tap con timer de
@@ -16949,11 +16966,18 @@ body {
 #tomador-body-productos {
   padding: 10px 12px 100px;
 }
-.tomador-body .tomador-cats {
+/* v14.162.0 — el sticky ahora es el wrapper buscador+chips, no los chips */
+.tomador-sticky-top {
   position: sticky;
   top: 0;
   z-index: 10;
+  background: var(--cream);
   box-shadow: 0 2px 6px rgba(0,0,0,0.08);
+}
+.tomador-buscar-wrap { padding: 8px 12px 4px; }
+.tomador-buscar-inp  { width: 100%; box-sizing: border-box; font-size: 16px; padding-left: 14px; }
+.tomador-body .tomador-cats {
+  box-shadow: none;
 }
 
 /* ══ v14.30.0 — MI DESEMPEÑO EN CAMPO (visitas, vista vendedor) — portado de admin v12.27 ══ */
@@ -34652,6 +34676,7 @@ if (typeof cargarComprasVendedores === 'function') {
 }
 
 var _tomadorQtys       = {}; // { nombreProducto: cantidad }
+var _tomadorBusquedaProd = ''; // v14.162.0 — texto del buscador de productos del tomador
 var _tomadorCalibres   = {}; // v14.105.0 — calibre elegido por pollo { 'Pollo A': 'x6'|'x7' }
 // Pollos que requieren elegir calibre al vender (cada calibre mapea a su producto Xubio -> baja el stock correcto)
 var POLLOS_CON_CALIBRE = { 'Pollo A': true, 'Pollo B': true, 'Pollo C': true };
@@ -35896,6 +35921,7 @@ function _tomadorAbrirInterno() {
   // v14.68.0: activar acuerdos del cliente del check-in
   acuVtaActivar(_gpsCheckinActivo ? (_gpsCheckinActivo.nombre_cliente || '') : '');
   setTimeout(acuVtaBannerTomador, 250);
+  setTimeout(_tomadorAvisoCartera, 400); // v14.162.0 — aviso cliente de otra cartera
   _tomadorQtys = {};
   // v14.48.0: precarga de "Repetir último pedido" (Mi Ruta). Los nombres ya
   // vienen validados contra TOMADOR_CAT por jor2RepetirUltimo.
@@ -35911,6 +35937,7 @@ function _tomadorAbrirInterno() {
   _tomadorCombos = {}; // v9.2: reset combos del pedido
   _tomadorPromos = {}; // v13.4: reset promos 1+1 del pedido
   _tomadorCatActual = 'todos';
+  _tomadorBusquedaProd = ''; // v14.162.0
   // NO reseteamos _tomadorSucursalElegida acá — viene del callback de sucElegirAbrir
 
   // v14.16.0 — Refrescar stock al abrir (transparente, no bloquea)
@@ -35993,7 +36020,10 @@ function tomadorHTML() {
   // Categorías para el filtro
   var cats = '<button class="tomador-cat-btn sel" id="tcat-todos" onclick="tomadorFiltrar(&quot;todos&quot;)">Todos</button>';
   TOMADOR_CAT.forEach(function(c) {
-    cats += '<button class="tomador-cat-btn" id="tcat-' + c.id + '" onclick="tomadorFiltrar(&quot;' + c.id + '&quot;)">' + c.sec.split(' ')[0] + '</button>';
+    // v14.162.0 — label completo: split(' ')[0] generaba "REBOZADOS" dos
+    // veces (Shaddai y Premium) y cortaba "UNIÓN"/"TAPA". La fila ya
+    // scrollea horizontal, aguanta el texto entero.
+    cats += '<button class="tomador-cat-btn" id="tcat-' + c.id + '" onclick="tomadorFiltrar(&quot;' + c.id + '&quot;)">' + c.sec + '</button>';
   });
 
   // v8.6: si hay sucursal elegida, la mostramos en el subtitle
@@ -36019,7 +36049,16 @@ function tomadorHTML() {
     +   '<div id="tomador-compras-camino">' + ((typeof comprasVendBannerHTML === 'function') ? comprasVendBannerHTML() : '') + '</div>'
     +   '<div id="tomador-promos-bloque">' + promosRenderCarousel('tomador', 'tomadorAgregarPromo', 'tomadorQuitarPromo', _tomadorPromos) + '</div>'
     +   '<div id="tomador-combos-bloque">' + combosRenderBotones('tomador', 'tomadorAgregarCombo', 'tomadorQuitarCombo', _tomadorCombos) + '</div>'
-    +   '<div class="tomador-cats" id="tomador-cats">' + cats + '</div>'
+    // v14.162.0 — buscador + chips en UN sticky (si fueran dos sticky
+    // separados se superponen al scrollear)
+    +   '<div class="tomador-sticky-top">'
+    +     '<div class="tomador-buscar-wrap">'
+    +       '<input class="buscador tomador-buscar-inp" id="tomador-buscar-prod" type="text" '
+    +         'placeholder="🔍 Buscar producto..." value="' + String(_tomadorBusquedaProd || '').replace(/"/g, '&quot;') + '" '
+    +         'oninput="tomadorBuscarProducto(this.value)" autocomplete="off">'
+    +     '</div>'
+    +     '<div class="tomador-cats" id="tomador-cats">' + cats + '</div>'
+    +   '</div>'
     +   '<div id="tomador-body-productos">' + tomadorRenderProductos('todos') + '</div>'
     + '</div>'
     + '<div class="tomador-footer">'
@@ -36038,6 +36077,71 @@ function tomadorFiltrar(catId) {
   // Render products
   var body = document.getElementById('tomador-body-productos');
   if (body) body.innerHTML = tomadorRenderProductos(catId);
+  tomadorAplicarBusquedaProd(); // v14.162.0 — el rebuild pisa el filtro
+}
+
+// v14.162.0 — BUSCADOR DE PRODUCTOS DEL TOMADOR (pedido Braian 24/08).
+// Port del buscador de mostrador (v14.127.0). Filtra ocultando nodos con
+// display:none — NO re-renderiza: las cantidades viven en _tomadorQtys y
+// los listeners anti-doble-tap del overlay se preservan.
+function tomadorBuscarProducto(q) {
+  _tomadorBusquedaProd = q || '';
+  tomadorAplicarBusquedaProd();
+}
+
+// v14.162.0 — AVISO DE CARTERA (pedido Braian 24/08: "la venta queda para
+// otro vendedor, deberíamos verificar eso"). La atribución NO cambia: la
+// venta sigue siendo de quien la carga. Esto solo VISIBILIZA que el cliente
+// figura en la cartera de otro, para que el vendedor no lo cargue por error
+// creyendo que es suyo. Fire-and-forget: si Supabase no responde, no pasa nada.
+async function _tomadorAvisoCartera() {
+  try {
+    if (!_gpsCheckinActivo || !_gpsCheckinActivo.nombre_cliente) return;
+    if (typeof sbFetch !== 'function' || typeof mrNormVendedor !== 'function') return;
+    var enc = encodeURIComponent(_gpsCheckinActivo.nombre_cliente.trim());
+    var arr = await sbFetch('clientes_activos?nombre=ilike.' + enc + '&select=vendedor&limit=1');
+    var dueno = (arr && arr[0] && arr[0].vendedor) ? mrNormVendedor(arr[0].vendedor) : '';
+    var yo = mrNormVendedor(vendedorActual);
+    if (!dueno || !yo || dueno === yo) return;
+    var body = document.getElementById('tomador-body');
+    if (!body || document.getElementById('tomador-aviso-cartera')) return;
+    var div = document.createElement('div');
+    div.id = 'tomador-aviso-cartera';
+    div.style.cssText = 'margin:8px 12px 0;padding:9px 12px;background:#FFF3E0;border:1.5px solid #FB8C00;border-radius:10px;color:#7A4100;font-size:13px;font-weight:600;';
+    div.textContent = '⚠️ Este cliente figura en la cartera de ' + dueno + '. La venta va a quedar a tu nombre.';
+    body.insertBefore(div, body.firstChild);
+  } catch (e) { /* aviso best-effort, nunca frena la venta */ }
+}
+function tomadorAplicarBusquedaProd() {
+  var ov = document.getElementById('tomador-overlay');
+  if (!ov) return;
+  var q = _mwaNormalizarTexto(_tomadorBusquedaProd);
+  var palabras = q ? q.split(/\s+/) : [];
+  var promos = document.getElementById('tomador-promos-bloque');
+  if (promos) promos.style.display = q ? 'none' : '';
+  var combos = document.getElementById('tomador-combos-bloque');
+  if (combos) combos.style.display = q ? 'none' : '';
+  var grids = ov.querySelectorAll('#tomador-body-productos .tomador-grid');
+  for (var g = 0; g < grids.length; g++) {
+    var items = grids[g].querySelectorAll('.tomador-item');
+    var visibles = 0;
+    for (var i = 0; i < items.length; i++) {
+      var nom  = items[i].querySelector('.tomador-item-nombre');
+      var pres = items[i].querySelector('.tomador-item-presentacion');
+      var txt  = _mwaNormalizarTexto((nom ? nom.textContent : '') + ' ' + (pres ? pres.textContent : ''));
+      var ok = true;
+      for (var p = 0; p < palabras.length; p++) {
+        if (txt.indexOf(palabras[p]) === -1) { ok = false; break; }
+      }
+      items[i].style.display = ok ? '' : 'none';
+      if (ok) visibles++;
+    }
+    // El título de la sección es el hermano anterior de la grilla
+    var tit = grids[g].previousElementSibling;
+    if (tit && String(tit.className).indexOf('tomador-sec-titulo') !== -1) {
+      tit.style.display = visibles ? '' : 'none';
+    }
+  }
 }
 
 function tomadorRenderProductos(catId) {
@@ -36161,6 +36265,7 @@ function tomadorGuardarDescuento(nombre) {
   var catId = catActual ? catActual.id.replace('tcat-','') : 'todos';
   var body = document.getElementById('tomador-body-productos');
   if (body) body.innerHTML = tomadorRenderProductos(catId);
+  tomadorAplicarBusquedaProd(); // v14.162.0
   toast('✅ Descuento ' + pct + '% aplicado', 'ok');
 }
 
@@ -36172,6 +36277,7 @@ function tomadorQuitarDescuento(nombre) {
   var catId = catActual ? catActual.id.replace('tcat-','') : 'todos';
   var body = document.getElementById('tomador-body-productos');
   if (body) body.innerHTML = tomadorRenderProductos(catId);
+  tomadorAplicarBusquedaProd(); // v14.162.0
 }
 
 // v9.2: agregar combo completo al pedido del tomador
@@ -36200,6 +36306,7 @@ function tomadorAgregarCombo(comboId) {
   // Re-render todo (items + total + combo bloque)
   var body = document.getElementById('tomador-body-productos');
   if (body) body.innerHTML = tomadorRenderProductos(_tomadorCatActual);
+  tomadorAplicarBusquedaProd(); // v14.162.0
   var comboBloque = document.getElementById('tomador-combos-bloque');
   if (comboBloque) comboBloque.innerHTML = combosRenderBotones('tomador', 'tomadorAgregarCombo', 'tomadorQuitarCombo', _tomadorCombos);
   tomadorActualizarTotal();
@@ -36230,6 +36337,7 @@ function tomadorQuitarCombo(comboId) {
 
   var body = document.getElementById('tomador-body-productos');
   if (body) body.innerHTML = tomadorRenderProductos(_tomadorCatActual);
+  tomadorAplicarBusquedaProd(); // v14.162.0
   var comboBloque = document.getElementById('tomador-combos-bloque');
   if (comboBloque) comboBloque.innerHTML = combosRenderBotones('tomador', 'tomadorAgregarCombo', 'tomadorQuitarCombo', _tomadorCombos);
   tomadorActualizarTotal();
@@ -42607,15 +42715,14 @@ function manualWAHTML() {
         valorActual: ''
       }) +
     '</div>' +
-    // v14.127.0 — buscador de productos (solo mostrador; el valor se conserva
-    // porque el body se reconstruye entero al aplicar/quitar un descuento)
-    (window._mwaModoMostrador ?
-      '<div class="mwa-buscar-wrap">' +
-        '<input class="manual-wa-input mwa-buscar-inp" id="mwa-buscar-prod" type="text" ' +
-          'placeholder="🔍 Buscar producto..." value="' + String(window._mwaBusquedaProd || '').replace(/"/g, '&quot;') + '" ' +
-          'oninput="mwaBuscarProducto(this.value)" autocomplete="off">' +
-      '</div>'
-    : '') +
+    // v14.127.0 — buscador de productos. v14.162.0: ya no es solo mostrador,
+    // los vendedores tambien lo pidieron (Braian 24/08). El valor se conserva
+    // porque el body se reconstruye entero al aplicar/quitar un descuento.
+    '<div class="mwa-buscar-wrap">' +
+      '<input class="manual-wa-input mwa-buscar-inp" id="mwa-buscar-prod" type="text" ' +
+        'placeholder="🔍 Buscar producto..." value="' + String(window._mwaBusquedaProd || '').replace(/"/g, '&quot;') + '" ' +
+        'oninput="mwaBuscarProducto(this.value)" autocomplete="off">' +
+    '</div>' +
     '<div id="mwa-promos-bloque">' + promosRenderCarousel('manualwa', 'manualWAAgregarPromo', 'manualWAQuitarPromo', _manualWAPromos) + '</div>' +
     '<div id="mwa-combos-bloque">' + combosRenderBotones('manualwa', 'manualWAAgregarCombo', 'manualWAQuitarCombo', _manualWACombos) + '</div>' +
     prodsHtml +
@@ -42672,6 +42779,7 @@ function mwaGuardarDescuento(nombre) {
   var overlay = document.getElementById('manual-wa-overlay');
   if (overlay) { var body=overlay.querySelector('.manual-wa-body'); if(body){ var newHtml=document.createElement('div'); newHtml.innerHTML=manualWAHTML(); var newBody=newHtml.querySelector('.manual-wa-body'); if(newBody) body.innerHTML=newBody.innerHTML; } }
   if (window._mwaModoMostrador && typeof mostradorDecorarModal === 'function') mostradorDecorarModal();  // v14.127.0: el rebuild borra banner/chip/búsqueda
+  mwaAplicarBusquedaProd(); // v14.162.0 — en modo WA no corre mostradorDecorarModal
   mwaActualizarTotal();
   toast('✅ Descuento '+pct+'% aplicado','ok');
 }
@@ -42682,6 +42790,7 @@ function mwaQuitarDescuento(nombre) {
   var overlay = document.getElementById('manual-wa-overlay');
   if (overlay) { var body=overlay.querySelector('.manual-wa-body'); if(body){ var newHtml=document.createElement('div'); newHtml.innerHTML=manualWAHTML(); var newBody=newHtml.querySelector('.manual-wa-body'); if(newBody) body.innerHTML=newBody.innerHTML; } }
   if (window._mwaModoMostrador && typeof mostradorDecorarModal === 'function') mostradorDecorarModal();  // v14.127.0: el rebuild borra banner/chip/búsqueda
+  mwaAplicarBusquedaProd(); // v14.162.0 — en modo WA no corre mostradorDecorarModal
   mwaActualizarTotal();
 }
 
