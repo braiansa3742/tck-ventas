@@ -34530,8 +34530,15 @@ const TOMADOR_DEPRECADOS = new Set([
 // totales. Los productos con tramos no se ven afectados: el tramo
 // (Supabase) sigue mandando sobre item.pr, como siempre.
 // ═══════════════════════════════════════════════════════════════════════
-var TOMADOR_PRECIOS_CACHE_KEY = 'tck_precios_canon_v1';
+// v14.167.0 — CLAVE VERSIONADA. La v1 guardaba precios de productos_canonicos
+// (sin promos). Al cambiar la fuente a vw_precio_efectivo en v14.166.0 la clave
+// NO se versiono: el codigo nuevo levantaba esa cache vieja como valida y
+// pintaba precio de lista sobre una promo activa. Incidente WNNC0 del 25/08:
+// Rotisera promo $2.300 se cargo a $2.600.
+var TOMADOR_PRECIOS_CACHE_KEY = 'tck_precios_efectivo_v2';
+try { localStorage.removeItem('tck_precios_canon_v1'); } catch(e) {}
 var TOMADOR_PRECIOS_TTL_MS    = 5 * 60 * 1000; // 5 min entre fetches
+var _tomadorPreciosEnVuelo    = null;  // v14.167.0: dedup de fetches en paralelo
 
 // Mapeo TOMADOR_CAT → nombre alternativo (compat histórica con el Sheet;
 // en canónicos 'Pollo Ginosa'/'Pollo Optimo' existen como aliases).
@@ -34595,11 +34602,17 @@ async function _fetchPreciosCanonVentas() {
 async function refrescarPreciosVentas(force) {
   var ahora = Date.now();
   if (!force && (ahora - _tomadorPreciosUltFetch) < TOMADOR_PRECIOS_TTL_MS) return;
-  _tomadorPreciosUltFetch = ahora; // marcar antes: evita ráfagas en paralelo
+  // v14.167.0 — _tomadorPreciosUltFetch YA NO se marca aca. Marcarlo antes del
+  // await hacia que un fetch fallido bloqueara el reintento 5 minutos con
+  // precios viejos en pantalla. Ahora solo se marca tras respuesta valida.
+  // Guarda anti-rafaga: _tomadorPreciosEnVuelo.
+  if (_tomadorPreciosEnVuelo) return _tomadorPreciosEnVuelo;
+  _tomadorPreciosEnVuelo = (async function () {
   try {
     var priceMap = await _fetchPreciosCanonVentas();
     if (!priceMap || Object.keys(priceMap).length === 0) throw new Error('priceMap vacío');
     var n = _aplicarPriceMapTomador(priceMap);
+    _tomadorPreciosUltFetch = Date.now();  // v14.167.0: TTL solo con fetch OK
     try {
       localStorage.setItem(TOMADOR_PRECIOS_CACHE_KEY, JSON.stringify({ ts: ahora, priceMap: priceMap }));
     } catch(e) {}
@@ -34617,7 +34630,11 @@ async function refrescarPreciosVentas(force) {
     _tomadorPreciosDesdeSheet = false;
     _ventasAvisarPrecios(false);
     console.warn('[TCK Precios] fetch falló — PRECIOS SIN ACTUALIZAR:', e.message);
+  } finally {
+    _tomadorPreciosEnVuelo = null;
   }
+  })();
+  return _tomadorPreciosEnVuelo;
 }
 
 // v14.166.0 — banner fijo cuando el precio mostrado NO viene de la autoridad.
@@ -34645,8 +34662,9 @@ function cargarPreciosTomador() {
       var parsed = JSON.parse(cached);
       if (parsed && parsed.priceMap) {
         var n = _aplicarPriceMapTomador(parsed.priceMap);
-        _tomadorPreciosDesdeSheet = true;
-        console.log('[TCK Precios] ' + n + ' productos desde caché local');
+        // v14.167.0 — la cache NO acredita frescura. Es solo pintura inicial;
+        // solo un fetch OK a vw_precio_efectivo puede marcar precios frescos.
+        console.log('[TCK Precios] ' + n + ' productos desde caché local (provisorio)');
       }
     }
   } catch(e) {}
@@ -35943,7 +35961,7 @@ function tomadorAbrir() {
 
 // v8.6: extracción del contenido original del tomadorAbrir, sin check de sucursales.
 // Se llama desde tomadorAbrir() después de resolver la sucursal.
-function _tomadorAbrirInterno() {
+async function _tomadorAbrirInterno() {
   // v14.68.0: activar acuerdos del cliente del check-in
   acuVtaActivar(_gpsCheckinActivo ? (_gpsCheckinActivo.nombre_cliente || '') : '');
   setTimeout(acuVtaBannerTomador, 250);
@@ -35970,9 +35988,13 @@ function _tomadorAbrirInterno() {
   if (typeof cargarStockVisibleVentas === 'function') {
     cargarStockVisibleVentas();
   }
-  // v14.65.0 — Refrescar precios al abrir (cubre pestañas abiertas hace días)
+  // v14.167.0 — ESPERAR el precio antes de la primera pintura definitiva.
+  // Antes era fire-and-forget y el render salia con TOMADOR_CAT sin refrescar
+  // (o peor, con cache vieja). force=true saltea el TTL: abrir un flujo de
+  // venta es justo cuando el precio tiene que estar bien. Si el fetch falla,
+  // se pinta igual con el fallback y queda el banner rojo.
   if (typeof refrescarPreciosVentas === 'function') {
-    refrescarPreciosVentas();
+    try { await refrescarPreciosVentas(true); } catch (e) {}
   }
   // v14.110 — Refrescar mercadería en camino/ingresada (banner 📦, no bloquea)
   if (typeof cargarComprasVendedores === 'function') {
@@ -41765,7 +41787,7 @@ function abrirEditarPedido(p, detalle) {
   _abrirEditarPedidoInterno(p, detalle);
 }
 
-function _abrirEditarPedidoInterno(p, detalle) {
+async function _abrirEditarPedidoInterno(p, detalle) {
   _editarPedidoId = p.pedidoId;
   _editarCliente  = p.cliente || 'Cliente';
   acuVtaActivar(_editarCliente);   // v14.68.0: aplicar acuerdos si tiene
@@ -41781,9 +41803,13 @@ function _abrirEditarPedidoInterno(p, detalle) {
   if (typeof cargarStockVisibleVentas === 'function') {
     cargarStockVisibleVentas();
   }
-  // v14.65.0 — Refrescar precios al abrir (cubre pestañas abiertas hace días)
+  // v14.167.0 — ESPERAR el precio antes de la primera pintura definitiva.
+  // Antes era fire-and-forget y el render salia con TOMADOR_CAT sin refrescar
+  // (o peor, con cache vieja). force=true saltea el TTL: abrir un flujo de
+  // venta es justo cuando el precio tiene que estar bien. Si el fetch falla,
+  // se pinta igual con el fallback y queda el banner rojo.
   if (typeof refrescarPreciosVentas === 'function') {
-    refrescarPreciosVentas();
+    try { await refrescarPreciosVentas(true); } catch (e) {}
   }
 
   // v9.9: trackear total original y líneas no parseadas para defensa
@@ -42647,7 +42673,7 @@ function mwaCalibreSelectorHTML(nombre) { return _calSelectorHTML(nombre, 'mwa')
 function mwaSetCalibre(nombre, cal) { _calSet(nombre, cal, 'mwa'); }
 function editarCalibreSelectorHTML(nombre) { return _calSelectorHTML(nombre, 'editar'); }
 function editarSetCalibre(nombre, cal) { _calSet(nombre, cal, 'editar'); }
-function abrirCargaManualWA() {
+async function abrirCargaManualWA() {
   _acuVtaCliActivo = '';   // v14.68.0: limpiar acuerdo del flujo anterior
   _manualWAQtys = {};
   _manualWACalibres = {};
@@ -42662,9 +42688,13 @@ function abrirCargaManualWA() {
   if (typeof cargarStockVisibleVentas === 'function') {
     cargarStockVisibleVentas();
   }
-  // v14.65.0 — Refrescar precios al abrir (cubre pestañas abiertas hace días)
+  // v14.167.0 — ESPERAR el precio antes de la primera pintura definitiva.
+  // Antes era fire-and-forget y el render salia con TOMADOR_CAT sin refrescar
+  // (o peor, con cache vieja). force=true saltea el TTL: abrir un flujo de
+  // venta es justo cuando el precio tiene que estar bien. Si el fetch falla,
+  // se pinta igual con el fallback y queda el banner rojo.
   if (typeof refrescarPreciosVentas === 'function') {
-    refrescarPreciosVentas();
+    try { await refrescarPreciosVentas(true); } catch (e) {}
   }
 
   const overlay = document.createElement('div');
