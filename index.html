@@ -22702,33 +22702,11 @@ function promosTotalVentas(qtysMap) {
 }
 
 // Consumir stock en Supabase — llamada al confirmar pedido (fire-and-forget).
-// v14.13.4: cada qty = 1 unidad de stock (antes era qty*2).
-async function promosConsumirStockVentas(qtysMap) {
-  const items = [];
-  Object.keys(qtysMap || {}).forEach(function(promoId) {
-    const q = Number(qtysMap[promoId] || 0);
-    if (q > 0) items.push({ id: promoId, unidades: q });
-  });
-  for (const item of items) {
-    try {
-      const arr = await sbFetch('productos_promo?id=eq.' + encodeURIComponent(item.id) + '&select=stock_disponible');
-      if (!arr || !arr.length) continue;
-      const actual = Number(arr[0].stock_disponible || 0);
-      const nuevo  = Math.max(0, actual - item.unidades);
-      await sbFetch('productos_promo?id=eq.' + encodeURIComponent(item.id), {
-        method: 'PATCH',
-        prefer: 'return=minimal',
-        body: JSON.stringify({
-          stock_disponible: nuevo,
-          modificado_at: new Date().toISOString(),
-          activo: nuevo > 0
-        })
-      });
-    } catch(e) {
-      console.error('[promos] Error descontando ' + item.id + ':', e);
-    }
-  }
-}
+// v14.165.0 — ELIMINADO promosConsumirStockVentas().
+// Escribia PATCH productos_promo (stock_disponible + activo) con la ANON KEY.
+// Mismo motivo que tck-catalogo v3.52.0: el navegador no debe poder escribir
+// precios ni desactivar promociones. La vigencia la resuelve vw_precio_efectivo
+// por fecha. El navegador solo LEE productos_promo.
 
 // Parsear promos desde el campo "detalle" de un pedido guardado.
 // Uso: modo editar → recupera _editarPromos al abrir un pedido existente.
@@ -37376,10 +37354,7 @@ async function tomadorConfirmarConEntrega(entregaData) {
       var combosAConsumir = combosAplicados.map(function(cid){ return { id: cid, qty: _tomadorCombos[cid] }; });
       combosConsumirStockVentas(combosAConsumir).catch(function(e){ console.error('[combos] consumir:', e); });
     }
-    // v13.4: Descontar stock de promos 1+1 en Supabase (fire-and-forget)
-    if (typeof promosConsumirStockVentas === 'function' && _tomadorPromos && Object.keys(_tomadorPromos).length > 0) {
-      promosConsumirStockVentas(_tomadorPromos).catch(function(e){ console.error('[promos] consumir:', e); });
-    }
+    // v14.165.0: consumo de stock_disponible eliminado (tomador campo).
 
     // v14.2 F-Modal: mensaje claro post-guardado con info del viaje inferido
     if (tieneDescuento) {
@@ -43774,10 +43749,7 @@ async function manualWAGuardar(cliente, localidad, entrega, sucursal) {
     var combosAConsumirMWA = combosAplicadosMWA.map(function(cid){ return { id: cid, qty: _manualWACombos[cid] }; });
     combosConsumirStockVentas(combosAConsumirMWA).catch(function(e){ console.error('[combos] consumir:', e); });
   }
-  // v13.4: Descontar stock de promos 1+1 en Supabase (fire-and-forget)
-  if (typeof promosConsumirStockVentas === 'function' && _manualWAPromos && Object.keys(_manualWAPromos).length > 0) {
-    promosConsumirStockVentas(_manualWAPromos).catch(function(e){ console.error('[promos] consumir:', e); });
-  }
+  // v14.165.0: consumo de stock_disponible eliminado (WhatsApp manual).
 
   // v14.2 F-Modal: mensaje claro post-guardado con info del viaje inferido
   if (tieneDesWA) {
@@ -52733,9 +52705,7 @@ async function mostradorGuardar(cliente, cobro) {
       combosConsumirStockVentas(combosAplicados.map(function(cid) { return { id: cid, qty: _manualWACombos[cid] }; }))
         .catch(function(e) { console.error('[mostrador combos]', e); });
     }
-    if (typeof promosConsumirStockVentas === 'function' && _manualWAPromos && Object.keys(_manualWAPromos).length > 0) {
-      promosConsumirStockVentas(_manualWAPromos).catch(function(e) { console.error('[mostrador promos]', e); });
-    }
+    // v14.165.0: consumo de stock_disponible eliminado (mostrador).
 
     // 2) FACTURA Xubio automática (v14.66.0 — antes era presupuesto).
     //    AS v25.56.0 emite factura fiscal real (PV 211693, contado, CAE).
