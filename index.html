@@ -2,6 +2,32 @@
 <html lang="es">
 <head>
 <!-- ═══════════════════════════════════════════════════════════════════════
+     TCK VENTAS — v14.170.0 — 27/08/2026
+     v14.170.0: EL CHOFER ARRANCA EL VIAJE.
+     Cierra el circuito: Administración organiza · Depósito CIERRA LA CARGA
+     (v14.169.0) · el chofer ARRANCA al salir físicamente del depósito.
+     Hasta hoy ARRANCAR lo tocaba Administración la víspera: medido sobre
+     151 viajes, 46% de los de agosto se arrancó el día ANTERIOR entre las
+     18:17 y las 23:04, dejando el viaje en_ruta con el camión todavía en
+     el depósito y derivando al viaje siguiente todo pedido posterior. El
+     26/08 eso dejó 11 pedidos colgados: $1.821.600 facturados con CAE.
+     · cargarViajeActivo trae preparando + carga_cerrada + en_ruta, con
+       PRIORIDAD EXPLÍCITA en_ruta > carga_cerrada > preparando: un viaje
+       futuro nunca tapa el que el chofer está repartiendo hoy.
+     · GATE en _cargarEntregasInterno: con el viaje fuera de en_ruta NO se
+       pintan entregas. Entregar, no entregar, cobrar y rendir quedan
+       inalcanzables — no por esconder botones, sino porque ese es el único
+       punto por el que la lista se renderiza.
+     · PREPARANDO → "🔧 DEPÓSITO PREPARANDO CARGA", sin botón.
+       CARGA_CERRADA → "✅ CARGA LISTA" + 🚚 ARRANCAR VIAJE.
+       EN_RUTA → panel actual sin cambios.
+     · mvArrancarViaje usa el MISMO accion=viajeArrancar. Sin estado
+       optimista: PASS relee del backend; BLOCK muestra el mensaje real y
+       el viaje sigue en carga_cerrada. Doble toque: una sola request.
+     · C2 sigue siendo la autoridad: versión/hash/sello los valida el
+       backend, la UI solo guía.
+     NO se toca el módulo Depósito de v14.169.0.
+     ─────────────────────────────────────────────────────────────────────
      TCK VENTAS — v14.169.0 — 27/08/2026
      v14.169.0: DEPÓSITO CIERRA LA CARGA (panel de Pancho).
      Conecta el control físico que Depósito ya hace con el circuito moderno
@@ -11787,6 +11813,21 @@ body {
    ════════════════════════════════════════════════ */
 
 /* Sección A: Viaje activo */
+.mv-prep-card { background:linear-gradient(135deg,#78909C 0%,#455A64 100%);border-radius:14px;
+  padding:16px;margin:0 0 12px;text-align:center;box-shadow:0 3px 10px rgba(0,0,0,.2); }
+.mv-prep-tit  { color:#fff;font-size:15.5px;font-weight:800;letter-spacing:.3px; }
+.mv-prep-zona { color:rgba(255,255,255,.95);font-size:14px;font-weight:700;margin-top:6px; }
+.mv-prep-veh  { color:rgba(255,255,255,.8);font-size:12.5px;margin-top:2px; }
+.mv-prep-aviso{ color:rgba(255,255,255,.92);font-size:12.5px;margin-top:9px;font-weight:600; }
+.mv-listo-card { background:linear-gradient(135deg,#1E8449 0%,#145A32 100%);border-radius:14px;
+  padding:16px;margin:0 0 12px;text-align:center;box-shadow:0 3px 10px rgba(0,0,0,.25); }
+.mv-listo-tit  { color:#fff;font-size:17px;font-weight:800;letter-spacing:.4px; }
+.mv-listo-sub  { color:rgba(255,255,255,.9);font-size:12.5px;margin-top:3px; }
+.mv-listo-zona { color:rgba(255,255,255,.95);font-size:13.5px;font-weight:700;margin-top:6px; }
+.mv-listo-btn  { display:block;width:100%;margin:13px 0 9px;padding:16px 12px;background:#fff;
+  color:#145A32;border:0;border-radius:11px;font-size:17px;font-weight:800;letter-spacing:.4px;cursor:pointer; }
+.mv-listo-btn:active { transform:scale(.985); }
+.mv-listo-aviso{ color:rgba(255,255,255,.92);font-size:12px;line-height:1.35; }
 .mv-viaje-activo-card {
   background: linear-gradient(135deg, #2E7D32, #1B5E20);
   border-radius: 14px;
@@ -37881,13 +37922,28 @@ async function cargarViajeActivo() {
   if (!vendedorActual) return null;
   try {
     // Traer TODOS los viajes en_ruta del chofer (no limit:1)
+    // v14.170.0 — el chofer ve tambien los viajes que Deposito esta
+    // preparando o ya cerro. carga_cerrada es lo que habilita ARRANCAR.
     const viajes = await sbFetch(
       'viajes?select=*' +
       '&chofer=eq.' + encodeURIComponent(vendedorActual) +
-      '&estado=eq.en_ruta' +
+      '&estado=in.(preparando,carga_cerrada,en_ruta)' +
       '&order=fecha_salida.desc&limit=20',
       { timeoutMs: VIAJE_TIMEOUT_MS }
     );
+    // PRIORIDAD EXPLICITA: en_ruta > carga_cerrada > preparando. Un viaje
+    // futuro NUNCA puede tapar el que el chofer esta repartiendo hoy: sin
+    // esto, el order fecha_salida.desc pondria primero el de manana.
+    if (Array.isArray(viajes)) {
+      var _pri = { en_ruta: 0, carga_cerrada: 1, preparando: 2 };
+      viajes.sort(function (a, b) {
+        var pa = _pri[a.estado], pb = _pri[b.estado];
+        if (pa === undefined) pa = 9;
+        if (pb === undefined) pb = 9;
+        if (pa !== pb) return pa - pb;
+        return String(b.fecha_salida || '').localeCompare(String(a.fecha_salida || ''));
+      });
+    }
     _viajeActivoError = null;
     if (Array.isArray(viajes) && viajes.length > 0) {
       _viajesActivos = viajes;
@@ -38181,6 +38237,47 @@ async function misViajesRecargar() {
 // ───────────────────────────────────────────────────────────────
 // SECCIÓN A: Viaje activo
 // ───────────────────────────────────────────────────────────────
+// v14.170.0 — ARRANCAR VIAJE desde el celular del chofer.
+// Llama al MISMO endpoint viajeArrancar: no se duplica la logica pesada ni
+// se crea un viajeArrancarChofer paralelo. Toda la autoridad (estado,
+// sello C2, version y hash de planilla) queda en el backend: esta UI solo
+// guia y muestra el mensaje real si bloquea.
+// `quien` va como AUDITORIA, no como autorizacion: la Web App es publica.
+var _mvArrancando = false;
+
+async function mvArrancarViaje(viajeId) {
+  if (!viajeId || _mvArrancando) return;
+  if (!confirm('¿EL CAMIÓN ESTÁ SALIENDO FÍSICAMENTE DEL DEPÓSITO?\n\n' +
+               'Al confirmar, el viaje quedará EN RUTA.')) return;
+  _mvArrancando = true;
+  var btn = document.getElementById('mv-arrancar-btn');
+  var prev = btn ? btn.innerHTML : null;
+  if (btn) { btn.disabled = true; btn.style.opacity = '0.55'; btn.innerHTML = '\u23F3 Arrancando…'; }
+  try {
+    var r = await _colaFetchJson(APPS_SCRIPT_URL + '?accion=viajeArrancar' +
+      '&viaje_id=' + encodeURIComponent(viajeId) +
+      '&quien=' + encodeURIComponent(vendedorActual || ''), 60000);
+    if (r && r.status === 'ok') {
+      if (typeof toast === 'function') toast('\uD83D\uDE9A Viaje EN RUTA. Buen viaje.', 'ok');
+      // Sin estado optimista: se relee del backend.
+      await cargarViajeActivo();
+      _mvViajeActivo = _viajeActivo;
+      mvRenderViajeActivo();
+      await cargarEntregas();
+    } else {
+      // Mensaje REAL del backend (C2 es la autoridad). Sigue carga_cerrada.
+      alert('\u26D4 NO SE PUEDE ARRANCAR\n\n' +
+            ((r && r.message) || 'Error desconocido'));
+    }
+  } catch (e) {
+    alert('\u26D4 No se pudo arrancar el viaje.\n\nRevisá la conexión y volvé a intentar.\n\n' +
+          (e && e.message ? e.message : e));
+  } finally {
+    _mvArrancando = false;
+    if (btn) { btn.disabled = false; btn.style.opacity = ''; if (prev) btn.innerHTML = prev; }
+  }
+}
+
 function mvRenderViajeActivo() {
   const wrap = document.getElementById('mv-viaje-activo-wrap');
   if (!wrap) return;
@@ -38191,6 +38288,41 @@ function mvRenderViajeActivo() {
   }
 
   const v = _mvViajeActivo;
+
+  // ═══ v14.170.0 — el viaje todavia no salio ═══════════════════════
+  // Deposito cierra la carga; el chofer arranca al salir. Antes de
+  // en_ruta no se muestran entregas ni el boton de rendir: el gate real
+  // esta en _cargarEntregasInterno, esto es la pantalla que lo explica.
+  if (v.estado === 'preparando' || v.estado === 'carga_cerrada') {
+    const _zd = ({
+      'zona1': 'Zona 1', 'zona2': 'Zona 2', 'zona1a': 'Zona 1A', 'zona1b': 'Zona 1B',
+      'zona2a': 'Zona 2A', 'zona2b': 'Zona 2B', 'zona3': 'Zona 3',
+      'tl_manana': 'TL Mañana', 'tl_tarde': 'TL Tarde', 'tl': 'TL',
+      'america_fortin': 'América/Fortín'
+    })[v.zona] || v.zona;
+    const _fs = String(v.fecha_salida || '').split('-');
+    const _fsTxt = _fs.length === 3 ? (_fs[2] + '/' + _fs[1]) : (v.fecha_salida || '—');
+    let _h = '';
+    if (v.estado === 'preparando') {
+      _h += '<div class="mv-prep-card">';
+      _h += '  <div class="mv-prep-tit">\uD83D\uDD27 DEPÓSITO PREPARANDO CARGA</div>';
+      _h += '  <div class="mv-prep-zona">' + _zd + ' · salida ' + _fsTxt + '</div>';
+      _h += '  <div class="mv-prep-veh">' + (v.vehiculo || '—') + ' · ' + (v.total_pedidos || 0) + ' pedidos</div>';
+      _h += '  <div class="mv-prep-aviso">La carga todavía no está cerrada.</div>';
+      _h += '</div>';
+    } else {
+      _h += '<div class="mv-listo-card">';
+      _h += '  <div class="mv-listo-tit">\u2705 CARGA LISTA</div>';
+      _h += '  <div class="mv-listo-sub">Depósito terminó de cargar y controlar el camión.</div>';
+      _h += '  <div class="mv-listo-zona">' + _zd + ' · salida ' + _fsTxt + ' · ' + (v.vehiculo || '—') + '</div>';
+      _h += '  <button class="mv-listo-btn" id="mv-arrancar-btn" onclick="mvArrancarViaje(\'' + v.id + '\')">\uD83D\uDE9A ARRANCAR VIAJE</button>';
+      _h += '  <div class="mv-listo-aviso">Tocalo cuando estés saliendo físicamente del depósito.</div>';
+      _h += '</div>';
+    }
+    wrap.innerHTML = _h;
+    return;
+  }
+
   const totalPedidos = v.total_pedidos || 0;
   const cobrado = Number(v.monto_cobrado) || 0;
   const total = Number(v.monto_total) || 0;
@@ -38914,6 +39046,22 @@ async function _cargarEntregasInterno(esRefresh) {
     if (_viajeActivoError && !_viajeActivo) throw _viajeActivoError;
 
     // Si no hay viaje activo, mostrar pantalla "Sin viaje activo"
+    // ═══ v14.170.0 — GATE: solo se operan entregas con el viaje EN RUTA ═══
+    // Sin esto, incorporar preparando/carga_cerrada a cargarViajeActivo
+    // habilitaria entregar, no entregar, cobrar y rendir sobre un camion
+    // que todavia esta en el deposito. No alcanza con esconder botones:
+    // este es el unico punto por el que se pintan las entregas.
+    if (_viajeActivo && _viajeActivo.estado !== 'en_ruta') {
+      _entregasCache = [];
+      var _elG = document.getElementById('entregas-lista');
+      if (_elG) _elG.innerHTML = '';
+      var _resG = document.getElementById('resumen-chofer');
+      if (_resG) _resG.innerHTML = '';
+      _mvViajeActivo = _viajeActivo;
+      if (typeof mvRenderViajeActivo === 'function') mvRenderViajeActivo();
+      return [];
+    }
+
     if (!_viajeActivo) {
       _entregasCache = [];
       const html = await renderSinViajeActivo();
@@ -54194,7 +54342,7 @@ function depPollIniciar() {
    TCK_UPD_LOCAL aca Y el archivo version.json del repo.
    ============================================================ */
 (function(){
-  var TCK_UPD_LOCAL = '14.169.0';        /* <-- bump en cada deploy */
+  var TCK_UPD_LOCAL = '14.170.0';        /* <-- bump en cada deploy */
   /* v14.159.0: fuente UNICA de version. La telemetria del shadow la reporta,
      asi que un desfasaje contra version.json se ve solo en el primer pedido
      (paso 4 veces sin que nadie lo notara: 14.109, 14.128, 14.137, 14.147). */
