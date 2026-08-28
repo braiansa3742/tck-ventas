@@ -26705,9 +26705,98 @@ function _cancelarPedidoModal(pedidoId, fila, p) {
 // v14.15.0: cancelar pedido que tiene presupuesto Xubio creado.
 // Flujo: 1) anular presupuesto en Xubio, 2) si OK marcar pedido como Cancelado.
 // Si el paso 1 falla, NO se cancela el pedido (queda como estaba).
+/* ══════════════════════════════════════════════════════════════════
+   v14.171.0 — ANULACION DE PRESUPUESTOS: UNA SOLA LECTURA DEL BODY
+   ──────────────────────────────────────────────────────────────────
+   BUG QUE SE CORRIGE (auditoria 28/08, reproducido en banco):
+   appsScriptFetch lee el body desde v14.44.0 (`await res.text()` + JSON.parse)
+   y lo expone en `.data`. Estas dos funciones —las unicas de las 29 que
+   llaman al helper— seguian haciendo `await resp.response.json()`, o sea una
+   SEGUNDA lectura del mismo stream. En el navegador eso tira
+   `TypeError: body stream already read` SIEMPRE, incluso cuando el Apps
+   Script devolvio status ok.
+   Consecuencia real: el vendedor tocaba "Editar pedido (anula presupuesto)",
+   el backend anulaba bien, el front caia al catch y mostraba "No se pudo
+   desbloquear el pedido". Como el error no es AbortError, ni siquiera entraba
+   en la rama de reconciliacion. Ningun mensaje funcional del backend
+   (PEDIDO_FACTURADO, OPERACION_EN_CURSO, XUBIO_CONFLICTO…) llegaba nunca.
+   El tercer punto que anula presupuestos (_cciEjecutar, cambio de calibre)
+   no estaba afectado: usa _cciFetchJson, que lee una sola vez.
+   ══════════════════════════════════════════════════════════════════ */
+
+/* Mensajes por codigo funcional. Nunca se le muestra al vendedor un codigo
+   tecnico, un body de Xubio ni un [object Object]. */
+var _ANUL_MSG = {
+  PEDIDO_FACTURADO:
+    'Este pedido ya tiene una factura asociada y no puede editarse desde Ventas. Debe revisarlo Administración.',
+  ESTADO_FISCAL_NO_VERIFICABLE:
+    'No se pudo verificar de forma segura si el pedido está facturado. No se anuló ningún presupuesto. Reintentá más tarde o consultá a Administración.',
+  PRESUPUESTO_NO_COINCIDE:
+    'El presupuesto mostrado ya no coincide con el pedido actual. Actualizá la pantalla antes de intentar nuevamente.',
+  OPERACION_EN_CURSO:
+    'Este pedido ya está siendo procesado. Esperá unos segundos y actualizá la pantalla.',
+  XUBIO_AUTH:
+    'Xubio rechazó la anulación por permisos. Avisale al admin: no se anuló nada.',
+  XUBIO_CONFLICTO:
+    'Xubio no permite anular este presupuesto (puede tener un comprobante asociado). Consultá a Administración.',
+  XUBIO_METHOD:
+    'Xubio no aceptó la operación. Avisale al admin: no se anuló nada.',
+  ESTADO_CAMBIO_DURANTE_OPERACION:
+    'El pedido cambió mientras se anulaba el presupuesto. Avisale a Administración para que lo revise antes de tocarlo.',
+  CIERRE_OPERACION_NO_CONFIRMADO:
+    'La anulación se completó, pero quedó sin confirmar el control interno. Verificando el estado real del pedido…',
+  NO_TRANSACCIONID:
+    'Falta el ID interno de Xubio en este pedido. Avisale al admin.',
+  /* v14.171.1 — kill-switch del backend (GAS v25.136.1). Administración puede
+     apagar la anulación de presupuestos sin republicar nada; el vendedor tiene
+     que entender que no es un error suyo ni un problema de red. */
+  EDICION_DESHABILITADA:
+    'La edición de pedidos está temporalmente deshabilitada por Administración. No se anuló ningún presupuesto.'
+};
+
+/* Traduce la respuesta del Apps Script a un mensaje humano. */
+function _anulMensaje(data, fallback) {
+  if (!data) return fallback;
+  var m = _ANUL_MSG[data.code];
+  if (m) return m;
+  if (data.message && String(data.message).length < 220 &&
+      String(data.message) !== '[object Object]') return String(data.message);
+  return fallback;
+}
+
+/* Validacion defensiva de la respuesta del helper. Devuelve
+   { ok:true, data } | { ok:false, motivo:'red'|'estructura', mensaje }.
+   No vuelve a leer el body: usa exclusivamente resp.data. */
+function _anulLeerRespuesta(resp) {
+  if (!resp || !resp.ok) {
+    return { ok: false, motivo: 'red',
+             mensaje: 'No se pudo contactar al servidor. No se anuló nada. Reintentá en unos segundos.' };
+  }
+  if (!resp.data || typeof resp.data !== 'object' || typeof resp.data.status !== 'string') {
+    // appsScriptFetch ya avisó por consola si el body no era JSON.
+    return { ok: false, motivo: 'estructura',
+             mensaje: 'El servidor respondió algo inesperado. No se anuló nada. Reintentá en unos segundos.' };
+  }
+  return { ok: true, data: resp.data };
+}
+
+/* Guard de doble clic: mientras hay una anulacion en vuelo para un pedido,
+   un segundo toque no dispara otra solicitud. */
+var _anulEnVuelo = {};
+function _anulTomar(pedidoId) {
+  if (_anulEnVuelo[pedidoId]) return false;
+  _anulEnVuelo[pedidoId] = Date.now();
+  return true;
+}
+function _anulSoltar(pedidoId) { delete _anulEnVuelo[pedidoId]; }
+
 async function _cancelarConXubio(pedidoId, fila, p, motivo) {
   if (!p.xubioTransaccionid) {
     toast('⚠️ Falta xubio_transaccionid. Avisá al admin para cancelar a mano.', 'err');
+    return;
+  }
+  if (!_anulTomar(pedidoId)) {
+    toast('⏳ Ya se está procesando este pedido. Esperá unos segundos.', '');
     return;
   }
   toast('⏳ Anulando presupuesto Xubio...', '');
@@ -26721,11 +26810,22 @@ async function _cancelarConXubio(pedidoId, fila, p, motivo) {
       op_id:          _opId('cancel', pedidoId, p.xubioTransaccionid)   // v14.151.0
     });
     var resp = await appsScriptFetch(params, { timeout: 30000 });
-    var data = await resp.response.json();
+    // v14.171.0 — UNA sola lectura: appsScriptFetch ya parseó el body.
+    var lect = _anulLeerRespuesta(resp);
+    if (!lect.ok) {
+      toast('⚠️ ' + lect.mensaje + '\nEl pedido NO se canceló.', 'err');
+      return;
+    }
+    var data = lect.data;
+
     if (data.status !== 'ok') {
-      var msgErr = data.message || 'Error desconocido en Xubio';
-      console.error('[_cancelarConXubio] Apps Script error:', data);
-      toast('⚠️ No se pudo anular el presupuesto: ' + msgErr + '\nEl pedido NO se canceló.', 'err');
+      console.error('[_cancelarConXubio] Apps Script error:', data.code || '(sin code)');
+      toast('⚠️ ' + _anulMensaje(data, 'No se pudo anular el presupuesto.') +
+            '\nEl pedido NO se canceló.', 'err');
+      // El backend pudo haber hecho el trabajo y fallar solo el cierre: leer la verdad.
+      if (data.code === 'CIERRE_OPERACION_NO_CONFIRMADO') {
+        _pedidoReconciliar(pedidoId).catch(function () {});
+      }
       return;
     }
     // Presupuesto anulado. Limpiar refs Xubio del pedido local
@@ -26742,6 +26842,8 @@ async function _cancelarConXubio(pedidoId, fila, p, motivo) {
     if (e && e.name === 'AbortError') msgFinal += ' (sin internet o muy lento)';
     msgFinal += '\nEl pedido NO se canceló. Reintentá en unos segundos.';
     toast(msgFinal, 'err');
+  } finally {
+    _anulSoltar(pedidoId);
   }
 }
 
@@ -26809,13 +26911,18 @@ function _opId(accion, pedidoId, ref) {
 async function desbloquearPedidoXubio(pedidoId, transaccionid, nroPresupuesto, btnEl) {
   // Validación previa
   if (!transaccionid) {
-    toast('⚠️ Falta el ID interno Xubio (transaccionid). Avisá al admin.', 'err');
+    toast('⚠️ ' + _ANUL_MSG.NO_TRANSACCIONID, 'err');
+    return;
+  }
+  // v14.171.0 — un segundo toque no puede largar otra solicitud (ni otro DELETE).
+  if (!_anulTomar(pedidoId)) {
+    toast('⏳ Ya se está procesando este pedido. Esperá unos segundos.', '');
     return;
   }
   // Confirmación al vendedor
   var msg = '¿Anular el presupuesto Xubio N° ' + nroPresupuesto + ' y editar el pedido?\n\n' +
             'Vas a poder modificar el pedido y crear un presupuesto nuevo después.';
-  if (!confirm(msg)) return;
+  if (!confirm(msg)) { _anulSoltar(pedidoId); return; }
 
   // Lock del botón mientras espera respuesta (Apps Script tarda ~5seg)
   var textoOriginal = '';
@@ -26824,6 +26931,9 @@ async function desbloquearPedidoXubio(pedidoId, transaccionid, nroPresupuesto, b
     btnEl.disabled = true;
     btnEl.textContent = '⏳ Anulando presupuesto...';
   }
+  var _restaurar = function () {
+    if (btnEl) { btnEl.disabled = false; btnEl.textContent = textoOriginal; }
+  };
 
   try {
     var params = new URLSearchParams({
@@ -26836,14 +26946,43 @@ async function desbloquearPedidoXubio(pedidoId, transaccionid, nroPresupuesto, b
     });
     // Estricto: el vendedor TIENE que saber si falló.
     var resp = await appsScriptFetch(params, { timeout: 30000 });
-    // Apps Script responde con JSON — leerlo
-    var data = await resp.response.json();
+
+    /* v14.171.0 — UNA SOLA LECTURA DEL BODY.
+       Antes: `await resp.response.json()` sobre un stream ya consumido por
+       appsScriptFetch -> TypeError en el camino de exito. */
+    var lect = _anulLeerRespuesta(resp);
+    if (!lect.ok) {
+      toast('⚠️ ' + lect.mensaje, 'err');
+      _restaurar();
+      return;
+    }
+    var data = lect.data;
+
+    /* Cierre del control de concurrencia no confirmado: el efecto SI ocurrio.
+       No se reintenta la anulacion (seria un segundo DELETE): se lee el estado
+       real del pedido y se le informa al vendedor lo que el servidor confirme. */
+    if (data.code === 'CIERRE_OPERACION_NO_CONFIRMADO') {
+      console.warn('[desbloquearPedidoXubio] cierre no confirmado');
+      toast('⏳ ' + _ANUL_MSG.CIERRE_OPERACION_NO_CONFIRMADO, '');
+      var rc = await _pedidoReconciliar(pedidoId).catch(function () { return null; });
+      _restaurar();
+      if (rc && rc.ok && rc.datos && rc.datos.estado === 'Pendiente' && !rc.datos.presupuesto_id) {
+        toast('✅ El presupuesto se anuló. Ya podés editar el pedido.', 'ok');
+      } else {
+        toast('⚠️ No pudimos confirmar el estado del pedido. Tocá Actualizar antes de seguir.', 'err');
+      }
+      return;
+    }
 
     if (data.status !== 'ok') {
-      var msgErr = data.message || 'Error desconocido';
-      console.error('[desbloquearPedidoXubio] Apps Script error:', data);
-      toast('⚠️ ' + msgErr, 'err');
-      if (btnEl) { btnEl.disabled = false; btnEl.textContent = textoOriginal; }
+      console.error('[desbloquearPedidoXubio] Apps Script error:', data.code || '(sin code)');
+      toast('⚠️ ' + _anulMensaje(data, 'No se pudo desbloquear el pedido. Reintentá en unos segundos.'), 'err');
+      _restaurar();
+      // Un bloqueo fiscal o un presupuesto que ya no coincide significan que la
+      // card esta vieja: se refresca para que el vendedor vea la realidad.
+      if (data.code === 'PRESUPUESTO_NO_COINCIDE' || data.code === 'PEDIDO_FACTURADO') {
+        _pedidoReconciliar(pedidoId).catch(function () {});
+      }
       return;
     }
 
@@ -26854,48 +26993,39 @@ async function desbloquearPedidoXubio(pedidoId, transaccionid, nroPresupuesto, b
       p.xubioNroPresupuesto = '';
       p.xubioTransaccionid  = '';
       p.xubioEstado         = '';
-      // v14.151.0 — se fue _estadosCambiados: era el parche que sostenía
-      // SOLO el estado mientras el CSV seguía atrasado, y producía
-      // combinaciones imposibles (estado nuevo + total viejo). Con la
-      // lectura canónica en ~30 ms no hay nada que sostener.
     }
     renderPedidos(true); // pintado optimista inmediato
-    // v14.151.0 — READ AFTER WRITE: lo que quede en pantalla sale del
-    // servidor, no de lo que el front supone. Aislado: si falla, afecta a
-    // ESTE pedido y a nada más.
+    // READ AFTER WRITE (v14.151.0): lo que queda en pantalla sale del servidor.
     _pedidoReconciliar(pedidoId).catch(function () {});
-    toast('✅ Presupuesto N° ' + nroPresupuesto + ' anulado. Editá el pedido y creá uno nuevo.', 'ok');
+    toast(data.idempotente
+      ? '✅ El presupuesto ya estaba anulado. Podés editar el pedido.'
+      : ('✅ Presupuesto N° ' + nroPresupuesto + ' anulado. Editá el pedido y creá uno nuevo.'), 'ok');
 
   } catch(e) {
     console.error('[desbloquearPedidoXubio]', e);
     /* v14.151.1 — UN TIMEOUT NO SIGNIFICA QUE NO SE HIZO.
-       Caso Jorge Morales (14/08): el GAS tardo 152 s (gs_operaciones
-       15:58:34 -> 16:01:06) y el front aborta a los 30 s. La operacion SI se
-       completo en el servidor —presupuesto 8960 borrado de Xubio, pedido en
-       Pendiente, espejo limpio— pero el front se fue por el catch y dejo la
-       card en Confirmado. Ahora, ante un AbortError, se lee el estado
-       canonico ANTES de dar nada por perdido: si el servidor termino, la
-       card se corrige sola y el vendedor puede seguir trabajando. */
-    if (e && e.name === "AbortError") {
-      toast("\u23F3 El servidor tardo. Verificando si igual se hizo\u2026", "ok");
+       Caso Jorge Morales (14/08): el GAS tardo 152 s y el front aborta a los
+       30 s. Ante un AbortError se lee el estado canonico antes de dar nada por
+       perdido. */
+    if (e && e.name === 'AbortError') {
+      toast('⏳ El servidor tardó. Verificando si igual se hizo…', 'ok');
       _pedidoReconciliar(pedidoId).then(function (r) {
-        if (btnEl) { btnEl.disabled = false; btnEl.textContent = textoOriginal; }
-        if (r && r.ok && r.datos && r.datos.estado === "Pendiente" && !r.datos.presupuesto_id) {
-          toast("\u2705 El presupuesto se anulo igual. Ya podes editar el pedido.", "ok");
+        _restaurar();
+        if (r && r.ok && r.datos && r.datos.estado === 'Pendiente' && !r.datos.presupuesto_id) {
+          toast('✅ El presupuesto se anuló igual. Ya podés editar el pedido.', 'ok');
           return;
         }
-        toast("\u26A0\uFE0F No pudimos confirmar si se anulo. Toca Actualizar.", "err");
-      }).catch(function () {
-        if (btnEl) { btnEl.disabled = false; btnEl.textContent = textoOriginal; }
-      });
+        toast('⚠️ No pudimos confirmar si se anuló. Tocá Actualizar.', 'err');
+      }).catch(function () { _restaurar(); });
       return;
     }
     var msgFinal = '⚠️ No se pudo desbloquear el pedido';
-    if (e && e.name === 'AbortError') msgFinal += ' (sin internet o muy lento — Xubio tarda)';
-    else if (e && e.status) msgFinal += ' (server ' + e.status + ')';
+    if (e && e.status) msgFinal += ' (server ' + e.status + ')';
     msgFinal += '\nReintentá en unos segundos. Si persiste, hacelo a mano en Xubio.';
     toast(msgFinal, 'err');
-    if (btnEl) { btnEl.disabled = false; btnEl.textContent = textoOriginal; }
+    _restaurar();
+  } finally {
+    _anulSoltar(pedidoId);
   }
 }
 
@@ -54342,7 +54472,7 @@ function depPollIniciar() {
    TCK_UPD_LOCAL aca Y el archivo version.json del repo.
    ============================================================ */
 (function(){
-  var TCK_UPD_LOCAL = '14.170.0';        /* <-- bump en cada deploy */
+  var TCK_UPD_LOCAL = '14.171.1';        /* <-- bump en cada deploy */
   /* v14.159.0: fuente UNICA de version. La telemetria del shadow la reporta,
      asi que un desfasaje contra version.json se ve solo en el primer pedido
      (paso 4 veces sin que nadie lo notara: 14.109, 14.128, 14.137, 14.147). */
