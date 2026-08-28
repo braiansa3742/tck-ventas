@@ -2,6 +2,34 @@
 <html lang="es">
 <head>
 <!-- ═══════════════════════════════════════════════════════════════════════
+     TCK VENTAS — v14.169.0 — 27/08/2026
+     v14.169.0: DEPÓSITO CIERRA LA CARGA (panel de Pancho).
+     Conecta el control físico que Depósito ya hace con el circuito moderno
+     de viajes. Pancho certifica lo FÍSICO; NO arranca el viaje.
+     · depCargasRecargar: HOY + MAÑANA (el camión se carga la noche
+       anterior; con fecha_salida=hoy el viaje de mañana no aparecía) y
+       estados planificado/preparando/carga_cerrada. Trae planilla_version,
+       planilla_hash, planilla_desactualizada y carga_cerrada_*.
+     · Chips de estado: PLANILLA vN VIGENTE / DESACTUALIZADA / SIN PLANILLA,
+       CONTROL PENDIENTE / CONTROL vN, CARGA CERRADA.
+     · 🔄 ACTUALIZAR PLANILLA vía planillaImprimir (auditado: mismo
+       snapshot, idempotente por hash, sin PDF en backend, reconciliación
+       C2). NO se ofrece con la carga cerrada: replica la protección C1.
+     · CONTROL V1 = TODO O NADA. El nuevo control se guarda en
+       viajes_carga_control (canónica) con planilla_version vigente y
+       excepciones = []. UNIQUE(viaje_id,planilla_version) hace el doble
+       click idempotente. Un control de v3 NO habilita cerrar v4.
+       No se producen excepciones numéricas: un faltante dispara un
+       circuito comercial/fiscal (sustitución, NC, devolución) que NO
+       pertenece al cierre de carga. Si falta algo, no se conforma.
+     · 🔒 CERRAR CARGA vía viajeCerrarCarga. NUNCA llama viajeArrancar.
+     · cargas_conformidad queda INTACTA como histórico (13 filas).
+     · Estados visibles: preparando + carga_cerrada. NO 'planificado': ese
+       estado es previo a la asignación de chofer, y un viaje sin chofer que
+       se cerrara quedaría inarrancable desde Ventas.
+     + FIX BANNER: TCK_UPD_LOCAL venía en 14.160.0 con version.json en
+       14.168.0 → banner "Nueva versión" clavado. Alineados en 14.169.0.
+     ─────────────────────────────────────────────────────────────────────
      TCK VENTAS — v14.168.0 — 26/08/2026
      v14.168.0: UNIÓN DE DUPLICADOS — CANDADOS ANTI DOBLE-SUMA.
      dupUnirPedidos() suma totales y fusiona líneas: NO es idempotente.
@@ -52174,6 +52202,25 @@ async function depVencSalida(id) {
 .dep-seg { display:grid;grid-template-columns:repeat(4,1fr);gap:5px;margin:10px 0 12px; }
 .dep-seg button { padding:9px 2px;border:1.5px solid #E8DFD5;border-radius:10px;background:#FAF6F0;font-family:'Barlow Condensed',sans-serif;font-size:13px;font-weight:900;color:#5C4A38;cursor:pointer;touch-action:manipulation;display:flex;align-items:center;justify-content:center;gap:2px; }
 .dep-grupo-head { display:flex;align-items:center;gap:8px;font-family:'Barlow Condensed',sans-serif;font-weight:900;font-size:15px;color:#2A2018;background:#F0E9DF;border-radius:8px;padding:8px 10px;margin:10px 2px 6px; }
+.dep-chips { display:flex;flex-wrap:wrap;gap:5px;margin:6px 2px 8px; }
+.dep-chip { font-size:11px;font-weight:700;padding:3px 8px;border-radius:20px;border:1px solid; }
+.dep-chip-ok   { background:#F1F8E9;border-color:#A5D6A7;color:#2E7D32; }
+.dep-chip-warn { background:#FFF3E0;border-color:#FFCC80;color:#B45309; }
+.dep-chip-pend { background:#F5F5F5;border-color:#DDD;color:#8A7E72; }
+.dep-plan-btn { display:block;width:100%;margin:8px 0 4px;padding:13px;background:#B45309;color:#fff;
+  border:0;border-radius:10px;font-size:15px;font-weight:800;cursor:pointer; }
+.dep-cerrar-btn { display:block;width:100%;margin:8px 0 4px;padding:16px;background:#1A0800;color:#FAF4EC;
+  border:0;border-radius:11px;font-size:17px;font-weight:800;letter-spacing:.4px;cursor:pointer; }
+.dep-cerrar-btn:active { transform:scale(.985); }
+.dep-ctl-ok { background:#F1F8E9;border:1px solid #A5D6A7;border-radius:9px;padding:9px 11px;
+  margin:8px 0 2px;font-size:13px;font-weight:700;color:#2E7D32; }
+.dep-cerrada-box { background:linear-gradient(135deg,#1E8449 0%,#145A32 100%);border-radius:12px;
+  padding:15px;margin:9px 0 3px;text-align:center; }
+.dep-cerrada-t { color:#fff;font-size:16px;font-weight:800;letter-spacing:.4px; }
+.dep-cerrada-s { color:rgba(255,255,255,.9);font-size:12.5px;margin-top:3px; }
+.dep-incompleta { background:#FFF3E0;border:1px solid #FFCC80;border-radius:9px;padding:10px 12px;
+  margin:8px 0 2px;font-size:13px;font-weight:800;color:#B45309;text-align:center; }
+.dep-incompleta span { display:block;font-weight:500;font-size:12px;margin-top:4px;line-height:1.35;color:#8A6A3A; }
 .dep-load-item { display:flex;align-items:center;gap:8px;padding:9px 10px;border:1px solid #E8DFD5;border-radius:8px;margin:4px 2px;background:#fff;font-size:14px;color:#2A2018;cursor:pointer;-webkit-tap-highlight-color:transparent; }
 .dep-load-item input { width:22px;height:22px;flex:none; }
 .dep-load-item .q { background:#2E7D32;color:#fff;border-radius:8px;padding:1px 8px;font-family:'Barlow Condensed',sans-serif;font-weight:900;font-size:14px;flex:none; }
@@ -53040,6 +53087,7 @@ var _depComprobante = {};                 // v14.73.0: pedido_id -> {facturaNro,
 var _depCargaCheck = {};                  // v14.73.0: viaje_id -> { idx: true } (checklist local de carga)
 var _depCargaVista = {};                  // v14.96.0: viaje_id -> 'cargar' | 'cli' (toggle de vista en la card)
 var _depCargaTotal = {};                  // v14.96.0: viaje_id -> cantidad de ítems a cargar (progreso/conforme)
+var _depCtlPorViaje = {};                 // v14.169.0: '<viaje_id>|<planilla_version>' -> fila de viajes_carga_control
 var _depAjustesPorPedido = {};            // v14.96.0: pedido_id -> [ajustes pendientes en cargas_ajustes]
 
 // Orden de carga = INVERSO al recorrido (la última parada se carga primero)
@@ -53097,8 +53145,34 @@ async function depCargasRecargar() {
       var d = new Date();
       return d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0');
     })();
-    _depViajesHoy = await sbFetch('viajes?select=id,zona,chofer,vehiculo,estado,total_pedidos,monto_total' +
-      '&fecha_salida=eq.' + hoyISO + '&order=created_at.asc&limit=30') || [];
+    // v14.169.0 — HOY + MAÑANA. El camión se carga la tarde/noche anterior:
+    // con fecha_salida=hoy, un viaje que sale mañana no aparecía y Pancho no
+    // podía controlarlo. Estados: los que se están preparando o ya se cerraron.
+    var manISO = (function () {
+      var d = new Date(); d.setDate(d.getDate() + 1);
+      return d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0');
+    })();
+    _depViajesHoy = await sbFetch('viajes?select=id,zona,chofer,vehiculo,estado,total_pedidos,monto_total,' +
+      'fecha_salida,planilla_version,planilla_hash,planilla_desactualizada,carga_cerrada_at,carga_cerrada_por' +
+      '&fecha_salida=in.(' + hoyISO + ',' + manISO + ')' +
+      // v14.169.0 — SIN 'planificado': ese estado es previo a viajeAsignarChofer
+      // (GAS 13223 lo pasa a 'preparando' al asignar). Un viaje planificado no
+      // tiene chofer, y si Deposito lo cerrara nadie podria arrancarlo desde
+      // Ventas: el chofer filtra sus viajes por nombre. Verificado con datos
+      // reales: el unico planificado de hoy/manana es tl_manana sin chofer,
+      // sin vehiculo y sin planilla.
+      '&estado=in.(preparando,carga_cerrada)' +
+      '&order=fecha_salida.asc,created_at.asc&limit=30') || [];
+    // v14.169.0 — control físico por planilla_version (fuente canónica).
+    _depCtlPorViaje = {};
+    if (_depViajesHoy.length) {
+      try {
+        var idsCtl = _depViajesHoy.map(function (x) { return x.id; }).join(',');
+        var ctls = await sbFetch('viajes_carga_control?viaje_id=in.(' + idsCtl + ')' +
+          '&select=viaje_id,planilla_version,confirmado_at,confirmado_por&limit=100') || [];
+        (ctls || []).forEach(function (c) { _depCtlPorViaje[c.viaje_id + '|' + c.planilla_version] = c; });
+      } catch (eCtl) { _depCtlPorViaje = {}; }
+    }
     _depEntregasViaje = {};
     _depConformidades = {};
     if (_depViajesHoy.length) {
@@ -53381,6 +53455,7 @@ function _depViajeCard(v) {
   _depCargaTotal[v.id] = agg.length;
 
   // Progreso de carga
+  h += _depEstadoChips(v);
   h += '<div class="dep-prog-wrap">';
   h += '  <div class="dep-prog-top"><span>📋 Cargado</span><span class="dep-prog-n" id="dep-load-count-' + v.id + '">' + nCheck + ' / ' + agg.length + '</span></div>';
   h += '  <div class="dep-prog-bar"><div class="dep-prog-fill" id="dep-load-fill-' + v.id + '" style="width:' + (agg.length ? (nCheck / agg.length * 100) : 0) + '%;"></div></div>';
@@ -53430,8 +53505,38 @@ function _depViajeCard(v) {
   h += '</div>';
 
   // Conformar (obligatorio: solo si tildó todo el checklist)
-  h += '<button class="dep-conf-ok" id="dep-conf-btn-' + v.id + '"' + (completo ? '' : ' disabled') + ' onclick="depCargaConformar(\'' + v.id + '\')">✅ CARGUÉ CONFORME</button>';
-  h += '<div class="dep-conf-nota" id="dep-conf-nota-' + v.id + '"' + (completo ? ' style="display:none;"' : '') + '>Tildá los ' + agg.length + ' productos para conformar</div>';
+  // ── v14.169.0 — control + cierre ──────────────────────────────
+  var _ctlV = _depCtlVigente(v);
+  var _planOk = _depPlanillaOk(v);
+  var _cerrada = (v.estado === 'carga_cerrada');
+
+  if (_cerrada) {
+    h += '<div class="dep-cerrada-box">' +
+         '  <div class="dep-cerrada-t">\u2705 CARGA CERRADA</div>' +
+         '  <div class="dep-cerrada-s">Camión listo para salir.</div>' +
+         '</div>';
+  } else {
+    if (!_planOk) {
+      h += '<button class="dep-plan-btn" id="dep-plan-btn-' + v.id + '" onclick="depActualizarPlanilla(\'' + v.id + '\')">\uD83D\uDD04 ACTUALIZAR PLANILLA</button>';
+      h += '<div class="dep-conf-nota">' +
+           (Number(v.planilla_version) ? 'Entraron cambios después de la planilla v' + v.planilla_version + '. Actualizala antes de controlar.'
+                                       : 'Este viaje todavía no tiene planilla.') + '</div>';
+    }
+    if (_ctlV) {
+      h += '<div class="dep-ctl-ok">\u2705 Control de la planilla v' + v.planilla_version +
+           ' confirmado por ' + _mostEsc(_ctlV.confirmado_por || '') + '</div>';
+      h += '<button class="dep-cerrar-btn" id="dep-cerrar-btn-' + v.id + '" onclick="depCerrarCarga(\'' + v.id + '\')">\uD83D\uDD12 CERRAR CARGA</button>';
+    } else {
+      h += '<button class="dep-conf-ok" id="dep-conf-btn-' + v.id + '"' + ((completo && _planOk) ? '' : ' disabled') + ' onclick="depCargaConformar(\'' + v.id + '\')">\u2705 CARGUÉ CONFORME</button>';
+      if (!completo) {
+        h += '<div class="dep-incompleta">\u26A0\uFE0F CARGA INCOMPLETA<br>' +
+             '<span>Hay mercadería de esta planilla que todavía no está cargada. ' +
+             'Podés salir y seguir más tarde: lo tildado se conserva.</span></div>';
+      } else if (!_planOk) {
+        h += '<div class="dep-conf-nota">Actualizá la planilla antes de conformar.</div>';
+      }
+    }
+  }
   h += '</div>';
   return h;
 }
@@ -53524,6 +53629,120 @@ function _depCargasHtml() {
   return h;
 }
 
+// ══════════════════════════════════════════════════════════════════
+//  v14.169.0 — DEPÓSITO CIERRA LA CARGA
+//  Pancho certifica lo FÍSICO: que todo lo de la planilla vigente está
+//  arriba del camión. No arranca el viaje: eso lo hace el chofer al salir.
+//  CONTROL V1 = TODO O NADA. Sin conteo parcial, sin excepciones
+//  numéricas: un faltante dispara un circuito comercial/fiscal
+//  (sustitución, NC, devolución) que NO pertenece al cierre de carga.
+// ══════════════════════════════════════════════════════════════════
+
+// Control físico vigente para ESTA versión de planilla. Un control de v3
+// no vale para v4: esa es la invariante que pide viajeCerrarCarga.
+function _depCtlVigente(v) {
+  if (!v || !Number(v.planilla_version)) return null;
+  return _depCtlPorViaje[v.id + '|' + Number(v.planilla_version)] || null;
+}
+
+function _depPlanillaOk(v) {
+  return !!(v && Number(v.planilla_version) > 0 && !v.planilla_desactualizada);
+}
+
+// Chips de estado. Reutiliza las clases del panel, sin rediseño.
+function _depEstadoChips(v) {
+  var h = '<div class="dep-chips">';
+  if (v.estado === 'carga_cerrada') {
+    h += '<span class="dep-chip dep-chip-ok">\u2705 CARGA CERRADA</span>';
+  }
+  if (!Number(v.planilla_version)) {
+    h += '<span class="dep-chip dep-chip-warn">\u26A0\uFE0F SIN PLANILLA</span>';
+  } else if (v.planilla_desactualizada) {
+    h += '<span class="dep-chip dep-chip-warn">\u26A0\uFE0F PLANILLA v' + v.planilla_version + ' DESACTUALIZADA</span>';
+  } else {
+    h += '<span class="dep-chip dep-chip-ok">\uD83D\uDCC4 PLANILLA v' + v.planilla_version + ' VIGENTE</span>';
+  }
+  var ctl = _depCtlVigente(v);
+  if (ctl) {
+    h += '<span class="dep-chip dep-chip-ok">\u2705 CONTROL v' + v.planilla_version + '</span>';
+  } else if (Number(v.planilla_version)) {
+    h += '<span class="dep-chip dep-chip-pend">\u23F3 CONTROL PENDIENTE</span>';
+  }
+  h += '</div>';
+  return h;
+}
+
+// ACTUALIZAR PLANILLA — usa planillaImprimir (auditado: mismo snapshot,
+// idempotente por hash, sin PDF en backend, con reconciliación C2).
+// NO se ofrece con la carga cerrada: replica la protección C1 del Admin.
+var _depActualizando = {};
+async function depActualizarPlanilla(viajeId) {
+  var v = _depViajesHoy.find(function (x) { return x.id === viajeId; });
+  if (!v) return;
+  if (v.estado === 'carga_cerrada') {
+    toast('\u26D4 La carga ya está cerrada. Para cambiarla hay que reabrirla desde Administración.', 'err');
+    return;
+  }
+  if (_depActualizando[viajeId]) return;
+  _depActualizando[viajeId] = true;
+  var btn = document.getElementById('dep-plan-btn-' + viajeId);
+  var prev = btn ? btn.innerHTML : null;
+  if (btn) { btn.disabled = true; btn.style.opacity = '0.55'; btn.innerHTML = '\u23F3 Actualizando…'; }
+  try {
+    var r = await _colaFetchJson(APPS_SCRIPT_URL + '?accion=planillaImprimir' +
+      '&viaje_id=' + encodeURIComponent(viajeId) +
+      '&quien=' + encodeURIComponent(vendedorActual || 'deposito'), 60000);
+    if (r && r.status === 'ok') {
+      toast(r.sin_cambios
+        ? '\u2705 La planilla v' + r.version + ' ya estaba al día'
+        : '\u2705 Planilla actualizada a v' + r.version + ' \u00b7 ' + r.total_pedidos + ' pedidos', 'ok');
+      // El control anterior deja de valer: era de otra versión.
+      _depCargaCheck[viajeId] = {};
+      await depositoRecargar();
+    } else {
+      toast('\u26D4 ' + ((r && r.message) || 'No se pudo actualizar la planilla'), 'err');
+    }
+  } catch (e) {
+    toast('\u26D4 No se pudo actualizar la planilla: ' + (e && e.message ? e.message : e), 'err');
+  } finally {
+    _depActualizando[viajeId] = false;
+    if (btn) { btn.disabled = false; btn.style.opacity = ''; if (prev) btn.innerHTML = prev; }
+  }
+}
+
+// CERRAR CARGA — reutiliza viajeCerrarCarga. NUNCA llama viajeArrancar.
+var _depCerrando = {};
+async function depCerrarCarga(viajeId) {
+  var v = _depViajesHoy.find(function (x) { return x.id === viajeId; });
+  if (!v) return;
+  if (_depCerrando[viajeId]) return;
+  if (!confirm('¿CONFIRMÁS QUE TERMINASTE DE CARGAR Y CONTROLAR EL CAMIÓN?\n\n' +
+               'Al cerrar la carga, el viaje queda listo para que el chofer pueda arrancarlo.')) return;
+  _depCerrando[viajeId] = true;
+  var btn = document.getElementById('dep-cerrar-btn-' + viajeId);
+  var prev = btn ? btn.innerHTML : null;
+  if (btn) { btn.disabled = true; btn.style.opacity = '0.55'; btn.innerHTML = '\u23F3 Cerrando…'; }
+  try {
+    var r = await _colaFetchJson(APPS_SCRIPT_URL + '?accion=viajeCerrarCarga' +
+      '&viaje_id=' + encodeURIComponent(viajeId) +
+      '&quien=' + encodeURIComponent(vendedorActual || 'deposito'), 60000);
+    if (r && r.status === 'ok') {
+      toast('\u2705 CARGA CERRADA \u00b7 camión listo para salir', 'ok');
+      await depositoRecargar();
+    } else {
+      // Mensaje REAL del backend. No se toca el estado local.
+      alert('\u26D4 NO SE PUEDE CERRAR LA CARGA\n\n' +
+            ((r && r.message) || 'Error desconocido'));
+    }
+  } catch (e) {
+    alert('\u26D4 No se pudo cerrar la carga.\n\nRevisá la conexión y volvé a intentar.\n\n' +
+          (e && e.message ? e.message : e));
+  } finally {
+    _depCerrando[viajeId] = false;
+    if (btn) { btn.disabled = false; btn.style.opacity = ''; if (prev) btn.innerHTML = prev; }
+  }
+}
+
 async function depCargaConformar(viajeId) {
   var v = _depViajesHoy.find(function(x) { return x.id === viajeId; });
   if (!v) return;
@@ -53535,9 +53754,51 @@ async function depCargaConformar(viajeId) {
     toast('⛔ ' + sinFact.length + ' pedido(s) SIN FACTURA — facturalos antes de cargar', 'err');
     return;
   }
+  // v14.169.0 — el control se guarda en viajes_carga_control, ligado a la
+  // planilla_version vigente. Sin planilla no hay nada que certificar.
+  if (!Number(v.planilla_version)) {
+    toast('\u26D4 Este viaje todavía no tiene planilla. Actualizala antes de controlar.', 'err');
+    return;
+  }
+  if (v.planilla_desactualizada) {
+    toast('\u26A0\uFE0F La planilla cambió: actualizala y volvé a controlar.', 'err');
+    return;
+  }
   if (!confirm('¿Confirmás que cargaste el viaje ' + _depZonaLabel(v.zona) + ' (' +
-    ents.length + ' entregas) COMPLETO y conforme?')) return;
-  await _depConformarGuardar(viajeId, false, '', null);
+    ents.length + ' entregas) COMPLETO y conforme, según la planilla v' +
+    v.planilla_version + '?')) return;
+  await _depControlGuardar(viajeId, Number(v.planilla_version));
+}
+
+// v14.169.0 — CONTROL FÍSICO V1: todo o nada, excepciones = [] siempre.
+// Canónica: viajes_carga_control. UNIQUE(viaje_id,planilla_version) +
+// merge-duplicates → doble click idempotente, sin estado incierto.
+// cargas_conformidad NO se toca: queda como histórico (13 filas).
+async function _depControlGuardar(viajeId, planillaVersion) {
+  var btn = document.getElementById('dep-conf-btn-' + viajeId);
+  var prev = btn ? btn.innerHTML : null;
+  if (btn) { btn.disabled = true; btn.innerHTML = '\u23F3 Guardando…'; }
+  try {
+    var filas = await sbFetch('viajes_carga_control?on_conflict=viaje_id,planilla_version', {
+      method: 'POST',
+      headers: { 'Prefer': 'resolution=merge-duplicates,return=representation' },
+      body: JSON.stringify([{
+        viaje_id:         viajeId,
+        planilla_version: planillaVersion,
+        confirmado_por:   vendedorActual || 'deposito',
+        excepciones:      []
+      }])
+    });
+    if (Array.isArray(filas) && filas.length) {
+      _depCtlPorViaje[viajeId + '|' + planillaVersion] = filas[0];
+    }
+    toast('\u2705 Control de carga confirmado \u00b7 planilla v' + planillaVersion, 'ok');
+    await depositoRecargar();
+  } catch (e) {
+    toast('\u26D4 No se pudo guardar el control: ' + (e && e.message ? e.message : e), 'err');
+  } finally {
+    if (btn) { btn.disabled = false; if (prev) btn.innerHTML = prev; }
+  }
 }
 
 async function _depConformarGuardar(viajeId, conDiferencia, nota, difJson) {
@@ -53933,7 +54194,7 @@ function depPollIniciar() {
    TCK_UPD_LOCAL aca Y el archivo version.json del repo.
    ============================================================ */
 (function(){
-  var TCK_UPD_LOCAL = '14.160.0';        /* <-- bump en cada deploy */
+  var TCK_UPD_LOCAL = '14.169.0';        /* <-- bump en cada deploy */
   /* v14.159.0: fuente UNICA de version. La telemetria del shadow la reporta,
      asi que un desfasaje contra version.json se ve solo en el primer pedido
      (paso 4 veces sin que nadie lo notara: 14.109, 14.128, 14.137, 14.147). */
