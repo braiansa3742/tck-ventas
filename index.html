@@ -2,8 +2,8 @@
 <html lang="es">
 <head>
 <!-- ═══════════════════════════════════════════════════════════════════════
-     TCK VENTAS — v14.170.0 — 27/08/2026
-     v14.170.0: EL CHOFER ARRANCA EL VIAJE.
+     TCK VENTAS — v14.172.0 — 27/08/2026
+     v14.172.0: EL CHOFER ARRANCA EL VIAJE.
      Cierra el circuito: Administración organiza · Depósito CIERRA LA CARGA
      (v14.169.0) · el chofer ARRANCA al salir físicamente del depósito.
      Hasta hoy ARRANCAR lo tocaba Administración la víspera: medido sobre
@@ -11426,6 +11426,41 @@ body {
 .entrega-item-info { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin-bottom: 6px; }
 .entrega-item-comercio { font-size: 12px; color: var(--text2); }
 .entrega-item-turno { font-size: 11px; color: var(--text3); background: #F5F5F5; border-radius: 20px; padding: 1px 7px; }
+
+/* ── v14.172.0 — Gate A: contacto visible ────────────────────── */
+.entrega-item-contacto { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; margin-bottom: 6px; }
+.entrega-item-tel {
+  font-size: 15px; font-weight: 800; color: #1E8449; text-decoration: none;
+  background: #E8F6EE; border: 1px solid #B7E1C8; border-radius: 8px;
+  padding: 5px 11px; display: inline-flex; align-items: center; gap: 5px;
+  min-height: 34px;                     /* target tactil comodo con guantes */
+}
+.entrega-item-tel:active { background: #D3EFDF; }
+.entrega-item-sintel { font-size: 11px; color: var(--text3); font-style: italic; }
+.entrega-item-dir { font-size: 11px; color: var(--text2); }
+
+/* ── v14.172.0 — Gate B: distancia y boton ─────────────────── */
+.entrega-item-dist-wrap { margin-bottom: 6px; }
+.entrega-item-dist {
+  font-size: 11px; font-weight: 700; color: #B45309;
+  background: #FDF3E3; border-radius: 20px; padding: 2px 9px;
+}
+.entrega-item-dist.sin-ubic { color: var(--text3); background: #F0F0F0; font-weight: 600; }
+.entrega-card-cercania { display: flex; gap: 8px; align-items: center; padding: 8px 12px 0 12px; }
+.btn-cercania {
+  flex: 1; background: #FFF; color: #B45309; border: 1.5px solid #D4A574;
+  border-radius: 8px; padding: 9px 12px; font-size: 12px; font-weight: 800;
+  cursor: pointer; min-height: 38px;
+}
+.btn-cercania.activo { background: #B45309; color: #FFF; border-color: #B45309; }
+.btn-cercania-off {
+  background: transparent; color: var(--text3); border: 1px solid #DDD;
+  border-radius: 8px; padding: 9px 10px; font-size: 11px; font-weight: 700;
+  cursor: pointer; min-height: 38px;
+}
+.entrega-modal-tel { color: #1E8449; font-weight: 800; text-decoration: none; font-size: 15px; }
+.entrega-modal-sintel { color: var(--text3); font-style: italic; font-size: 12px; }
+.wa-dudoso { opacity: .62; filter: grayscale(.5); }
 
 /* Estado + indicador tap */
 .entrega-item-footer { display: flex; align-items: center; justify-content: space-between; }
@@ -38052,7 +38087,7 @@ async function cargarViajeActivo() {
   if (!vendedorActual) return null;
   try {
     // Traer TODOS los viajes en_ruta del chofer (no limit:1)
-    // v14.170.0 — el chofer ve tambien los viajes que Deposito esta
+    // v14.172.0 — el chofer ve tambien los viajes que Deposito esta
     // preparando o ya cerro. carga_cerrada es lo que habilita ARRANCAR.
     const viajes = await sbFetch(
       'viajes?select=*' +
@@ -38367,7 +38402,7 @@ async function misViajesRecargar() {
 // ───────────────────────────────────────────────────────────────
 // SECCIÓN A: Viaje activo
 // ───────────────────────────────────────────────────────────────
-// v14.170.0 — ARRANCAR VIAJE desde el celular del chofer.
+// v14.172.0 — ARRANCAR VIAJE desde el celular del chofer.
 // Llama al MISMO endpoint viajeArrancar: no se duplica la logica pesada ni
 // se crea un viajeArrancarChofer paralelo. Toda la autoridad (estado,
 // sello C2, version y hash de planilla) queda en el backend: esta UI solo
@@ -38419,7 +38454,7 @@ function mvRenderViajeActivo() {
 
   const v = _mvViajeActivo;
 
-  // ═══ v14.170.0 — el viaje todavia no salio ═══════════════════════
+  // ═══ v14.172.0 — el viaje todavia no salio ═══════════════════════
   // Deposito cierra la carga; el chofer arranca al salir. Antes de
   // en_ruta no se muestran entregas ni el boton de rendir: el gate real
   // esta en _cargarEntregasInterno, esto es la pantalla que lo explica.
@@ -39176,7 +39211,7 @@ async function _cargarEntregasInterno(esRefresh) {
     if (_viajeActivoError && !_viajeActivo) throw _viajeActivoError;
 
     // Si no hay viaje activo, mostrar pantalla "Sin viaje activo"
-    // ═══ v14.170.0 — GATE: solo se operan entregas con el viaje EN RUTA ═══
+    // ═══ v14.172.0 — GATE: solo se operan entregas con el viaje EN RUTA ═══
     // Sin esto, incorporar preparando/carga_cerrada a cargarViajeActivo
     // habilitaria entregar, no entregar, cobrar y rendir sobre un camion
     // que todavia esta en el deposito. No alcanza con esconder botones:
@@ -39204,11 +39239,48 @@ async function _cargarEntregasInterno(esRefresh) {
     }
 
     // v14.0: Filtrar entregas por viaje_id (no por chofer global)
-    let entregas = await sbFetch(
-      'entregas?viaje_id=eq.' + encodeURIComponent(_viajeActivo.id) +
-      '&select=*&order=ciudad.asc',
-      { timeoutMs: VIAJE_TIMEOUT_MS }   // v14.152.0
-    );
+    // v14.172.0 Gate A: el GET lee de la vista enriquecida (telefono +
+    // direccion + clasificacion de ubicacion). Es SOLO LECTURA: todos los
+    // PATCH/POST/DELETE de la app siguen apuntando a `entregas`.
+    var _fuenteEntregas = REPARTO_TEL_ON ? 'vw_entregas_chofer' : 'entregas';
+    let entregas;
+    try {
+      entregas = await sbFetch(
+        _fuenteEntregas + '?viaje_id=eq.' + encodeURIComponent(_viajeActivo.id) +
+        '&select=*&order=ciudad.asc',
+        { timeoutMs: VIAJE_TIMEOUT_MS }   // v14.152.0
+      );
+    } catch (errVista) {
+      // Si la vista falla (RLS, grants, deploy a medias), NO dejamos al
+      // chofer sin entregas: caemos a la tabla y apagamos Gate A.
+      if (_fuenteEntregas === 'vw_entregas_chofer') {
+        console.warn('[v14.172.0] vw_entregas_chofer fallo, usando entregas:', errVista && errVista.message);
+        REPARTO_TEL_ON = false;
+        entregas = await sbFetch(
+          'entregas?viaje_id=eq.' + encodeURIComponent(_viajeActivo.id) +
+          '&select=*&order=ciudad.asc',
+          { timeoutMs: VIAJE_TIMEOUT_MS }
+        );
+      } else {
+        throw errVista;
+      }
+    }
+    // RLS silencioso: 200 con [] no es lo mismo que "no hay entregas".
+    if (REPARTO_TEL_ON && Array.isArray(entregas) && entregas.length === 0) {
+      var _ctrl = await sbFetch(
+        'entregas?viaje_id=eq.' + encodeURIComponent(_viajeActivo.id) + '&select=id',
+        { timeoutMs: VIAJE_TIMEOUT_MS }
+      ).catch(function() { return null; });
+      if (_ctrl && _ctrl.length > 0) {
+        console.warn('[v14.172.0] vista vacia con tabla poblada -> RLS. Fallback.');
+        REPARTO_TEL_ON = false;
+        entregas = await sbFetch(
+          'entregas?viaje_id=eq.' + encodeURIComponent(_viajeActivo.id) +
+          '&select=*&order=ciudad.asc',
+          { timeoutMs: VIAJE_TIMEOUT_MS }
+        );
+      }
+    }
 
     // Mantener filtro por estado (mismo que antes):
     // - pendiente / en_camino / no_encontrado → siempre visibles
@@ -39415,6 +39487,189 @@ function renderResumenChofer(entregas) {
     '</div>';
 }
 
+// ════════════════════════════════════════════════════════════
+// v14.172.0 — REPARTO: telefono visible (Gate A) + cercania (Gate B)
+// ────────────────────────────────────────────────────────────
+// Dos gates INDEPENDIENTES. Si uno falla, el otro y el flujo actual de
+// entregas siguen funcionando. Ambos en false = comportamiento v14.169.
+//
+// Gate A: el GET pasa a vw_entregas_chofer (solo lectura). TODOS los
+//         PATCH/POST/DELETE siguen yendo contra `entregas`.
+// Gate B: orden por cercania INTRA-CIUDAD. El orden de ciudades
+//         (ordenDeCiudad / tabla rutas) NO se toca nunca.
+// ════════════════════════════════════════════════════════════
+var REPARTO_TEL_ON      = true;   // Gate A
+var REPARTO_CERCANIA_ON = true;   // Gate B
+
+// Normaliza un telefono para el link tel:. NO inventa prefijos.
+// - Si el original trae + o el flag intl de la vista, se respeta el pais.
+// - Si es un numero nacional, el href va tal cual: preferimos un tel:
+//   nacional antes que afirmar que es un celular argentino.
+// - display SIEMPRE es el valor original sin tocar.
+function telNormalizar(raw, tieneIntl) {
+  if (raw === null || raw === undefined) return null;
+  var s = String(raw).trim();
+  if (!s) return null;
+  var digitos = s.replace(/\D/g, '');
+  if (digitos.length < 8) return null;          // invalido: no linkeamos
+  var href;
+  if (s.charAt(0) === '+' || tieneIntl === true) {
+    href = '+' + digitos;                        // ya traia pais
+  } else if (digitos.length >= 12 && digitos.indexOf('54') === 0) {
+    href = '+' + digitos;                        // 54... explicito en el dato
+  } else {
+    href = digitos;                              // nacional, sin inventar
+  }
+  return { display: s, digitos: digitos, href: href };
+}
+
+// ── WhatsApp: OTRO problema, y sin dato confiable ────────────────
+// El 97% de los telefonos guardados tiene 10 digitos (area + numero), sin
+// 15, sin 9, sin nada que distinga fijo de celular. Fabricar '549' + numero
+// no solo puede fallar: en Argentina el celular 549-AREA-NNNN puede ser
+// OTRA PERSONA distinta del fijo AREA-NNNN. Mandarle "soy el repartidor,
+// estoy llegando con tu pedido" a un desconocido es peor que no mandar nada.
+//
+// Por eso: solo consideramos apto para WhatsApp lo que el DATO afirma.
+function waEsSeguro(digitos, tieneIntl) {
+  if (!digitos) return false;
+  if (digitos.indexOf('549') === 0 && digitos.length >= 12) return true;
+  if (tieneIntl === true && digitos.indexOf('549') === 0) return true;
+  return false;
+}
+
+// Numero para wa.me SOLO cuando es seguro. Si no, null: el llamador decide.
+function telParaWhatsApp(digitos, tieneIntl) {
+  if (!waEsSeguro(digitos, tieneIntl)) return null;
+  return digitos;
+}
+
+// Numero "mejor esfuerzo" para el caso NO verificado. Se usa unicamente
+// despues de que el chofer confirma explicitamente que quiere intentarlo.
+function telWhatsAppTentativo(digitos) {
+  if (!digitos) return '';
+  return digitos.indexOf('54') === 0 ? digitos : '549' + digitos;
+}
+
+// Lee el telefono de una entrega. Con Gate A usa los campos de la vista;
+// sin Gate A cae al campo historico de `entregas`.
+function repartoTelDe(e) {
+  if (!e) return null;
+  if (REPARTO_TEL_ON) {
+    var t = telNormalizar(e.telefono_operativo_raw, e.telefono_tiene_prefijo_intl);
+    if (t) return t;
+  }
+  return telNormalizar(e.telefono_cliente, false);
+}
+
+// ── Gate B: posicion del chofer ───────────────────────────────
+// SOLO EN MEMORIA. No se persiste, no se manda a Supabase, no hay
+// watchPosition. Se pierde al cerrar la pantalla. El tracking continuo
+// sigue apagado para choferes (linea ~24725, sin cambios).
+var _ordenCercania = false;
+var _cercaniaDisponible = false;
+var _posChofer     = null;   // { lat, lng, ts }
+var _gpsPidiendo   = false;
+
+async function repartoActualizarPosicion() {
+  if (_gpsPidiendo) return false;
+  _gpsPidiendo = true;
+  try {
+    var gps = await _capturarGpsRapido();   // ya existente, timeout 5s
+    if (!gps || gps.lat == null) {
+      _posChofer = null;
+      _ordenCercania = false;
+      if (typeof toast === 'function') toast('⚠️ No se pudo obtener tu ubicación. La lista queda en el orden normal.', 'err');
+      return false;
+    }
+    _posChofer = { lat: gps.lat, lng: gps.lng, ts: Date.now() };
+    return true;
+  } catch (err) {
+    _posChofer = null;
+    _ordenCercania = false;
+    if (typeof toast === 'function') toast('⚠️ GPS no disponible. La lista queda en el orden normal.', 'err');
+    return false;
+  } finally {
+    _gpsPidiendo = false;
+  }
+}
+
+// Distancia en km del chofer a la entrega, o null si no se puede confiar.
+// 'dudosa' y 'sin_coords' devuelven null a proposito: quedan visibles
+// pero fuera del ordenamiento.
+function repartoDistancia(e) {
+  if (!REPARTO_CERCANIA_ON) return null;
+  if (!_posChofer || _posChofer.lat == null) return null;
+  if (!e) return null;
+  // ESTRICTO: sin clasificacion de la vista NO ordenamos. En el fallback a
+  // `entregas` no hay ubic_nivel, y _coordsCache tiene coordenadas SIN
+  // clasificar (incluidas las contaminadas). Adivinar ahi mandaria al
+  // chofer al pueblo equivocado. Preferimos no ofrecer cercania.
+  var nivel = e.ubic_nivel;
+  if (nivel !== 'verificada' && nivel !== 'provisoria') return null;
+  var lat = e.ubic_lat, lng = e.ubic_lng;
+  if (lat == null || lng == null) return null;
+  var d = calcDistancia(_posChofer.lat, _posChofer.lng, Number(lat), Number(lng));
+  return (isFinite(d) ? d : null);
+}
+
+// ¿Esta carga trae datos suficientes para ofrecer cercania?
+// Si venimos del fallback a `entregas`, no hay ubic_nivel -> se desactiva.
+function repartoHayDatosUbic(lista) {
+  if (!REPARTO_CERCANIA_ON) return false;
+  if (!Array.isArray(lista) || !lista.length) return false;
+  for (var i = 0; i < lista.length; i++) {
+    var n = lista[i] && lista[i].ubic_nivel;
+    if (n === 'verificada' || n === 'provisoria') return true;
+  }
+  return false;
+}
+
+// "350 m" / "1,2 km". Siempre acompanado de "en linea recta" en la UI:
+// NO es distancia por calles ni tiempo de viaje.
+function repartoFormatearDist(km) {
+  if (km == null || !isFinite(km)) return '';
+  if (km < 1) return Math.round(km * 1000) + ' m';
+  if (km < 10) return km.toFixed(1).replace('.', ',') + ' km';
+  return Math.round(km) + ' km';
+}
+
+function repartoMinutosDesdeFix() {
+  if (!_posChofer || !_posChofer.ts) return null;
+  return Math.floor((Date.now() - _posChofer.ts) / 60000);
+}
+
+// Toggle del boton. Primera vez pide GPS; despues alterna / refresca.
+async function repartoToggleCercania(forzarRefresh) {
+  if (!REPARTO_CERCANIA_ON) return;
+  if (_ordenCercania && !forzarRefresh) {
+    _ordenCercania = false;
+    renderEntregas(_entregasCache);
+    return;
+  }
+  var ok = await repartoActualizarPosicion();
+  _ordenCercania = !!ok;
+  renderEntregas(_entregasCache);
+}
+
+// Ordena DENTRO de una ciudad. Sin distancia => al fondo, nunca oculto.
+// Estable: si ninguno tiene distancia, el array vuelve igual que entro.
+function repartoOrdenarItems(items) {
+  if (!REPARTO_CERCANIA_ON || !_ordenCercania || !_posChofer) return items;
+  if (!_cercaniaDisponible) return items;
+  var conIdx = items.map(function(e, i) {
+    return { e: e, i: i, d: repartoDistancia(e) };
+  });
+  conIdx.sort(function(a, b) {
+    if (a.d == null && b.d == null) return a.i - b.i;
+    if (a.d == null) return 1;
+    if (b.d == null) return -1;
+    if (a.d !== b.d) return a.d - b.d;
+    return a.i - b.i;
+  });
+  return conIdx.map(function(x) { return x.e; });
+}
+
 // Cache de coordenadas: cliente → {lat, lng}
 let _coordsCache = {};
 
@@ -39463,6 +39718,12 @@ function renderEntregas(entregas) {
   // v14.8: chips horizontales de ciudades del recorrido
   const chipsHtml = renderChipsCiudades(entregas);
 
+  // v14.172.0 Gate B: ¿hay datos de ubicacion clasificados en ESTA carga?
+  // Si no (p.ej. caimos al fallback de `entregas`), se apaga la cercania
+  // para esta carga: reparto normal, sin boton y sin distancias falsas.
+  _cercaniaDisponible = repartoHayDatosUbic(entregas);
+  if (!_cercaniaDisponible && _ordenCercania) _ordenCercania = false;
+
   if (!entregas.length) {
     el.innerHTML = headerHtml + '<div style="text-align:center;padding:40px;color:var(--text3);font-size:14px;">📭 No hay entregas asignadas para hoy.</div>';
     return;
@@ -39502,7 +39763,10 @@ function renderEntregas(entregas) {
   let orden = 1;
 
   ciudades.forEach(ciudad => {
-    const items    = porCiudad[ciudad];
+    // v14.172.0 Gate B: orden por cercania DENTRO de la ciudad.
+    // El orden de las ciudades ya se resolvio arriba con ordenDeCiudad()
+    // (tabla `rutas`) y no se toca.
+    const items    = repartoOrdenarItems(porCiudad[ciudad]);
     const allDone  = items.every(e => e.estado === 'entregado');
     const pendCount = items.filter(e => e.estado !== 'entregado').length;
     const total    = items.reduce((s,e) => {
@@ -39526,7 +39790,21 @@ function renderEntregas(entregas) {
             : '<span style="background:rgba(255,255,255,.15);border-radius:20px;padding:3px 9px;font-size:10px;color:#FFD700;font-weight:800;">' + pendCount + ' pend.</span>') +
           '<div class="entrega-card-orden">Parada ' + orden++ + '</div>' +
         '</div>' +
-      '</div>';
+      '</div>' +
+      // v14.172.0 Gate B: boton MANUAL. Nada de GPS automatico.
+      (REPARTO_CERCANIA_ON && _cercaniaDisponible && !allDone
+        ? '<div class="entrega-card-cercania">' +
+            '<button class="btn-cercania' + (_ordenCercania ? ' activo' : '') + '" ' +
+            'onclick="event.stopPropagation();repartoToggleCercania(' + (_ordenCercania ? 'true' : 'false') + ')">' +
+              (_ordenCercania
+                ? '📍 Actualizar ubicación' + (repartoMinutosDesdeFix() != null ? ' (hace ' + repartoMinutosDesdeFix() + ' min)' : '')
+                : '📍 Ordenar por cercanía') +
+            '</button>' +
+            (_ordenCercania
+              ? '<button class="btn-cercania-off" onclick="event.stopPropagation();repartoToggleCercania(false)">Orden normal</button>'
+              : '') +
+          '</div>'
+        : '');
 
     items.forEach(e => {
       const montoReal = (parseFloat(e.monto)||0) < 1000 && (parseFloat(e.monto)||0) > 0
@@ -39535,9 +39813,15 @@ function renderEntregas(entregas) {
       const entregado = e.estado === 'entregado';
       const enCamino = e.estado === 'en_camino';
       const noEstaba = e.estado === 'no_encontrado';
-      const tel       = (e.telefono_cliente || '').replace(/\D/g,'');
-      const waNum     = tel ? (tel.startsWith('54') ? tel : '549'+tel) : '';
+      // v14.172.0 Gate A: telefono desde la vista, con fallback al campo viejo
+      const telObj    = repartoTelDe(e);
+      const tel       = telObj ? telObj.digitos : '';
+      const waSeguro  = telParaWhatsApp(tel, e.telefono_tiene_prefijo_intl);
+      const waNum     = waSeguro || '';
       const coords    = _coordsCache[e.cliente];
+      const dirOper   = (e.direccion_operativa || '').trim();
+      const distKm    = repartoDistancia(e);
+      const nivelUbic = e.ubic_nivel;
       const turno     = e.turno_entrega === 'Mañana' ? '🌅 Mañana' : e.turno_entrega === 'Tarde' ? '🌆 Tarde' : '';
 
       // Hora del último cambio (fecha_en_camino, fecha_no_encontrado o fecha_entrega)
@@ -39581,9 +39865,14 @@ function renderEntregas(entregas) {
         // PENDIENTE: voy + WA al lado
         var btnVoy = '<button class="entrega-item-accion accion-voy" onclick="event.stopPropagation();marcarEnCamino(\'' + e.id + '\')">🚛 Voy para allá</button>';
         var btnWaInline = '';
-        if (waNum) {
+        if (tel && !REPARTO_TEL_ON) {
+          var msgWa0 = encodeURIComponent('Hola ' + (e.cliente||'') + '! Soy el repartidor de TCK, estoy llegando a ' + ciudad + ' con tu pedido 🚚');
+          btnWaInline = '<button class="accion-wa-mini" onclick="event.stopPropagation();avisarClienteWA(\'' + telWhatsAppTentativo(tel) + '\',\'' + msgWa0 + '\')" title="Avisar al cliente que estoy yendo">💬</button>';
+        } else if (tel) {
           var msgWa = encodeURIComponent('Hola ' + (e.cliente||'') + '! Soy el repartidor de TCK, estoy llegando a ' + ciudad + ' con tu pedido 🚚');
-          btnWaInline = '<button class="accion-wa-mini" onclick="event.stopPropagation();avisarClienteWA(\'' + waNum + '\',\'' + msgWa + '\')" title="Avisar al cliente que estoy yendo">💬</button>';
+          btnWaInline = waSeguro
+            ? '<button class="accion-wa-mini" onclick="event.stopPropagation();avisarClienteWA(\'' + waSeguro + '\',\'' + msgWa + '\')" title="Avisar al cliente que estoy yendo">💬</button>'
+            : '<button class="accion-wa-mini wa-dudoso" onclick="event.stopPropagation();avisarClienteWADudoso(\'' + tel + '\',\'' + msgWa + '\')" title="No sabemos si es celular — pide confirmación">💬?</button>';
         }
         accionesHtml = '<div class="entrega-item-acciones-row">' + btnVoy + btnWaInline + '</div>';
       } else if (enCamino) {
@@ -39607,20 +39896,48 @@ function renderEntregas(entregas) {
           '<div class="entrega-item-monto' + (entregado ? ' entregado-monto' : '') + '">' + totalFmt + '</div>' +
         '</div>' +
 
-        // Info secundaria: comercio + turno
+        // Info secundaria: comercio + turno + distancia (v14.172.0: la
+        // distancia va ACA y no en una fila propia, para no alargar la
+        // tarjeta en el celular del chofer).
         '<div class="entrega-item-info">' +
           (e.comercio ? '<span class="entrega-item-comercio">🏪 ' + e.comercio + '</span>' : '') +
           (turno ? '<span class="entrega-item-turno">' + turno + '</span>' : '') +
+          (REPARTO_CERCANIA_ON && _cercaniaDisponible && _ordenCercania
+            ? (distKm != null
+                ? '<span class="entrega-item-dist">' + repartoFormatearDist(distKm) + ' en línea recta</span>'
+                : (nivelUbic === 'dudosa'
+                    ? '<span class="entrega-item-dist sin-ubic">⚠ Ubicación dudosa</span>'
+                    : '<span class="entrega-item-dist sin-ubic">⚠ Ubicación no disponible</span>'))
+            : '') +
         '</div>' +
+
+        // v14.172.0 Gate A: telefono SIEMPRE visible y tocable.
+        // Con el gate apagado NO se emite la fila: el HTML queda identico
+        // al de 14.171.1 (equivalencia verificada byte a byte).
+        (REPARTO_TEL_ON
+          ? '<div class="entrega-item-contacto">' +
+              (telObj
+                ? '<a class="entrega-item-tel" href="tel:' + telObj.href + '" ' +
+                  'onclick="event.stopPropagation();">📞 ' + telObj.display + '</a>'
+                : '<span class="entrega-item-sintel">Sin teléfono registrado</span>') +
+              (dirOper ? '<span class="entrega-item-dir">📍 ' + dirOper + '</span>' : '') +
+            '</div>'
+          : '') +
 
         // Footer: estado + botones rápidos
         '<div class="entrega-item-footer">' +
           '<div class="entrega-estado-badge ' + estadoCls + '">' + estadoTxt + '</div>' +
           '<div style="display:flex;gap:6px;align-items:center;">' +
             // WA siempre visible — verde si tiene número, gris si no
-            (waNum
-              ? '<button class="entrega-item-quick-btn wa-btn" onclick="event.stopPropagation();avisarClienteWA(\''+waNum+'\',\''+encodeURIComponent('Hola '+(e.cliente||'')+'! Soy el repartidor de TCK, estoy llegando a '+ciudad+' con tu pedido 🚚')+'\')">' +
+            (tel && !REPARTO_TEL_ON
+              ? '<button class="entrega-item-quick-btn wa-btn" onclick="event.stopPropagation();avisarClienteWA(\''+telWhatsAppTentativo(tel)+'\',\''+encodeURIComponent('Hola '+(e.cliente||'')+'! Soy el repartidor de TCK, estoy llegando a '+ciudad+' con tu pedido 🚚')+'\')">' +
                 '💬 WA</button>'
+              : tel
+              ? (waSeguro
+                  ? '<button class="entrega-item-quick-btn wa-btn" onclick="event.stopPropagation();avisarClienteWA(\''+waSeguro+'\',\''+encodeURIComponent('Hola '+(e.cliente||'')+'! Soy el repartidor de TCK, estoy llegando a '+ciudad+' con tu pedido 🚚')+'\')">' +
+                    '💬 WA</button>'
+                  : '<button class="entrega-item-quick-btn wa-btn wa-dudoso" onclick="event.stopPropagation();avisarClienteWADudoso(\''+tel+'\',\''+encodeURIComponent('Hola '+(e.cliente||'')+'! Soy el repartidor de TCK, estoy llegando a '+ciudad+' con tu pedido 🚚')+'\')" title="Sin confirmar que sea celular">' +
+                    '💬 WA?</button>')
               : '<span style="font-size:10px;color:#ddd;">Sin WA</span>') +
             '<span class="entrega-item-tap">Ver →</span>' +
           '</div>' +
@@ -39867,8 +40184,10 @@ function abrirEntregaModal(entregaId) {
     ? parseFloat(e.monto) * 1000 : (parseFloat(e.monto)||0);
   const fmt = n => '$' + Math.round(n).toLocaleString('es-AR');
   const coords = _coordsCache[e.cliente];
-  const tel = (e.telefono_cliente || '').replace(/\D/g, '');
-  const waNum = tel ? (tel.startsWith('54') ? tel : '549' + tel) : '';
+  // v14.172.0 Gate A
+  const telObjM = repartoTelDe(e);
+  const tel = telObjM ? telObjM.digitos : '';
+  const waNum = telParaWhatsApp(tel, e.telefono_tiene_prefijo_intl) || '';
   const entregado = e.estado === 'entregado';
 
   // Header
@@ -39881,12 +40200,29 @@ function abrirEntregaModal(entregaId) {
 
   // Dirección
   const dirEl = document.getElementById('entrega-modal-dir');
-  if (coords) {
+  // v14.172.0 Gate A: direccion real si la hay; si no, el mensaje de GPS.
+  var _dirM = (e.direccion_operativa || '').trim();
+  var _telHtml = telObjM
+    ? '<a href="tel:' + telObjM.href + '" class="entrega-modal-tel">📞 ' + telObjM.display + '</a>'
+    : '<span class="entrega-modal-sintel">Sin teléfono registrado</span>';
+  if (!REPARTO_TEL_ON) {
+    // Gate A OFF: comportamiento identico a 14.171.1
+    if (coords) {
+      dirEl.className = 'entrega-modal-dir tiene-gps';
+      dirEl.textContent = '📍 Ubicación GPS registrada — Maps abre en el local exacto';
+    } else {
+      dirEl.className = 'entrega-modal-dir';
+      dirEl.textContent = '📍 Sin dirección registrada — Maps buscará por nombre del cliente';
+    }
+  } else if (_dirM) {
     dirEl.className = 'entrega-modal-dir tiene-gps';
-    dirEl.textContent = '📍 Ubicación GPS registrada — Maps abre en el local exacto';
+    dirEl.innerHTML = '📍 ' + _dirM + '<br>' + _telHtml;
+  } else if (coords) {
+    dirEl.className = 'entrega-modal-dir tiene-gps';
+    dirEl.innerHTML = '📍 Ubicación GPS registrada — Maps abre en el local exacto<br>' + _telHtml;
   } else {
     dirEl.className = 'entrega-modal-dir';
-    dirEl.textContent = '📍 Sin dirección registrada — Maps buscará por nombre del cliente';
+    dirEl.innerHTML = '📍 Sin dirección registrada — Maps buscará por nombre del cliente<br>' + _telHtml;
   }
 
   // Productos — cargar del Sheet usando pedido_id
@@ -41795,6 +42131,20 @@ async function deshacerEntrega(entregaId) {
 // ── AVISAR CLIENTE WA ────────────────────────────────────────
 function avisarClienteWA(waNum, msgWA) {
   window.open('https://wa.me/' + waNum + '?text=' + msgWA);
+}
+
+// v14.172.0 — WhatsApp NO verificado: no abrimos un chat fabricado sin
+// avisar. Un digito inventado puede abrir la conversacion con un tercero.
+function avisarClienteWADudoso(digitos, msgWA, nombre) {
+  var tentativo = telWhatsAppTentativo(digitos);
+  var ok = window.confirm(
+    'No sabemos si ' + digitos + ' es un celular.\n\n' +
+    'Si es una línea fija, WhatsApp puede abrir un chat con otra persona.\n\n' +
+    '¿Abrir WhatsApp igual?\n' +
+    '(Cancelar para volver y usar el botón de llamar)'
+  );
+  if (!ok) return;
+  window.open('https://wa.me/' + tentativo + '?text=' + msgWA);
 }
 
 // ── MODAL DE COBRO ────────────────────────────────────────────
@@ -54472,7 +54822,7 @@ function depPollIniciar() {
    TCK_UPD_LOCAL aca Y el archivo version.json del repo.
    ============================================================ */
 (function(){
-  var TCK_UPD_LOCAL = '14.171.1';        /* <-- bump en cada deploy */
+  var TCK_UPD_LOCAL = '14.172.0';        /* <-- bump en cada deploy */
   /* v14.159.0: fuente UNICA de version. La telemetria del shadow la reporta,
      asi que un desfasaje contra version.json se ve solo en el primer pedido
      (paso 4 veces sin que nadie lo notara: 14.109, 14.128, 14.137, 14.147). */
