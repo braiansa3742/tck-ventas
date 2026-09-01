@@ -24402,8 +24402,34 @@ function mostrarBadgeNuevosPedidos(cant) {
   badge.textContent = '🔔 ' + cant + ' pedido' + (cant > 1 ? 's' : '') + ' nuevo' + (cant > 1 ? 's' : '') + ' — Actualizar';
 }
 
+// ════════════════════════════════════════════════════════════
+// v14.173.0 — ¿Este usuario puede ver la tab Pedidos?
+// ────────────────────────────────────────────────────────────
+// FUENTE UNICA. Hoy la regla de chofer esta copiada en 6 lugares y la de
+// deposito en 2; por eso sumar a 'Alfredo' obligo a tocar 7 comparaciones
+// (ver nota de v14.49.0). Las copias viejas siguen en pie a proposito: este
+// fix no las toca para no ampliar el alcance. Todo codigo NUEVO usa esta.
+//
+// Motivo del guard: el chofer no tiene la tab Pedidos (mostrarTabs se la
+// oculta), pero el setInterval de 60 s corria cargarPedidos() igual. Eso
+// bajaba la lista entera + el mapa de sucursales cada minuto, en el celular
+// del chofer, con datos moviles, en plena ruta. Ademas era el origen de los
+// 401 repetidos de pedido_sucursales.
+function tckPuedeVerPedidos(quien) {
+  var u = (quien !== undefined && quien !== null) ? quien : vendedorActual;
+  if (!u) return false;
+  var esChofer   = (u === 'Joan' || u === 'Luis' || u === 'Juan Pablo' || u === 'Alfredo');
+  var esDeposito = (u === 'Pancho' || u === 'Chan');
+  return !esChofer && !esDeposito;
+}
+try { window.tckPuedeVerPedidos = tckPuedeVerPedidos; } catch (_eRol) {}
+
 setInterval(function() {
   if (!vendedorActual) return;
+
+  // v14.173.0: choferes y depósito no tienen la tab Pedidos. No refrescar
+  // una lista que no van a ver: ahorra datos y batería en ruta.
+  if (!tckPuedeVerPedidos()) return;
 
   // v14.5.0 FIX 5: si la pestaña NO está visible (usuario en otra app o
   // en otro tab), no hacer polling. Ahorra batería + datos. Cuando vuelva
@@ -24445,6 +24471,10 @@ setInterval(function() {
 let _ultimoFetchPorVisibilidad = 0;
 document.addEventListener('visibilitychange', function() {
   if (!document.hidden && vendedorActual) {
+    // v14.173.0: mismo criterio que el interval. El chofer alterna app <->
+    // camara <-> WhatsApp todo el dia; cada vuelta disparaba un refresh de
+    // Pedidos que no usa.
+    if (!tckPuedeVerPedidos()) return;
     // Throttle: máximo 1 fetch cada 10s por visibilidad (evita abuso si
     // alterna entre apps rápido)
     const ahora = Date.now();
@@ -25153,6 +25183,17 @@ function _motivoLegible(err) {
    ══════════════════════════════════════════════════════════════════════ */
 async function cargarPedidos(silencioso) {
   silencioso = silencioso || false;
+
+  /* v14.173.0 — DEFENSA EN PROFUNDIDAD.
+     Si el usuario no tiene la tab Pedidos, salir ANTES de todo: sin fetch,
+     sin merge, sin detector de duplicados, sin pedidoSucursalesMapCargar().
+     Los guards del setInterval y de visibilitychange ya cortan las dos vias
+     conocidas; este corta cualquier via futura sin depender de que quien la
+     escriba se acuerde de la regla de roles. */
+  if (!tckPuedeVerPedidos()) {
+    _perf("refresh_omitido_por_rol", performance.now(), { rol: vendedorActual });
+    return false;
+  }
 
   /* Dedupe: el segundo toque se engancha al refresh en curso. Sin esto, cada
      toque de Actualizar largaba una cadena nueva y ganaba la última en
@@ -54822,7 +54863,7 @@ function depPollIniciar() {
    TCK_UPD_LOCAL aca Y el archivo version.json del repo.
    ============================================================ */
 (function(){
-  var TCK_UPD_LOCAL = '14.172.0';        /* <-- bump en cada deploy */
+  var TCK_UPD_LOCAL = '14.173.0';        /* <-- bump en cada deploy */
   /* v14.159.0: fuente UNICA de version. La telemetria del shadow la reporta,
      asi que un desfasaje contra version.json se ve solo en el primer pedido
      (paso 4 veces sin que nadie lo notara: 14.109, 14.128, 14.137, 14.147). */
