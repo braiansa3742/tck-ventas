@@ -2,6 +2,49 @@
 <html lang="es">
 <head>
 <!-- ═══════════════════════════════════════════════════════════════════════
+     TCK VENTAS — v14.177.0 — 03/09/2026
+     v14.177.0: CARGA POR WHATSAPP — CLIENTE EQUIVOCADO Y "ENVIANDO" ETERNO.
+     Reporte de Miguel (03/09 ~19:05): "está súper trabada la app para
+     cargar pedidos por WhatsApp. Cargué el de Alicia, después el de Eugenia
+     Lara (tardó muchísimo) y me marca que cargó el mismo presupuesto a
+     Alicia".
+
+     RECONSTRUIDO con pedidos_zona + gs_timing + tomador_eventos:
+       18:58:25  WC7U6 Alicia $349.000 — OK en 7,8 s.
+       19:00:16  WI77L = nombre y localidad de ALICIA (Guaminí) con los
+                 PRODUCTOS DE EUGENIA ($173.000) — OK en el server en 8,4 s.
+                 La respuesta NUNCA llegó al celular.
+       19:00:45 / :57 / 01:10  el mismo WI77L (mismo ID) vuelve a entrar 3
+                 veces: reintentos del navegador sobre un GET cortado.
+                 Anti-dup del server: duplicate las 3. No se duplicó nada.
+       19:01:02  WCLHY Eugenia lara $173.000 — el pedido correcto.
+       19:01:14  el formulario recibe el "duplicate" del 3er reintento,
+                 muestra "ya estaba registrado" y cierra: 62 s colgado.
+     WI77L y WCLHY tienen EXACTAMENTE el mismo detalle. WI77L hay que
+     cancelarlo (se le pide a Miguel desde la app).
+
+     DOS DEFECTOS DE CÓDIGO, los dos de 4G lento:
+     (1) El buscador de clientes dispara una consulta por pausa de tipeo y
+         pintaba LA QUE LLEGARA, sin mirar de qué búsqueda era. La respuesta
+         de "ali" puede llegar después que la de "eugenia" y dejar a Alicia
+         como única sugerencia visible: un toque carga nombre + localidad +
+         id Xubio del cliente equivocado. FIX: número de secuencia por
+         búsqueda + chequeo contra el input actual; timeout 15 s. También
+         autocomplete=off en el input (el teclado del celu ofrecía nombres
+         anteriores).
+     (2) El guardado era un fetch pelado, sin timeout. Si el server guarda
+         pero la respuesta se pierde, el formulario queda en "Enviando..."
+         hasta que el navegador se canse, y el vendedor lo carga de nuevo a
+         mano (así nacen los DOBLE). FIX: contador visible, timeout 30 s, y
+         al vencer se ENCOLA con el mismo pedidoId — misma cola idempotente
+         que el tomador de campo usa desde la v14.136.0. El server devuelve
+         duplicate al reintento = éxito, nunca duplica. Toast: "quedó
+         guardado en el celular, NO lo cargues de nuevo".
+
+     LO QUE NO ES DE LA APP: guardarPedido tarda 8–13 s del lado del server
+     en TODAS las cargas de hoy (lock + lecturas completas del Sheet,
+     ver docs/experiencia-equipo.md). Eso sigue igual.
+     ─────────────────────────────────────────────────────────────────────
      TCK VENTAS — v14.176.1 — 03/09/2026
      v14.176.1: EL MODAL "¿A QUÉ CIUDAD VA?" YA NO DEPENDE DE LEER LA LISTA.
      Reporte 03/09 17:37 (captura): "No te deja buscar ni la ciudad ni
@@ -44185,7 +44228,7 @@ function manualWAHTML() {
         '<span class="xubio-sync-info" id="xubio-sync-info-mwa">Cargando estado de sincronización...</span>' +
         '<button type="button" class="xubio-sync-btn" id="xubio-sync-btn-mwa" onclick="xubioSyncManual(\'mwa\')">🔄 Sincronizar</button>' +
       '</div>' +
-      '<input class="manual-wa-input" id="manual-wa-cliente-input" type="text" placeholder="Nombre del cliente..." oninput="manualWABuscarCliente(this.value)">' +
+      '<input class="manual-wa-input" id="manual-wa-cliente-input" type="text" placeholder="Nombre del cliente..." autocomplete="off" autocorrect="off" spellcheck="false" oninput="manualWABuscarCliente(this.value)">' +
       '<div id="mwa-sugerencias" style="margin-top:4px;"></div>' +
     '</div>' +
     '<div class="manual-wa-campo">' +
@@ -44443,6 +44486,7 @@ function cerrarCargaManualWA() {
 }
 
 let _mwaBuscarTimer = null;
+var _mwaBuscarSeq = 0;   // v14.177.0: número de la última búsqueda (guard anti respuestas tardías)
 // v14.8.1: helper para normalizar texto (sacar tildes/acentos)
 // Usado por la búsqueda de clientes para que "Gimenez" matchee "Giménez"
 // y viceversa cuando el autocorrector del cel pone tildes raras.
@@ -44463,6 +44507,15 @@ function manualWABuscarCliente(q) {
   el.innerHTML = '<div style="padding:8px;color:var(--text3);font-size:12px;">Buscando...</div>';
 
   _mwaBuscarTimer = setTimeout(function() {
+    // v14.177.0 — GUARD CONTRA RESPUESTAS TARDÍAS. Cada pausa de tipeo
+    // dispara una consulta a Supabase y hasta hoy se pintaba la que
+    // LLEGARA, sin mirar de qué búsqueda era. Con 4G lento las respuestas
+    // llegan desordenadas: la de "ali" puede llegar después que la de
+    // "eugenia" y dejar en pantalla a Alicia cuando el vendedor ya escribió
+    // Eugenia. Un toque en esa sugerencia carga nombre + localidad del
+    // cliente equivocado (caso Miguel 03/09 19:00, WI77L). Ahora cada
+    // búsqueda lleva un número y solo se pinta si sigue siendo la última.
+    const _miSeq = ++_mwaBuscarSeq;
     // v14.8.1: normalizar query (sin tildes, lowercase) para match local
     const qNorm = _mwaNormalizarTexto(q);
     
@@ -44556,8 +44609,12 @@ function manualWABuscarCliente(q) {
              + ')'
              + '&order=nombre.asc'
              + '&limit=50';
-    sbFetch(path)
+    sbFetch(path, { timeoutMs: 15000 })
       .then(function(filas) {
+        // v14.177.0 — respuesta de una búsqueda vieja o el input ya cambió: se descarta.
+        if (_miSeq !== _mwaBuscarSeq) return;
+        var _inpAhora = document.getElementById('manual-wa-cliente-input');
+        if (_inpAhora && _mwaNormalizarTexto(_inpAhora.value) !== qNorm) return;
         if (!Array.isArray(filas)) { renderSugerencias([]); return; }
         // Convertir formato Supabase a formato esperado por renderSugerencias
         var xubioClientes = filas.map(function(c) {
@@ -45171,8 +45228,28 @@ async function manualWAGuardar(cliente, localidad, entrega, sucursal) {
         APPS_SCRIPT_URL.length + 1 + params.toString().length);
     } catch (_eShWA) { /* jamas afecta el guardado */ }
 
-    const respGuardar = await fetch(APPS_SCRIPT_URL + '?' + params.toString());
-    const dataGuardar = await respGuardar.json();
+    // v14.177.0 — TIMEOUT REAL + CONTADOR VISIBLE. Antes era un fetch pelado:
+    // si la respuesta se perdía en el camino (server OK, red del celu no), el
+    // formulario quedaba en "Enviando..." hasta que el navegador se cansara.
+    // Caso Miguel 03/09: WI77L guardado a las 19:00:16, el celular no recibió
+    // nada, 62 s colgado, y lo que llegó fue la respuesta de un REINTENTO del
+    // navegador (duplicate). Ahora: 30 s y se pasa a la cola (ver catch).
+    var _ctrlWA = (typeof AbortController !== 'undefined') ? new AbortController() : null;
+    var _t0WA = Date.now();
+    var _btnWA = document.getElementById('mwa-confirmar-btn');
+    var _tickWA = setInterval(function () {
+      if (_btnWA) _btnWA.textContent = 'Enviando… ' + Math.round((Date.now() - _t0WA) / 1000) + 's';
+    }, 1000);
+    var _timerWA = _ctrlWA ? setTimeout(function () { try { _ctrlWA.abort(); } catch (_) {} }, 30000) : null;
+    let respGuardar, dataGuardar;
+    try {
+      respGuardar = await fetch(APPS_SCRIPT_URL + '?' + params.toString(),
+                                _ctrlWA ? { signal: _ctrlWA.signal } : {});
+      dataGuardar = await respGuardar.json();
+    } finally {
+      clearInterval(_tickWA);
+      if (_timerWA) clearTimeout(_timerWA);
+    }
     if (dataGuardar.status === 'duplicate') {
       var _idExistenteMWA = dataGuardar.id || pedidoId;
       console.warn('[manualWAGuardar] ANTI-DUP server bloqueó. Pedido existente:', _idExistenteMWA);
@@ -45196,7 +45273,35 @@ async function manualWAGuardar(cliente, localidad, entrega, sucursal) {
     }
   } catch(errFetch) {
     console.error('[F9 manualWAGuardar] Error fetch:', errFetch);
-    toast('❌ Error de conexión — el pedido no se guardó', 'err');
+    // v14.177.0 — MISMA RED DE SEGURIDAD QUE EL TOMADOR DE CAMPO (v14.136.0).
+    // Sin respuesta ≠ sin guardado: 19 de 20 timeouts medidos habían guardado
+    // igual. Se encola con el MISMO pedidoId: guardarPedido es idempotente
+    // (devuelve duplicate = éxito), así que reintentar no duplica nunca. El
+    // motor de la cola lo reenvía solo (al volver la señal, cada 45 s con
+    // backoff, y al abrir la app). Antes acá se tiraba un toast rojo y el
+    // vendedor lo cargaba de nuevo a mano: así nacen los "DOBLE".
+    try {
+      _colaEncolar({
+        id:             pedidoId,
+        etapa:          'guardar',
+        params:         params.toString(),
+        cliente:        cliente,
+        vendedor:       vendedor,
+        total:          Number(total) || 0,
+        xubioClienteId: (window._mwaModoMostrador && window._mostradorClienteXubio && window._mostradorClienteXubio.id) || '',
+        fechaISO:       (entrega && entrega.fechaISO) || '',
+        ultimoError:    (errFetch && (errFetch.name === 'AbortError' ? 'sin respuesta en 30 s' : (errFetch.message || String(errFetch)))) || ''
+      });
+      _telemetriaTomadorRegistrar({
+        paso: 'encolado_mwa', pedido_id_intentado: pedidoId, cliente: cliente,
+        vendedor: vendedor, total: Number(total) || 0, fingerprint: '',
+        error_msg: (errFetch && (errFetch.name || errFetch.message)) || ''
+      });
+    } catch (_eCola) { console.warn('[manualWAGuardar] no se pudo encolar:', _eCola); }
+    toast('📩 El pedido de ' + cliente + ' quedó guardado en el celular' +
+          (errFetch && errFetch.name === 'AbortError' ? ' (el servidor no respondió a tiempo)' : ' (sin señal)') +
+          '.\nSe envía solo cuando vuelva la señal.\nNO lo cargues de nuevo.', 'err');
+    cerrarCargaManualWA();
     return;
   }
 
@@ -55520,7 +55625,7 @@ function depPollIniciar() {
    TCK_UPD_LOCAL aca Y el archivo version.json del repo.
    ============================================================ */
 (function(){
-  var TCK_UPD_LOCAL = '14.176.1';        /* <-- bump en cada deploy */
+  var TCK_UPD_LOCAL = '14.177.0';        /* <-- bump en cada deploy */
   /* v14.159.0: fuente UNICA de version. La telemetria del shadow la reporta,
      asi que un desfasaje contra version.json se ve solo en el primer pedido
      (paso 4 veces sin que nadie lo notara: 14.109, 14.128, 14.137, 14.147). */
