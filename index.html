@@ -2,6 +2,41 @@
 <html lang="es">
 <head>
 <!-- ═══════════════════════════════════════════════════════════════════════
+     TCK VENTAS — v14.176.0 — 03/09/2026
+     v14.176.0: TRES MEJORAS SALIDAS DE LAS QUEJAS DE LA SEMANA (03/09).
+     Ninguna toca Apps Script ni la base. Frontend puro.
+
+     (1) AVISO AL EDITAR UN PEDIDO CON LA CARGA CERRADA.
+         El 31/08 un vendedor le sacó un medallón a un pedido 41 min después
+         de que Francisco cerrara la carga. El candado del backend bloqueó
+         el arranque (correcto) y el chofer se enteró en la puerta, 2h30
+         después. 6h42 de camión parado por una línea. Ahora, al abrir el
+         editor de un pedido cuyo viaje está en carga_cerrada o en_ruta,
+         aparece un bloque rojo arriba explicando qué pasa si guarda, y al
+         guardar pide confirmación explícita. NO bloquea: hay ediciones
+         legítimas, pero el que las hace tiene que saber qué desencadena.
+         Lee `viajes` directo de Supabase; si no puede, no avisa y la
+         edición sigue como siempre (el candado del backend sigue ahí).
+         _mapVista mapea viaje_id (la vista ya lo traía).
+
+     (2) "➕ NO ESTÁ EN XUBIO — CREARLO AHORA" EN EL BUSCADOR DEL PEDIDO.
+         Lisandro (31/08): "a mí no me aparece ningún ➕". Tenía razón: la
+         única alta de cliente de la app vivía adentro de MÁS → Proponer
+         acuerdo, y el cartel del buscador vacío mandaba a sincronizar (que
+         no trae un cliente que no existe). Dos pedidos ($249.660) quedaron
+         trabados por eso. Ahora el buscador vacío ofrece crear el cliente
+         ahí mismo, prellenando nombre/localidad/teléfono con lo que dejó
+         en el catálogo, y al crearlo queda elegido en el pedido. Mismo
+         endpoint y mismos helpers que acuerdo y mostrador. La localidad es
+         obligatoria: el backend la defaultea a Trenque Lauquen si va vacía.
+
+     (3) PILL "🌐 CATÁLOGO · invitado".
+         El catálogo v3.54.0 deja de mandar 'directo' para el que compra sin
+         registrarse (ahora 'catalogo_invitado'). pedidoOrigen ya lo
+         reconoce como catálogo; la pill agrega "· invitado" y el tooltip
+         aclara que compró sin registrarse. Antes 9 de cada 12 pedidos del
+         catálogo se veían idénticos a uno tipeado por el vendedor.
+     ─────────────────────────────────────────────────────────────────────
      TCK VENTAS — v14.175.0 — 03/09/2026
      v14.175.0: LAS VENTAS DE MOSTRADOR YA NO SALEN MARCADAS COMO DUPLICADAS.
 
@@ -16595,6 +16630,14 @@ body {
 }
 
 /* v13.3: Info debajo del "No se encontraron clientes" */
+/* v14.176.0 — alta de cliente desde el buscador vacío del pedido */
+.xubio-dropdown-alta {
+  display: block; width: calc(100% - 16px); margin: 6px 8px 4px;
+  padding: 11px 12px; background: #8B0000; color: #fff; border: none;
+  border-radius: 10px; font-family: 'Barlow Condensed', sans-serif;
+  font-size: 14px; font-weight: 900; cursor: pointer; text-align: left;
+}
+.xubio-dropdown-alta:active { transform: scale(.98); }
 .xubio-dropdown-empty-info {
   padding: 8px 12px;
   font-size: 11px;
@@ -25049,6 +25092,8 @@ function _mapVista(r) {
        Ojo: por el fallback CSV puede llegar undefined — ahí queda "" y no se
        dispara nada, que es lo correcto (no sabemos, no inventamos). */
     zona:      r.zona || "",
+    /* v14.176.0 — para avisar al editar si el camión ya cerró la carga. */
+    viajeId:   r.viaje_id || "",
     xubioNroPresupuesto: r.xubio_presupuesto_nro || "",
     xubioTransaccionid:  r.xubio_presupuesto_id ? String(r.xubio_presupuesto_id) : "",
     xubioEstado:         r.xubio_estado || "",
@@ -25960,7 +26005,13 @@ function _v23CanalPillHtml(p) {
   }
   if (o === 'campo')    return '<span class="cv23-canal campo" title="Pedido tomado en visita (check-in)">📍 CAMPO</span>';
   if (o === 'whatsapp') return '<span class="cv23-canal wa" title="Pedido cargado por WhatsApp">📱 WA</span>';
-  if (o === 'catalogo') return '<span class="cv23-canal catalogo" title="Pedido por catálogo web">🌐 CATÁLOGO</span>';
+  if (o === 'catalogo') {
+    // v14.176.0 — el catálogo v3.54.0 distingue al invitado (compró sin
+    // registrarse). Antes llegaba como 'directo' y se pintaba igual que un
+    // pedido tipeado por el vendedor.
+    var _inv = ((p && p.origen) || '').toString().toLowerCase().indexOf('invitado') >= 0;
+    return '<span class="cv23-canal catalogo" title="' + (_inv ? 'Pedido por catálogo web · el cliente compró SIN registrarse' : 'Pedido por catálogo web') + '">🌐 CATÁLOGO' + (_inv ? ' · invitado' : '') + '</span>';
+  }
   return '';
 }
 
@@ -30027,7 +30078,14 @@ function xubioRenderDropdown(clientes, id, pedidoId) {
     } else {
       infoHtml = '<div class="xubio-dropdown-empty-info">Si el cliente es nuevo en Xubio, tocá <strong>🔄</strong> arriba para sincronizar.</div>';
     }
-    drop.innerHTML = '<div class="xubio-dropdown-empty">No se encontraron clientes</div>' + infoHtml;
+    // v14.176.0 — LA SALIDA DONDE APARECE EL PROBLEMA. Hasta hoy el único
+    // "➕ Cliente nuevo" de la app vivía adentro de MÁS → Proponer acuerdo:
+    // nadie lo encontraba buscando cómo destrabar un pedido, y este cartel
+    // mandaba a sincronizar — que no trae un cliente que no existe.
+    var altaHtml = '<button type="button" class="xubio-dropdown-alta"'
+      + ' onmousedown="event.preventDefault();xubioAltaDesdePedidoAbrir(\'' + pedidoId + '\',\'' + id + '\')">'
+      + '➕ No está en Xubio — crearlo ahora</button>';
+    drop.innerHTML = '<div class="xubio-dropdown-empty">No se encontraron clientes</div>' + altaHtml + infoHtml;
     drop.classList.add('on');
     return;
   }
@@ -30073,6 +30131,112 @@ function xubioAbrirDropdown(id) {
 }
 
 // ── Seleccionar cliente ───────────────────────────────────────────
+// ══════════════════════════════════════════════════════════════════════
+//  v14.176.0 — ALTA DE CLIENTE EN XUBIO DESDE EL PEDIDO
+// ──────────────────────────────────────────────────────────────────────
+//  Reporte de Lisandro (31/08, 21:02): "A mí no me aparece ningún ➕". Tenía
+//  razón. El pedido de Macarena Ibáñez (Parada139, América) y el de Soledad
+//  (Nuestra Tierra, Henderson) estaban trabados porque la clienta no existía
+//  en Xubio → FALTA_CLIENTE → sin presupuesto → el pedido no pasa a
+//  Confirmado → no entra en la planilla del camión. Y la única alta de
+//  cliente de la app estaba adentro de MÁS → Proponer acuerdo.
+//
+//  Mismo endpoint (crearClienteXubio, GAS v25.38.0), mismos helpers que el
+//  acuerdo y el mostrador (_altaClienteFetch / _altaClienteInyectarEnRonda).
+//  Al crear, queda seleccionado en el pedido: el siguiente toque es
+//  "📄 Crear presupuesto". Prellena nombre, localidad y teléfono con lo que
+//  el cliente dejó en el catálogo, que es justo lo que el vendedor no
+//  encontraba. La localidad es obligatoria: el backend la defaultea a
+//  Trenque Lauquen si va vacía, y eso ya nos creó clientes en la ciudad
+//  equivocada.
+// ══════════════════════════════════════════════════════════════════════
+var _xaPedidoId = null, _xaId = null, _xaIva = 'CF';
+
+function xubioAltaDesdePedidoAbrir(pedidoId, id) {
+  _xaPedidoId = pedidoId; _xaId = id; _xaIva = 'CF';
+  var p = (todosLosPedidos || []).find(function (x) { return x.pedidoId === pedidoId; }) || {};
+  var inpBusq = document.getElementById('xubio-search-' + id);
+  var nombreSug = (inpBusq && inpBusq.value.trim()) || p.cliente || '';
+  var h = '';
+  h += '<div class="most-ov" id="xa-ov" style="z-index:10001;">';
+  h += ' <div class="most-card">';
+  h += '  <div class="most-h">➕ Crear cliente en Xubio</div>';
+  h += '  <div style="font-size:12px;color:#8a6f5f;margin:-4px 0 8px;">Queda elegido en este pedido al crearlo.</div>';
+  h += '  <div class="most-lbl">Nombre / Razón social *</div>';
+  h += '  <input class="most-inp" id="xa-nombre" type="text" value="' + _escapeHtml(nombreSug) + '">';
+  h += '  <div class="most-lbl">Condición IVA</div>';
+  h += '  <div class="most-seg" id="xa-iva">';
+  h += '   <button type="button" class="sel" data-iva="CF" onclick="xubioAltaIva(this)">Cons. Final</button>';
+  h += '   <button type="button" data-iva="MT" onclick="xubioAltaIva(this)">Monotributo</button>';
+  h += '   <button type="button" data-iva="RI" onclick="xubioAltaIva(this)">Resp. Inscripto</button>';
+  h += '  </div>';
+  h += '  <div class="most-lbl">DNI o CUIT <span id="xa-doc-req" style="color:#C62828;display:none;">* CUIT de 11 dígitos para RI/Mono</span></div>';
+  h += '  <input class="most-inp" id="xa-doc" type="tel" placeholder="Sin puntos ni guiones">';
+  h += '  <div class="most-lbl">Localidad *</div>';
+  h += '  <input class="most-inp" id="xa-loc" type="text" value="' + _escapeHtml(String(p.localidad || '')) + '" placeholder="Ciudad del cliente">';
+  h += '  <div class="most-lbl">Teléfono</div>';
+  h += '  <input class="most-inp" id="xa-tel" type="tel" value="' + _escapeHtml(String(p.telefono || '')) + '" placeholder="Opcional">';
+  h += '  <div id="xa-err" style="color:#C62828;font-size:12px;font-weight:700;min-height:16px;margin-top:4px;"></div>';
+  h += '  <button class="most-act" id="xa-btn" onclick="xubioAltaDesdePedidoGuardar()">✅ CREAR Y USAR EN ESTE PEDIDO</button>';
+  h += '  <button class="most-sec" onclick="xubioAltaDesdePedidoCerrar()">Cancelar</button>';
+  h += ' </div>';
+  h += '</div>';
+  document.body.insertAdjacentHTML('beforeend', h);
+  setTimeout(function () { var i = document.getElementById(nombreSug ? 'xa-doc' : 'xa-nombre'); if (i) i.focus(); }, 80);
+}
+function xubioAltaIva(btn) {
+  _xaIva = btn.getAttribute('data-iva');
+  document.querySelectorAll('#xa-iva button').forEach(function (b) { b.classList.toggle('sel', b === btn); });
+  var req = document.getElementById('xa-doc-req');
+  if (req) req.style.display = (_xaIva === 'CF') ? 'none' : 'inline';
+}
+function xubioAltaDesdePedidoCerrar() {
+  var ov = document.getElementById('xa-ov'); if (ov) ov.remove();
+}
+async function xubioAltaDesdePedidoGuardar() {
+  var nombre = (document.getElementById('xa-nombre').value || '').trim();
+  var doc    = (document.getElementById('xa-doc').value || '').replace(/[^0-9]/g, '');
+  var loc    = (document.getElementById('xa-loc').value || '').trim();
+  var tel    = (document.getElementById('xa-tel').value || '').trim();
+  var errEl  = document.getElementById('xa-err');
+  errEl.textContent = '';
+  if (!nombre) { errEl.textContent = 'Falta el nombre.'; return; }
+  if (!loc)    { errEl.textContent = 'Falta la localidad (si va vacía queda en Trenque Lauquen).'; return; }
+  if ((_xaIva === 'RI' || _xaIva === 'MT') && !/^\d{11}$/.test(doc)) {
+    errEl.textContent = 'RI y Monotributo necesitan CUIT de 11 dígitos. Si solo tenés el DNI, cargalo como Consumidor Final.'; return;
+  }
+  var btn = document.getElementById('xa-btn');
+  btn.disabled = true; btn.textContent = 'Creando en Xubio…';
+  try {
+    var params = new URLSearchParams({
+      accion: 'crearClienteXubio', nombre: nombre, condicionIva: _xaIva,
+      numeroDoc: doc, localidad: loc, telefono: tel, direccion: '',
+      vendedor: (typeof vendedorActual !== 'undefined' && vendedorActual) ? vendedorActual : 'VENDEDOR'
+    });
+    var data = await _altaClienteFetch(params, btn);
+    var okStatus = data && (data.status === 'creado' || data.status === 'creado_sin_ronda' || data.status === 'duplicado');
+    if (okStatus && data.cliente && data.cliente.id) {
+      var cli = { id: String(data.cliente.id), nombre: data.cliente.nombre || nombre, cuit: data.cliente.cuit || doc || '' };
+      if (data.status === 'creado') {
+        try { _altaClienteInyectarEnRonda(data.cliente, params.get('vendedor'), { telefono: tel, direccion: '' }); } catch (e) {}
+        toast('✅ Cliente creado en Xubio y elegido en el pedido', 'ok');
+      } else if (data.status === 'duplicado') {
+        toast('⚠️ Ese documento ya existía — se usa el cliente existente', 'warn');
+      } else {
+        toast('⚠️ Creado en Xubio, pero no entró a tu ronda — avisá al admin', 'warn');
+      }
+      xubioAltaDesdePedidoCerrar();
+      try { xubioSeleccionarCliente(_xaPedidoId, _xaId, cli); } catch (e) { console.warn('[alta pedido] seleccionar:', e); }
+    } else {
+      errEl.textContent = (data && data.message) ? data.message : 'No se pudo crear el cliente. Reintentá.';
+      btn.disabled = false; btn.textContent = '✅ CREAR Y USAR EN ESTE PEDIDO';
+    }
+  } catch (e) {
+    errEl.textContent = _altaClienteMsgError(e);
+    btn.disabled = false; btn.textContent = '✅ CREAR Y USAR EN ESTE PEDIDO';
+  }
+}
+
 function xubioSeleccionarCliente(pedidoId, id, cliente) {
   _xubioActivo = true; // mantener pausado mientras se seleccionan variantes
   // Guardar selección
@@ -43065,6 +43229,9 @@ async function _abrirEditarPedidoInterno(p, detalle) {
   editarRenderItems();
   editarActualizarTotal();
 
+  // v14.176.0 — si el camión ya cerró la carga, avisar ACÁ, al que edita.
+  _editarChequearCargaCerrada(p);
+
   // v9.9: si hay líneas no parseadas o productos huérfanos, mostrar warning prominente
   if (_editarLineasNoParseadas.length > 0 || _editarQtysHuerfanos.length > 0) {
     _editarMostrarWarningParsing(detalle);
@@ -43127,6 +43294,75 @@ function _editarMostrarWarningParsing(detalleOriginal) {
   html += '<div style="margin-top:10px;padding:10px;background:#fff;border-radius:8px;color:#424242;font-size:13px;line-height:1.45;">';
   html += '<b>Qué hacer:</b> Cancelá este editor. Contactá al admin para corregir el pedido en el Sheet, o agregá manualmente los productos faltantes acá abajo antes de guardar.';
   html += '</div></div>';
+  body.insertAdjacentHTML('afterbegin', html);
+}
+
+// ══════════════════════════════════════════════════════════════════════
+//  v14.176.0 — AVISO AL EDITAR UN PEDIDO CON LA CARGA CERRADA
+// ──────────────────────────────────────────────────────────────────────
+//  El 31/08 Francisco cerró la carga de zona1a a las 06:38. A las 07:19 un
+//  vendedor le sacó un medallón ($52.500) a un pedido de ese camión. El
+//  candado del backend hizo lo que tiene que hacer —la planilla impresa ya
+//  no coincidía con la carga— y bloqueó el arranque. El chofer se enteró a
+//  las 09:49, en la puerta, con un cartel que le pedía reabrir una carga que
+//  él no puede reabrir. El camión salió a las 16:31: 6 h 42 min parado por
+//  una línea de un pedido.
+//
+//  El sistema SUPO del cambio en el momento (dejó un evento crítico) y no
+//  se lo dijo a nadie que pudiera actuar. Se lo dijo al chofer, 2 h 30 min
+//  después. Este bloque le avisa al que edita, ANTES de que toque nada, y le
+//  pide confirmación explícita al guardar. No bloquea: hay ediciones
+//  legítimas (el cliente canceló un ítem y el depósito lo baja del camión),
+//  pero el que las hace tiene que saber qué desencadena.
+//
+//  Lee `viajes` directo de Supabase (authenticated tiene SELECT). Si no se
+//  puede leer, no se avisa y la edición sigue como siempre: el candado del
+//  backend sigue siendo la red de seguridad.
+// ══════════════════════════════════════════════════════════════════════
+var _editarViajeCerrado = null;
+
+async function _editarChequearCargaCerrada(p) {
+  _editarViajeCerrado = null;
+  var vid = p && p.viajeId;
+  if (!vid) return;
+  var v = null;
+  try {
+    var rows = await sbFetch('viajes?id=eq.' + encodeURIComponent(vid)
+      + '&select=id,estado,zona,fecha_salida,planilla_version,chofer&limit=1');
+    v = Array.isArray(rows) && rows[0] ? rows[0] : null;
+  } catch (e) { return; }
+  if (!v) return;
+  if (v.estado !== 'carga_cerrada' && v.estado !== 'en_ruta') return;
+  // Si el editor ya se cerró mientras esperábamos, no dibujar nada.
+  var body = document.getElementById('editar-body');
+  if (!body || _editarPedidoId !== p.pedidoId) return;
+
+  _editarViajeCerrado = v;
+  var zonaTxt = ({
+    'zona1': 'Zona 1', 'zona2': 'Zona 2', 'zona1a': 'Zona 1A', 'zona1b': 'Zona 1B',
+    'zona2a': 'Zona 2A', 'zona2b': 'Zona 2B', 'zona3': 'Zona 3',
+    'tl_manana': 'TL Mañana', 'tl_tarde': 'TL Tarde', 'tl': 'TL',
+    'america_fortin': 'América/Fortín'
+  })[v.zona] || v.zona || '';
+  var fs = String(v.fecha_salida || '').split('-');
+  var fsTxt = fs.length === 3 ? (fs[2] + '/' + fs[1]) : (v.fecha_salida || '');
+  var enRuta = (v.estado === 'en_ruta');
+  var html = ''
+    + '<div id="editar-aviso-carga" style="background:linear-gradient(135deg,#FFEBEE,#FFCDD2);'
+    +   'border:2px solid #B71C1C;border-radius:12px;padding:12px 14px;margin:0 0 12px;">'
+    +   '<div style="font-family:Barlow Condensed,sans-serif;font-size:16px;font-weight:900;color:#B71C1C;">'
+    +     (enRuta ? '🚚 ESTE PEDIDO YA ESTÁ EN LA CALLE' : '🔒 ESTE PEDIDO ESTÁ EN UN CAMIÓN CON LA CARGA CERRADA')
+    +   '</div>'
+    +   '<div style="font-size:12.5px;color:#7F0000;line-height:1.5;margin-top:6px;">'
+    +     '<b>' + _escapeHtml(zonaTxt) + ' · sale ' + _escapeHtml(fsTxt) + '</b>'
+    +     (v.chofer && v.chofer !== '—' ? ' · chofer ' + _escapeHtml(String(v.chofer)) : '')
+    +     (v.planilla_version ? ' · planilla v' + v.planilla_version + ' ya impresa' : '')
+    +     '<br>'
+    +     (enRuta
+        ? 'El camión ya salió con la planilla impresa. Lo que cambies acá <b>no va a coincidir con lo que lleva el chofer</b>. Si el cliente cambió el pedido, avisale a Francisco y al chofer.'
+        : 'Depósito ya cargó y controló el camión con esta planilla. Si guardás un cambio, <b>el camión no va a poder arrancar</b> hasta que Francisco reabra la carga, actualice la planilla y la vuelva a cerrar. Si es un cambio real, avisale a Francisco AHORA, no después.')
+    +   '</div>'
+    + '</div>';
   body.insertAdjacentHTML('afterbegin', html);
 }
 
@@ -43435,6 +43671,18 @@ function editarQuitarDescuento(nombre) {
 
 async function editarConfirmar() {
   if (!_editarPedidoId) return;
+
+  // v14.176.0 — con la carga cerrada, guardar exige decirlo con todas las letras.
+  if (_editarViajeCerrado) {
+    var _v176 = _editarViajeCerrado;
+    var _enRuta176 = (_v176.estado === 'en_ruta');
+    var _msg176 = (_enRuta176 ? '🚚 EL CAMIÓN YA SALIÓ.' : '🔒 LA CARGA DE ESTE CAMIÓN YA ESTÁ CERRADA.') + '\n\n'
+      + (_enRuta176
+          ? 'Lo que guardes NO va a coincidir con la planilla que lleva el chofer.'
+          : 'Si guardás, el camión NO VA A PODER ARRANCAR hasta que Francisco reabra la carga, actualice la planilla y la vuelva a cerrar.')
+      + '\n\n¿Ya le avisaste a Francisco?\n\nAceptar = sí, guardar igual.\nCancelar = volver sin guardar.';
+    if (!confirm(_msg176)) return;
+  }
   // v13.4: permitir guardar si hay solo promos o combos (sin productos sueltos)
   var _hayPromosEd = Object.keys(_editarPromos||{}).some(function(k){ return _editarPromos[k] > 0; });
   var _hayCombosEd = Object.keys(_editarCombos||{}).some(function(k){ return _editarCombos[k] > 0; });
@@ -55216,7 +55464,7 @@ function depPollIniciar() {
    TCK_UPD_LOCAL aca Y el archivo version.json del repo.
    ============================================================ */
 (function(){
-  var TCK_UPD_LOCAL = '14.175.0';        /* <-- bump en cada deploy */
+  var TCK_UPD_LOCAL = '14.176.0';        /* <-- bump en cada deploy */
   /* v14.159.0: fuente UNICA de version. La telemetria del shadow la reporta,
      asi que un desfasaje contra version.json se ve solo en el primer pedido
      (paso 4 veces sin que nadie lo notara: 14.109, 14.128, 14.137, 14.147). */
