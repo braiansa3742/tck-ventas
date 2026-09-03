@@ -2,6 +2,31 @@
 <html lang="es">
 <head>
 <!-- ═══════════════════════════════════════════════════════════════════════
+     TCK VENTAS — v14.176.1 — 03/09/2026
+     v14.176.1: EL MODAL "¿A QUÉ CIUDAD VA?" YA NO DEPENDE DE LEER LA LISTA.
+     Reporte 03/09 17:37 (captura): "No te deja buscar ni la ciudad ni
+     localidad" — el modal decía "No pude leer la lista de ciudades".
+
+     DIAGNÓSTICO con los logs de la API (Management API, edge_logs): en la
+     franja 17:20–17:55 hay decenas de lecturas de `rutas` desde otras
+     pantallas, todas 200, y NINGUNA con la firma de este modal
+     (select=ciudad,zona&activo=is.true&limit=500). La llamada del celular
+     nunca llegó a Supabase: falla de red del teléfono (4G), no permisos ni
+     query — la misma query con la key pública da 200 con 31 ciudades.
+
+     Y dos errores míos de la 14.174.0 que lo volvían permanente:
+       · Al fallar, cacheaba _asigLocCiudades = [] y "volvé a abrir" no
+         reintentaba nunca en toda la sesión.
+       · Sin la lista, el modal no ofrecía NINGUNA salida.
+
+     FIX:
+       · La lista se pide con timeout (12 s) y nunca se cachea vacía.
+       · Link "reintentar la lista" en el mensaje de error.
+       · Botón "📍 Usar «lo que escribí»" apenas hay 3 letras, con o sin
+         lista: el backend (actualizarCiudadPedido) valida contra `rutas` de
+         todos modos y devuelve error claro si la ciudad no existe. El
+         vendedor con mala señal escribe "América", toca Usar, y listo.
+     ─────────────────────────────────────────────────────────────────────
      TCK VENTAS — v14.176.0 — 03/09/2026
      v14.176.0: TRES MEJORAS SALIDAS DE LAS QUEJAS DE LA SEMANA (03/09).
      Ninguna toca Apps Script ni la base. Frontend puro.
@@ -28210,33 +28235,64 @@ async function asignarLocalidadAbrir(pedidoId) {
     + '</div>';
   document.body.appendChild(ov);
 
-  if (!_asigLocCiudades) {
-    try {
-      var rows = await sbFetch('rutas?select=ciudad,zona&activo=is.true&order=ciudad.asc&limit=500');
-      _asigLocCiudades = Array.isArray(rows) ? rows : [];
-    } catch (e) {
-      _asigLocCiudades = [];
-      console.warn('[asigLoc] no se pudieron leer las rutas:', e);
-    }
+  await asignarLocalidadCargarCiudades(false);
+  asignarLocalidadFiltrar((document.getElementById('asigloc-buscar') || {}).value || '');
+}
+
+/* v14.176.1 — La lista se pide con timeout y NUNCA se cachea vacía: en la
+   14.174.0 una falla de red dejaba _asigLocCiudades = [] y "volvé a abrir"
+   no reintentaba jamás (reporte 03/09 17:37: "no te deja buscar ni la
+   ciudad ni localidad"). Además el modal ya no depende de esta lista para
+   funcionar: ver el botón "Usar lo que escribí" en asignarLocalidadFiltrar. */
+async function asignarLocalidadCargarCiudades(forzar) {
+  if (_asigLocCiudades && _asigLocCiudades.length && !forzar) return;
+  try {
+    var rows = await sbFetch('rutas?select=ciudad,zona&activo=is.true&order=ciudad.asc&limit=500',
+                             { timeoutMs: 12000 });
+    _asigLocCiudades = (Array.isArray(rows) && rows.length) ? rows : null;
+  } catch (e) {
+    _asigLocCiudades = null;
+    console.warn('[asigLoc] no se pudieron leer las rutas:', e && e.message ? e.message : e);
   }
-  asignarLocalidadFiltrar('');
+}
+
+async function asignarLocalidadReintentar() {
+  var cont = document.getElementById('asigloc-lista');
+  if (cont) cont.innerHTML = '<div style="color:#8a6f5f;font-size:13px;padding:10px 0;">Cargando ciudades…</div>';
+  await asignarLocalidadCargarCiudades(true);
+  asignarLocalidadFiltrar((document.getElementById('asigloc-buscar') || {}).value || '');
 }
 
 function asignarLocalidadFiltrar(q) {
   var cont = document.getElementById('asigloc-lista');
   if (!cont) return;
+  var t = String(q || '').toLowerCase().trim();
+  var escrito = String(q || '').trim();
+  /* El backend (actualizarCiudadPedido) valida contra `rutas` de todos modos,
+     así que escribir la ciudad y mandarla es válido aunque la lista no haya
+     cargado. Si no existe, vuelve un error claro y no se toca nada. */
+  var btnUsar = escrito.length >= 3
+    ? '<button type="button" onclick="asignarLocalidadConfirmar(' + JSON.stringify(escrito).replace(/"/g, '&quot;') + ')"'
+      + ' style="width:100%;margin:6px 0 10px;padding:12px;background:#8B0000;color:#fff;border:none;'
+      + 'border-radius:10px;font-family:Barlow Condensed,sans-serif;font-size:15px;font-weight:900;cursor:pointer;">'
+      + '📍 Usar &quot;' + _escapeHtml(escrito) + '&quot;</button>'
+    : '';
   if (!_asigLocCiudades || !_asigLocCiudades.length) {
-    cont.innerHTML = '<div style="color:#B71C1C;font-size:13px;padding:10px 0;">'
-      + 'No pude leer la lista de ciudades. Revisá la conexión y volvé a abrir.</div>';
+    cont.innerHTML = btnUsar
+      + '<div style="color:#B71C1C;font-size:13px;padding:6px 0;line-height:1.45;">'
+      + 'No pude cargar la lista de ciudades. Podés escribir la ciudad y tocar <b>Usar</b> igual '
+      + '(el sistema la verifica), o '
+      + '<a href="#" onclick="asignarLocalidadReintentar();return false;" style="color:#B71C1C;font-weight:800;">reintentar la lista</a>.'
+      + '</div>';
     return;
   }
-  var t = String(q || '').toLowerCase().trim();
   var lista = _asigLocCiudades.filter(function (r) {
     return !t || String(r.ciudad || '').toLowerCase().indexOf(t) >= 0;
   }).slice(0, 60);
   if (!lista.length) {
-    cont.innerHTML = '<div style="color:#8a6f5f;font-size:13px;padding:10px 0;">'
-      + 'Ninguna ciudad coincide. Si el cliente es de una localidad que no repartimos, '
+    cont.innerHTML = btnUsar
+      + '<div style="color:#8a6f5f;font-size:13px;padding:6px 0;line-height:1.45;">'
+      + 'Ninguna ciudad de la lista coincide. Si el cliente es de una localidad que no repartimos, '
       + 'avisale a Francisco antes de asignarla.</div>';
     return;
   }
@@ -55464,7 +55520,7 @@ function depPollIniciar() {
    TCK_UPD_LOCAL aca Y el archivo version.json del repo.
    ============================================================ */
 (function(){
-  var TCK_UPD_LOCAL = '14.176.0';        /* <-- bump en cada deploy */
+  var TCK_UPD_LOCAL = '14.176.1';        /* <-- bump en cada deploy */
   /* v14.159.0: fuente UNICA de version. La telemetria del shadow la reporta,
      asi que un desfasaje contra version.json se ve solo en el primer pedido
      (paso 4 veces sin que nadie lo notara: 14.109, 14.128, 14.137, 14.147). */
