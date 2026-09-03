@@ -2,6 +2,45 @@
 <html lang="es">
 <head>
 <!-- ═══════════════════════════════════════════════════════════════════════
+     TCK VENTAS — v14.175.0 — 03/09/2026
+     v14.175.0: LAS VENTAS DE MOSTRADOR YA NO SALEN MARCADAS COMO DUPLICADAS.
+
+     REPORTE de Braian (03/09): "podés ver xq todas las ventas de mostrador
+     que hacemos, salen duplicados? necesitamos identificar venta x venta
+     para saber que son distintas y no marque como duplicadas".
+
+     MEDIDO: de 182 ventas de mostrador desde el 01/08, 84 quedaban marcadas
+     como duplicadas — el 46%. Y el motor es uno solo: la regla agrupa por
+     "día + nombre del cliente", y 67 de esas 182 ventas son a "Consumidor
+     Final", que no es un cliente sino el cartel del que compra sin dar el
+     nombre. Dos personas distintas comprando el mismo día caían en la misma
+     llave y se marcaban entre sí. Con 22 días de ventas, casi no hubo día
+     sin dos anónimos.
+
+     La regla no estaba mal: está pensada para el vendedor que carga el mismo
+     pedido dos veces desde el campo, y ahí "mismo cliente + mismo día" es
+     buena señal. En un mostrador no — el cliente está parado enfrente, paga
+     en el acto y puede volver a la tarde.
+
+     (A) Los nombres genéricos (Consumidor Final, sin nombre, varios, etc.)
+         NUNCA agrupan. No identifican a nadie.
+     (B) En mostrador solo se comparan ventas dentro de 10 minutos. Eso sigue
+         atrapando el doble guardado real —el 02/09 quedaron 3 cargas de Leali
+         por $87.800 en un minuto, dos canceladas a mano— y deja de molestar
+         con las ventas legítimas.
+
+     Fuera de mostrador no cambia nada salvo (A): campo y WhatsApp se siguen
+     comparando contra todo el día.
+
+     VERIFICADO ADEMÁS (pedido de Braian: "que todo lo de mostrador esté bien,
+     listas de precios y demás igual a la de los vendedores"): mostrador NO
+     tiene tomador propio — abrirCargaMostrador() llama a abrirCargaManualWA()
+     con un flag. Mismo grid, misma escalera de precios (TRAMOS_V desde
+     producto_tramos), mismos topes de descuento. Contrastados los precios
+     cobrados contra vw_precio_efectivo: 21 de 21 productos comparables dan
+     exacto. Las dos diferencias aparentes eran la escalera funcionando —
+     Suprema 1u $37.000 / 4u+ $35.000, y mostrador vende de a 1 o 2.
+     ─────────────────────────────────────────────────────────────────────
      TCK VENTAS — v14.174.0 — 03/09/2026
      v14.174.0: PEDIDOS SIN RUTA — VISIBLES Y ARREGLABLES POR EL VENDEDOR.
      Pedido de Braian (03/09): "arreglar este problema de localidad, que sea
@@ -25068,6 +25107,66 @@ function _normProdVent(nombre) {
 
 /* Marca duplicados sobre la lista ya armada (mismo criterio de siempre:
    mismo cliente + mismo día). */
+// ══════════════════════════════════════════════════════════════════════
+//  v14.175.0 — LAS VENTAS DE MOSTRADOR YA NO SE MARCAN COMO DUPLICADAS
+// ──────────────────────────────────────────────────────────────────────
+//  Reporte de Braian (03/09): "podés ver xq todas las ventas de mostrador
+//  que hacemos, salen duplicados? necesitamos identificar venta x venta
+//  para saber que son distintas y no marque como duplicadas".
+//
+//  MEDIDO: de 182 ventas de mostrador desde el 01/08, **84 quedaban
+//  marcadas como duplicadas** (46%). El motor es uno solo: la regla agrupa
+//  por *día + nombre del cliente*, y en mostrador **67 de esas 182 ventas
+//  son a "Consumidor Final"** — que no es un cliente, es un cartel para el
+//  que pasa y compra sin dar el nombre. Dos personas distintas que compran
+//  el mismo día caían en la misma llave y se marcaban entre sí.
+//
+//  La regla no estaba mal: está pensada para el vendedor que carga el mismo
+//  pedido dos veces desde el campo, y ahí "mismo cliente + mismo día" es una
+//  señal buena. En un mostrador no: el cliente está parado enfrente, paga en
+//  el acto, y puede volver a la tarde. El día entero es una ventana absurda.
+//
+//  DOS CAMBIOS, los dos acotados:
+//   (A) Los nombres genéricos NUNCA agrupan. No identifican a nadie.
+//   (B) En mostrador se comparan solo las ventas PEGADAS EN EL TIEMPO
+//       (10 min). Eso sigue atrapando el doble guardado real — que existe:
+//       el 02/09 quedaron 3 cargas de Leali por $87.800 en un minuto, dos
+//       canceladas a mano — y deja de molestar con las ventas legítimas.
+//
+//  Fuera de mostrador NO cambia nada salvo (A): el pedido de campo o de
+//  WhatsApp se sigue comparando contra todo el día, como hasta hoy.
+// ══════════════════════════════════════════════════════════════════════
+var DUP_CLIENTES_GENERICOS = [
+  'consumidorfinal', 'consumidor', 'sinnombre', 'varios', 'particular',
+  'clientenuevo', 'mostrador', 'contado', 'cf'
+];
+function _dupClienteAnonimo(nombre) {
+  var n = String(nombre || '').toLowerCase().replace(/\s/g, '');
+  if (!n) return true;                       // sin nombre no identifica a nadie
+  return DUP_CLIENTES_GENERICOS.indexOf(n) >= 0;
+}
+
+function _dupEsMostrador(p) {
+  if (!p) return false;
+  if (String(p.origen || '').toLowerCase() === 'mostrador') return true;
+  return String(p.vendedor || '').toLowerCase().indexOf('mostrador') >= 0;
+}
+
+var DUP_MOSTRADOR_VENTANA_MS = 10 * 60 * 1000;
+
+/* ¿Estas dos ventas son comparables entre sí? Fuera de mostrador, siempre
+   (mismo criterio de siempre). En mostrador, solo si están dentro de la
+   ventana: el doble guardado ocurre en segundos, no en horas.
+   Si alguna no tiene hora parseable se cae del lado seguro (comparables),
+   para no perder una detección por un dato feo. */
+function _dupComparable(a, b) {
+  if (!_dupEsMostrador(a) && !_dupEsMostrador(b)) return true;
+  var ta = Date.parse(String(a.fechaHora || '').replace(' ', 'T'));
+  var tb = Date.parse(String(b.fechaHora || '').replace(' ', 'T'));
+  if (!isFinite(ta) || !isFinite(tb)) return true;
+  return Math.abs(ta - tb) <= DUP_MOSTRADOR_VENTANA_MS;
+}
+
 function _marcarDuplicados(pedidos) {
   // v14.168.0 — un pedido unido hace < 2 min no se vuelve a agrupar: el
   // absorbido puede seguir figurando activo en la lectura y el badge
@@ -25084,6 +25183,7 @@ function _marcarDuplicados(pedidos) {
   pedidos.forEach(function (p) {
     if (p.estado === "Cancelado") return;
     if (_unidoReciente(p)) return;
+    if (_dupClienteAnonimo(p.cliente)) return;   // v14.175.0
     var m = (p.pedidoId || "").match(/TCK-(\d{8})/);
     var dia = m ? m[1] : (p.fechaHora || "").substring(0, 10).replace(/-/g, "");
     if (!dia) return;
@@ -25094,6 +25194,7 @@ function _marcarDuplicados(pedidos) {
     p.esDuplicado = false; p.tipoDuplicado = null; p.duplicadoCon = "";
     if (p.estado === "Cancelado") return;
     if (_unidoReciente(p)) return;   // v14.168.0
+    if (_dupClienteAnonimo(p.cliente)) return;   // v14.175.0
     var m = (p.pedidoId || "").match(/TCK-(\d{8})/);
     var dia = m ? m[1] : (p.fechaHora || "").substring(0, 10).replace(/-/g, "");
     if (!dia) return;
@@ -25101,6 +25202,11 @@ function _marcarDuplicados(pedidos) {
     if (!grupo || grupo.length < 2) return;
     try { if (gruposVaSucursalesDistintas(grupo)) return; } catch (_) {}
     var otros = grupo.filter(function (x) { return x.pedidoId !== p.pedidoId; });
+    /* v14.175.0 — en mostrador el día entero es una ventana absurda: el mismo
+       cliente puede pasar a la mañana y a la tarde y son DOS ventas. Solo se
+       comparan las que están pegadas en el tiempo (= el doble guardado real). */
+    otros = otros.filter(function (x) { return _dupComparable(p, x); });
+    if (!otros.length) return;
     var todosDistintos = otros.length > 0 && otros.every(function (x) {
       try { return dupEstaMarcadoComoDistinto(p.pedidoId, x.pedidoId); } catch (_) { return false; }
     });
@@ -55110,7 +55216,7 @@ function depPollIniciar() {
    TCK_UPD_LOCAL aca Y el archivo version.json del repo.
    ============================================================ */
 (function(){
-  var TCK_UPD_LOCAL = '14.174.0';        /* <-- bump en cada deploy */
+  var TCK_UPD_LOCAL = '14.175.0';        /* <-- bump en cada deploy */
   /* v14.159.0: fuente UNICA de version. La telemetria del shadow la reporta,
      asi que un desfasaje contra version.json se ve solo en el primer pedido
      (paso 4 veces sin que nadie lo notara: 14.109, 14.128, 14.137, 14.147). */
