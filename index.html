@@ -2,6 +2,48 @@
 <html lang="es">
 <head>
 <!-- ═══════════════════════════════════════════════════════════════════════
+     TCK VENTAS — v14.174.0 — 03/09/2026
+     v14.174.0: PEDIDOS SIN RUTA — VISIBLES Y ARREGLABLES POR EL VENDEDOR.
+     Pedido de Braian (03/09): "arreglar este problema de localidad, que sea
+     muy visible y que alguien lo vea y arregle sí o sí, más q nada el
+     vendedor debería hacerlo".
+
+     EL CASO: TCK-20260829-1910-TCK-JTKN, $324.300, pedido del catálogo del
+     sábado 29/08. El cliente escribió su localidad como "America.pdo
+     rivadavia". Ese texto no matchea la tabla de rutas, así que el pedido
+     quedó zona='sin_ruta': sin zona, sin fecha de salida, sin viaje y sin
+     entrega. No es que se lo saltearon en el reparto — para la logística NO
+     EXISTÍA. Se descubrió 5 días después, cuando el cliente reclamó. Es el
+     único pedido en ese estado en toda la base desde julio.
+
+     Y EL SISTEMA HABÍA AVISADO. Dos segundos después de entrar el pedido
+     mandó dos WhatsApp ("PEDIDO REQUIERE REVISION DE LOCALIDAD / RUTA"), uno
+     al vendedor y otro al admin; los dos se entregaron sin error. Nadie los
+     vio. El vendedor incluso editó ese pedido dos veces el 31/08 sin
+     notarlo, porque en su pantalla se ve ✅ Confirmado con presupuesto
+     creado — idéntico a un pedido sano. Un aviso de WhatsApp un sábado a la
+     noche no es una red de seguridad.
+
+     POR ESO ESTO NO ES OTRO AVISO. Es el patrón que en esta app ya demostró
+     funcionar: el banner de "pedidos sin presupuesto" (v14.134.0), que no se
+     va hasta que el problema se resuelve. Acá va PRIMERO, arriba de los otros
+     dos, porque es el único que significa "este pedido no sale en ningún
+     camión". Y trae el botón que lo arregla al lado del problema.
+
+     (A) Banner rojo "N PEDIDOS SIN RUTA" con cliente, localidad cruda, monto
+         y un botón 📍 ARREGLAR por pedido. Mira los últimos 30 días.
+     (B) Modal de asignación: busca en la tabla `rutas` y asigna la ciudad.
+     (C) La vista vw_pedidos_ventas YA traía la columna `zona` y _mapVista la
+         descartaba. Ahora se mapea. Cero cambios de backend y cero DDL.
+
+     NO SE AGREGA NADA AL APPS SCRIPT: usa actualizarCiudadPedido, el mismo
+     endpoint que ya usa el admin (GAS v25.120.0), que valida contra `rutas`,
+     recalcula zona + salida y ADOPTA el pedido (le reasigna el vendedor por
+     cartera y repone salida_original).
+
+     Ojo con el fallback CSV: ahí no viene `zona`, queda "" y el banner no se
+     dispara. Es lo correcto — si no sabemos, no inventamos.
+     ─────────────────────────────────────────────────────────────────────
      TCK VENTAS — v14.172.0 — 27/08/2026
      v14.172.0: EL CHOFER ARRANCA EL VIAJE.
      Cierra el circuito: Administración organiza · Depósito CIERRA LA CARGA
@@ -24961,6 +25003,13 @@ function _mapVista(r) {
     turnoEntrega: r.turno_entrega || "",
     origen:    r.origen || "",
     telefono:  r.telefono || "",
+    /* v14.174.0 — la vista ya traía `zona` y la app la tiraba a la basura.
+       'sin_ruta' significa que la localidad que escribió el cliente no matcheó
+       la tabla de rutas: el pedido NO tiene zona, ni fecha, ni camión, y no
+       entra en ninguna planilla. Se usa para el banner y el botón de arreglo.
+       Ojo: por el fallback CSV puede llegar undefined — ahí queda "" y no se
+       dispara nada, que es lo correcto (no sabemos, no inventamos). */
+    zona:      r.zona || "",
     xubioNroPresupuesto: r.xubio_presupuesto_nro || "",
     xubioTransaccionid:  r.xubio_presupuesto_id ? String(r.xubio_presupuesto_id) : "",
     xubioEstado:         r.xubio_estado || "",
@@ -25652,7 +25701,9 @@ function renderPedidos(forzar) {
   // v14.5.0 FIX 4 — Capturar cards expandidas para restaurarlas después
   var cardsAbiertas = _capturarCardsAbiertas();
 
-  cont.innerHTML = _bannerSinPresupuesto() + _bannerEsperaAlta()
+  /* v14.174.0 — SIN RUTA va PRIMERO: es el único de los tres que significa
+     que el pedido no va a salir en ningún camión. */
+  cont.innerHTML = _bannerSinRuta() + _bannerSinPresupuesto() + _bannerEsperaAlta()
     + lista.map(function(p){ return renderCard(p); }).join('');
 
   // Restaurar scroll y cards. Doble rAF para asegurar que el layout terminó.
@@ -27873,6 +27924,202 @@ function _bannerEsperaAlta() {
     +     'Cuando tengas los datos, dalos de alta en Xubio y creá el presupuesto desde el pedido.'
     +   '</div>'
     + '</div>';
+}
+
+// ══════════════════════════════════════════════════════════════════════
+//  v14.174.0 — PEDIDOS SIN RUTA (pedido de Braian, 03/09)
+// ──────────────────────────────────────────────────────────────────────
+//  EL CASO: TCK-20260829-1910-TCK-JTKN, $324.300. El cliente escribió su
+//  localidad en el catálogo como "America.pdo rivadavia". Ese texto no
+//  matchea la tabla de rutas, así que el pedido quedó zona='sin_ruta',
+//  sin salida, sin viaje y sin entrega: para la logística NO EXISTÍA.
+//  Nadie lo iba a entregar nunca. Se descubrió 5 días después, cuando el
+//  cliente reclamó.
+//
+//  Y el sistema HABÍA avisado: mandó dos WhatsApp ("PEDIDO REQUIERE
+//  REVISION DE LOCALIDAD / RUTA") al vendedor y al admin, dos segundos
+//  después de entrar el pedido. Los dos se entregaron bien. Nadie los vio.
+//  Un WhatsApp un sábado a la noche se pierde entre 200 mensajes; el
+//  vendedor incluso editó ese pedido dos veces sin notarlo, porque en su
+//  pantalla se ve ✅ Confirmado con presupuesto creado — idéntico a uno sano.
+//
+//  Por eso esto NO es otro aviso: es el patrón que en esta app demostró
+//  funcionar (el banner de "sin presupuesto", v14.134.0) — no se va hasta
+//  que el problema se resuelve, y trae el botón que lo resuelve al lado.
+//
+//  Braian, 03/09: "que sea muy visible y que alguien lo vea y arregle sí o
+//  sí, más q nada el vendedor debería hacerlo".
+// ══════════════════════════════════════════════════════════════════════
+function _pedidosSinRuta() {
+  if (!Array.isArray(todosLosPedidos)) return [];
+  var corte = new Date(); corte.setDate(corte.getDate() - 30); corte.setHours(0,0,0,0);
+  return todosLosPedidos.filter(function (p) {
+    if (p.zona !== 'sin_ruta') return false;
+    /* Cancelado ya no le importa a nadie. Entregado no puede pasar (sin ruta
+       no hay entrega), pero se excluye igual por si alguien lo cierra a mano. */
+    if (p.estado === 'Cancelado' || p.estado === 'Cancelado por admin' ||
+        p.estado === 'Entregado') return false;
+    var f = fechaPedido(p);
+    if (!f || f.getTime() < corte.getTime()) return false;
+    if (vendedorActual && vendedorActual !== 'ADMIN') {
+      if (!p.vendedor || !p.vendedor.toLowerCase().includes(vendedorActual.toLowerCase())) return false;
+    }
+    return true;
+  });
+}
+
+function _bannerSinRuta() {
+  var sr = _pedidosSinRuta();
+  if (!sr.length) return '';
+  var filas = sr.slice(0, 6).map(function (p) {
+    return ''
+      + '<div style="display:flex;align-items:center;gap:8px;padding:7px 0;'
+      +   'border-top:1px solid rgba(183,28,28,.18);">'
+      +   '<div style="flex:1;min-width:0;">'
+      +     '<div style="font-weight:800;font-size:13px;color:#7F0000;'
+      +       'white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">'
+      +       _escapeHtml(String(p.cliente || p.pedidoId || '')) + '</div>'
+      +     '<div style="font-size:11.5px;color:#8D3A3A;">'
+      +       _escapeHtml(String(p.localidad || 'sin localidad')) + ' · ' + _escapeHtml(String(p.total || ''))
+      +     '</div>'
+      +   '</div>'
+      +   '<button type="button" onclick="asignarLocalidadAbrir(\'' + p.pedidoId + '\')"'
+      +     ' style="flex:0 0 auto;padding:9px 13px;background:#B71C1C;color:#fff;border:none;'
+      +       'border-radius:9px;font-family:Barlow Condensed,sans-serif;font-size:13px;'
+      +       'font-weight:900;cursor:pointer;">📍 ARREGLAR</button>'
+      + '</div>';
+  }).join('');
+  var resto = sr.length > 6
+    ? '<div style="font-size:11.5px;color:#8D3A3A;padding-top:7px;">y ' + (sr.length - 6) + ' más…</div>'
+    : '';
+  return ''
+    + '<div style="background:linear-gradient(135deg,#FFEBEE,#FFCDD2);border:2px solid #B71C1C;'
+    +   'border-radius:14px;padding:13px 15px;margin:0 0 12px;box-shadow:0 3px 10px rgba(183,28,28,.18);">'
+    +   '<div style="display:flex;align-items:center;gap:9px;">'
+    +     '<span style="font-size:24px;">📍</span>'
+    +     '<div style="font-family:Barlow Condensed,sans-serif;font-size:17px;font-weight:900;color:#B71C1C;">'
+    +       sr.length + (sr.length === 1 ? ' PEDIDO SIN RUTA' : ' PEDIDOS SIN RUTA')
+    +     '</div>'
+    +   '</div>'
+    +   '<div style="font-size:12.5px;color:#7F0000;line-height:1.5;margin-top:7px;font-weight:600;">'
+    +     'La localidad que puso el cliente no la reconoce el sistema. '
+    +     '<b>Estos pedidos no van a salir en ningún camión</b> hasta que les asignes la ciudad.'
+    +   '</div>'
+    +   filas + resto
+    + '</div>';
+}
+
+// ── Modal para asignar la localidad correcta ──────────────────────────
+// Usa el endpoint que ya existe y que usa el admin (actualizarCiudadPedido,
+// GAS v25.120.0): valida contra la tabla rutas, recalcula zona + fecha de
+// salida y ADOPTA el pedido (le reasigna el vendedor por cartera y repone
+// salida_original). No se agrega nada al backend.
+var _asigLocPedido = null;
+var _asigLocCiudades = null;
+
+async function asignarLocalidadAbrir(pedidoId) {
+  _asigLocPedido = pedidoId;
+  var p = (todosLosPedidos || []).find(function (x) { return x.pedidoId === pedidoId; });
+
+  var ov = document.createElement('div');
+  ov.id = 'asigloc-ov';
+  ov.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,.5);z-index:10000;'
+    + 'display:flex;align-items:flex-end;justify-content:center;';
+  ov.innerHTML =
+    '<div style="background:#FAF4EC;border-radius:16px 16px 0 0;width:100%;max-width:520px;'
+    +   'max-height:85vh;display:flex;flex-direction:column;overflow:hidden;">'
+    +   '<div style="padding:13px 16px;background:#8B0000;color:#fff;">'
+    +     '<div style="font-family:Barlow Condensed,sans-serif;font-size:17px;font-weight:900;">'
+    +       '📍 ¿A qué ciudad va este pedido?</div>'
+    +     '<div style="font-size:12px;opacity:.9;margin-top:2px;">'
+    +       _escapeHtml(String((p && p.cliente) || pedidoId))
+    +       ((p && p.localidad) ? ' · escribió: "' + _escapeHtml(String(p.localidad)) + '"' : '')
+    +     '</div>'
+    +   '</div>'
+    +   '<div style="padding:11px 16px 0;">'
+    +     '<input id="asigloc-buscar" placeholder="Buscar ciudad…" autocomplete="off"'
+    +       ' oninput="asignarLocalidadFiltrar(this.value)"'
+    +       ' style="width:100%;padding:11px;border:1.5px solid #D4A574;border-radius:10px;'
+    +         'font-size:15px;background:#fff;">'
+    +   '</div>'
+    +   '<div id="asigloc-lista" style="flex:1;overflow-y:auto;padding:9px 16px 16px;">'
+    +     '<div style="color:#8a6f5f;font-size:13px;padding:10px 0;">Cargando ciudades…</div>'
+    +   '</div>'
+    +   '<div style="padding:10px 16px;border-top:1px solid #E5D5C0;">'
+    +     '<button onclick="document.getElementById(\'asigloc-ov\').remove()"'
+    +       ' style="width:100%;padding:12px;background:#fff;color:#666;border:1.5px solid #ccc;'
+    +         'border-radius:10px;font-weight:800;cursor:pointer;">Cancelar</button>'
+    +   '</div>'
+    + '</div>';
+  document.body.appendChild(ov);
+
+  if (!_asigLocCiudades) {
+    try {
+      var rows = await sbFetch('rutas?select=ciudad,zona&activo=is.true&order=ciudad.asc&limit=500');
+      _asigLocCiudades = Array.isArray(rows) ? rows : [];
+    } catch (e) {
+      _asigLocCiudades = [];
+      console.warn('[asigLoc] no se pudieron leer las rutas:', e);
+    }
+  }
+  asignarLocalidadFiltrar('');
+}
+
+function asignarLocalidadFiltrar(q) {
+  var cont = document.getElementById('asigloc-lista');
+  if (!cont) return;
+  if (!_asigLocCiudades || !_asigLocCiudades.length) {
+    cont.innerHTML = '<div style="color:#B71C1C;font-size:13px;padding:10px 0;">'
+      + 'No pude leer la lista de ciudades. Revisá la conexión y volvé a abrir.</div>';
+    return;
+  }
+  var t = String(q || '').toLowerCase().trim();
+  var lista = _asigLocCiudades.filter(function (r) {
+    return !t || String(r.ciudad || '').toLowerCase().indexOf(t) >= 0;
+  }).slice(0, 60);
+  if (!lista.length) {
+    cont.innerHTML = '<div style="color:#8a6f5f;font-size:13px;padding:10px 0;">'
+      + 'Ninguna ciudad coincide. Si el cliente es de una localidad que no repartimos, '
+      + 'avisale a Francisco antes de asignarla.</div>';
+    return;
+  }
+  cont.innerHTML = lista.map(function (r) {
+    return '<div onclick="asignarLocalidadConfirmar(\'' + String(r.ciudad).replace(/'/g, "\\'") + '\')"'
+      + ' style="padding:12px 10px;border-bottom:1px solid #E5D5C0;cursor:pointer;'
+      +   'display:flex;justify-content:space-between;align-items:center;gap:8px;">'
+      + '<span style="font-weight:700;color:#3E2723;">' + _escapeHtml(String(r.ciudad)) + '</span>'
+      + '<span style="font-size:11px;color:#8a6f5f;">' + _escapeHtml(String(r.zona || '')) + '</span>'
+      + '</div>';
+  }).join('');
+}
+
+async function asignarLocalidadConfirmar(ciudad) {
+  if (!_asigLocPedido) return;
+  if (!confirm('¿Asignar este pedido a ' + ciudad + '?\n\n'
+    + 'El sistema le va a poner la zona y la fecha del próximo camión de esa ciudad.')) return;
+
+  var cont = document.getElementById('asigloc-lista');
+  if (cont) cont.innerHTML = '<div style="padding:14px 0;color:#8a6f5f;">Asignando…</div>';
+  try {
+    var r = await fetch(APPS_SCRIPT_URL
+      + '?accion=actualizarCiudadPedido'
+      + '&pedidoId=' + encodeURIComponent(_asigLocPedido)
+      + '&ciudadCanonica=' + encodeURIComponent(ciudad)
+      + '&usuario=' + encodeURIComponent(vendedorActual || 'vendedor'));
+    var d = await r.json();
+    if (d && d.ok) {
+      var ov = document.getElementById('asigloc-ov'); if (ov) ov.remove();
+      toast('📍 Listo: el pedido quedó en ' + ciudad, 'ok');
+      _asigLocPedido = null;
+      await cargarPedidos(true);
+    } else {
+      if (cont) cont.innerHTML = '<div style="color:#B71C1C;font-size:13px;padding:12px 0;">⛔ '
+        + _escapeHtml(String((d && d.error) || 'No se pudo asignar')) + '</div>';
+    }
+  } catch (e) {
+    if (cont) cont.innerHTML = '<div style="color:#B71C1C;font-size:13px;padding:12px 0;">'
+      + 'Error de conexión. Probá de nuevo.</div>';
+  }
 }
 
 function _bannerSinPresupuesto() {
@@ -54863,7 +55110,7 @@ function depPollIniciar() {
    TCK_UPD_LOCAL aca Y el archivo version.json del repo.
    ============================================================ */
 (function(){
-  var TCK_UPD_LOCAL = '14.173.0';        /* <-- bump en cada deploy */
+  var TCK_UPD_LOCAL = '14.174.0';        /* <-- bump en cada deploy */
   /* v14.159.0: fuente UNICA de version. La telemetria del shadow la reporta,
      asi que un desfasaje contra version.json se ve solo en el primer pedido
      (paso 4 veces sin que nadie lo notara: 14.109, 14.128, 14.137, 14.147). */
