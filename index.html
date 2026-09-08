@@ -41498,6 +41498,18 @@ function cobroMultipleActualizar() {
   }
   // v14.38.0 — mostrar/ocultar el bloque de comprobante de transferencia
   _toggleComprobanteTransfer();
+
+  // v14.179.0 — C5 · comprobantes de transferencia huerfanos.
+  // Solo advertencia en consola: borrar comprobantes ya subidos es
+  // destructivo y el circuito de transferencias funciona bien.
+  try {
+    var _traVal = parseFloat(document.getElementById('cobro-m-transferencia-val').value) || 0;
+    if (_traVal <= 0 && typeof _comprobantesTransfer !== 'undefined' &&
+        _comprobantesTransfer && _comprobantesTransfer.length > 0) {
+      console.warn('[transfer] hay ' + _comprobantesTransfer.length +
+        ' comprobante(s) cargado(s) y el reparto no tiene transferencia');
+    }
+  } catch (_eC5) {}
 }
 
 async function confirmarEntregaModal() {
@@ -42468,7 +42480,16 @@ async function _ejecutarConfirmacionEntrega(cobros) {
     montoDevuelto = m.devolucion;
     montoAcobrar = m.aCobrar;
   }
-  if (Object.keys(cobros).length > 1) payload.detalle_cobro = detalleCobroStr;
+  // v14.179.0 — C0 · detalle_cobro SIEMPRE.
+  // ANTES: solo se escribia si habia >1 medio. Con un solo medio el PATCH no
+  // incluia el campo y la fila conservaba el reparto de una confirmacion
+  // anterior. Resultado medido: 3.092 entregas con detalle_cobro de una sola
+  // clave, de las cuales 40 CONTRADICEN su propio forma_cobro.
+  // Esa es la causa demostrada de los 5 registros de cheques_recibidos cuyo
+  // detalle_cobro dice 'transferencia'. El INSERT del cheque era correcto
+  // (cobros.cheque > 0 en ese instante, 0,5-1 s despues del PATCH de la
+  // entrega); lo que quedaba viejo era detalle_cobro.
+  payload.detalle_cobro = detalleCobroStr;
 
   // v14.38.0 — guardar la ruta del comprobante de transferencia en la entrega
   // v14.57.0 — pueden ser VARIOS (cliente paga con más de una billetera):
@@ -42515,7 +42536,24 @@ async function _ejecutarConfirmacionEntrega(cobros) {
     // persisten si la entrega completa (con validación de diferencia)
     // se ejecuta exitosamente. Si la validación bloqueaba el flujo
     // antes, los cheques quedaban en memoria sin tocar BD.
-    if (cobros.cheque && cobros.cheque > 0 && _chequesData && _chequesData.length > 0) {
+    // v14.179.0 — C2 · GUARD DE INTEGRIDAD (ruta).
+    // No alcanza con "hay importe de cheque": la suma de los cheques
+    // capturados tiene que dar ese importe. Defensa en profundidad: NO es la
+    // causa de los 5 casos historicos (ver C0), pero cubre cualquier
+    // desincronizacion futura entre _chequesData y el reparto final.
+    // Tolerancia 0,5 por el redondeo a entero de cheques_recibidos.monto.
+    var _chqDeclarado = parseFloat(cobros.cheque) || 0;
+    var _chqCapturado = (_chequesData || []).reduce(function(a, ch) {
+      return a + (parseFloat(ch.monto) || 0); }, 0);
+    var _chqOk = _chqDeclarado > 0 &&
+                 (_chequesData || []).length > 0 &&
+                 Math.abs(_chqDeclarado - _chqCapturado) < 0.5;
+    if (!_chqOk && (_chequesData || []).length > 0) {
+      console.error('[cheques] INSERT bloqueado - declarado=' + _chqDeclarado +
+                    ' capturado=' + _chqCapturado + ' filas=' + _chequesData.length);
+      toast('\u26a0\ufe0f Los datos del cheque no coinciden con el importe. No se guardo el cheque.', 'err');
+    }
+    if (_chqOk) {
       try {
         var inserts = _chequesData.map(function(ch) {
           return {
@@ -54382,7 +54420,21 @@ async function mostradorGuardar(cliente, cobro) {
     }
 
     // 3) Cheque → cheques_recibidos (tesorería lo ve donde siempre)
-    if (cobro.cheque) {
+    // v14.179.0 — C2 · GUARD DE INTEGRIDAD (mostrador).
+    // Hoy mostradorCobroConfirmar() arma cheque = {..., monto: detalle.cheque}
+    // solo si detalle.cheque > 0, asi que no puede desincronizarse. El guard
+    // es defensivo: si alguien cambia ese armado, el INSERT no lo sigue.
+    var _mChqOk = !!(cobro.cheque) &&
+                  (parseFloat(cobro.cheque.monto) || 0) > 0 &&
+                  Math.abs((parseFloat(cobro.cheque.monto) || 0) -
+                           (parseFloat(cobro.detalle && cobro.detalle.cheque) || 0)) < 0.5;
+    if (cobro.cheque && !_mChqOk) {
+      console.error('[mostrador cheque] INSERT bloqueado - cheque.monto=' +
+        (cobro.cheque && cobro.cheque.monto) + ' detalle.cheque=' +
+        (cobro.detalle && cobro.detalle.cheque));
+      toast('\u26a0\ufe0f El cheque no coincide con el reparto. No se registro.', 'err');
+    }
+    if (_mChqOk) {
       try {
         await sbFetch('cheques_recibidos', {
           method: 'POST',
