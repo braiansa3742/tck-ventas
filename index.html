@@ -2,6 +2,21 @@
 <html lang="es">
 <head>
 <!-- ═══════════════════════════════════════════════════════════════════════
+     TCK VENTAS — v14.180.0 — 09/09/2026
+     v14.180.0: C3 · IDENTIDAD ÚNICA DEL VIAJE EN EL CIERRE (multiviaje).
+       Con dos viajes en_ruta, seleccionarViaje() cambiaba _viajeActivo
+       pero no _mvViajeActivo: la app mostraba un viaje y el request de
+       viajeCerrarYRendir salia con el id del otro.
+       · seleccionarViaje sincroniza _mvViajeActivo y re-renderiza.
+       · _mvViajeVigente() resuelve SIEMPRE desde _viajeSeleccionadoId.
+       · mvAbrirDefinirPendientes captura { viajeId, token }.
+       · _mvInvalidarCierre() sube el token y cierra el modal si el
+         chofer cambia de viaje con el cierre abierto.
+       · Guard final: seleccionado == resumen == request == cache de
+         entregas, y token intacto. Si no, NO se envia el request.
+       · La confirmacion muestra zona, fecha, vehiculo e id corto.
+       Sin cambios en reparto, cobros, devoluciones ni rendicion.
+
      TCK VENTAS — v14.177.0 — 03/09/2026
      v14.177.0: CARGA POR WHATSAPP — CLIENTE EQUIVOCADO Y "ENVIANDO" ETERNO.
      Reporte de Miguel (03/09 ~19:05): "está súper trabada la app para
@@ -38727,6 +38742,63 @@ function scrollAProximaCiudad() {
 let _viajesActivos = [];   // todos los en_ruta del chofer
 let _viajeSeleccionadoId = null; // id del viaje que está mostrando ahora
 
+// ═══ v14.180.0 — C3 · IDENTIDAD ÚNICA DEL VIAJE EN EL CIERRE ═══════
+// BUG (confirmado 09/09/2026, chofer con Zona 1A 07/09 y Zona 3 09/09
+// las dos en_ruta): seleccionarViaje() cambiaba _viajeActivo pero NO
+// _mvViajeActivo. El resumen se armaba con _entregasCache (viaje mirado)
+// y el request salia con v.id de _mvViajeActivo (viaje anterior). La app
+// mostraba un viaje y cerraba otro.
+// REGLA: el unico dueño de la identidad es _viajeSeleccionadoId. Nadie
+// cierra por una referencia guardada antes; y si hay dos ids distintos,
+// no se elige ninguno: se bloquea.
+let _mvCierreToken = 0;    // sube cada vez que el chofer cambia de viaje
+let _mvCierreCtx = null;   // { viajeId, token } capturado al abrir el cierre
+
+// Viaje vigente SEGUN LA SELECCION. Nunca una referencia vieja.
+function _mvViajeVigente() {
+  if (_viajeSeleccionadoId && Array.isArray(_viajesActivos)) {
+    var v = _viajesActivos.find(function(x) { return x && x.id === _viajeSeleccionadoId; });
+    if (v) return v;
+  }
+  return (typeof _viajeActivo !== 'undefined' && _viajeActivo) ? _viajeActivo : null;
+}
+
+// Invalida cualquier cierre en curso. Se llama al cambiar de viaje.
+function _mvInvalidarCierre(motivo) {
+  _mvCierreToken++;
+  _mvCierreCtx = null;
+  try {
+    var ov = document.getElementById('def-pend-overlay');
+    if (ov && ov.classList.contains('open')) {
+      ov.classList.remove('open');
+      if (typeof _defPendientesEntregas !== 'undefined') _defPendientesEntregas = [];
+      if (typeof _defPendientesEntregaActiva !== 'undefined') _defPendientesEntregaActiva = null;
+      if (typeof toast === 'function') {
+        toast('Cambiaste de viaje. Volvé a tocar "Cerrar viaje".', 'err');
+      }
+    }
+  } catch (_e) {}
+  console.warn('[v14.180.0] cierre invalidado (' + (motivo || 'cambio de viaje') +
+               ') · token=' + _mvCierreToken);
+}
+
+function _mvZonaLabel(z) {
+  return ({
+    'zona1': 'Zona 1', 'zona2': 'Zona 2', 'zona1a': 'Zona 1A', 'zona1b': 'Zona 1B',
+    'zona2a': 'Zona 2A', 'zona2b': 'Zona 2B', 'zona3': 'Zona 3',
+    'tl_manana': 'TL Mañana', 'tl_tarde': 'TL Tarde', 'tl': 'TL',
+    'america_fortin': 'América/Fortín'
+  })[z] || z || '—';
+}
+
+function _mvIdCorto(id) { return id ? String(id).substring(0, 8) : '—'; }
+
+function _mvFechaCorta(f) {
+  var p = String(f || '').split('-');
+  return (p.length === 3) ? (p[2] + '/' + p[1] + '/' + p[0]) : (f || '—');
+}
+// ═══ FIN v14.180.0 — helpers ══════════════════════════════════════
+
 // ── v14.152.0 — ESTO YA NO PASA POR APPS SCRIPT ─────────────────
 // Iba a ?accion=viajeListar con un fetch() pelado, SIN AbortController.
 // Medido el 18/08 contra producción: 24,7 s en frío y 2,7-4 s en caliente.
@@ -38800,6 +38872,13 @@ async function seleccionarViaje(viajeId) {
   if (!v) return;
   _viajeSeleccionadoId = viajeId;
   _viajeActivo = v;
+  // v14.180.0 — C3 · el contexto de Mis Viajes viaja con la seleccion.
+  // Sin esto el cierre podia salir con el id del viaje anterior.
+  _mvViajeActivo = v;
+  _mvInvalidarCierre('seleccionarViaje ' + _mvIdCorto(viajeId));
+  if (typeof mvRenderViajeActivo === 'function') {
+    try { mvRenderViajeActivo(); } catch (_e) {}
+  }
   // Recargar entregas del nuevo viaje
   if (typeof cargarEntregas === 'function') {
     await cargarEntregas();
@@ -39475,15 +39554,15 @@ let _defPendientesEntregas = []; // entregas pendientes a definir
 let _defPendientesEntregaActiva = null; // la que se está procesando
 
 async function mvAbrirDefinirPendientes() {
-  // Guardar referencia al viaje activo (puede que cambie por error)
-  if (!_mvViajeActivo) {
-    if (typeof _viajeActivo !== 'undefined' && _viajeActivo) {
-      _mvViajeActivo = _viajeActivo;
-    } else {
-      toast('No hay viaje activo', 'err');
-      return;
-    }
+  // v14.180.0 — C3 · SIEMPRE la seleccion vigente, nunca una referencia
+  // guardada antes. Y se captura el contexto del cierre (id + token).
+  var _vSel = _mvViajeVigente();
+  if (!_vSel || !_vSel.id) {
+    toast('No hay viaje activo', 'err');
+    return;
   }
+  _mvViajeActivo = _vSel;
+  _mvCierreCtx = { viajeId: _vSel.id, token: _mvCierreToken };
   // Cargar entregas frescas del viaje (puede que cache esté viejo)
   if (typeof cargarEntregas === 'function' &&
       (!_entregasCache || !_entregasCache.length ||
@@ -39672,9 +39751,17 @@ async function _defPendientesAccion(entregaId, motivo) {
 // ── FIN FIX N42-A ───────────────────────────────────────────────
 
 async function mvCerrarViajeYRendir() {
-  if (!_mvViajeActivo) return;
-
-  const v = _mvViajeActivo;
+  // v14.180.0 — C3 · el resumen se arma SOBRE LA SELECCION VIGENTE.
+  const v = _mvViajeVigente();
+  if (!v || !v.id) {
+    console.error('[v14.180.0] cierre abortado: sin viaje vigente.',
+                  '· seleccionado=' + _mvIdCorto(_viajeSeleccionadoId),
+                  '· mv=' + _mvIdCorto(_mvViajeActivo && _mvViajeActivo.id));
+    alert('\u26D4 No se puede cerrar: no hay un viaje seleccionado.\n\n' +
+          'Recargá la app y volvé a elegir el viaje.');
+    return;
+  }
+  _mvViajeActivo = v;
 
   // Resumen para confirmar
   const cobrado = Number(v.monto_cobrado) || 0;
@@ -39710,7 +39797,12 @@ async function mvCerrarViajeYRendir() {
   }
 
   const fmt = function(n) { return '$' + Math.round(n).toLocaleString('es-AR'); };
+  // v14.180.0 — C3 · el chofer tiene que ver QUE viaje esta cerrando.
   let resumen = '¿Cerrar viaje y rendir?\n\n';
+  resumen += 'VIAJE: ' + _mvZonaLabel(v.zona) + '\n';
+  resumen += 'Salida: ' + _mvFechaCorta(v.fecha_salida) +
+             '  ·  Vehículo: ' + (v.vehiculo || '—') + '\n';
+  resumen += 'ID: ' + _mvIdCorto(v.id) + '\n\n';
   resumen += 'Lo que vas a entregar al admin:\n';
   if (efectivo > 0) resumen += '• Efectivo: ' + fmt(efectivo) + '\n';
   if (cheque > 0) resumen += '• Cheques: ' + fmt(cheque) + '\n';
@@ -39721,16 +39813,51 @@ async function mvCerrarViajeYRendir() {
 
   if (!confirm(resumen)) return;
 
+  // ═══ v14.180.0 — C3 · GUARD FINAL ANTES DEL REQUEST ═════════════
+  // Tres ids tienen que coincidir: el seleccionado, el que se mostro en
+  // el resumen y el que se va a enviar. Mas el token: si el chofer cambio
+  // de viaje mientras el modal estaba abierto, el cierre ya no vale.
+  // Si algo no cuadra NO se elige ninguno: se bloquea y se avisa.
+  var _idSel = _viajeSeleccionadoId || null;                    // seleccion
+  var _idRes = (v && v.id) || null;                             // resumen
+  var _idEnv = _idRes;                                          // request
+  var _idCache = (Array.isArray(_entregasCache) && _entregasCache.length)
+                   ? (_entregasCache[0].viaje_id || null) : null;
+  var _ctxOk = !_mvCierreCtx ||
+               (_mvCierreCtx.token === _mvCierreToken && _mvCierreCtx.viajeId === _idRes);
+  var _falta = !_idSel || !_idRes || !_idEnv;
+  var _difiere = (_idSel !== _idRes) || (_idRes !== _idEnv) ||
+                 (_idCache !== null && _idCache !== _idRes);
+  if (_falta || _difiere || !_ctxOk) {
+    console.error('[v14.180.0] CIERRE BLOQUEADO — ids no coinciden.',
+      '· seleccionado=' + _mvIdCorto(_idSel),
+      '· resumen=' + _mvIdCorto(_idRes),
+      '· request=' + _mvIdCorto(_idEnv),
+      '· cacheEntregas=' + _mvIdCorto(_idCache),
+      '· mvViajeActivo=' + _mvIdCorto(_mvViajeActivo && _mvViajeActivo.id),
+      '· ctxToken=' + (_mvCierreCtx ? _mvCierreCtx.token : 'null'),
+      '· token=' + _mvCierreToken);
+    alert('\u26D4 NO SE CERRÓ NADA.\n\n' +
+          'La app detectó que el viaje que estás viendo y el que se iba a ' +
+          'cerrar no son el mismo.\n\n' +
+          'Recargá la app y volvé a seleccionar el viaje antes de cerrar.');
+    _mvCierreCtx = null;
+    return;
+  }
+  // ═══ FIN GUARD FINAL ════════════════════════════════════════════
+
   try {
     const url = APPS_SCRIPT_URL +
       '?accion=viajeCerrarYRendir' +
-      '&viaje_id=' + encodeURIComponent(v.id);
+      '&viaje_id=' + encodeURIComponent(_idEnv);
     const resp = await fetch(url);
     const data = await resp.json();
     if (data.status === 'ok') {
       toast('✅ Viaje cerrado. Esperando confirmación del admin.', 'ok');
       _viajeActivo = null;
       _mvViajeActivo = null;
+      _viajeSeleccionadoId = null;   // v14.180.0
+      _mvCierreCtx = null;           // v14.180.0
       // Recargar todo
       misViajesRecargar();
       // Si el chofer está en la pantalla de entregas, refrescar
@@ -39748,10 +39875,15 @@ async function mvCerrarViajeYRendir() {
 
 // v14.0: helper para llamar desde la pantalla del chofer sin pasar por Mis Viajes
 async function mvCerrarViajeYRendirDesdeChofer() {
-  // Setear _mvViajeActivo desde _viajeActivo si no está
-  if (!_mvViajeActivo && typeof _viajeActivo !== 'undefined' && _viajeActivo) {
-    _mvViajeActivo = _viajeActivo;
+  // v14.180.0 — C3 · resync INCONDICIONAL contra la seleccion vigente.
+  // ANTES: solo sincronizaba si _mvViajeActivo estaba vacio, asi que una
+  // referencia vieja de otro viaje sobrevivia al cambio de seleccion.
+  var _vSel = _mvViajeVigente();
+  if (!_vSel || !_vSel.id) {
+    alert('\u26D4 No hay un viaje seleccionado.\n\nRecargá la app y elegí el viaje.');
+    return;
   }
+  _mvViajeActivo = _vSel;
   await mvCerrarViajeYRendir();
 }
 
