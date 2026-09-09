@@ -2,6 +2,32 @@
 <html lang="es">
 <head>
 <!-- ═══════════════════════════════════════════════════════════════════════
+     TCK VENTAS — v14.182.0 — 09/09/2026
+     v14.182.0: C5 · DEFENSA PREVIA AL CIERRE.
+       Antes de llamar a viajeCerrarYRendir, la app consulta si el viaje tiene
+       devoluciones no_entrega_total en estado 'registrada'. Si las hay, NO
+       llama al endpoint y muestra qué mercadería falta entregar a Cámara.
+       El trigger de la base sigue siendo la última defensa; si igual rechaza,
+       el mensaje DEVOLUCION_SIN_CAMARA se traduce a algo legible.
+       Si el precheck no puede consultar, no frena: deja actuar al trigger.
+
+     TCK VENTAS — v14.181.0 — 09/09/2026
+     v14.181.0: C4 · NO ENTREGA = DEVOLUCIÓN TOTAL.
+       Marcar "no estaba / rechazó / otro" hacía un PATCH suelto a entregas:
+       la mercadería completa quedaba fuera del circuito (95 casos históricos
+       con 0 devoluciones, 0 recepciones de Cámara, 0 movimientos de stock).
+       · La rama de no entrega ahora llama a fn_no_entrega_registrar (RPC
+         transaccional e idempotente): devolución total con los renglones
+         reales de pedidos_items + entrega en no_entregado, todo o nada.
+       · Anti doble toque por entrega + botones deshabilitados durante el
+         request.
+       · Éxito solo si la base devuelve ok=true y devolucion_id.
+       · Ante error no se cambia nada y el pedido queda sin resolver.
+       · Aviso explícito: la mercadería va a Cámara y el viaje no se rinde
+         hasta que la reciban.
+       Sin cambios en entregas totales ni en devoluciones parciales.
+       Requiere la migración migracion_no_entrega_v1.sql aplicada ANTES.
+
      TCK VENTAS — v14.180.0 — 09/09/2026
      v14.180.0: C3 · IDENTIDAD ÚNICA DEL VIAJE EN EL CIERRE (multiviaje).
        Con dos viajes en_ruta, seleccionarViaje() cambiaba _viajeActivo
@@ -39553,6 +39579,13 @@ function mvRenderEntregaHist(e) {
 let _defPendientesEntregas = []; // entregas pendientes a definir
 let _defPendientesEntregaActiva = null; // la que se está procesando
 
+// v14.181.0 — C4 · NO ENTREGA = DEVOLUCIÓN TOTAL.
+// Antes esta rama hacía un PATCH suelto a entregas: la mercadería completa
+// quedaba fuera del circuito (95 casos históricos, 0 devoluciones). Ahora
+// llama a fn_no_entrega_registrar, que en UNA transacción crea la devolución
+// total con los renglones reales y recién después marca la entrega.
+var _defNoEntregaEnCurso = {};   // entrega_id -> true mientras hay request abierto
+
 async function mvAbrirDefinirPendientes() {
   // v14.180.0 — C3 · SIEMPRE la seleccion vigente, nunca una referencia
   // guardada antes. Y se captura el contexto del cierre (id + token).
@@ -39701,23 +39734,37 @@ async function _defPendientesAccion(entregaId, motivo) {
     if (!confirm('¿Cliente "' + (e.cliente || '') + '" no estaba o estaba cerrado?')) return;
   }
 
-  try {
-    // PATCH a entregas: estado='no_entregado' + motivo + detalle
-    const payload = {
-      estado: 'no_entregado',
-      motivo_no_entrega: motivo,
-      resultado_final: 'no_entregado',
-      fecha_entrega: new Date().toISOString()  // momento en que se reportó
-    };
-    if (detalleTexto) payload.motivo_detalle = detalleTexto;
+  // v14.181.0 — C4 · un solo toque por entrega mientras el request está abierto.
+  if (_defNoEntregaEnCurso[entregaId]) {
+    toast('Esperá, ya se está registrando…', 'err');
+    return;
+  }
+  _defNoEntregaEnCurso[entregaId] = true;
+  var _btns = document.querySelectorAll('.def-pend-card[data-eid="' + entregaId + '"] .def-pend-btn');
+  for (var _bi = 0; _bi < _btns.length; _bi++) {
+    _btns[_bi].disabled = true;
+    _btns[_bi].style.opacity = '0.5';
+  }
+  if (typeof toast === 'function') toast('\u23F3 Registrando la devolución…', 'ok');
 
-    await sbFetch('entregas?id=eq.' + entregaId, {
-      method: 'PATCH',
-      headers: { 'Prefer': 'return=minimal' },
-      body: JSON.stringify(payload)
+  try {
+    // v14.181.0 — C4 · operación ATÓMICA en la base: devolución total + entrega.
+    // Si falla cualquiera de las dos, no queda nada a medias.
+    var _rpc = await sbFetch('rpc/fn_no_entrega_registrar', {
+      method: 'POST',
+      body: JSON.stringify({
+        p_entrega_id: entregaId,
+        p_chofer:     vendedorActual,
+        p_motivo:     motivo,
+        p_detalle:    detalleTexto || null
+      })
     });
 
-    // Actualizar cache local
+    if (!_rpc || _rpc.ok !== true || !_rpc.devolucion_id) {
+      throw new Error('La base no confirmó la devolución. No se cerró nada.');
+    }
+
+    // Actualizar cache local SOLO con lo que la base confirmó.
     e.estado = 'no_entregado';
     e.motivo_no_entrega = motivo;
     if (detalleTexto) e.motivo_detalle = detalleTexto;
@@ -39727,6 +39774,8 @@ async function _defPendientesAccion(entregaId, motivo) {
       cacheE.motivo_no_entrega = motivo;
       if (detalleTexto) cacheE.motivo_detalle = detalleTexto;
     }
+    console.log('[v14.181.0] devolución total ' + String(_rpc.devolucion_id).substring(0, 8) +
+                ' · ' + (_rpc.items_n || 0) + ' renglones · $' + (_rpc.monto_devuelto || 0));
 
     // Re-render del modal y de la lista de entregas
     _defPendientesRender();
@@ -39743,9 +39792,41 @@ async function _defPendientesAccion(entregaId, motivo) {
       'otro':            '❓ Marcado con motivo'
     };
     toast(msgs[motivo] || 'Guardado', 'ok');
+    // v14.181.0 — C4 · el chofer tiene que saber que la mercadería vuelve.
+    if (_rpc.creada) {
+      alert('\uD83D\uDCE6 LA MERCADERÍA VUELVE AL DEPÓSITO\n\n' +
+            (e.cliente || '') + ' · ' + (e.ciudad || '') + '\n' +
+            (_rpc.items_n || 0) + ' producto(s) · $' +
+            Math.round(Number(_rpc.monto_devuelto) || 0).toLocaleString('es-AR') + '\n\n' +
+            'Entregala en el depósito y pedí que Cámara la reciba.\n' +
+            'Hasta que la reciban, este viaje NO se puede rendir.');
+    }
   } catch(err) {
-    console.error('[def-pend] error:', err);
-    toast('❌ Error guardando. Reintentá', 'err');
+    // v14.181.0 — C4 · error = NO se cambió nada. La entrega queda sin resolver.
+    console.error('[v14.181.0 no-entrega] error:', err);
+    var _m = String((err && err.message) || err);
+    var _amable =
+      _m.indexOf('SIN_RENGLONES') >= 0
+        ? 'Este pedido no tiene el detalle de productos cargado, así que no se puede armar la devolución. Avisá a administración.'
+      : _m.indexOf('CHOFER_NO_AUTORIZADO') >= 0
+        ? 'Este viaje no figura a tu nombre. Cerrá sesión y volvé a entrar.'
+      : _m.indexOf('ENTREGA_YA_ENTREGADA') >= 0
+        ? 'Este pedido ya figura entregado. Si te equivocaste, usá "Deshacer entrega" primero.'
+      : _m.indexOf('AMBIGUEDAD_DEVOLUCION') >= 0
+        ? 'Este pedido ya tiene una devolución parcial cargada. No se puede marcar como no entregado.'
+      : _m.indexOf('INCONSISTENCIA_SIN_DEVOLUCION') >= 0
+        ? 'Este pedido quedó marcado como no entregado en una versión anterior. Avisá a administración.'
+      : _m.indexOf('VIAJE_NO_EN_RUTA') >= 0
+        ? 'El viaje ya no está en ruta. Recargá la app.'
+      : 'No se pudo registrar. Revisá la señal y reintentá.';
+    alert('\u26D4 NO SE CAMBIÓ NADA\n\n' + _amable + '\n\n' +
+          'El pedido sigue sin resolver.');
+  } finally {
+    delete _defNoEntregaEnCurso[entregaId];
+    // Releer entrega y devolución desde la base antes de repintar.
+    try {
+      if (typeof cargarEntregas === 'function') await cargarEntregas();
+    } catch (_e2) {}
   }
 }
 // ── FIN FIX N42-A ───────────────────────────────────────────────
@@ -39846,6 +39927,39 @@ async function mvCerrarViajeYRendir() {
   }
   // ═══ FIN GUARD FINAL ════════════════════════════════════════════
 
+  // ═══ v14.182.0 — C5 · PRECHECK DE DEVOLUCIONES SIN CÁMARA ═══════
+  // Espeja EXACTAMENTE la condición del trigger de la base
+  // (viajes_bloquea_rendicion_sin_camara). Si hay mercadería de pedidos no
+  // entregados que Cámara todavía no recibió, no se llama al endpoint: el
+  // cierre fallaría igual, pero acá el chofer se entera con un mensaje claro
+  // en vez de un error del backend. El trigger sigue siendo la última defensa.
+  try {
+    var _devPend = await sbFetch('devoluciones' +
+      '?viaje_id=eq.' + encodeURIComponent(_idEnv) +
+      '&tipo=eq.no_entrega_total&estado=eq.registrada' +
+      '&select=id,pedido_id,cliente,comercio,items',
+      { timeoutMs: 12000 });
+    if (Array.isArray(_devPend) && _devPend.length > 0) {
+      var _lista = _devPend.slice(0, 6).map(function (d) {
+        return '• ' + (d.comercio || d.cliente || d.pedido_id);
+      }).join('\n');
+      if (_devPend.length > 6) _lista += '\n• …y ' + (_devPend.length - 6) + ' más';
+      console.warn('[v14.182.0] cierre frenado: ' + _devPend.length +
+                   ' devolución(es) total(es) sin recibir en Cámara.');
+      alert('\uD83D\uDCE6 FALTA ENTREGAR MERCADERÍA A CÁMARA\n\n' +
+            'Este viaje tiene ' + _devPend.length + ' pedido(s) no entregados cuya ' +
+            'mercadería todavía no fue recibida en el depósito:\n\n' + _lista + '\n\n' +
+            'Entregala y pedí que Cámara la reciba. Después volvé a cerrar.\n\n' +
+            'NO SE CERRÓ NADA.');
+      return;
+    }
+  } catch (_ePre) {
+    // Si el precheck no pudo consultar, seguimos: el trigger de la base
+    // bloquea igual. No frenamos un cierre sano por un problema de señal.
+    console.warn('[v14.182.0] precheck de devoluciones falló, sigue el trigger:', _ePre);
+  }
+  // ═══ FIN PRECHECK ══════════════════════════════════════════════
+
   try {
     const url = APPS_SCRIPT_URL +
       '?accion=viajeCerrarYRendir' +
@@ -39865,7 +39979,15 @@ async function mvCerrarViajeYRendir() {
         setTimeout(cargarEntregas, 500);
       }
     } else {
-      toast('❌ ' + (data.message || 'Error al cerrar viaje'), 'err');
+      // v14.182.0 — C5 · si el trigger de la base rechazó, explicarlo bien.
+      var _msg = String(data.message || 'Error al cerrar viaje');
+      if (_msg.indexOf('DEVOLUCION_SIN_CAMARA') >= 0) {
+        alert('\uD83D\uDCE6 FALTA ENTREGAR MERCADERÍA A CÁMARA\n\n' +
+              'La base rechazó el cierre: hay pedidos no entregados cuya ' +
+              'mercadería no fue recibida en el depósito.\n\nNO SE CERRÓ NADA.');
+      } else {
+        toast('❌ ' + _msg, 'err');
+      }
     }
   } catch(err) {
     console.error('[mv cerrar]', err);
