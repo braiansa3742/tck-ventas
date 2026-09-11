@@ -2,6 +2,28 @@
 <html lang="es">
 <head>
 <!-- ═══════════════════════════════════════════════════════════════════════
+     TCK VENTAS — v14.184.0 — 11/09/2026
+     v14.184.0: CORREGIR DIRECCIÓN DEL CLIENTE EN CAMPO (pedido de Braian 11/09).
+       Vendedores y choferes pueden actualizar la ubicación GPS y la dirección
+       de un cliente parados en el local.
+       · AUTOMÁTICO: al hacer check-in (vendedor) o confirmar una entrega
+         (chofer), si la lectura es buena (≤80 m de error) y cae a más de
+         100 m (vendedor) / 150 m (chofer) del punto registrado → cartel
+         "no está en la dirección indicada, ¿actualizar?".
+       · MANUAL: botón "Corregir" en la card 📍 DIRECCIÓN del panel de
+         check-in y botón "📍 Corregir dirección" en el modal de la entrega.
+       · Una sola RPC (fn_cliente_direccion_actualizar, migración
+         migracion_direccion_cliente_v1.sql): ubicación oficial confirmada
+         en clientes_ubicaciones, dirección en clientes_activos (ronda) y
+         clientes_xubio (lo que ve el chofer), y log en clientes_direccion_log.
+       · FIX de raíz: al confirmar una entrega el chofer PISABA
+         clientes_ubicaciones.lat/lng con su lectura cruda (hasta 60 s vieja,
+         sin control de precisión) → era lo que contaminaba las ubicaciones.
+         Ahora solo siembra una ubicación si el cliente no tenía ninguna; si
+         tenía, cuenta la visita y, si está lejos, pregunta.
+       · Check-in con ubicación no confirmada y lectura lejana: ya no se
+         promedia (arrastraba el punto al medio de la nada); pregunta.
+
      TCK VENTAS — v14.183.1 — 10/09/2026
      v14.183.1: foto propia del Pan Maxi Hamburguesa 310g (Pan_Maxi_Hamburguesa.jpg
        en tckcatalogo.com/img/) y presentación "310 Grs · 4u". Espejo de catálogo v3.59.1.
@@ -33411,7 +33433,7 @@ async function gpsBuscarClienteActivo(nombreCliente) {
     // Hacemos una búsqueda ilike por las primeras palabras del nombre
     // para reducir resultados, después filtramos por match exacto normalizado.
     var qNombre = nombreCliente.split(/\s+/).slice(0, 2).join(' ');
-    var path = 'clientes_activos?select=cliente_id,nombre,notas,telefono,frec_dias_prom'
+    var path = 'clientes_activos?select=cliente_id,nombre,notas,telefono,frec_dias_prom,direccion,localidad,xubio_id'
              + '&nombre=ilike.' + encodeURIComponent('*' + qNombre + '*')
              + '&limit=20';
     var data = await sbFetch(path);
@@ -33575,7 +33597,21 @@ function gpsRenderInfoClienteFinal(nombreCliente, pedidos) {
       + '</div>';
   }
 
-  contenedor.innerHTML = accionesHtml + alertaHtml + notasCardHtml + pedidosHtml;
+  // ── v14.184.0: Dirección card (corrección en campo) ───────────
+  var _dirTxt = (_gpsClienteActivoData && _gpsClienteActivoData.direccion) || '';
+  var _locTxt = (_gpsClienteActivoData && _gpsClienteActivoData.localidad) || '';
+  var dirCardHtml =
+    '<div style="background:#fff;border:0.5px solid #E5DCC8;border-radius:12px;padding:12px 14px;margin-bottom:10px;">'
+    +   '<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:6px;">'
+    +     '<div style="font-family:Barlow Condensed,sans-serif;font-size:14px;font-weight:900;color:#1A0800;letter-spacing:.3px;">📍 DIRECCIÓN</div>'
+    +     '<button onclick="dirCliDesdeCheckin()" style="background:#FFF8E1;border:0.5px solid #FFC107;color:#BF5F00;padding:4px 10px;border-radius:6px;font-size:11px;font-weight:700;cursor:pointer;">✏️ Corregir</button>'
+    +   '</div>'
+    +   (_dirTxt
+      ? '<div style="font-size:13px;color:#3D2914;line-height:1.5;">' + _escapeHtml(_dirTxt) + (_locTxt ? ' · ' + _escapeHtml(_locTxt) : '') + '</div>'
+      : '<div style="font-size:12px;color:#A0917A;font-style:italic;">Sin dirección cargada — tocá "Corregir" para guardarla con tu GPS</div>')
+    + '</div>';
+
+  contenedor.innerHTML = accionesHtml + alertaHtml + dirCardHtml + notasCardHtml + pedidosHtml;
 }
 
 // Extrae la nota libre del vendedor, descartando trazas automáticas
@@ -34446,6 +34482,360 @@ var GPS_ACC_MAX           = 80;   // m — sobre esto la lectura es "imprecisa"
 var GPS_MUESTRAS_CONFIRMAR = 5;   // lecturas buenas para congelar la ubicación
 var GPS_DIST_ALERTA       = 150;  // m — diferencia para alertar mudanza real
 
+// ════════════════════════════════════════════════════════════════
+// v14.184.0 — CORREGIR DIRECCIÓN DEL CLIENTE EN CAMPO (vendedor + chofer)
+// ════════════════════════════════════════════════════════════════
+// Pedido de Braian (11/09): cuando el vendedor o el chofer están en el
+// local y la dirección/ubicación que tiene la app no es la real, poder
+// corregirla ahí mismo con el GPS del teléfono + la dirección escrita.
+//
+// Dos caminos, un solo modal:
+//   · AUTOMÁTICO: al hacer check-in (vendedor) o al confirmar una entrega
+//     (chofer), si la lectura GPS es buena (≤ DIRCLI_ACC_MAX_M) y cae a
+//     más de DIRCLI_DIST_AVISO_M del punto registrado → cartel
+//     "no está en la dirección indicada, ¿actualizar?".
+//   · MANUAL: botón "Corregir dirección" en el panel del check-in y en el
+//     modal de la entrega. Sirve aunque el cliente no tenga ubicación.
+//
+// Todo se guarda con UNA llamada a rpc/fn_cliente_direccion_actualizar
+// (migracion_direccion_cliente_v1.sql): ubicación oficial en
+// clientes_ubicaciones (queda confirmada, salto 0 → 'verificada' para el
+// chofer), dirección textual en clientes_activos (ronda) y clientes_xubio
+// (direccion_operativa del chofer), y una fila en clientes_direccion_log
+// con quién, desde dónde y cuántos metros se movió.
+//
+// El modal SIEMPRE toma una lectura fresca (gpsGetCoords: mejor de 4 en
+// 6 s). La lectura que disparó el aviso solo sirve para decidir preguntar.
+// ════════════════════════════════════════════════════════════════
+var DIRCLI_DIST_AVISO_M = { vendedor: 100, chofer: 150 };  // m — más lejos que esto, preguntar
+var DIRCLI_ACC_MAX_M    = 80;    // m — lectura peor que esto no sirve ni para avisar ni para guardar
+var _dirCliState   = null;       // estado del modal abierto
+var _dirCliAvisado = {};         // cliente_key → ts del último aviso (anti-repetición por sesión)
+
+function _dirCliKey(n) { return (n || '').toString().trim().toLowerCase(); }
+
+// metros entre dos {lat,lng} (calcDistancia devuelve km)
+function _dirCliMetros(a, b) {
+  if (!a || !b || a.lat == null || b.lat == null || a.lng == null || b.lng == null) return null;
+  var d = calcDistancia(Number(a.lat), Number(a.lng), Number(b.lat), Number(b.lng)) * 1000;
+  return isFinite(d) ? Math.round(d) : null;
+}
+
+function _dirCliFmtM(m) {
+  if (m == null) return '';
+  return m >= 1000 ? (m / 1000).toFixed(1).replace('.', ',') + ' km' : Math.round(m) + ' m';
+}
+
+function _dirCliEsc(s) {
+  return (typeof escapeHtml === 'function') ? escapeHtml(s == null ? '' : String(s))
+    : String(s == null ? '' : s).replace(/[&<>"']/g, function(c) {
+        return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c];
+      });
+}
+
+// ── AVISO AUTOMÁTICO ────────────────────────────────────────────
+// o = { cliente, origen:'vendedor'|'chofer', xubioId?, entregaId?,
+//       direccionActual?, localidad?, coordsActuales:{lat,lng,accuracy},
+//       coordsRegistradas:{lat,lng}, distanciaM? }
+// Devuelve true si mostró el cartel.
+function dirCliAvisarSiLejos(o) {
+  try {
+    if (!o || !o.cliente || !o.coordsActuales || !o.coordsRegistradas) return false;
+    if (o.coordsActuales.lat == null || o.coordsRegistradas.lat == null) return false;
+    var acc = (o.coordsActuales.accuracy != null) ? Number(o.coordsActuales.accuracy) : 9999;
+    if (acc > DIRCLI_ACC_MAX_M) return false;                       // lectura mala: no acusar
+    var dist = (o.distanciaM != null) ? Number(o.distanciaM) : _dirCliMetros(o.coordsActuales, o.coordsRegistradas);
+    if (dist == null) return false;
+    var umbral = DIRCLI_DIST_AVISO_M[o.origen] || DIRCLI_DIST_AVISO_M.vendedor;
+    if (dist <= umbral) return false;
+    var k = _dirCliKey(o.cliente);
+    if (_dirCliAvisado[k] && (Date.now() - _dirCliAvisado[k]) < 10 * 60 * 1000) return false;
+    _dirCliAvisado[k] = Date.now();
+    _dirCliRenderAviso(o, dist, acc);
+    return true;
+  } catch (e) { console.warn('[dirCli] aviso:', e); return false; }
+}
+
+function _dirCliRenderAviso(o, dist, acc) {
+  _dirCliCerrarAviso();
+  var dirReg = (o.direccionActual || '').trim();
+  var wrap = document.createElement('div');
+  wrap.id = 'dircli-aviso';
+  wrap.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,.62);z-index:10050;display:flex;align-items:flex-end;justify-content:center;';
+  wrap.innerHTML =
+    '<div style="background:#fff;border-radius:20px 20px 0 0;padding:22px 20px 26px;width:100%;max-width:480px;box-shadow:0 -4px 24px rgba(0,0,0,.25);">' +
+      '<div style="font-family:Barlow Condensed,sans-serif;font-size:21px;font-weight:900;color:#8B0000;line-height:1.15;margin-bottom:8px;">⚠️ ' + _dirCliEsc(o.cliente) + '<br>no está en la dirección indicada</div>' +
+      '<div style="font-size:14px;color:#3D2914;line-height:1.5;margin-bottom:6px;">Estás a <b>' + _dirCliFmtM(dist) + '</b> de la ubicación registrada de este cliente (GPS ±' + Math.round(acc) + ' m).</div>' +
+      (dirReg
+        ? '<div style="font-size:13px;color:#8B6F50;margin-bottom:14px;">Dirección cargada: <b style="color:#3D2914;">' + _dirCliEsc(dirReg) + '</b></div>'
+        : '<div style="font-size:13px;color:#8B6F50;margin-bottom:14px;">Este cliente no tiene dirección cargada.</div>') +
+      '<div style="font-size:13px;color:#3D2914;line-height:1.45;margin-bottom:16px;">¿Actualizás la dirección del cliente con tu ubicación actual? Solo si estás <b>en el local</b>.</div>' +
+      '<button id="dircli-aviso-si" style="width:100%;padding:14px;background:#8B0000;color:#fff;border:none;border-radius:12px;font-family:Barlow Condensed,sans-serif;font-size:17px;font-weight:900;cursor:pointer;touch-action:manipulation;margin-bottom:8px;">📍 Sí, actualizar dirección</button>' +
+      '<button id="dircli-aviso-no" style="width:100%;padding:12px;background:#FAF4EC;color:#3D2914;border:1px solid #E5DCC8;border-radius:12px;font-family:Barlow Condensed,sans-serif;font-size:15px;font-weight:700;cursor:pointer;touch-action:manipulation;">No, estoy de paso</button>' +
+    '</div>';
+  document.body.appendChild(wrap);
+  wrap.querySelector('#dircli-aviso-si').addEventListener('click', function() {
+    _dirCliCerrarAviso();
+    dirCliAbrirModal(o);
+  });
+  wrap.querySelector('#dircli-aviso-no').addEventListener('click', _dirCliCerrarAviso);
+  wrap.addEventListener('click', function(ev) { if (ev.target === wrap) _dirCliCerrarAviso(); });
+}
+
+function _dirCliCerrarAviso() {
+  var el = document.getElementById('dircli-aviso');
+  if (el) el.remove();
+}
+
+// ── ENTRADAS MANUALES ───────────────────────────────────────────
+// Panel de check-in del vendedor (card "📍 DIRECCIÓN" → Corregir)
+function dirCliDesdeCheckin() {
+  if (!_gpsCheckinActivo || !_gpsCheckinActivo.nombre_cliente) {
+    toast('Primero hacé check-in en el cliente', 'err');
+    return;
+  }
+  var nombre = _gpsCheckinActivo.nombre_cliente;
+  var cli = (_gpsClienteActivoData && _dirCliKey(_gpsClienteActivoData.nombre) === _dirCliKey(nombre)) ? _gpsClienteActivoData : null;
+  var reg = null;
+  try {
+    var mr = (_miRondaClientes || []).find(function(c) { return mrNormNombre(c.nombre) === mrNormNombre(nombre); });
+    if (mr && mr._coords) reg = { lat: mr._coords.lat, lng: mr._coords.lng };
+  } catch (e) { /* sin ronda cargada */ }
+  dirCliAbrirModal({
+    cliente:          nombre,
+    origen:           'vendedor',
+    xubioId:          _gpsCheckinActivo.xubio_id || (cli && cli.xubio_id) || '',
+    direccionActual:  (cli && cli.direccion) || '',
+    localidad:        (cli && cli.localidad) || _gpsCheckinActivo.localidad || '',
+    coordsRegistradas: reg
+  });
+}
+
+// Modal de la entrega del chofer (botón "📍 Corregir dirección")
+function dirCliDesdeEntrega() {
+  var e = (_entregasCache || []).find(function(x) { return x.id === _entregaModalId; });
+  if (!e) { toast('No encontré la entrega. Recargá la lista.', 'err'); return; }
+  var reg = null;
+  if (e.ubic_lat != null && e.ubic_lng != null) reg = { lat: Number(e.ubic_lat), lng: Number(e.ubic_lng) };
+  else if (_coordsCache[e.cliente]) reg = { lat: Number(_coordsCache[e.cliente].lat), lng: Number(_coordsCache[e.cliente].lng) };
+  dirCliAbrirModal({
+    cliente:          e.cliente,
+    origen:           'chofer',
+    entregaId:        e.id,
+    direccionActual:  (e.direccion_operativa || '').trim(),
+    localidad:        e.ciudad || '',
+    coordsRegistradas: reg
+  });
+}
+
+// ── MODAL PRINCIPAL ─────────────────────────────────────────────
+function dirCliAbrirModal(o) {
+  if (!o || !o.cliente) return;
+  dirCliCerrarModal();
+  _dirCliState = {
+    cliente:           o.cliente,
+    origen:            o.origen === 'chofer' ? 'chofer' : 'vendedor',
+    xubioId:           o.xubioId || '',
+    entregaId:         o.entregaId || null,
+    direccionActual:   (o.direccionActual || '').trim(),
+    localidad:         (o.localidad || '').trim(),
+    coordsRegistradas: o.coordsRegistradas || null,
+    coords:            null,        // lectura fresca (la que se guarda)
+    buscando:          false,
+    guardando:         false
+  };
+  var s = _dirCliState;
+  var wrap = document.createElement('div');
+  wrap.id = 'dircli-modal';
+  wrap.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,.62);z-index:10060;display:flex;align-items:flex-end;justify-content:center;';
+  wrap.innerHTML =
+    '<div style="background:#fff;border-radius:20px 20px 0 0;padding:20px 20px 26px;width:100%;max-width:480px;max-height:92vh;overflow-y:auto;box-shadow:0 -4px 24px rgba(0,0,0,.25);">' +
+      '<div style="display:flex;justify-content:space-between;align-items:flex-start;gap:10px;margin-bottom:4px;">' +
+        '<div style="font-family:Barlow Condensed,sans-serif;font-size:21px;font-weight:900;color:#8B0000;line-height:1.1;">📍 Corregir dirección</div>' +
+        '<button onclick="dirCliCerrarModal()" style="background:none;border:none;font-size:22px;line-height:1;color:#8B6F50;cursor:pointer;padding:0 2px;">✕</button>' +
+      '</div>' +
+      '<div style="font-family:Barlow Condensed,sans-serif;font-size:16px;font-weight:700;color:#1A0800;margin-bottom:12px;">' + _dirCliEsc(s.cliente) + (s.localidad ? ' <span style="color:#8B6F50;font-weight:400;">· ' + _dirCliEsc(s.localidad) + '</span>' : '') + '</div>' +
+      '<div style="font-size:12px;color:#8B6F50;margin-bottom:4px;">Dirección cargada hoy: <b style="color:#3D2914;">' + (s.direccionActual ? _dirCliEsc(s.direccionActual) : '(ninguna)') + '</b></div>' +
+      '<label style="display:block;font-size:12px;font-weight:700;color:#3D2914;margin:10px 0 4px;">Dirección real (calle y número)</label>' +
+      '<input id="dircli-inp-dir" type="text" maxlength="150" value="' + _dirCliEsc(s.direccionActual) + '" placeholder="Ej: Av. Villegas 850" ' +
+        'style="width:100%;box-sizing:border-box;padding:12px;border:1.5px solid #D4A574;border-radius:10px;font-size:16px;font-family:Barlow,sans-serif;color:#1A0800;background:#FFFDF9;">' +
+      '<div id="dircli-gps" style="margin:12px 0;padding:10px 12px;border-radius:10px;background:#FAF4EC;border:0.5px solid #E5DCC8;font-size:13px;color:#3D2914;line-height:1.45;">⏳ Buscando tu ubicación…</div>' +
+      '<div style="font-size:11px;color:#8B6F50;line-height:1.4;margin-bottom:14px;">Se guarda <b>tu ubicación actual</b> como la del local y la dirección escrita. Queda registrado quién lo cambió y desde dónde. Hacelo parado <b>en el local</b>, no desde el camión.</div>' +
+      '<button id="dircli-btn-guardar" onclick="dirCliGuardar()" disabled style="width:100%;padding:14px;background:#8B0000;color:#fff;border:none;border-radius:12px;font-family:Barlow Condensed,sans-serif;font-size:17px;font-weight:900;cursor:pointer;touch-action:manipulation;opacity:.5;">💾 Guardar dirección y ubicación</button>' +
+      '<button onclick="dirCliCerrarModal()" style="width:100%;margin-top:8px;padding:12px;background:#FAF4EC;color:#3D2914;border:1px solid #E5DCC8;border-radius:12px;font-family:Barlow Condensed,sans-serif;font-size:15px;font-weight:700;cursor:pointer;touch-action:manipulation;">Cancelar</button>' +
+    '</div>';
+  document.body.appendChild(wrap);
+  wrap.addEventListener('click', function(ev) { if (ev.target === wrap && !s.guardando) dirCliCerrarModal(); });
+
+  // Si no vino la ubicación registrada, buscarla (solo para mostrar la distancia)
+  if (!s.coordsRegistradas) _dirCliCargarRegistrada(s);
+  dirCliReintentarGps();
+}
+
+function dirCliCerrarModal() {
+  var el = document.getElementById('dircli-modal');
+  if (el) el.remove();
+  _dirCliState = null;
+}
+
+function _dirCliCargarRegistrada(s) {
+  sbFetch('clientes_ubicaciones?nombre_cliente=ilike.' + encodeURIComponent(s.cliente) +
+          '&select=lat,lng&lat=not.is.null&order=ultima_visita.desc.nullslast&limit=1')
+    .then(function(rows) {
+      if (_dirCliState !== s) return;
+      if (rows && rows.length && rows[0].lat != null) {
+        s.coordsRegistradas = { lat: Number(rows[0].lat), lng: Number(rows[0].lng) };
+        _dirCliRenderGps(s);
+      }
+    }).catch(function() { /* sin dato: el modal funciona igual */ });
+}
+
+function dirCliReintentarGps() {
+  var s = _dirCliState;
+  if (!s || s.buscando) return;
+  s.buscando = true;
+  s.coords = null;
+  _dirCliRenderGps(s);
+  gpsGetCoords().then(function(c) {
+    if (_dirCliState !== s) return;
+    s.buscando = false;
+    s.coords = (c && c.lat != null && c.lng != null) ? c : null;
+    _dirCliRenderGps(s);
+  }).catch(function() {
+    if (_dirCliState !== s) return;
+    s.buscando = false;
+    s.coords = null;
+    _dirCliRenderGps(s);
+  });
+}
+
+function _dirCliRenderGps(s) {
+  var box = document.getElementById('dircli-gps');
+  var btn = document.getElementById('dircli-btn-guardar');
+  if (!box || !btn) return;
+  var html = '';
+  var ok = false;
+  if (s.buscando) {
+    html = '⏳ Buscando tu ubicación… (hasta 6 segundos)';
+  } else if (!s.coords) {
+    html = '❌ No se pudo tomar la ubicación. Activá el GPS y ' +
+      '<a href="#" onclick="dirCliReintentarGps();return false;" style="color:#8B0000;font-weight:700;">reintentá</a>.';
+  } else {
+    var acc = (s.coords.accuracy != null) ? Math.round(Number(s.coords.accuracy)) : null;
+    var dist = _dirCliMetros(s.coords, s.coordsRegistradas);
+    var distTxt = (dist != null)
+      ? (dist <= 30 ? ' · estás sobre el punto registrado' : ' · a <b>' + _dirCliFmtM(dist) + '</b> del punto registrado')
+      : ' · este cliente no tenía ubicación';
+    if (acc != null && acc > DIRCLI_ACC_MAX_M) {
+      html = '⚠️ Lectura imprecisa (±' + acc + ' m)' + distTxt + '.<br>Salí a la vereda, esperá unos segundos y ' +
+        '<a href="#" onclick="dirCliReintentarGps();return false;" style="color:#8B0000;font-weight:700;">reintentá</a>.';
+    } else {
+      ok = true;
+      html = '✅ Ubicación tomada' + (acc != null ? ' (±' + acc + ' m)' : '') + distTxt + '. ' +
+        '<a href="#" onclick="dirCliReintentarGps();return false;" style="color:#8B6F50;">Volver a tomar</a>';
+    }
+  }
+  box.innerHTML = html;
+  btn.disabled = !ok || s.guardando;
+  btn.style.opacity = btn.disabled ? '.5' : '1';
+}
+
+// ── GUARDAR ─────────────────────────────────────────────────────
+async function dirCliGuardar() {
+  var s = _dirCliState;
+  if (!s || s.guardando) return;
+  if (!s.coords || s.coords.lat == null) { toast('Falta la ubicación GPS', 'err'); return; }
+  var acc = (s.coords.accuracy != null) ? Number(s.coords.accuracy) : null;
+  if (acc != null && acc > DIRCLI_ACC_MAX_M) { toast('La lectura GPS es imprecisa. Reintentá.', 'err'); return; }
+  var inp = document.getElementById('dircli-inp-dir');
+  var dir = inp ? inp.value.trim() : '';
+  if (!dir && !s.direccionActual) {
+    toast('Escribí la dirección (calle y número)', 'err');
+    if (inp) inp.focus();
+    return;
+  }
+  s.guardando = true;
+  var btn = document.getElementById('dircli-btn-guardar');
+  if (btn) { btn.disabled = true; btn.style.opacity = '.5'; btn.textContent = '⏳ Guardando…'; }
+
+  try {
+    var r = await sbFetch('rpc/fn_cliente_direccion_actualizar', {
+      method: 'POST',
+      body: JSON.stringify({
+        p_cliente:    s.cliente,
+        p_lat:        Number(s.coords.lat),
+        p_lng:        Number(s.coords.lng),
+        p_precision:  acc,
+        p_direccion:  dir || null,
+        p_origen:     s.origen,
+        p_actor:      vendedorActual || null,
+        p_entrega_id: s.entregaId || null,
+        p_xubio_id:   s.xubioId || null
+      })
+    });
+    if (!r || r.ok !== true) throw new Error('La base no confirmó el cambio');
+    _dirCliAplicarLocal(s, r);
+    dirCliCerrarModal();
+    var movio = (r.distancia_m != null) ? ' (se movió ' + _dirCliFmtM(Number(r.distancia_m)) + ')' : '';
+    toast('✅ Dirección actualizada: ' + s.cliente + movio, 'ok');
+    console.log('[v14.184.0] dirección corregida', r);
+  } catch (e) {
+    s.guardando = false;
+    if (btn) { btn.disabled = false; btn.style.opacity = '1'; btn.textContent = '💾 Guardar dirección y ubicación'; }
+    var msg = (e && e.message) || '';
+    var legible = 'No se pudo guardar. Revisá la señal y reintentá.';
+    var m = msg.match(/"message"\s*:\s*"([^"]+)"/);
+    if (m) legible = m[1].replace(/^[A-Z_]+:\s*/, '');
+    else if (/404/.test(msg)) legible = 'La base todavía no tiene esta función (falta aplicar la migración). Avisale a Julián.';
+    else if (e && e.esTimeout) legible = 'Sin respuesta de la base. Reintentá.';
+    console.error('[dirCli] guardar:', e);
+    toast('❌ ' + legible, 'err');
+  }
+}
+
+// Refresca lo que la app ya tiene en memoria para que el cambio se vea YA.
+function _dirCliAplicarLocal(s, r) {
+  var k = _dirCliKey(s.cliente);
+  var lat = Number(r.lat), lng = Number(r.lng);
+  var dirNueva = r.direccion || s.direccionActual || '';
+  try {
+    // chofer: cache de coords + entregas del cliente + modal abierto
+    _coordsCache[s.cliente] = { lat: lat, lng: lng };
+    (_entregasCache || []).forEach(function(e) {
+      if (_dirCliKey(e.cliente) !== k) return;
+      _coordsCache[e.cliente] = { lat: lat, lng: lng };
+      e.ubic_lat = lat; e.ubic_lng = lng; e.ubic_nivel = 'verificada';
+      if (dirNueva) e.direccion_operativa = dirNueva;
+    });
+    var dirEl = document.getElementById('entrega-modal-dir');
+    var modalEl = document.getElementById('entrega-modal');
+    if (dirEl && modalEl && !modalEl.classList.contains('hidden') && _entregaModalId) {
+      var eAbierta = (_entregasCache || []).find(function(x) { return x.id === _entregaModalId; });
+      if (eAbierta && _dirCliKey(eAbierta.cliente) === k) {
+        var telEl = dirEl.querySelector('.entrega-modal-tel, .entrega-modal-sintel');
+        dirEl.className = 'entrega-modal-dir tiene-gps';
+        dirEl.innerHTML = '📍 ' + _dirCliEsc(dirNueva || 'Ubicación GPS corregida') +
+          ' <span style="font-size:11px;color:#2E7D32;font-weight:700;">✔ corregida</span>' +
+          (telEl ? '<br>' + telEl.outerHTML : '');
+      }
+    }
+  } catch (e) { console.warn('[dirCli] refresco chofer:', e); }
+  try {
+    // vendedor: ficha del check-in + Mi Ronda / Jornada
+    if (_gpsClienteActivoData && _dirCliKey(_gpsClienteActivoData.nombre) === k && dirNueva) {
+      _gpsClienteActivoData.direccion = dirNueva;
+      if (_gpsCheckinActivo && _dirCliKey(_gpsCheckinActivo.nombre_cliente) === k && typeof gpsRenderInfoClienteFinal === 'function') {
+        gpsRenderInfoClienteFinal(s.cliente, gpsBuscarPedidosCliente(s.cliente));
+      }
+    }
+    (_miRondaClientes || []).forEach(function(c) {
+      if (mrNormNombre(c.nombre) !== mrNormNombre(s.cliente)) return;
+      c._coords = { lat: lat, lng: lng };
+      if (dirNueva) c.direccion = dirNueva;
+    });
+  } catch (e) { console.warn('[dirCli] refresco vendedor:', e); }
+}
+
 async function gpsGuardarUbicacionCliente(nombreCliente, coords, vendedorId) {
   if (!coords.lat || !coords.lng) return;
   var acc = (coords.accuracy != null) ? coords.accuracy : 9999;
@@ -34523,9 +34913,44 @@ async function gpsGuardarUbicacionCliente(nombreCliente, coords, vendedorId) {
         await sbFetch('clientes_ubicaciones?nombre_cliente=eq.' + encodeURIComponent(nombreCliente), {
           method: 'PATCH', prefer: 'return=minimal', body: JSON.stringify(patch)
         });
+        // v14.184.0: en vez de un toast que nadie resolvía (136 alertas
+        // acumuladas al 11/09), preguntar en el momento si actualiza.
         setTimeout(function() {
-          toast('⚠️ ' + nombreCliente + ': posible cambio de dirección (' + Math.round(distancia) + 'm)', 'err');
-        }, 1000);
+          var pregunto = dirCliAvisarSiLejos({
+            cliente: nombreCliente, origen: 'vendedor',
+            xubioId: (_gpsCheckinActivo && _gpsCheckinActivo.xubio_id) || '',
+            direccionActual: (_gpsClienteActivoData && _gpsClienteActivoData.direccion) || '',
+            localidad: (_gpsClienteActivoData && _gpsClienteActivoData.localidad) || (_gpsCheckinActivo && _gpsCheckinActivo.localidad) || '',
+            coordsActuales: coords,
+            coordsRegistradas: { lat: Number(ub.lat), lng: Number(ub.lng) },
+            distanciaM: Math.round(distancia)
+          });
+          if (!pregunto) toast('⚠️ ' + nombreCliente + ': posible cambio de dirección (' + Math.round(distancia) + 'm)', 'err');
+        }, 1200);
+        return;
+      }
+    }
+
+    // v14.184.0: ubicación NO confirmada pero con al menos una muestra buena, y
+    // esta lectura (buena) cae lejos → NO promediar (arrastraría el punto al
+    // medio de la nada). Contar la visita y preguntar si corrige.
+    if (!confirmada && (ub.muestras_buenas || 0) >= 1 && ub.lat != null && ub.lng != null) {
+      var distNC = calcDistancia(coords.lat, coords.lng, Number(ub.lat), Number(ub.lng)) * 1000;
+      if (isFinite(distNC) && distNC > DIRCLI_DIST_AVISO_M.vendedor) {
+        await sbFetch('clientes_ubicaciones?nombre_cliente=eq.' + encodeURIComponent(nombreCliente), {
+          method: 'PATCH', prefer: 'return=minimal', body: JSON.stringify(patch)
+        });
+        setTimeout(function() {
+          dirCliAvisarSiLejos({
+            cliente: nombreCliente, origen: 'vendedor',
+            xubioId: (_gpsCheckinActivo && _gpsCheckinActivo.xubio_id) || '',
+            direccionActual: (_gpsClienteActivoData && _gpsClienteActivoData.direccion) || '',
+            localidad: (_gpsClienteActivoData && _gpsClienteActivoData.localidad) || (_gpsCheckinActivo && _gpsCheckinActivo.localidad) || '',
+            coordsActuales: coords,
+            coordsRegistradas: { lat: Number(ub.lat), lng: Number(ub.lng) },
+            distanciaM: Math.round(distNC)
+          });
+        }, 1200);
         return;
       }
     }
@@ -41193,6 +41618,9 @@ function abrirEntregaModal(entregaId) {
 
   btnsHtml += '<button class="entrega-modal-btn maps" onclick="abrirMapsCliente(\'' + cli + '\',\'' + com + '\',\'' + ciu + '\')">' +
     (coords ? '📍' : '🗺️') + ' Maps</button>';
+  // v14.184.0: corregir dirección/ubicación del cliente parado en el local
+  btnsHtml += '<button class="entrega-modal-btn" style="background:#FFF8E1;color:#BF5F00;border:1.5px solid #FFC107;" onclick="dirCliDesdeEntrega()">' +
+    '📍 Corregir dirección</button>';
 
   if (waNum) {
     const msg = encodeURIComponent('Hola ' + (e.cliente||'') + '! 👋 Soy el repartidor de TCK. Estoy llegando a ' + (e.ciudad||'') + ' con tu pedido. ¿Estás disponible? 🚚');
@@ -42956,27 +43384,46 @@ async function _ejecutarConfirmacionEntrega(cobros) {
           }).catch(function() { /* best-effort */ });
         }
 
-        // (3) clientes_ubicaciones (para mapa de clientes y próxima búsqueda)
-        sbFetch('clientes_ubicaciones?nombre_cliente=eq.' + encodeURIComponent(e.cliente), { method: 'GET' })
+        // (3) clientes_ubicaciones.
+        // v14.184.0: ANTES este bloque pisaba lat/lng del cliente con la lectura
+        // cruda del chofer (sin mirar precisión ni si la ubicación estaba
+        // confirmada por el vendedor) → ubicaciones contaminadas, chofer
+        // mandado al lugar equivocado la semana siguiente. AHORA:
+        //   · sin ubicación previa → siembra una tentativa (sin confirmar);
+        //   · con ubicación → solo cuenta la visita y, si el chofer está
+        //     lejos con buena lectura, pregunta si corrige (dirCliAvisarSiLejos).
+        sbFetch('clientes_ubicaciones?nombre_cliente=ilike.' + encodeURIComponent(e.cliente) +
+                '&select=nombre_cliente,lat,lng&order=ultima_visita.desc.nullslast&limit=1')
           .then(function(rows) {
-            var method = (rows && rows.length) ? 'PATCH' : 'POST';
-            var url = method === 'PATCH'
-              ? 'clientes_ubicaciones?nombre_cliente=eq.' + encodeURIComponent(e.cliente)
-              : 'clientes_ubicaciones';
-            return sbFetch(url, {
-              method: method,
-              body: JSON.stringify({ nombre_cliente: e.cliente, lat: lat, lng: lng, ultima_visita: new Date().toISOString() })
+            var ub = (rows && rows.length) ? rows[0] : null;
+            var ahoraISO = new Date().toISOString();
+            if (!ub || ub.lat == null || ub.lng == null) {
+              _coordsCache[e.cliente] = { lat: lat, lng: lng };
+              return sbFetch(ub ? 'clientes_ubicaciones?nombre_cliente=eq.' + encodeURIComponent(ub.nombre_cliente) : 'clientes_ubicaciones', {
+                method: ub ? 'PATCH' : 'POST', prefer: 'return=minimal',
+                body: JSON.stringify({ nombre_cliente: e.cliente, lat: lat, lng: lng, precision_actual: prec, ultima_visita: ahoraISO })
+              });
+            }
+            var distCh = calcDistancia(lat, lng, Number(ub.lat), Number(ub.lng)) * 1000;
+            dirCliAvisarSiLejos({
+              cliente: e.cliente, origen: 'chofer', entregaId: e.id,
+              direccionActual: (e.direccion_operativa || '').trim(), localidad: e.ciudad || '',
+              coordsActuales: { lat: lat, lng: lng, accuracy: prec },
+              coordsRegistradas: { lat: Number(ub.lat), lng: Number(ub.lng) },
+              distanciaM: isFinite(distCh) ? Math.round(distCh) : null
+            });
+            return sbFetch('clientes_ubicaciones?nombre_cliente=eq.' + encodeURIComponent(ub.nombre_cliente), {
+              method: 'PATCH', prefer: 'return=minimal',
+              body: JSON.stringify({ ultima_visita: ahoraISO })
             });
           }).catch(function() { /* best-effort */ });
-
-        _coordsCache[e.cliente] = { lat: lat, lng: lng };
       }, function(err) {
         // Usuario rechazó permisos o GPS no disponible
         console.warn('GPS no disponible:', err && err.message);
       }, {
         enableHighAccuracy: true,  // preferir GPS sobre red (más preciso)
         timeout: 10000,             // 10 seg máximo esperando fix
-        maximumAge: 60000           // aceptar una lectura de hasta 1 min de antigüedad
+        maximumAge: 0               // v14.184.0: lectura fresca (la de hasta 1 min podía ser la parada anterior)
       });
     }
     const idx = _entregasCache.findIndex(x => x.id === _entregaModalId);
@@ -55950,7 +56397,7 @@ function depPollIniciar() {
    TCK_UPD_LOCAL aca Y el archivo version.json del repo.
    ============================================================ */
 (function(){
-  var TCK_UPD_LOCAL = '14.183.1';        /* <-- bump en cada deploy */
+  var TCK_UPD_LOCAL = '14.184.0';        /* <-- bump en cada deploy */
   /* v14.159.0: fuente UNICA de version. La telemetria del shadow la reporta,
      asi que un desfasaje contra version.json se ve solo en el primer pedido
      (paso 4 veces sin que nadie lo notara: 14.109, 14.128, 14.137, 14.147). */
