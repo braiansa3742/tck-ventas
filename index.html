@@ -2,6 +2,27 @@
 <html lang="es">
 <head>
 <!-- ═══════════════════════════════════════════════════════════════════════
+     TCK VENTAS — v14.185.1 — 11/09/2026
+     v14.185.1: FIXES DE AUDITORÍA (revisión independiente de 14.184.0/14.185.0).
+       · Chofer: el cartel automático "no está en la dirección" solo si la
+         ubicación registrada NO está confirmada por vendedor y está a más
+         de 300 m (el 17 % de las entregas se confirma a >150 m del local,
+         mediana 1,1 km: desde el camión). El botón manual sigue siempre.
+         La RPC guarda la corrección del chofer como PROPUESTA (1 muestra,
+         sin confirmar); la del vendedor sigue confirmando.
+       · RPC: el id Xubio de la entrega solo se usa si la ficha se llama
+         como el cliente ("Consumidor Final" 4562908 está atrás de 11
+         nombres: pisaba la dirección de todos). Actor SOLO por JWT.
+       · XSS: la dirección operativa se escapa en el modal de la entrega.
+       · Error 404 de la RPC (migración sin aplicar) se explica en
+         castellano; antes salía el mensaje crudo de PostgREST.
+       · El cartel/modal del vendedor no usa la ficha de OTRO cliente si
+         la del actual todavía no cargó (_dirCliActivoDe).
+       · Si el GPS está denegado, el modal se cierra para que se vea la
+         ayuda de permisos (quedaba tapada).
+       · ilike: se escapan % _ * \ en los nombres.
+       · version.json alineado (14.185.1).
+
      TCK VENTAS — v14.185.0 — 11/09/2026
      v14.185.0: RECORRIDO — "EL SIGUIENTE" ES EL MÁS CERCANO (pedido de Braian).
        Diagnóstico: de 846 clientes de ronda con ubicación, 84 estaban a más
@@ -34572,12 +34593,20 @@ function ubicLejosDeCiudad(localidad, lat, lng) {
   } catch (e) { return 0; }
 }
 
-var DIRCLI_DIST_AVISO_M = { vendedor: 100, chofer: 150 };  // m — más lejos que esto, preguntar
+var DIRCLI_DIST_AVISO_M = { vendedor: 100, chofer: 300 };  // m — más lejos que esto, preguntar (chofer 300: confirma desde el camión)
 var DIRCLI_ACC_MAX_M    = 80;    // m — lectura peor que esto no sirve ni para avisar ni para guardar
 var _dirCliState   = null;       // estado del modal abierto
 var _dirCliAvisado = {};         // cliente_key → ts del último aviso (anti-repetición por sesión)
 
 function _dirCliKey(n) { return (n || '').toString().trim().toLowerCase(); }
+// v14.185.1: _gpsClienteActivoData se carga async y no se limpia en el check-out;
+// con red lenta podía ser la ficha del cliente ANTERIOR. Solo vale si coincide.
+function _dirCliActivoDe(nombre) {
+  return (_gpsClienteActivoData && _gpsClienteActivoData.nombre
+          && mrNormNombre(_gpsClienteActivoData.nombre) === mrNormNombre(nombre)) ? _gpsClienteActivoData : null;
+}
+// v14.185.1: escapar comodines de ilike (% _ * \) en nombres
+function _dirCliIlike(nombre) { return encodeURIComponent(String(nombre || '').replace(/[\\%_*]/g, '\\$&')); }
 
 // metros entre dos {lat,lng} (calcDistancia devuelve km)
 function _dirCliMetros(a, b) {
@@ -34745,7 +34774,7 @@ function dirCliCerrarModal() {
 }
 
 function _dirCliCargarRegistrada(s) {
-  sbFetch('clientes_ubicaciones?nombre_cliente=ilike.' + encodeURIComponent(s.cliente) +
+  sbFetch('clientes_ubicaciones?nombre_cliente=ilike.' + _dirCliIlike(s.cliente) +
           '&select=lat,lng&lat=not.is.null&order=ultima_visita.desc.nullslast&limit=1')
     .then(function(rows) {
       if (_dirCliState !== s) return;
@@ -34784,6 +34813,8 @@ function _dirCliRenderGps(s) {
   if (s.buscando) {
     html = '⏳ Buscando tu ubicación… (hasta 6 segundos)';
   } else if (!s.coords) {
+    // v14.185.1: si saltó la ayuda de permisos (z 9999, queda abajo), cerrar este modal
+    if (document.getElementById('gps-permisos-modal')) { dirCliCerrarModal(); return; }
     html = '❌ No se pudo tomar la ubicación. Activá el GPS y ' +
       '<a href="#" onclick="dirCliReintentarGps();return false;" style="color:#8B0000;font-weight:700;">reintentá</a>.';
   } else {
@@ -34853,8 +34884,8 @@ async function dirCliGuardar() {
     var msg = (e && e.message) || '';
     var legible = 'No se pudo guardar. Revisá la señal y reintentá.';
     var m = msg.match(/"message"\s*:\s*"([^"]+)"/);
-    if (m) legible = m[1].replace(/^[A-Z_]+:\s*/, '');
-    else if (/404/.test(msg)) legible = 'La base todavía no tiene esta función (falta aplicar la migración). Avisale a Julián.';
+    if (/^Supabase error: 404\b/.test(msg) || /PGRST202/.test(msg)) legible = 'La base todavía no tiene esta función (falta aplicar la migración). Avisale a Julián.';
+    else if (m) legible = m[1].replace(/^[A-Z_]+:\s*/, '');
     else if (e && e.esTimeout) legible = 'Sin respuesta de la base. Reintentá.';
     console.error('[dirCli] guardar:', e);
     toast('❌ ' + legible, 'err');
@@ -34997,8 +35028,8 @@ async function gpsGuardarUbicacionCliente(nombreCliente, coords, vendedorId) {
           var pregunto = dirCliAvisarSiLejos({
             cliente: nombreCliente, origen: 'vendedor',
             xubioId: (_gpsCheckinActivo && _gpsCheckinActivo.xubio_id) || '',
-            direccionActual: (_gpsClienteActivoData && _gpsClienteActivoData.direccion) || '',
-            localidad: (_gpsClienteActivoData && _gpsClienteActivoData.localidad) || (_gpsCheckinActivo && _gpsCheckinActivo.localidad) || '',
+            direccionActual: (_dirCliActivoDe(nombreCliente) || {}).direccion || '',
+            localidad: (_dirCliActivoDe(nombreCliente) || {}).localidad || (_gpsCheckinActivo && _gpsCheckinActivo.localidad) || '',
             coordsActuales: coords,
             coordsRegistradas: { lat: Number(ub.lat), lng: Number(ub.lng) },
             distanciaM: Math.round(distancia)
@@ -35022,8 +35053,8 @@ async function gpsGuardarUbicacionCliente(nombreCliente, coords, vendedorId) {
           dirCliAvisarSiLejos({
             cliente: nombreCliente, origen: 'vendedor',
             xubioId: (_gpsCheckinActivo && _gpsCheckinActivo.xubio_id) || '',
-            direccionActual: (_gpsClienteActivoData && _gpsClienteActivoData.direccion) || '',
-            localidad: (_gpsClienteActivoData && _gpsClienteActivoData.localidad) || (_gpsCheckinActivo && _gpsCheckinActivo.localidad) || '',
+            direccionActual: (_dirCliActivoDe(nombreCliente) || {}).direccion || '',
+            localidad: (_dirCliActivoDe(nombreCliente) || {}).localidad || (_gpsCheckinActivo && _gpsCheckinActivo.localidad) || '',
             coordsActuales: coords,
             coordsRegistradas: { lat: Number(ub.lat), lng: Number(ub.lng) },
             distanciaM: Math.round(distNC)
@@ -41684,7 +41715,7 @@ function abrirEntregaModal(entregaId) {
     }
   } else if (_dirM) {
     dirEl.className = 'entrega-modal-dir tiene-gps';
-    dirEl.innerHTML = '📍 ' + _dirM + '<br>' + _telHtml;
+    dirEl.innerHTML = '📍 ' + escapeHtml(_dirM) + '<br>' + _telHtml;   // v14.185.1: escapado
   } else if (coords) {
     dirEl.className = 'entrega-modal-dir tiene-gps';
     dirEl.innerHTML = '📍 Ubicación GPS registrada — Maps abre en el local exacto<br>' + _telHtml;
@@ -43508,8 +43539,8 @@ async function _ejecutarConfirmacionEntrega(cobros) {
         //   · sin ubicación previa → siembra una tentativa (sin confirmar);
         //   · con ubicación → solo cuenta la visita y, si el chofer está
         //     lejos con buena lectura, pregunta si corrige (dirCliAvisarSiLejos).
-        sbFetch('clientes_ubicaciones?nombre_cliente=ilike.' + encodeURIComponent(e.cliente) +
-                '&select=nombre_cliente,lat,lng&order=ultima_visita.desc.nullslast&limit=1')
+        sbFetch('clientes_ubicaciones?nombre_cliente=ilike.' + _dirCliIlike(e.cliente) +
+                '&select=nombre_cliente,lat,lng,ubicacion_confirmada&order=ultima_visita.desc.nullslast&limit=1')
           .then(function(rows) {
             var ub = (rows && rows.length) ? rows[0] : null;
             var ahoraISO = new Date().toISOString();
@@ -43523,7 +43554,9 @@ async function _ejecutarConfirmacionEntrega(cobros) {
               });
             }
             var distCh = calcDistancia(lat, lng, Number(ub.lat), Number(ub.lng)) * 1000;
-            dirCliAvisarSiLejos({
+            // v14.185.1: si el vendedor ya la confirmó adentro del local, el chofer
+            // (que confirma desde el camión) no la cuestiona solo: queda el botón.
+            if (!ub.ubicacion_confirmada) dirCliAvisarSiLejos({
               cliente: e.cliente, origen: 'chofer', entregaId: e.id,
               direccionActual: (e.direccion_operativa || '').trim(), localidad: e.ciudad || '',
               coordsActuales: { lat: lat, lng: lng, accuracy: prec },
@@ -56559,7 +56592,7 @@ function depPollIniciar() {
    TCK_UPD_LOCAL aca Y el archivo version.json del repo.
    ============================================================ */
 (function(){
-  var TCK_UPD_LOCAL = '14.185.0';        /* <-- bump en cada deploy */
+  var TCK_UPD_LOCAL = '14.185.1';        /* <-- bump en cada deploy */
   /* v14.159.0: fuente UNICA de version. La telemetria del shadow la reporta,
      asi que un desfasaje contra version.json se ve solo en el primer pedido
      (paso 4 veces sin que nadie lo notara: 14.109, 14.128, 14.137, 14.147). */
