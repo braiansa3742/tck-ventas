@@ -2,6 +2,26 @@
 <html lang="es">
 <head>
 <!-- ═══════════════════════════════════════════════════════════════════════
+     TCK VENTAS — v14.185.2 — 11/09/2026
+     v14.185.2: FIXES DE LA 2ª AUDITORÍA (recorrido).
+       · La "ciudad del cliente" en clientes_activos.localidad es en realidad
+         la ZONA de ronda ("América" incluye González Moreno a 38 km,
+         "Henderson" incluye Salazar a 50 km). El guard de 20 km al centroide
+         bloqueaba clientes legítimos (36) y la vista los marcaba dudosos (40).
+         Regla nueva (front + RPC + vistas): una lectura es "de otra ciudad"
+         solo si cae a ≤15 km del centroide de una ciudad X que está a más
+         de UBIC_OTRA_LEJOS_KM de la ciudad del cliente Y y en OTRA zona de
+         ruta. Trenque→Pehuajó (78 km) se rechaza; Salazar/Henderson (misma
+         zona) y Guaminí/Bonifacio (27 km) pasan.
+       · vw_entregas_chofer clasificaba 'verificada' ANTES de mirar la
+         distancia a la ciudad: los puntos contaminados (salto 0) salían
+         verificados y con la cercanía automática mandaban al chofer a 78 km.
+         Ahora 'dudosa' se evalúa antes (migración, sección 6).
+       · Los centroides traen la zona de rutas; se cargan una vez al entrar.
+       · Al cerrar sesión se resetean _cercaniaAutoPedida y _jorPosPedida.
+       · La lectura rápida inicial de Mi Ruta también se guarda en posiciones.
+       · El ícono del botón Maps del chofer refleja lo que realmente usa.
+
      TCK VENTAS — v14.185.1 — 11/09/2026
      v14.185.1: FIXES DE AUDITORÍA (revisión independiente de 14.184.0/14.185.0).
        · Chofer: el cartel automático "no está en la dirección" solo si la
@@ -25142,6 +25162,7 @@ function salir() {
   _entregasUltimoOk  = null;
   _entregasCache     = [];
   _viajeActivo = null; _viajesActivos = []; _viajeSeleccionadoId = null; _viajeActivoError = null;
+  _cercaniaAutoPedida = false; _jorPosPedida = false;   // v14.185.2: otro usuario en el mismo teléfono
   const bienvenidaEl = document.querySelector('.bienvenida');
   if (bienvenidaEl) bienvenidaEl.style.display = '';
   const panelEl = document.getElementById('panel');
@@ -34563,16 +34584,26 @@ var GPS_DIST_ALERTA       = 150;  // m — diferencia para alertar mudanza real
 // tomar como ubicación del cliente una lectura hecha a 78 km (check-in por
 // teléfono desde Trenque para un cliente de Pehuajó): así se contaminaron y
 // hasta se "confirmaron" 84 ubicaciones.
-var _centroides = null;              // { ciudad: {lat,lng} }
+var _centroides = null;              // { ciudad_lower: {ciudad, lat, lng, zona} }
 var _centroidesPidiendo = null;
-var UBIC_LEJOS_CIUDAD_KM = 20;
+var UBIC_CERCA_OTRA_KM  = 15;   // la lectura "está en" una ciudad si cae a ≤15 km de su centroide
+var UBIC_OTRA_LEJOS_KM  = 30;   // ...y esa ciudad es "otra ciudad lejana" si está a >30 km de la del cliente
 function centroidesCargar() {
   if (_centroides || _centroidesPidiendo) return _centroidesPidiendo || Promise.resolve(_centroides);
-  _centroidesPidiendo = sbFetch('vw_ciudad_centroide?select=ciudad,centro_lat,centro_lng')
-    .then(function(rows) {
+  _centroidesPidiendo = Promise.all([
+      sbFetch('vw_ciudad_centroide?select=ciudad,centro_lat,centro_lng'),
+      sbFetch('rutas?select=ciudad,zona&activo=is.true&limit=500').catch(function() { return []; })
+    ])
+    .then(function(res) {
+      var zonas = {};
+      (res[1] || []).forEach(function(r) { if (r.ciudad && r.zona && !zonas[r.ciudad]) zonas[r.ciudad] = r.zona; });
       var m = {};
-      (rows || []).forEach(function(r) {
-        if (r.ciudad && r.centro_lat != null) m[String(r.ciudad).trim().toLowerCase()] = { lat: Number(r.centro_lat), lng: Number(r.centro_lng) };
+      (res[0] || []).forEach(function(r) {
+        if (r.ciudad && r.centro_lat != null) {
+          m[String(r.ciudad).trim().toLowerCase()] = {
+            ciudad: r.ciudad, lat: Number(r.centro_lat), lng: Number(r.centro_lng), zona: zonas[r.ciudad] || null
+          };
+        }
       });
       _centroides = m;
       return m;
@@ -34580,16 +34611,32 @@ function centroidesCargar() {
     .catch(function(e) { console.warn('[centroides]', e); _centroidesPidiendo = null; return null; });
   return _centroidesPidiendo;
 }
-// Devuelve los km al centroide si la lectura está a más de UBIC_LEJOS_CIUDAD_KM
-// de la ciudad; 0 si está cerca o si no hay dato para decidir.
+// v14.185.2 — misma regla que fn_ubic_lejos_km en la base. Devuelve los km
+// hasta la ciudad del cliente si la lectura está EN OTRA CIUDAD LEJANA:
+// cae a ≤15 km del centroide de una ciudad X, y X está a >30 km de la ciudad
+// del cliente Y y en otra zona de ruta. 0 = no hay motivo para desconfiar
+// (misma zona, ciudades vecinas, lectura en el campo, o faltan datos).
+// OJO: "localidad" de la ronda suele ser la ZONA (América = González Moreno
+// también); por eso la zona exime y no se usa un radio fijo.
 function ubicLejosDeCiudad(localidad, lat, lng) {
   try {
     if (!localidad || lat == null || lng == null) return 0;
     if (!_centroides) { centroidesCargar(); return 0; }
-    var c = _centroides[String(localidad).trim().toLowerCase()];
-    if (!c) return 0;
-    var km = calcDistancia(Number(lat), Number(lng), c.lat, c.lng);
-    return (isFinite(km) && km > UBIC_LEJOS_CIUDAD_KM) ? Math.round(km) : 0;
+    var y = _centroides[String(localidad).trim().toLowerCase()];
+    if (!y) return 0;
+    var x = null, dx = Infinity;
+    Object.keys(_centroides).forEach(function(k) {
+      var c = _centroides[k];
+      var d = calcDistancia(Number(lat), Number(lng), c.lat, c.lng);
+      if (isFinite(d) && d < dx) { dx = d; x = c; }
+    });
+    if (!x || dx > UBIC_CERCA_OTRA_KM) return 0;
+    if (x.zona && y.zona && x.zona === y.zona) return 0;
+    if (x === y) return 0;
+    var dxy = calcDistancia(x.lat, x.lng, y.lat, y.lng);
+    if (!isFinite(dxy) || dxy <= UBIC_OTRA_LEJOS_KM) return 0;
+    var km = calcDistancia(Number(lat), Number(lng), y.lat, y.lng);
+    return isFinite(km) ? Math.max(1, Math.round(km)) : 0;
   } catch (e) { return 0; }
 }
 
@@ -41760,8 +41807,10 @@ function abrirEntregaModal(entregaId) {
   const com = (e.comercio || '').replace(/'/g, "\\'");
   const ciu = (e.ciudad || '').replace(/'/g, "\\'");
 
+  // v14.185.2: el ícono refleja lo que abrirMapsCliente va a usar de verdad
+  var _mapsConCoords = (e.ubic_nivel === 'verificada' || e.ubic_nivel === 'provisoria') || (e.ubic_nivel == null && !!coords);
   btnsHtml += '<button class="entrega-modal-btn maps" onclick="abrirMapsCliente(\'' + cli + '\',\'' + com + '\',\'' + ciu + '\',\'' + e.id + '\')">' +
-    (coords ? '📍' : '🗺️') + ' Maps</button>';
+    (_mapsConCoords ? '📍' : '🗺️') + ' Maps</button>';
   // v14.184.0: corregir dirección/ubicación del cliente parado en el local
   btnsHtml += '<button class="entrega-modal-btn" style="background:#FFF8E1;color:#BF5F00;border:1.5px solid #FFC107;" onclick="dirCliDesdeEntrega()">' +
     '📍 Corregir dirección</button>';
@@ -52354,6 +52403,10 @@ function jornadaRender() {
     _capturarGpsRapido().then(function(g) {
       if (g && g.lat != null && !_lastTrackPos) {
         _lastTrackPos = { lat: g.lat, lng: g.lng };
+        // v14.185.2: watchPosition descarta fixes a <20 m de _lastTrackPos → guardar este
+        if (_trackingVendorId && typeof trackingGuardarPosicion === 'function') {
+          try { trackingGuardarPosicion(g.lat, g.lng); } catch (eT) {}
+        }
         if (_tabActual === 'jornada') jornadaRender();
       }
     }).catch(function() {});
@@ -56592,7 +56645,7 @@ function depPollIniciar() {
    TCK_UPD_LOCAL aca Y el archivo version.json del repo.
    ============================================================ */
 (function(){
-  var TCK_UPD_LOCAL = '14.185.1';        /* <-- bump en cada deploy */
+  var TCK_UPD_LOCAL = '14.185.2';        /* <-- bump en cada deploy */
   /* v14.159.0: fuente UNICA de version. La telemetria del shadow la reporta,
      asi que un desfasaje contra version.json se ve solo en el primer pedido
      (paso 4 veces sin que nadie lo notara: 14.109, 14.128, 14.137, 14.147). */
