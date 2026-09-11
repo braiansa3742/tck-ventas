@@ -2,6 +2,34 @@
 <html lang="es">
 <head>
 <!-- ═══════════════════════════════════════════════════════════════════════
+     TCK VENTAS — v14.185.0 — 11/09/2026
+     v14.185.0: RECORRIDO — "EL SIGUIENTE" ES EL MÁS CERCANO (pedido de Braian).
+       Diagnóstico: de 846 clientes de ronda con ubicación, 84 estaban a más
+       de 10 km de su ciudad (check-ins hechos por teléfono desde otra ciudad:
+       Pehuajó a 78 km, y hasta "confirmados") y 36 nombres duplicados con
+       puntos distintos. El nearest-neighbor los tomaba crudos → "el siguiente"
+       podía ser un punto en el medio del campo. Además:
+       · VENDEDOR: el botón IR navegaba por la dirección ESCRITA (57 % de los
+         clientes no la tienen → "no tiene dirección cargada"), aunque la
+         lista se ordenaba por coordenadas. Ahora IR usa las coordenadas si
+         son confiables y recién después la dirección (jornadaIrCliente).
+       · VENDEDOR: las coords vienen de vw_cliente_ubicacion_ruta (una fila
+         por nombre, clasificada contra el centroide de su ciudad); las
+         'dudosa' no entran al orden y la tarjeta las marca "⚠ ubic. dudosa".
+       · VENDEDOR: si todavía no hay posición (watchPosition tarda), Mi Ruta
+         pide una lectura rápida y reordena desde donde está el vendedor.
+       · CHOFER: la posición se refresca con cada lectura que la app ya toma
+         (en camino / no estaba / confirmar) y la lista se reordena: antes
+         se tomaba UNA vez al tocar "cercanía" y quedaba clavada. La
+         cercanía se enciende sola al cargar un viaje en ruta.
+       · CHOFER: "Maps" usa las coords de la vista solo si son confiables;
+         si no, la dirección operativa + ciudad (antes: cache cruda con
+         puntos contaminados).
+       · GUARD DE CIUDAD (front + RPC): una lectura a más de 20 km de la
+         ciudad del cliente no siembra, no promedia, no confirma ni se
+         acepta como corrección. Centroides de vw_ciudad_centroide cargados
+         una vez al entrar.
+
      TCK VENTAS — v14.184.0 — 11/09/2026
      v14.184.0: CORREGIR DIRECCIÓN DEL CLIENTE EN CAMPO (pedido de Braian 11/09).
        Vendedores y choferes pueden actualizar la ubicación GPS y la dirección
@@ -25057,6 +25085,8 @@ function login(nombre) {
     cambiarTab('mironda');
     miPlataCargar();   // v14.99.0: cargar panel Mi Plata
   }
+  // v14.185.0: centroides de ciudad para el guard de ubicaciones (vendedores y choferes)
+  if (nombre !== 'ADMIN' && !esDeposito && !esMostrador) { try { centroidesCargar(); } catch (eC) {} }
   // Iniciar tracking GPS continuo (solo vendedores, no Admin/Choferes/Depósito/Mostrador)
   if (nombre !== 'ADMIN' && !esChofer && !esDeposito && !esMostrador) trackingIniciar();
   // Cargar objetivos (solo vendedores)
@@ -34507,6 +34537,41 @@ var GPS_DIST_ALERTA       = 150;  // m — diferencia para alertar mudanza real
 // El modal SIEMPRE toma una lectura fresca (gpsGetCoords: mejor de 4 en
 // 6 s). La lectura que disparó el aviso solo sirve para decidir preguntar.
 // ════════════════════════════════════════════════════════════════
+// ── v14.185.0: centroides de ciudad + guard "lejos de la ciudad" ──────
+// vw_ciudad_centroide (~30 filas) se carga una vez al entrar. Sirve para NO
+// tomar como ubicación del cliente una lectura hecha a 78 km (check-in por
+// teléfono desde Trenque para un cliente de Pehuajó): así se contaminaron y
+// hasta se "confirmaron" 84 ubicaciones.
+var _centroides = null;              // { ciudad: {lat,lng} }
+var _centroidesPidiendo = null;
+var UBIC_LEJOS_CIUDAD_KM = 20;
+function centroidesCargar() {
+  if (_centroides || _centroidesPidiendo) return _centroidesPidiendo || Promise.resolve(_centroides);
+  _centroidesPidiendo = sbFetch('vw_ciudad_centroide?select=ciudad,centro_lat,centro_lng')
+    .then(function(rows) {
+      var m = {};
+      (rows || []).forEach(function(r) {
+        if (r.ciudad && r.centro_lat != null) m[String(r.ciudad).trim().toLowerCase()] = { lat: Number(r.centro_lat), lng: Number(r.centro_lng) };
+      });
+      _centroides = m;
+      return m;
+    })
+    .catch(function(e) { console.warn('[centroides]', e); _centroidesPidiendo = null; return null; });
+  return _centroidesPidiendo;
+}
+// Devuelve los km al centroide si la lectura está a más de UBIC_LEJOS_CIUDAD_KM
+// de la ciudad; 0 si está cerca o si no hay dato para decidir.
+function ubicLejosDeCiudad(localidad, lat, lng) {
+  try {
+    if (!localidad || lat == null || lng == null) return 0;
+    if (!_centroides) { centroidesCargar(); return 0; }
+    var c = _centroides[String(localidad).trim().toLowerCase()];
+    if (!c) return 0;
+    var km = calcDistancia(Number(lat), Number(lng), c.lat, c.lng);
+    return (isFinite(km) && km > UBIC_LEJOS_CIUDAD_KM) ? Math.round(km) : 0;
+  } catch (e) { return 0; }
+}
+
 var DIRCLI_DIST_AVISO_M = { vendedor: 100, chofer: 150 };  // m — más lejos que esto, preguntar
 var DIRCLI_ACC_MAX_M    = 80;    // m — lectura peor que esto no sirve ni para avisar ni para guardar
 var _dirCliState   = null;       // estado del modal abierto
@@ -34544,6 +34609,7 @@ function dirCliAvisarSiLejos(o) {
     if (o.coordsActuales.lat == null || o.coordsRegistradas.lat == null) return false;
     var acc = (o.coordsActuales.accuracy != null) ? Number(o.coordsActuales.accuracy) : 9999;
     if (acc > DIRCLI_ACC_MAX_M) return false;                       // lectura mala: no acusar
+    if (ubicLejosDeCiudad(o.localidad, o.coordsActuales.lat, o.coordsActuales.lng)) return false; // v14.185.0: no está en la ciudad
     var dist = (o.distanciaM != null) ? Number(o.distanciaM) : _dirCliMetros(o.coordsActuales, o.coordsRegistradas);
     if (dist == null) return false;
     var umbral = DIRCLI_DIST_AVISO_M[o.origen] || DIRCLI_DIST_AVISO_M.vendedor;
@@ -34747,6 +34813,8 @@ async function dirCliGuardar() {
   if (!s.coords || s.coords.lat == null) { toast('Falta la ubicación GPS', 'err'); return; }
   var acc = (s.coords.accuracy != null) ? Number(s.coords.accuracy) : null;
   if (acc != null && acc > DIRCLI_ACC_MAX_M) { toast('La lectura GPS es imprecisa. Reintentá.', 'err'); return; }
+  var kmLejos = ubicLejosDeCiudad(s.localidad, s.coords.lat, s.coords.lng);   // v14.185.0
+  if (kmLejos) { toast('❌ Estás a ' + kmLejos + ' km de ' + s.localidad + '. La ubicación se guarda parado en el local.', 'err'); return; }
   var inp = document.getElementById('dircli-inp-dir');
   var dir = inp ? inp.value.trim() : '';
   if (!dir && !s.direccionActual) {
@@ -34840,6 +34908,16 @@ async function gpsGuardarUbicacionCliente(nombreCliente, coords, vendedorId) {
   if (!coords.lat || !coords.lng) return;
   var acc = (coords.accuracy != null) ? coords.accuracy : 9999;
   var esBuena = acc <= GPS_ACC_MAX;     // ¿lectura lo bastante precisa?
+  // v14.185.0: una lectura buena pero a más de 20 km de la ciudad del cliente
+  // no es el local (check-in por teléfono desde otra ciudad): cuenta la visita
+  // y nada más. No siembra, no promedia, no confirma.
+  var _locChk = (_gpsCheckinActivo && _dirCliKey(_gpsCheckinActivo.nombre_cliente) === _dirCliKey(nombreCliente))
+    ? (_gpsCheckinActivo.localidad || '') : '';
+  var _kmLejos = ubicLejosDeCiudad(_locChk, coords.lat, coords.lng);
+  if (_kmLejos) {
+    esBuena = false;
+    console.warn('[GPS] lectura a ' + _kmLejos + ' km de ' + _locChk + ' para "' + nombreCliente + '": no se toma como ubicación del local');
+  }
   var ahora = new Date().toISOString();
 
   try {
@@ -34864,7 +34942,7 @@ async function gpsGuardarUbicacionCliente(nombreCliente, coords, vendedorId) {
         body.lng_suma = coords.lng;
         body.muestras_buenas = 1;
         body.precision_actual = acc;
-      } else {
+      } else if (!_kmLejos) {
         // Imprecisa: guardamos una posición tentativa solo para tener un
         // punto en el mapa, pero NO arranca el promedio (muestras=0).
         body.lat = coords.lat;
@@ -40740,6 +40818,16 @@ async function _cargarEntregasInterno(esRefresh) {
     ]);
     renderEntregas(_entregasCache);
     renderResumenChofer(_entregasCache);
+    // v14.185.0: cercanía ENCENDIDA sola la primera vez que se carga un viaje
+    // en ruta (antes había que tocar el botón y nadie lo tocaba). El botón
+    // sigue permitiendo apagarla.
+    if (REPARTO_CERCANIA_ON && !_cercaniaAutoPedida && !_ordenCercania
+        && _viajeActivo && _viajeActivo.estado === 'en_ruta' && repartoHayDatosUbic(_entregasCache)) {
+      _cercaniaAutoPedida = true;
+      repartoActualizarPosicion(true).then(function(ok) {
+        if (ok && _entregasCache && _entregasCache.length) { _ordenCercania = true; renderEntregas(_entregasCache); }
+      }).catch(function() {});
+    }
     _entregasPintadoOk = true;          // v14.152.0
     _entregasUltimoOk  = new Date();
 
@@ -40925,8 +41013,9 @@ var _ordenCercania = false;
 var _cercaniaDisponible = false;
 var _posChofer     = null;   // { lat, lng, ts }
 var _gpsPidiendo   = false;
+var _cercaniaAutoPedida = false;   // v14.185.0: ya se intentó encender sola en esta sesión
 
-async function repartoActualizarPosicion() {
+async function repartoActualizarPosicion(silencioso) {
   if (_gpsPidiendo) return false;
   _gpsPidiendo = true;
   try {
@@ -40934,7 +41023,7 @@ async function repartoActualizarPosicion() {
     if (!gps || gps.lat == null) {
       _posChofer = null;
       _ordenCercania = false;
-      if (typeof toast === 'function') toast('⚠️ No se pudo obtener tu ubicación. La lista queda en el orden normal.', 'err');
+      if (!silencioso && typeof toast === 'function') toast('⚠️ No se pudo obtener tu ubicación. La lista queda en el orden normal.', 'err');
       return false;
     }
     _posChofer = { lat: gps.lat, lng: gps.lng, ts: Date.now() };
@@ -40942,10 +41031,22 @@ async function repartoActualizarPosicion() {
   } catch (err) {
     _posChofer = null;
     _ordenCercania = false;
-    if (typeof toast === 'function') toast('⚠️ GPS no disponible. La lista queda en el orden normal.', 'err');
+    if (!silencioso && typeof toast === 'function') toast('⚠️ GPS no disponible. La lista queda en el orden normal.', 'err');
     return false;
   } finally {
     _gpsPidiendo = false;
+  }
+}
+
+// v14.185.0: cada lectura GPS que la app YA toma (en camino / no estaba /
+// confirmar entrega) refresca la posición del chofer y reordena la lista.
+// Antes la posición se tomaba UNA vez al tocar "cercanía" y quedaba clavada:
+// "el siguiente" se calculaba desde donde el chofer estaba dos horas antes.
+function repartoSetPos(lat, lng) {
+  if (lat == null || lng == null) return;
+  _posChofer = { lat: Number(lat), lng: Number(lng), ts: Date.now() };
+  if (REPARTO_CERCANIA_ON && _ordenCercania && _cercaniaDisponible && _entregasCache && _entregasCache.length) {
+    try { renderEntregas(_entregasCache); } catch (e) { console.warn('[cercanía] re-render:', e); }
   }
 }
 
@@ -41050,15 +41151,25 @@ async function cargarCoordsClientes(entregas) {
   }
 }
 
-function abrirMapsCliente(cliente, comercio, ciudad) {
-  const coords = _coordsCache[cliente];
+function abrirMapsCliente(cliente, comercio, ciudad, entregaId) {
+  // v14.185.0: 1) coords de la vista si son confiables (verificada/provisoria)
+  // 2) dirección operativa + ciudad 3) nombre + ciudad. La cache cruda
+  // (_coordsCache) solo cuando no hay clasificación (fallback a `entregas`),
+  // porque trae puntos contaminados (Pehuajó a 78 km).
+  var e = entregaId ? (_entregasCache || []).find(function(x) { return x.id === entregaId; }) : null;
+  var lat = null, lng = null;
+  if (e && (e.ubic_nivel === 'verificada' || e.ubic_nivel === 'provisoria') && e.ubic_lat != null && e.ubic_lng != null) {
+    lat = e.ubic_lat; lng = e.ubic_lng;
+  } else if (!e || e.ubic_nivel == null) {
+    const coords = _coordsCache[cliente];
+    if (coords && coords.lat && coords.lng) { lat = coords.lat; lng = coords.lng; }
+  }
   let url;
-  if (coords && coords.lat && coords.lng) {
-    // Coordenadas exactas del GPS
-    url = 'https://www.google.com/maps/dir/?api=1&destination=' + coords.lat + ',' + coords.lng + '&travelmode=driving';
+  if (lat != null) {
+    url = 'https://www.google.com/maps/dir/?api=1&destination=' + lat + ',' + lng + '&travelmode=driving';
   } else {
-    // Fallback: buscar por nombre de negocio + ciudad
-    const query = encodeURIComponent((comercio || cliente) + ', ' + (ciudad || ''));
+    var dirOp = e ? (e.direccion_operativa || '').trim() : '';
+    const query = encodeURIComponent((dirOp ? dirOp : (comercio || cliente)) + ', ' + (ciudad || '') + ', Argentina');
     url = 'https://www.google.com/maps/search/?api=1&query=' + query;
   }
   window.open(url, '_blank');
@@ -41443,6 +41554,7 @@ async function marcarEnCamino(entregaId) {
 
     // Captura GPS en paralelo (no bloquea el PATCH)
     var gps = await _capturarGpsRapido();
+    if (gps) repartoSetPos(gps.lat, gps.lng);   // v14.185.0
     var payload = {
       estado: 'en_camino',
       fecha_en_camino: e.fecha_en_camino
@@ -41480,6 +41592,7 @@ async function marcarNoEstaba(entregaId) {
 
     // GPS opcional (para saber dónde estuvo el chofer)
     var gps = await _capturarGpsRapido();
+    if (gps) repartoSetPos(gps.lat, gps.lng);   // v14.185.0
     var payload = {
       estado: 'no_encontrado',
       fecha_no_encontrado: e.fecha_no_encontrado
@@ -41616,7 +41729,7 @@ function abrirEntregaModal(entregaId) {
   const com = (e.comercio || '').replace(/'/g, "\\'");
   const ciu = (e.ciudad || '').replace(/'/g, "\\'");
 
-  btnsHtml += '<button class="entrega-modal-btn maps" onclick="abrirMapsCliente(\'' + cli + '\',\'' + com + '\',\'' + ciu + '\')">' +
+  btnsHtml += '<button class="entrega-modal-btn maps" onclick="abrirMapsCliente(\'' + cli + '\',\'' + com + '\',\'' + ciu + '\',\'' + e.id + '\')">' +
     (coords ? '📍' : '🗺️') + ' Maps</button>';
   // v14.184.0: corregir dirección/ubicación del cliente parado en el local
   btnsHtml += '<button class="entrega-modal-btn" style="background:#FFF8E1;color:#BF5F00;border:1.5px solid #FFC107;" onclick="dirCliDesdeEntrega()">' +
@@ -43365,6 +43478,9 @@ async function _ejecutarConfirmacionEntrega(cobros) {
         var lat = pos.coords.latitude;
         var lng = pos.coords.longitude;
         var prec = pos.coords.accuracy || null;
+        // v14.185.0: la posición del chofer se refresca (y la lista se reordena)
+        // después de la animación de la tarjeta, para no cortarla.
+        setTimeout(function() { repartoSetPos(lat, lng); }, 1200);
 
         // (1) PATCH entregas con la ubicación real
         sbFetch('entregas?id=eq.' + e.id, {
@@ -43398,6 +43514,8 @@ async function _ejecutarConfirmacionEntrega(cobros) {
             var ub = (rows && rows.length) ? rows[0] : null;
             var ahoraISO = new Date().toISOString();
             if (!ub || ub.lat == null || ub.lng == null) {
+              // v14.185.0: no sembrar una lectura lejos de la ciudad de la entrega
+              if (ubicLejosDeCiudad(e.ciudad, lat, lng)) return null;
               _coordsCache[e.cliente] = { lat: lat, lng: lng };
               return sbFetch(ub ? 'clientes_ubicaciones?nombre_cliente=eq.' + encodeURIComponent(ub.nombre_cliente) : 'clientes_ubicaciones', {
                 method: ub ? 'PATCH' : 'POST', prefer: 'return=minimal',
@@ -49100,8 +49218,13 @@ async function miRondaCargarClientes(force) {
         var coordsData = [];
         var _cOff = 0;
         while (true) {
-          var coordsPath = 'clientes_ubicaciones?select=nombre_cliente,lat,lng'
-                         + '&lat=not.is.null&order=nombre_cliente.asc'
+          // v14.185.0: la vista clasifica cada punto contra el centroide de
+          // su ciudad (misma regla que el chofer). 'dudosa' = >100 m de error
+          // o a más de 10 km de la ciudad → NO entra en la ruta. Una fila por
+          // nombre (la de la última visita): se terminó el "gana la última
+          // fila" de los nombres duplicados.
+          var coordsPath = 'vw_cliente_ubicacion_ruta?select=cliente_key,lat,lng,nivel'
+                         + '&order=cliente_key.asc'
                          + '&limit=1000&offset=' + _cOff;
           var cPag = await sbFetch(coordsPath);
           if (!Array.isArray(cPag) || cPag.length === 0) break;
@@ -49113,16 +49236,20 @@ async function miRondaCargarClientes(force) {
         if (Array.isArray(coordsData)) {
           var byName = {};
           coordsData.forEach(function(r) {
-            var k = (r.nombre_cliente || '').toLowerCase().trim();
-            if (k) byName[k] = { lat: Number(r.lat), lng: Number(r.lng) };
+            var k = (r.cliente_key || '').toLowerCase().trim();
+            if (k) byName[k] = { lat: Number(r.lat), lng: Number(r.lng), nivel: r.nivel || null };
           });
           _miRondaClientes.forEach(function(c) {
             var k = (c.nombre || '').toLowerCase().trim();
             var coords = byName[k];
-            if (coords && !isNaN(coords.lat) && !isNaN(coords.lng)) {
-              c._coords = coords;
+            c._coords = null;
+            c._ubicNivel = coords ? coords.nivel : null;
+            if (coords && coords.nivel !== 'dudosa' && !isNaN(coords.lat) && !isNaN(coords.lng)) {
+              c._coords = { lat: coords.lat, lng: coords.lng };
             }
           });
+          console.log('[v14.185.0] Ubicaciones dudosas fuera de la ruta:',
+            _miRondaClientes.filter(function(x){return x._ubicNivel === 'dudosa';}).length);
           console.log('[v14.22.2] Coords cargadas:',
             _miRondaClientes.filter(function(x){return x._coords;}).length,
             'de', _miRondaClientes.length);
@@ -52184,7 +52311,20 @@ async function nvGuardarGestion(id, accion) {
 }
 
 // ── Router ───────────────────────────────────────────────────────
+var _jorPosPedida = false;   // v14.185.0
 function jornadaRender() {
+  // v14.185.0: sin posición todavía (watchPosition tarda o no se movió 20 m),
+  // pedir UNA lectura rápida para que el orden por cercanía arranque desde
+  // donde está el vendedor y no desde "el más prioritario".
+  if (!_lastTrackPos && !_jorPosPedida && typeof _capturarGpsRapido === 'function') {
+    _jorPosPedida = true;
+    _capturarGpsRapido().then(function(g) {
+      if (g && g.lat != null && !_lastTrackPos) {
+        _lastTrackPos = { lat: g.lat, lng: g.lng };
+        if (_tabActual === 'jornada') jornadaRender();
+      }
+    }).catch(function() {});
+  }
   if (!Array.isArray(_miRondaClientes) || _miRondaClientes.length === 0) {
     if (typeof miRondaRender === 'function') {
       miRondaRender().then(function() {
@@ -52577,7 +52717,8 @@ function jor2RenderCliCard(c, orden, destacado) {
   var telOk = tel.length >= 8;
   var nomEnc = encodeURIComponent(c.nombre || '');
   var dirEnc = encodeURIComponent(((c.direccion || '') + ' ' + (c.localidad || '')).trim());
-  var distTxt = (c._jorDist != null) ? jornadaFormatearDistancia(c._jorDist) : '';
+  var distTxt = (c._jorDist != null) ? jornadaFormatearDistancia(c._jorDist)
+    : (c._ubicNivel === 'dudosa' ? '⚠ ubic. dudosa' : '');   // v14.185.0
   var ult = (c.dias_desde_ult_pedido != null) ? ('últ. ' + c.dias_desde_ult_pedido + 'd') : '';
   var pillAlerta = c._jorRiesgo ? ' jor2-dist-alerta' : '';
 
@@ -52607,7 +52748,7 @@ function jor2RenderCliCard(c, orden, destacado) {
     +   (distTxt ? '<div class="jor2-cli-dist' + pillAlerta + '">' + escapeHtml(distTxt) + '</div>' : '')
     + '</div>'
     + '<div class="jor2-cli-btns">'
-    +   '<button class="jor2-cb jor2-cb-ir" onclick="jornadaAbrirMapa(&quot;' + dirEnc + '&quot;)">🧭 IR</button>'
+    +   '<button class="jor2-cb jor2-cb-ir" onclick="jornadaIrCliente(&quot;' + cidEnc + '&quot;)">🧭 IR</button>'
     +   (telOk
         ? '<button class="jor2-cb jor2-cb-wa" onclick="miRondaAbrirWa(\'' + tel + '\', &quot;' + nomEnc + '&quot;)">💬 WA</button>'
         : '<button class="jor2-cb jor2-cb-wa jor2-cb-off">💬 WA</button>')
@@ -53039,7 +53180,7 @@ function jor2MapaRender() {
       +   (ordenPorId[c.cliente_id] ? ' · parada N° ' + ordenPorId[c.cliente_id] : '') + '</div>'
       + (est !== 'cubierto'
         ? '<div class="jor2-pop-b">'
-          + '<button class="jor2-cb jor2-cb-ir" onclick="jornadaAbrirMapa(&quot;' + dirEnc + '&quot;)">🧭 IR</button>'
+          + '<button class="jor2-cb jor2-cb-ir" onclick="jornadaIrCliente(&quot;' + cid + '&quot;)">🧭 IR</button>'
           + '<button class="jor2-cb jor2-cb-ci" onclick="jor2MapaCerrar();jor2CheckIn(&quot;' + cid + '&quot;)">📍 CHECK-IN</button>'
           + '</div>'
         : '<div class="jor2-pop-d" style="margin-top:4px;">' + escapeHtml(jor2CubLabel(c)) + '</div>')
@@ -53492,6 +53633,27 @@ function jornadaAbrirStop(clienteId) {
 // v14.22.1: abrir Google Maps con la dirección del cliente.
 // Usamos URL universal de Google Maps que abre la app nativa en iOS/Android
 // y la versión web en desktop. Si no hay dirección, solo localidad.
+// v14.185.0: IR con coordenadas cuando la ubicación es confiable; si no,
+// por dirección escrita. Antes IR iba SIEMPRE por la dirección escrita (que
+// el 57 % de los clientes no tiene) aunque la lista se ordenara por coords.
+function jornadaIrCliente(cidEnc) {
+  var c = null;
+  try { c = jor2ClientePorId(decodeURIComponent(cidEnc || '')); } catch (e) {}
+  if (c && c._coords && c._coords.lat != null && c._coords.lng != null) {
+    window.open('https://www.google.com/maps/dir/?api=1&travelmode=driving&destination='
+      + c._coords.lat + ',' + c._coords.lng, '_blank');
+    return;
+  }
+  var dir = c ? ((c.direccion || '') + ' ' + (c.localidad || '')).trim() : '';
+  if (!dir) {
+    toast(c && c._ubicNivel === 'dudosa'
+      ? 'Ubicación dudosa y sin dirección cargada. Cuando llegues, corregila desde el check-in (📍 Dirección → Corregir).'
+      : 'Este cliente no tiene dirección ni ubicación cargada. Cuando llegues, cargala desde el check-in.', 'err');
+    return;
+  }
+  jornadaAbrirMapa(encodeURIComponent(dir));
+}
+
 function jornadaAbrirMapa(dirEnc) {
   var dir = dirEnc ? decodeURIComponent(dirEnc).trim() : '';
   if (!dir) {
@@ -56397,7 +56559,7 @@ function depPollIniciar() {
    TCK_UPD_LOCAL aca Y el archivo version.json del repo.
    ============================================================ */
 (function(){
-  var TCK_UPD_LOCAL = '14.184.0';        /* <-- bump en cada deploy */
+  var TCK_UPD_LOCAL = '14.185.0';        /* <-- bump en cada deploy */
   /* v14.159.0: fuente UNICA de version. La telemetria del shadow la reporta,
      asi que un desfasaje contra version.json se ve solo en el primer pedido
      (paso 4 veces sin que nadie lo notara: 14.109, 14.128, 14.137, 14.147). */
