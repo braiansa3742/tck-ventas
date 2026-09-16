@@ -2,6 +2,30 @@
 <html lang="es">
 <head>
 <!-- ═══════════════════════════════════════════════════════════════════════
+     TCK VENTAS — v14.191.2 — 16/09/2026
+     v14.191.2: 🔴 LA PANTALLA DEL CHOFER ESTABA ROTA PARA TODOS. CAUSA RAÍZ.
+       Ian mandó la captura con el detalle técnico que agregó la v14.190.2:
+       "Attempted to assign to readonly property." Ese es el mensaje de
+       Safari cuando se ASIGNA A UNA CONST.
+       En cargarViajeActivo: `const viajes = await sbFetch(...)` y 16 líneas
+       abajo, código que entró con la v14.188.0, `viajes = viajes.filter(...)`
+       (el filtro que deja pasar un 'planificado' solo si es un reparto de
+       Trenque de hoy). Asignar a una const lanza TypeError; cae en el catch
+       de cargarViajeActivo, deja _viajeActivoError con _viajeActivo en null,
+       y _cargarEntregasInterno relanza → cartel "No pude cargar tus
+       entregas". Por eso los logs mostraban el 200 de viajes y NINGÚN
+       request a entregas después: el error pasa entre los dos.
+       NO era el iPhone de Ian: le pasa a cualquier chofer con la versión
+       nueva, en cualquier navegador. Estaba roto en producción desde las
+       06:53 de hoy, cuando el push de la 14.190.0 llevó por primera vez las
+       14.186-14.189 (Ian venía trabajando bien con la 14.185.2 cacheada:
+       marcó 6 entregas entre 07:46 y 09:15, y reportó a las 09:55).
+       FIX: `let viajes`. Una palabra. Las otras dos `const viajes = await
+       sbFetch(...)` del archivo (cargarProximosViajes y el historial de Mis
+       Viajes) NO se reasignan y quedan como están.
+       Sin el cartel de la v14.190.2 esto no se encontraba: la app decía
+       "fijate la señal" y Safari de iPhone solo se inspecciona con una Mac.
+     ─────────────────────────────────────────────────────────────────────
      TCK VENTAS — v14.191.1 — 16/09/2026
      v14.191.1: RE-PORT de la v14.190.2, que la 14.191.0 pisó sin querer.
        Braian editó desde la web de GitHub partiendo de la 14.190.1, así que
@@ -39737,7 +39761,12 @@ async function cargarViajeActivo() {
     // Traer TODOS los viajes en_ruta del chofer (no limit:1)
     // v14.172.0 — el chofer ve tambien los viajes que Deposito esta
     // preparando o ya cerro. carga_cerrada es lo que habilita ARRANCAR.
-    const viajes = await sbFetch(
+    // v14.191.2 — ¡let, NO const! La v14.188.0 agregó abajo un
+    // `viajes = viajes.filter(...)` sobre esta misma variable. Asignar a una
+    // const revienta: Safari dice "Attempted to assign to readonly property"
+    // y Chrome "Assignment to constant variable". Rompía la pantalla de
+    // TODOS los choferes (caso Ian, 16/09).
+    let viajes = await sbFetch(
       'viajes?select=*' +
       '&chofer=eq.' + encodeURIComponent(vendedorActual) +
       '&estado=in.(planificado,preparando,carga_cerrada,en_ruta)' +   // v14.188.0: planificado solo sobrevive si es TL de hoy (filtro abajo)
@@ -57867,7 +57896,7 @@ function depPollIniciar() {
    TCK_UPD_LOCAL aca Y el archivo version.json del repo.
    ============================================================ */
 (function(){
-  var TCK_UPD_LOCAL = '14.191.1';        /* <-- bump en cada deploy */
+  var TCK_UPD_LOCAL = '14.191.2';        /* <-- bump en cada deploy */
   /* v14.159.0: fuente UNICA de version. La telemetria del shadow la reporta,
      asi que un desfasaje contra version.json se ve solo en el primer pedido
      (paso 4 veces sin que nadie lo notara: 14.109, 14.128, 14.137, 14.147). */
