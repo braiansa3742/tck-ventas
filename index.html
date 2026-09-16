@@ -2,6 +2,22 @@
 <html lang="es">
 <head>
 <!-- ═══════════════════════════════════════════════════════════════════════
+     TCK VENTAS — v14.191.1 — 16/09/2026
+     v14.191.1: RE-PORT de la v14.190.2, que la 14.191.0 pisó sin querer.
+       Braian editó desde la web de GitHub partiendo de la 14.190.1, así que
+       su commit (bueno: esNombreChofer como fuente única de choferes) se
+       llevó puesto el cartel de diagnóstico del chofer. La 14.190.0 (Leaflet
+       bajo demanda) y la 14.190.1 (IndexedDB con timeout) sí sobrevivieron.
+       Se vuelve a poner SOLO el bloque del catch de _cargarEntregasInterno:
+       distingue sesión vencida (401/403) / red / error de la app, muestra el
+       detalle técnico en pantalla para sacarle captura, y registra
+       'chofer_entregas_fallo' en tomador_eventos vía _chEvento.
+       Los cambios de la 14.191.0 quedan intactos.
+       ⚠️ Para revisar con Braian: la 14.191.0 sacó los botones de login de
+       Luis y Alfredo (siguen en esNombreChofer, pero ya no se pueden elegir
+       en la pantalla de PIN). El viaje de HOY de zona3, con 41 entregas
+       pendientes, está a nombre de Alfredo.
+     ─────────────────────────────────────────────────────────────────────
      TCK VENTAS — v14.191.0 — 16/09/2026
      v14.191.0: CHOFERES NUEVOS (pedido Braian 16/09).
        Activos: Joan, Ian (interno 'Juan Pablo'), Nahuel, Cesar, Comodin,
@@ -41454,13 +41470,33 @@ async function _cargarEntregasInterno(esRefresh) {
         : '?';
       _entregasChipViejo(_h);
     } else if (el) {
+      // v14.191.1 (re-port de v14.190.2, que se pisó con la 14.191.0) —
+      // DECIR QUÉ PASÓ. Antes este cartel culpaba SIEMPRE a la señal, aunque
+      // el error fuera de JavaScript o de sesión vencida (caso Ian 16/09: el
+      // server respondía 200 con sus 4 viajes y el cartel decía "fijate la
+      // señal"). Sin el motivo no se puede diagnosticar: Safari de iPhone
+      // solo se inspecciona con una Mac.
+      var _motivo = (e && e.message) ? String(e.message) : String(e || 'error desconocido');
+      var _st = (typeof _chErrStatus === 'function') ? _chErrStatus(e) : null;
+      var _esSesion = (_st === 401 || _st === 403);
+      var _esRed = /Timeout|Failed to fetch|NetworkError|Load failed|network/i.test(_motivo);
+      var _ayuda = _esSesion
+        ? 'Tu sesión venció. Tocá ⏻ arriba a la derecha, salí y volvé a entrar con tu PIN.'
+        : (_esRed ? 'Fijate la señal y tocá el botón.'
+                  : 'No es la señal: es un error de la app. Mandale esta pantalla a Julián.');
+      try { if (typeof _chEvento === 'function') _chEvento('chofer_entregas_fallo', null, e); } catch (_eTel) {}
       el.innerHTML =
         '<div style="text-align:center;padding:40px 20px;color:var(--text3);font-size:14px;">' +
         'No pude cargar tus entregas.<br>' +
-        '<span style="font-size:12px;">Fijate la señal y tocá el botón.</span>' +
+        '<span style="font-size:12px;">' + _escapeHtmlBasic(_ayuda) + '</span>' +
         '<div onclick="cargarEntregas()" style="margin:16px auto 0;max-width:220px;background:#8B0000;' +
         'color:#fff;border-radius:10px;padding:10px;font-family:\'Barlow Condensed\',sans-serif;' +
         'font-size:15px;font-weight:900;cursor:pointer;touch-action:manipulation;">🔄 Reintentar</div>' +
+        '<div style="margin:14px auto 0;max-width:320px;padding:8px 10px;border-radius:8px;' +
+        'background:#F5EDE0;border:1px solid #E8D5BB;font-size:11px;color:#7A5C3E;' +
+        'word-break:break-word;text-align:left;line-height:1.35;">' +
+        '<b>Detalle técnico</b> (para Julián):<br>' + _escapeHtmlBasic(_motivo.slice(0, 240)) +
+        '</div>' +
         '</div>';
     }
   }
@@ -57831,7 +57867,7 @@ function depPollIniciar() {
    TCK_UPD_LOCAL aca Y el archivo version.json del repo.
    ============================================================ */
 (function(){
-  var TCK_UPD_LOCAL = '14.191.0';        /* <-- bump en cada deploy */
+  var TCK_UPD_LOCAL = '14.191.1';        /* <-- bump en cada deploy */
   /* v14.159.0: fuente UNICA de version. La telemetria del shadow la reporta,
      asi que un desfasaje contra version.json se ve solo en el primer pedido
      (paso 4 veces sin que nadie lo notara: 14.109, 14.128, 14.137, 14.147). */
