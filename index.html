@@ -2,6 +2,25 @@
 <html lang="es">
 <head>
 <!-- ═══════════════════════════════════════════════════════════════════════
+     TCK VENTAS — v14.190.1 — 16/09/2026
+     v14.190.1: FIX · "CARGANDO ENTREGAS..." PARA SIEMPRE (IndexedDB colgada).
+       Reporte de Ian (16/09, mañana): no le aparecen los pedidos, la pantalla
+       queda en "Cargando entregas...".
+       CAUSA: `_colaAbrir()` (cola offline, v14.188.0) hacía indexedDB.open()
+       SIN onblocked y SIN timeout. Si el navegador no contesta —iOS Safari
+       trabado, la app abierta dos veces, la base tomada por otra pestaña— la
+       promesa no resuelve NUNCA. `_colaTodos()` queda esperando, y con él
+       `_chAplicarColaEntregas()`, que `_cargarEntregasInterno` espera ANTES de
+       dibujar: la pantalla se queda con el "Cargando entregas..." del HTML.
+       Encima `_colaDbPromise` cachea esa promesa muerta: no se recupera ni
+       recargando la vista. Era el ÚNICO await de la cadena sin timeout; el
+       resto ya usa VIAJE_TIMEOUT_MS (12 s) desde la v14.152.0.
+       FIX: onblocked + timeout de 4 s, y la promesa fallada no queda cacheada
+       (el próximo intento vuelve a abrir). Si IndexedDB no responde, la cola
+       devuelve [] y el chofer ve sus entregas igual; lo único que se pierde es
+       el pintado de lo encolado sin sincronizar.
+       NO TOCA: el encolado, el flush, ni ningún flujo de entrega o cobro.
+     ─────────────────────────────────────────────────────────────────────
      TCK VENTAS — v14.190.0 — 15/09/2026
      v14.190.0: ARRANQUE MÁS LIVIANO EN EL CELULAR — LEAFLET BAJO DEMANDA.
        Reporte de Miguel (15/09): la app anda muy lenta en iPhone.
@@ -43776,9 +43795,27 @@ async function _restOPendiente(metodo, path, body) {
   }
 }
 
+// v14.190.1 — IndexedDB NO PUEDE COLGAR LA PANTALLA DEL CHOFER.
+// Antes: indexedDB.open() sin onblocked y sin timeout. Si el navegador no
+// contesta (iOS Safari trabado, la app abierta dos veces, base bloqueada por
+// otra pestaña), la promesa no resuelve NUNCA. _colaTodos() se queda esperando,
+// _chAplicarColaEntregas() también, y como se espera ANTES de dibujar, el
+// chofer queda mirando "Cargando entregas..." para siempre. Era el único await
+// de toda la cadena sin timeout (los demás tienen VIAJE_TIMEOUT_MS).
+// Ahora: onblocked + timeout de 4 s, y la promesa fallada NO queda cacheada,
+// así el próximo intento vuelve a probar.
+var _COLA_OPEN_TIMEOUT_MS = 4000;
 function _colaAbrir() {
   if (_colaDbPromise) return _colaDbPromise;
   _colaDbPromise = new Promise(function(resolve, reject) {
+    var listo = false;
+    var timer = setTimeout(function() {
+      if (listo) return;
+      listo = true;
+      reject(new Error('IndexedDB no respondió en ' + _COLA_OPEN_TIMEOUT_MS + ' ms'));
+    }, _COLA_OPEN_TIMEOUT_MS);
+    function _ok(db)   { if (listo) return; listo = true; clearTimeout(timer); resolve(db); }
+    function _fallo(e) { if (listo) return; listo = true; clearTimeout(timer); reject(e || new Error('IndexedDB')); }
     try {
       var req = indexedDB.open(_COLA_DB, 1);
       req.onupgradeneeded = function(ev) {
@@ -43787,10 +43824,13 @@ function _colaAbrir() {
           db.createObjectStore(_COLA_STORE, { keyPath: 'id' });
         }
       };
-      req.onsuccess = function(ev) { resolve(ev.target.result); };
-      req.onerror = function() { reject(req.error); };
-    } catch(e) { reject(e); }
+      req.onsuccess = function(ev) { _ok(ev.target.result); };
+      req.onerror   = function() { _fallo(req.error); };
+      req.onblocked = function() { _fallo(new Error('IndexedDB bloqueada por otra pestaña')); };
+    } catch(e) { _fallo(e); }
   });
+  // Una apertura fallida no se cachea: el siguiente intento arranca de cero.
+  _colaDbPromise.catch(function() { _colaDbPromise = null; });
   return _colaDbPromise;
 }
 
@@ -57761,7 +57801,7 @@ function depPollIniciar() {
    TCK_UPD_LOCAL aca Y el archivo version.json del repo.
    ============================================================ */
 (function(){
-  var TCK_UPD_LOCAL = '14.190.0';        /* <-- bump en cada deploy */
+  var TCK_UPD_LOCAL = '14.190.1';        /* <-- bump en cada deploy */
   /* v14.159.0: fuente UNICA de version. La telemetria del shadow la reporta,
      asi que un desfasaje contra version.json se ve solo en el primer pedido
      (paso 4 veces sin que nadie lo notara: 14.109, 14.128, 14.137, 14.147). */
