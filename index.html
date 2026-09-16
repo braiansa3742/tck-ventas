@@ -2,6 +2,24 @@
 <html lang="es">
 <head>
 <!-- ═══════════════════════════════════════════════════════════════════════
+     TCK VENTAS — v14.193.0 — 16/09/2026
+     v14.193.0: FECHA Y TURNO DE ENTREGA TL, OBLIGATORIOS AL CARGAR.
+       Solo Trenque Lauquen; el interior sigue automático.
+       · WhatsApp manual y check-in: antes de guardar un pedido TL se abre
+         "¿Cuándo se entrega?" con el resumen del pedido y el día/turno
+         elegido bien visible. Viene precargado con una sugerencia (antes
+         de 12:30 hoy mañana si ese viaje no salió, antes de 17:30 hoy
+         tarde, después el próximo día con reparto a la mañana) y se puede
+         cambiar. Domingo y sábado tarde deshabilitados; hasta 14 días.
+       · Se envían fecha_entrega_iso + turno_entrega_key (Apps Script
+         v25.139.0 los respeta). El presupuesto Xubio usa esa fecha.
+       · Se saca el botón "📅 Cambiar fecha" de las tarjetas (los cambios
+         posteriores los hace Administración). En pedidos TL sin fecha,
+         "Definir entrega" ya no aparece.
+       · Si el servidor no pudo usar la fecha, aviso al vendedor.
+       Requiere Apps Script v25.139.0 y Supabase Fase 0 v3 (ya aplicados).
+       DEPLOY: subir como index.html y version.json a 14.193.0.
+     ─────────────────────────────────────────────────────────────────────
      TCK VENTAS — v14.192.0 — 16/09/2026
      v14.192.0: ALTA de los tres Premium en caja de 5 Kg (pedido de Chan).
        Fresnova pasó Medallón de Pollo, Formitas y Medallón JyQ Premium de
@@ -21798,6 +21816,317 @@ function _proximoDiaSemana(diasValidos) {
  * @param {string} localidad - Texto libre o canónico
  * @returns {object|null} { dia, turno, fechaISO, ciudadCanonica, mensaje } o null
  */
+// ═══════════════════════════════════════════════════════════════════
+// v14.193.0 — FECHA Y TURNO DE ENTREGA TL (obligatorio al cargar)
+//
+// Solo Trenque Lauquen. El interior sigue con su calendario automático.
+// Antes de guardar un pedido TL, el vendedor ve el resumen y CONFIRMA el
+// día y el turno. Viene precargado con una sugerencia, pero la elección
+// es visible y editable. Calendario: lunes a viernes mañana/tarde,
+// sábado solo mañana, domingo nunca, hasta 14 días adelante.
+// Días y viajes: public.fn_tl_opciones_entrega(); si no responde, se usa
+// el mismo calendario calculado en el celular.
+// Al servidor viajan fecha_entrega_iso + turno_entrega_key: Apps Script
+// v25.139.0 los respeta y no los vuelve a inferir.
+// ═══════════════════════════════════════════════════════════════════
+var TL_ENT_HORIZONTE = 14;
+var _tlEnt = null;
+
+function _tlEntEsZona(z) {
+  z = String(z || '').toLowerCase();
+  return z === 'tl' || z.indexOf('tl_') === 0;
+}
+
+function _tlEntEsPedido(p) {
+  if (!p) return false;
+  if (p.zona) return _tlEntEsZona(p.zona);
+  try {
+    var c = p.localidad ? localidadCanonicaDe(p.localidad) : null;
+    if (!c) return false;
+    return _tlEntEsZona((ZONA_DB_A_TECNICA && ZONA_DB_A_TECNICA[c.zona]) || c.zona);
+  } catch (e) { return false; }
+}
+
+function _tlEntIso(d) {
+  return d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0');
+}
+function _tlEntFecha(iso) {
+  var p = String(iso).split('-');
+  return new Date(+p[0], +p[1] - 1, +p[2], 12, 0, 0, 0);
+}
+function _tlEntSumar(iso, n) {
+  var d = _tlEntFecha(iso);
+  d.setDate(d.getDate() + n);
+  return _tlEntIso(d);
+}
+function _tlEntDow(iso) { return _tlEntFecha(iso).getDay(); }
+function _tlEntTxt(iso) {
+  var d = _tlEntFecha(iso);
+  return _diaSemanaNombre(d.getDay()) + ' ' + d.getDate() + ' de ' + _mesNombre(d.getMonth());
+}
+function _tlEntTurnoTxt(t) { return (t === 'mañana' || t === 'manana') ? 'Mañana' : 'Tarde'; }
+function _tlEntTurnoKey(t) { return (t === 'mañana' || t === 'manana') ? 'manana' : 'tarde'; }
+
+function _tlEntValidar(iso, turno) {
+  var hoy = _tlEntIso(new Date());
+  if (!iso) return 'DATOS_INCOMPLETOS';
+  if (iso < hoy) return 'FECHA_PASADA';
+  if (iso > _tlEntSumar(hoy, TL_ENT_HORIZONTE)) return 'FECHA_FUERA_DE_HORIZONTE';
+  var dw = _tlEntDow(iso);
+  if (dw === 0) return 'DOMINGO_SIN_REPARTO';
+  if (dw === 6 && _tlEntTurnoKey(turno) === 'tarde') return 'SABADO_SOLO_MANANA';
+  return null;
+}
+
+function _tlEntOpcionesLocal() {
+  var hoy = _tlEntIso(new Date());
+  var out = [];
+  for (var i = 0; i <= TL_ENT_HORIZONTE; i++) {
+    var f = _tlEntSumar(hoy, i);
+    ['mañana', 'tarde'].forEach(function (t) {
+      var err = _tlEntValidar(f, t);
+      out.push({ fecha: f, dia_txt: _tlEntTxt(f), turno: t, habilitado: !err, motivo: err,
+                 viaje_id: null, advertencia: null, viaje_pedidos: null });
+    });
+  }
+  return out;
+}
+
+async function _tlEntOpciones() {
+  try {
+    var r = await sbFetch('rpc/fn_tl_opciones_entrega', { method: 'POST', body: '{}', timeoutMs: 6000 });
+    if (Array.isArray(r) && r.length) {
+      // El servidor manda; si el celular tiene otra fecha, se nota acá
+      if (r[0].fecha !== _tlEntIso(new Date())) {
+        console.warn('[TL entrega] fecha del celular distinta a la del servidor', r[0].fecha);
+      }
+      return r;
+    }
+  } catch (e) {
+    console.warn('[TL entrega] opciones del servidor no disponibles, uso calendario local:', e);
+  }
+  return _tlEntOpcionesLocal();
+}
+
+// Sugerencia precargada: antes de las 12:30 hoy a la mañana (si ese viaje
+// todavía no salió), antes de las 17:30 hoy a la tarde, después el
+// próximo día con reparto a la mañana.
+function _tlEntSugerencia(opciones) {
+  var ahora = new Date();
+  var h = ahora.getHours() + ahora.getMinutes() / 60;
+  var hoy = opciones.length ? opciones[0].fecha : _tlEntIso(ahora);
+  function op(f, t) {
+    for (var i = 0; i < opciones.length; i++) {
+      if (opciones[i].fecha === f && opciones[i].turno === t) return opciones[i];
+    }
+    return null;
+  }
+  var cands = [];
+  if (h < 12.5) cands.push(op(hoy, 'mañana'));
+  if (h < 17.5) cands.push(op(hoy, 'tarde'));
+  for (var i = 1; i <= TL_ENT_HORIZONTE; i++) cands.push(op(_tlEntSumar(hoy, i), 'mañana'));
+  for (var k = 0; k < cands.length; k++) {
+    var c = cands[k];
+    if (!c || !c.habilitado) continue;
+    if (c.fecha === hoy && c.advertencia === 'SE_CREA_VIAJE_ADICIONAL') continue; // ese viaje ya salió
+    return { fecha: c.fecha, turno: c.turno };
+  }
+  return null;
+}
+
+function _tlEntRelativo(iso, hoy) {
+  if (iso === hoy) return 'Hoy · ';
+  if (iso === _tlEntSumar(hoy, 1)) return 'Mañana · ';
+  return '';
+}
+
+function _tlEntEsc(s) {
+  return String(s == null ? '' : s).replace(/[&<>"']/g, function (c) {
+    return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c];
+  });
+}
+
+/**
+ * Pide (obligatorio) día y turno para un pedido TL antes de guardarlo.
+ * Si el pedido no es TL, sigue de largo sin mostrar nada.
+ * @param entrega   resultado de inferirEntregaDesdeLocalidad (o vacío)
+ * @param resumen   { cliente, localidad, total, items }
+ * @param onListo   function(entregaFinal)
+ * @param onCancelar function()
+ */
+function tlEntregaElegir(entrega, resumen, onListo, onCancelar) {
+  if (!entrega || !_tlEntEsZona(entrega.zona)) { onListo(entrega); return; }
+  _tlEnt = { entrega: entrega, resumen: resumen || {}, onListo: onListo, onCancelar: onCancelar,
+             opciones: null, sel: null, listo: false };
+  var ov = document.getElementById('tl-ent-overlay');
+  if (ov) ov.remove();
+  ov = document.createElement('div');
+  ov.id = 'tl-ent-overlay';
+  ov.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,.6);z-index:10050;display:flex;align-items:flex-end;justify-content:center;';
+  ov.innerHTML = '<div id="tl-ent-sheet" style="background:#fff;border-radius:20px 20px 0 0;width:100%;max-width:520px;max-height:92vh;overflow-y:auto;padding:16px 14px calc(16px + env(safe-area-inset-bottom));font-family:inherit;">' +
+    '<div style="font-size:18px;font-weight:900;color:#8B0000;margin-bottom:6px;">📅 ¿Cuándo se entrega?</div>' +
+    '<div style="font-size:13px;color:#607D8B;">Cargando días de reparto…</div></div>';
+  document.body.appendChild(ov);
+  _tlEntOpciones().then(function (ops) {
+    if (!_tlEnt) return;
+    _tlEnt.opciones = ops;
+    _tlEnt.sel = _tlEntSugerencia(ops);
+    _tlEntPintar();
+  });
+}
+
+function _tlEntOpcion(f, t) {
+  var ops = (_tlEnt && _tlEnt.opciones) || [];
+  for (var i = 0; i < ops.length; i++) if (ops[i].fecha === f && ops[i].turno === t) return ops[i];
+  return null;
+}
+
+function _tlEntPintar() {
+  var sh = document.getElementById('tl-ent-sheet');
+  if (!sh || !_tlEnt) return;
+  var r = _tlEnt.resumen;
+  var ops = _tlEnt.opciones || [];
+  var hoy = ops.length ? ops[0].fecha : _tlEntIso(new Date());
+  var H = [];
+  H.push('<div style="font-size:18px;font-weight:900;color:#8B0000;margin-bottom:8px;">📅 ¿Cuándo se entrega?</div>');
+
+  // Resumen del pedido
+  H.push('<div style="background:#FFF8E1;border-radius:12px;padding:10px 12px;margin-bottom:10px;">' +
+         '<div style="font-size:15px;font-weight:800;color:#3E2723;">' + _tlEntEsc(r.cliente || 'Cliente') + '</div>' +
+         '<div style="font-size:12px;color:#6D4C41;margin-top:2px;">📍 ' + _tlEntEsc(r.localidad || 'Trenque Lauquen') +
+         (r.items ? ' · ' + r.items + ' producto' + (r.items === 1 ? '' : 's') : '') +
+         (r.total ? ' · $' + Number(r.total).toLocaleString('es-AR') : '') + '</div></div>');
+
+  // Elección actual, bien visible
+  var sel = _tlEnt.sel;
+  var selOp = sel ? _tlEntOpcion(sel.fecha, sel.turno) : null;
+  H.push('<div id="tl-ent-elegido" style="border:2px solid ' + (sel ? '#2E7D32' : '#C62828') + ';background:' + (sel ? '#E8F5E9' : '#FFEBEE') +
+         ';border-radius:12px;padding:10px 12px;margin-bottom:6px;">' +
+         '<div style="font-size:11px;font-weight:800;letter-spacing:.4px;color:#546E7A;text-transform:uppercase;">Entrega</div>' +
+         '<div style="font-size:17px;font-weight:900;color:' + (sel ? '#1B5E20' : '#B71C1C') + ';">' +
+         (sel ? _tlEntEsc(_tlEntRelativo(sel.fecha, hoy) + _tlEntTxt(sel.fecha) + ' · ' + _tlEntTurnoTxt(sel.turno)) : 'Elegí día y turno') +
+         '</div></div>');
+  if (selOp && selOp.advertencia === 'SE_CREA_VIAJE_ADICIONAL') {
+    H.push('<div style="font-size:12px;color:#E65100;background:#FFF3E0;border-radius:8px;padding:6px 9px;margin-bottom:6px;">⚠ El viaje de ese turno ya salió o cerró la carga: va a ir en un viaje aparte. Avisale a Administración.</div>');
+  } else if (selOp && selOp.advertencia === 'PLANILLA_YA_IMPRESA') {
+    H.push('<div style="font-size:12px;color:#E65100;background:#FFF3E0;border-radius:8px;padding:6px 9px;margin-bottom:6px;">⚠ La planilla de ese viaje ya está impresa: Administración tiene que regenerarla.</div>');
+  }
+
+  // Días
+  H.push('<div style="font-size:11px;font-weight:800;letter-spacing:.4px;color:#546E7A;text-transform:uppercase;margin:10px 0 6px;">Cambiar día o turno</div>');
+  var porDia = {}, orden = [];
+  ops.forEach(function (o) {
+    if (!porDia[o.fecha]) { porDia[o.fecha] = {}; orden.push(o.fecha); }
+    porDia[o.fecha][o.turno] = o;
+  });
+  orden.forEach(function (f) {
+    var m = porDia[f]['mañana'], t = porDia[f]['tarde'];
+    var dia = _tlEntRelativo(f, hoy) + ((m || t).dia_txt || _tlEntTxt(f));
+    if (m && !m.habilitado && m.motivo === 'DOMINGO_SIN_REPARTO') {
+      H.push('<div style="display:flex;justify-content:space-between;font-size:12px;color:#B0BEC5;padding:3px 2px;"><span>' + _tlEntEsc(dia) + '</span><em>sin reparto</em></div>');
+      return;
+    }
+    H.push('<div style="display:flex;align-items:center;gap:8px;margin-bottom:5px;">' +
+           '<div style="flex:1;font-size:13px;font-weight:800;color:#37474F;min-width:0;">' + _tlEntEsc(dia) + '</div>' +
+           _tlEntBoton(m) + _tlEntBoton(t) + '</div>');
+  });
+
+  H.push('<div style="display:flex;gap:8px;margin-top:14px;">' +
+         '<button type="button" onclick="tlEntCancelar()" style="flex:1;border:none;border-radius:12px;padding:13px;font-size:15px;font-weight:800;background:#ECEFF1;color:#455A64;">Volver</button>' +
+         '<button type="button" id="tl-ent-ok" onclick="tlEntConfirmar()" ' + (sel ? '' : 'disabled ') +
+         'style="flex:1.4;border:none;border-radius:12px;padding:13px;font-size:15px;font-weight:900;background:' + (sel ? '#2E7D32' : '#A5D6A7') + ';color:#fff;">Confirmar pedido</button>' +
+         '</div>');
+  sh.innerHTML = H.join('');
+}
+
+function _tlEntBoton(o) {
+  if (!o) return '';
+  var sel = _tlEnt.sel && _tlEnt.sel.fecha === o.fecha && _tlEnt.sel.turno === o.turno;
+  var sub = '';
+  if (!o.habilitado) sub = o.motivo === 'SABADO_SOLO_MANANA' ? 'sin tarde' : 'no disponible';
+  else if (o.advertencia === 'SE_CREA_VIAJE_ADICIONAL') sub = 'ya salió';
+  else if (o.advertencia === 'PLANILLA_YA_IMPRESA') sub = 'planilla impresa';
+  var estilo = 'width:96px;border-radius:10px;padding:6px 4px;font-family:inherit;text-align:center;' +
+    (!o.habilitado ? 'border:2px solid #ECEFF1;background:#FAFAFA;opacity:.5;'
+      : sel ? 'border:2px solid #2E7D32;background:#E8F5E9;'
+      : 'border:2px solid #CFD8DC;background:#fff;');
+  return '<button type="button" ' + (o.habilitado ? '' : 'disabled ') +
+    'data-f="' + o.fecha + '" data-t="' + o.turno + '" onclick="tlEntElegirBtn(this)" style="' + estilo + '">' +
+    '<div style="font-size:14px;font-weight:900;color:' + (sel ? '#1B5E20' : '#37474F') + ';">' + (sel ? '✓ ' : '') + _tlEntTurnoTxt(o.turno) + '</div>' +
+    (sub ? '<div style="font-size:10px;color:#90A4AE;">' + sub + '</div>' : '') + '</button>';
+}
+
+function tlEntElegirBtn(btn) {
+  if (!_tlEnt || _tlEnt.listo) return;
+  var f = btn.getAttribute('data-f'), t = btn.getAttribute('data-t');
+  var op = _tlEntOpcion(f, t);
+  if (!op || !op.habilitado) return;
+  _tlEnt.sel = { fecha: f, turno: t };
+  _tlEntPintar();
+}
+
+function tlEntCancelar() {
+  var cb = _tlEnt && _tlEnt.onCancelar;
+  var ov = document.getElementById('tl-ent-overlay');
+  if (ov) ov.remove();
+  _tlEnt = null;
+  if (typeof cb === 'function') cb();
+}
+
+function tlEntConfirmar() {
+  if (!_tlEnt || _tlEnt.listo || !_tlEnt.sel) return;
+  var s = _tlEnt.sel;
+  var err = _tlEntValidar(s.fecha, s.turno);
+  if (err) {
+    toast('Ese día/turno no está disponible (' + err + '). Elegí otro.', 'err');
+    return;
+  }
+  _tlEnt.listo = true;
+  var e = _tlEnt.entrega;
+  var nueva = {
+    dia:       _tlEntTxt(s.fecha),
+    turno:     _tlEntTurnoTxt(s.turno),
+    turnoKey:  _tlEntTurnoKey(s.turno),
+    fechaISO:  s.fecha,
+    zona:      s.turno === 'mañana' ? 'tl_manana' : 'tl_tarde',
+    ciudadCanonica: e.ciudadCanonica,
+    explicita: true,
+    mensaje:   '🚚 Entrega en Trenque Lauquen el ' + _tlEntTxt(s.fecha) + ' (' + _tlEntTurnoTxt(s.turno) + ')'
+  };
+  var cb = _tlEnt.onListo;
+  var ov = document.getElementById('tl-ent-overlay');
+  if (ov) ov.remove();
+  _tlEnt = null;
+  cb(nueva);
+}
+
+function _tlEntAgregarParams(params, entrega) {
+  if (entrega && entrega.explicita && entrega.fechaISO && entrega.turnoKey) {
+    params.set('fecha_entrega_iso', entrega.fechaISO);
+    params.set('turno_entrega_key', entrega.turnoKey);
+  }
+}
+
+function _tlEntAvisoRespuesta(data) {
+  var e = data && data.entrega;
+  if (e && e.origen === 'invalida') {
+    toast('⚠️ La fecha de entrega elegida no se pudo usar (' + (e.error || '') +
+          '). El pedido quedó guardado y Administración va a definir la fecha.', 'err');
+  }
+}
+
+function _tlEntResumenWA(cliente, localidad) {
+  var d = null;
+  try { d = mwaCalcularDesglose(); } catch (e) {}
+  return { cliente: cliente, localidad: localidad, total: d ? d.total : 0, items: d ? d.itemsCount : 0 };
+}
+
+function _tlEntResumenTomador(localidad) {
+  var n = 0;
+  try { n = Object.keys(_tomadorQtys || {}).filter(function (k) { return _tomadorQtys[k] > 0; }).length; } catch (e) {}
+  return { cliente: _gpsCheckinActivo ? _gpsCheckinActivo.nombre_cliente : '', localidad: localidad, total: 0, items: n };
+}
+
 function inferirEntregaDesdeLocalidad(localidad) {
   if (!localidad) return null;
 
@@ -26704,6 +27033,14 @@ function _v23EntregaBoxHtml(p) {
       + '</div></div>';
   }
   var esFechaReal = p.fechaEntrega && /^(Lunes|Martes|Mi|Jueves|Viernes|S|Domingo)/i.test(p.fechaEntrega);
+  if (!esFechaReal && _tlEntEsPedido(p)) {   // v14.193.0 — TL: la fecha la define Administración
+    return '<div class="cv23-entrega-box sin-fecha">'
+      + '<div class="cv23-entrega-icon">📅</div>'
+      + '<div>'
+      +   '<div class="cv23-entrega-fecha">Sin fecha asignada</div>'
+      +   '<div class="cv23-entrega-zona">La define Administración · ' + (p.localidad || '—') + '</div>'
+      + '</div></div>';
+  }
   if (!esFechaReal) {
     return '<div class="cv23-entrega-box sin-fecha" data-pid="' + p.pedidoId + '" data-fila="0" onclick="definirEntregaBtn(this,event)">'
       + '<div class="cv23-entrega-icon">📅</div>'
@@ -26844,7 +27181,14 @@ function renderCard(p) {
     var entregaStyle = esFechaReal
       ? 'background:#E3F2FD;color:#1565C0;border-color:#1565C0;'
       : 'background:#FFF3E0;color:#E65100;border-color:#E65100;';
-    btns += '<button class="btn-estado" style="' + entregaStyle + '" data-pid="' + p.pedidoId + '" data-fila="0" onclick="definirEntregaBtn(this,event)">' + entregaLabel + '</button>';
+    // v14.193.0 — con fecha: solo informativo; TL sin fecha: la define Administración
+    if (esFechaReal) {
+      btns += '<span class="btn-estado" style="' + entregaStyle + 'cursor:default;">' + entregaLabel + '</span>';
+    } else if (_tlEntEsPedido(p)) {
+      btns += '<span class="btn-estado" style="' + entregaStyle + 'cursor:default;">\uD83D\uDCC5 Fecha: Administración</span>';
+    } else {
+      btns += '<button class="btn-estado" style="' + entregaStyle + '" data-pid="' + p.pedidoId + '" data-fila="0" onclick="definirEntregaBtn(this,event)">' + entregaLabel + '</button>';
+    }
   }
   // Botón asignar chofer — solo ADMIN y pedidos confirmados
   var asignarHtml = '';
@@ -26986,11 +27330,9 @@ function renderCard(p) {
   // Acción principal: "Definir entrega" si falta fecha (vendedor + no chofer + no presupuesto)
   if (!esChofer && !tienePresupuesto && (p.estado === 'Pendiente' || p.estado === 'Confirmado')) {
     var esFechaReal2 = p.fechaEntrega && /^(Lunes|Martes|Mi|Jueves|Viernes|S|Domingo)/i.test(p.fechaEntrega);
-    if (!esFechaReal2) {
+    // v14.193.0 — sin "Cambiar fecha" (la cambia Administración); en TL tampoco "Definir entrega"
+    if (!esFechaReal2 && !_tlEntEsPedido(p)) {
       accBtns += '<button class="cv23-btn entrega principal" data-pid="' + p.pedidoId + '" data-fila="0" onclick="definirEntregaBtn(this,event)">📅 Definir entrega</button>';
-    } else {
-      // Botón secundario para cambiar fecha
-      accBtns += '<button class="cv23-btn entrega" data-pid="' + p.pedidoId + '" data-fila="0" onclick="definirEntregaBtn(this,event)">📅 Cambiar fecha</button>';
     }
   }
   // Editar pedido
@@ -38930,6 +39272,10 @@ async function _tomadorConfirmarFinalContinuar() {
       entrega = { dia: '', turno: '', fechaISO: '', mensaje: '' };
     }
 
+    // v14.193.0 — TL: día y turno confirmados por el vendedor (interior: sigue de largo)
+    _tomadorLockOverlayActualizar('Elegí día y turno de entrega...');
+    tlEntregaElegir(entrega, _tlEntResumenTomador(localidadCheckin), function (entregaTL) {
+    entrega = entregaTL;
     // v14.17.0 (N43): chequear si hay viajes especiales para esa zona.
     // Si hay >1 → modal de selección antes de guardar.
     viajeEspReset();
@@ -38961,6 +39307,7 @@ async function _tomadorConfirmarFinalContinuar() {
       _tomadorLockOverlayActualizar('Guardando pedido...');
       tomadorConfirmarConEntrega(entrega);
     });
+    }, function () { _tomadorLiberarLock(); tomadorConfirmar(); });   // v14.193.0 — volvió al resumen
   });
 }
 
@@ -39155,7 +39502,10 @@ async function tomadorConfirmarConEntrega(entregaData) {
           entregaRecalculada = { dia: '', turno: '', fechaISO: '', mensaje: '' };
         }
         // Reintentar el envío con la entrega ya recalculada
-        tomadorConfirmarConEntrega(entregaRecalculada);
+        // v14.193.0 — si la localidad elegida es TL, primero día y turno
+        tlEntregaElegir(entregaRecalculada, _tlEntResumenTomador(localidadElegida), function (entregaTL) {
+          tomadorConfirmarConEntrega(entregaTL);
+        }, function () { _tomadorLiberarLock(); tomadorConfirmar(); });
       });
       return;
     }
@@ -39213,6 +39563,7 @@ async function tomadorConfirmarConEntrega(entregaData) {
       fecha_entrega: entregaData ? entregaData.dia : '',
       turno_entrega: entregaData ? entregaData.turno : ''
     });
+    _tlEntAgregarParams(params, entregaData);   // v14.193.0
 
     // v14.17.0 (N43): si el vendedor eligió un viaje especial, pasarlo
     // al backend como override del cálculo automático.
@@ -39255,6 +39606,7 @@ async function tomadorConfirmarConEntrega(entregaData) {
     var _respGuardar = await appsScriptFetch(params, { timeout: 35000 });
     var _durGuardar = Date.now() - _t0Guardar;
     var _gsGuardar  = (_respGuardar && _respGuardar.data && _respGuardar.data._t) || null;
+    try { _tlEntAvisoRespuesta(_respGuardar && _respGuardar.data); } catch (_eTlTom) {}   // v14.193.0
 
     // v14.44.0 FIX CRÍTICO — chequeo server-side anti-dup.
     // Si Apps Script (v25.32+) detectó que ya existe un pedido idéntico en
@@ -46944,6 +47296,9 @@ function _manualWAConfirmarContinuar(cliente, localidad) {
       entrega = { dia: '', turno: '', fechaISO: '', mensaje: '' };
     }
 
+    // v14.193.0 — TL: día y turno confirmados por el vendedor (interior: sigue de largo)
+    tlEntregaElegir(entrega, _tlEntResumenWA(cliente, localidad), function (entregaTL) {
+    entrega = entregaTL;
     // v14.17.0 (N43): chequear si hay viajes especiales disponibles.
     // Si hay >1 → modal de selección antes de guardar. Si no, sigue como hoy.
     viajeEspReset();
@@ -46970,6 +47325,7 @@ function _manualWAConfirmarContinuar(cliente, localidad) {
       console.warn('[viajeEsp] Error consultando opciones, fallback:', err);
       _manualWAEjecutarGuardado(cliente, localidad, entrega, suc);
     });
+    }, function () { _mwaLiberarLock(); });   // v14.193.0 — volvió sin confirmar
   });
 }
 
@@ -47107,6 +47463,7 @@ async function manualWAGuardar(cliente, localidad, entrega, sucursal) {
     fecha_entrega: entrega.dia,
     turno_entrega: entrega.turno
   });
+  _tlEntAgregarParams(params, entrega);   // v14.193.0
 
   // v14.158.0 FASE 2A - emision en sombra del contrato v2 (nadie lo consume).
   try {
@@ -47178,6 +47535,7 @@ async function manualWAGuardar(cliente, localidad, entrega, sucursal) {
       toast('❌ ' + (dataGuardar.message || 'No se pudo guardar el pedido'), 'err');
       return;
     }
+    try { _tlEntAvisoRespuesta(dataGuardar); } catch (_eTlWA) {}   // v14.193.0
   } catch(errFetch) {
     console.error('[F9 manualWAGuardar] Error fetch:', errFetch);
     // v14.177.0 — MISMA RED DE SEGURIDAD QUE EL TOMADOR DE CAMPO (v14.136.0).
@@ -57912,7 +58270,7 @@ function depPollIniciar() {
    TCK_UPD_LOCAL aca Y el archivo version.json del repo.
    ============================================================ */
 (function(){
-  var TCK_UPD_LOCAL = '14.192.0';        /* <-- bump en cada deploy */
+  var TCK_UPD_LOCAL = '14.193.0';        /* <-- bump en cada deploy */
   /* v14.159.0: fuente UNICA de version. La telemetria del shadow la reporta,
      asi que un desfasaje contra version.json se ve solo en el primer pedido
      (paso 4 veces sin que nadie lo notara: 14.109, 14.128, 14.137, 14.147). */
