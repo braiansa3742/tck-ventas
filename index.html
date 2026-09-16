@@ -2,6 +2,28 @@
 <html lang="es">
 <head>
 <!-- ═══════════════════════════════════════════════════════════════════════
+     TCK VENTAS — v14.190.2 — 16/09/2026
+     v14.190.2: EL CARTEL DEL CHOFER DICE QUÉ PASÓ (antes culpaba a la señal).
+       Caso Ian (16/09): "No pude cargar tus entregas · Fijate la señal" con
+       4G pleno. Medido en los logs de Supabase: su iPhone pide
+       viajes?chofer=eq.Juan+Pablo y recibe 200 con content-range 0-3/* (sus
+       4 viajes en_ruta). Después NO sale ningún request a entregas: la
+       cadena se corta en el teléfono, entre el 200 y la consulta siguiente.
+       RLS abierta, vista sana (~100 ms), archivo publicado completo y su
+       teléfono corriendo 14.190.1 (la URL incluye 'planificado', que solo
+       existe desde la v14.188.0). O sea: error de JavaScript del lado del
+       cliente, que el catch de _cargarEntregasInterno se tragaba mostrando
+       siempre "fijate la señal" — el único mensaje posible, para cualquier
+       causa. Safari de iPhone solo se inspecciona con una Mac, así que sin
+       esto no hay forma de saber qué falla.
+       AHORA: el cartel distingue sesión vencida (401/403) / red / error de
+       la app, muestra el detalle técnico del error en pantalla para sacarle
+       captura, y registra el evento 'chofer_entregas_fallo' en
+       tomador_eventos vía _chEvento (canal que ya existía y nadie usaba en
+       la carga).
+       NO TOCA: la carga de entregas, el viaje activo, la cola offline ni
+       ningún flujo de cobro. Solo el mensaje de error.
+     ─────────────────────────────────────────────────────────────────────
      TCK VENTAS — v14.190.1 — 16/09/2026
      v14.190.1: FIX · "CARGANDO ENTREGAS..." PARA SIEMPRE (IndexedDB colgada).
        Reporte de Ian (16/09, mañana): no le aparecen los pedidos, la pantalla
@@ -41424,13 +41446,32 @@ async function _cargarEntregasInterno(esRefresh) {
         : '?';
       _entregasChipViejo(_h);
     } else if (el) {
+      // v14.190.2 — DECIR QUÉ PASÓ. Antes este cartel culpaba SIEMPRE a la
+      // señal, aunque el error fuera de JavaScript o de sesión vencida (caso
+      // Ian 16/09: el server respondía 200 con sus 4 viajes y el cartel decía
+      // "fijate la señal"). Sin el motivo, desde acá no se puede diagnosticar:
+      // Safari de iPhone solo se inspecciona con una Mac.
+      var _motivo = (e && e.message) ? String(e.message) : String(e || 'error desconocido');
+      var _st = (typeof _chErrStatus === 'function') ? _chErrStatus(e) : null;
+      var _esSesion = (_st === 401 || _st === 403);
+      var _esRed = /Timeout|Failed to fetch|NetworkError|Load failed|network/i.test(_motivo);
+      var _ayuda = _esSesion
+        ? 'Tu sesión venció. Tocá ⏻ arriba a la derecha, salí y volvé a entrar con tu PIN.'
+        : (_esRed ? 'Fijate la señal y tocá el botón.'
+                  : 'No es la señal: es un error de la app. Mandale esta pantalla a Julián.');
+      try { if (typeof _chEvento === 'function') _chEvento('chofer_entregas_fallo', null, e); } catch (_eTel) {}
       el.innerHTML =
         '<div style="text-align:center;padding:40px 20px;color:var(--text3);font-size:14px;">' +
         'No pude cargar tus entregas.<br>' +
-        '<span style="font-size:12px;">Fijate la señal y tocá el botón.</span>' +
+        '<span style="font-size:12px;">' + _escapeHtmlBasic(_ayuda) + '</span>' +
         '<div onclick="cargarEntregas()" style="margin:16px auto 0;max-width:220px;background:#8B0000;' +
         'color:#fff;border-radius:10px;padding:10px;font-family:\'Barlow Condensed\',sans-serif;' +
         'font-size:15px;font-weight:900;cursor:pointer;touch-action:manipulation;">🔄 Reintentar</div>' +
+        '<div style="margin:14px auto 0;max-width:320px;padding:8px 10px;border-radius:8px;' +
+        'background:#F5EDE0;border:1px solid #E8D5BB;font-size:11px;color:#7A5C3E;' +
+        'word-break:break-word;text-align:left;line-height:1.35;">' +
+        '<b>Detalle técnico</b> (para Julián):<br>' + _escapeHtmlBasic(_motivo.slice(0, 240)) +
+        '</div>' +
         '</div>';
     }
   }
@@ -57801,7 +57842,7 @@ function depPollIniciar() {
    TCK_UPD_LOCAL aca Y el archivo version.json del repo.
    ============================================================ */
 (function(){
-  var TCK_UPD_LOCAL = '14.190.1';        /* <-- bump en cada deploy */
+  var TCK_UPD_LOCAL = '14.190.2';        /* <-- bump en cada deploy */
   /* v14.159.0: fuente UNICA de version. La telemetria del shadow la reporta,
      asi que un desfasaje contra version.json se ve solo en el primer pedido
      (paso 4 veces sin que nadie lo notara: 14.109, 14.128, 14.137, 14.147). */
