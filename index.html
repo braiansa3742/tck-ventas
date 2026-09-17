@@ -2,6 +2,60 @@
 <html lang="es">
 <head>
 <!-- ═══════════════════════════════════════════════════════════════════════
+     TCK VENTAS — v14.199.0 — 17/09/2026
+     v14.199.0: DEVOLUCIÓN TOTAL SIN COBRO INVENTADO + IMPORTES DEL VIAJE SEPARADOS.
+       (rebase sobre v14.198.0; no cambia nada de esa versión ni de Carga v2)
+       Problema (Joan, 17/09): con todo devuelto la app seguía exigiendo
+       "¿Cómo cobró?"; para cerrar se cargaba $1 en efectivo y la entrega
+       quedaba ENTREGADA, el pedido "Entregado" y el viaje sumaba el total.
+       · Botón "🚫 Devuelve todo": pone todos los renglones en 0 como
+         devolución (se vuelve atrás con el mismo botón).
+       · Con nada bajado: se ocultan los medios de cobro, motivo y foto de
+         la mercadería que vuelve son obligatorios ("Otro motivo" exige
+         texto) y se registra con fn_no_entrega_registrar (entrega
+         no_entregado + devolución total con viaje; Cámara la recibe y
+         hasta entonces el viaje no rinde). Nunca pasa por 'entregado'.
+       · "Sin stock" no se admite como devolución total (es faltante).
+         Nada bajado con renglones faltantes → avisar a Administración.
+       · Parcial: la devolución guarda viaje_id (traba de Cámara) y la
+         entrega guarda monto_cobrado_real = efectivo + transferencia +
+         cheque (también con faltante; la cta. cte. no es cobro).
+       · no_entregado se abre en solo lectura.
+       · Deshacer: archiva la devolución parcial si Cámara todavía no la
+         recibió; si ya la recibió, no deja deshacer. Limpia detalle_cobro,
+         monto_cobrado_real y diferencia_motivo.
+       · Cierre del viaje: el aviso previo también cuenta parciales sin
+         recibir (igual que la base).
+       · viajes.monto_cobrado pasa a ser SOLO dinero recibido (sin cta.
+         cte.). Cierre del chofer: monto cobrado, a cuenta corriente,
+         devuelto/faltante y total entregado, por separado. Encabezado del
+         viaje: cobrado y cta. cte. aparte. Historial: ya no estima
+         "entregadas" a partir del dinero cobrado.
+       Entrega completa y parcial: mismo flujo que la versión base.
+       Requiere Supabase devolucion_total_v1 r2 (correrla ANTES de subir esto).
+       DEPLOY: subir como index.html y version.json a 14.199.0.
+     ─────────────────────────────────────────────────────────────────────
+     TCK VENTAS — v14.198.0 — 16/09/2026
+     v14.198.0: CARGA V2 (detrás de CARGA_V2_CFG.modo, entrega en 'off').
+       Regla definitiva 16/09: desde el cierre de Depósito la carga queda congelada; retiro
+       excepcional antes de salir; planilla final inmutable con espacio de firma del chofer.
+       Viaje en ruta CONGELADO (no se reabre, no se versiona, pedido nuevo a otra salida,
+       incidencias cambio_post_salida) y gate de arranque antes de crear entregas.
+       Compatible con Apps Script v25.139.0/v25.140.0 y Fase 0 v3 (TL nunca se congela).
+       Contrastado con el Código.gs real (planillaImprimir, viajeCerrarCarga, viajeArrancar,
+       viajeReabrirCarga): hash de contenido vivo idéntico al del Apps Script, versión nueva
+       con la carga cerrada, mensajes de error de _viajeSbFetch limpios. Conteo del chofer
+       con teclado numérico, −1/+1/+5/+10, confirmación corregible y envío único.
+       Depósito: listado de viajes, planilla digital por lote logístico, control
+       por producto SIN prellenar, diferencias con motivo de catálogo, versiones
+       nuevas automáticas con tareas (subir/bajar/reemplazo/pedido nuevo/quitado)
+       calculadas desde lo preparado, avance guardado en servidor (RPC carga_*),
+       cola offline idempotente, cierre solo por Depósito, PDF de la versión vigente.
+       Chofer: conteo ciego por lote, reconteo por producto, aceptación de la
+       versión+hash cerrada, ARRANCAR con pedido autenticado (chofer_arranque_solicitar).
+       Francisco puede operar como chofer con su propia identidad. Requiere SQL
+       tck_carga_v2_01..03. Con modo 'off' la app se comporta igual que 14.193.1.
+     ─────────────────────────────────────────────────────────────────────
      TCK VENTAS — v14.193.1 — 16/09/2026
      v14.193.1: AJUSTE DEL SELECTOR DE ENTREGA TL (sobre v14.193.0).
        · Hoy: el turno mañana se deshabilita desde las 12:30 y el turno
@@ -18117,6 +18171,10 @@ body {
         <div class="login-av" style="background:#1565C0;">R</div>
         <div class="login-btn-name">Román<div class="login-btn-role">Chofer / Logística</div></div>
       </button>
+      <button class="login-btn" id="login-btn-franciscochofer" style="display:none;" onclick="seleccionarVendedor('Francisco','F','#1565C0')">
+        <div class="login-av" style="background:#1565C0;">F</div>
+        <div class="login-btn-name">Francisco<div class="login-btn-role">Reparto (solo con viaje asignado)</div></div>
+      </button>
       <button class="login-btn" id="login-btn-pancho" onclick="seleccionarVendedor('Pancho','P','#2E7D32')">
         <div class="login-av" style="background:#2E7D32;">P</div>
         <div class="login-btn-name">Pancho<div class="login-btn-role">Encargado de Depósito</div></div>
@@ -18911,6 +18969,8 @@ body {
         <!-- Devolución -->
         <div class="devolucion-section" id="entrega-devolucion-wrap" style="display:none;">
           <div class="devolucion-section-title">↩️ Devolución de productos</div>
+          <!-- v14.199.0 — aviso del modo "no se entregó nada" -->
+          <div id="dev-total-aviso" style="display:none;background:#FFEBEE;border:1.5px solid #C62828;border-radius:10px;padding:9px 11px;margin:6px 0 10px;font-size:12.5px;line-height:1.35;color:#B71C1C;">🚫 <b>No se entregó nada: no se cobra.</b> Elegí el motivo, sacá la foto de la mercadería que vuelve y entregala en Cámara.</div>
           <div id="entrega-devolucion-items"></div>
 
           <!-- Selector de categoría (obligatorio) -->
@@ -18970,8 +19030,8 @@ body {
       </div>
       <!-- v14.80.0 - Foto de entrega OBLIGATORIA (registro ante reclamos) -->
       <div id="foto-entrega-wrap" style="margin:0 18px 12px;background:#E3F2FD;border:1.5px solid #1565C0;border-radius:12px;padding:12px;">
-        <div style="font-family:'Barlow Condensed',sans-serif;font-size:15px;font-weight:900;color:#0D47A1;margin-bottom:3px;">&#128230; Foto de la entrega</div>
-        <div style="font-size:12px;color:#1565C0;margin-bottom:10px;line-height:1.35;">Sac&aacute; una foto de <b>toda la mercader&iacute;a que est&aacute;s bajando</b>. Es el registro ante reclamos. Si es mucho, sac&aacute; varias. <b>Sin foto no se puede confirmar la entrega.</b></div>
+        <div style="font-family:'Barlow Condensed',sans-serif;font-size:15px;font-weight:900;color:#0D47A1;margin-bottom:3px;" id="foto-entrega-tit">&#128230; Foto de la entrega</div>
+        <div id="foto-entrega-txt" style="font-size:12px;color:#1565C0;margin-bottom:10px;line-height:1.35;">Sac&aacute; una foto de <b>toda la mercader&iacute;a que est&aacute;s bajando</b>. Es el registro ante reclamos. Si es mucho, sac&aacute; varias. <b>Sin foto no se puede confirmar la entrega.</b></div>
         <div id="foto-entrega-lista"></div>
         <input type="file" id="fotoEntrega-cam" accept="image/*" capture="environment" style="display:none;" onchange="_fotoEntregaSeleccionada(this)">
         <input type="file" id="fotoEntrega-gal" accept="image/*" style="display:none;" onchange="_fotoEntregaSeleccionada(this)">
@@ -25442,9 +25502,19 @@ function mostrarBadgeNuevosPedidos(cant) {
 // Para sumar un chofer: agregarlo aca + boton en el login + alta en
 // app_usuarios con rol 'chofer'. Luis y Alfredo ya no trabajan pero se
 // dejan para que una sesion vieja no caiga en la vista de vendedor.
+// v14.198.0 — Francisco es chofer SOLO el día que tiene un viaje asignado a su nombre
+// (se verifica en el login contra viajes.chofer; ver verificarPin).
+function _tckFranciscoRepartoHoy() {
+  try {
+    var d = new Date();
+    var h = d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0');
+    return localStorage.getItem('tck_fr_reparto') === h;
+  } catch (e) { return false; }
+}
 function esNombreChofer(n) {
   return ['Joan', 'Juan Pablo', 'Nahuel', 'Cesar', 'Comodin',
-          'Chan Chofer', 'Roman Chofer', 'Luis', 'Alfredo'].indexOf(n) !== -1;
+          'Chan Chofer', 'Roman Chofer', 'Luis', 'Alfredo'].indexOf(n) !== -1
+      || (n === 'Francisco' && _tckFranciscoRepartoHoy());   // v14.198.0: solo con un viaje a su nombre
 }
 try { window.esNombreChofer = esNombreChofer; } catch (_eCh) {}
 
@@ -25679,6 +25749,16 @@ async function verificarPin() {
     }
     if (data && data.ok) {
       if (data.token) jwtGuardar(data.token); // v14.64.0: identidad JWT
+      // v14.198.0 — Francisco entra como chofer solo si tiene un viaje asignado
+      if (nombre === 'Francisco' && typeof cv2FranciscoVerificarReparto === 'function') {
+        var _frOk = await cv2FranciscoVerificarReparto();
+        if (!_frOk) {
+          jwtLimpiar();
+          errEl.textContent = 'No tenés un viaje asignado a tu nombre para hoy.';
+          pinActual = ''; actualizarDots();
+          return;
+        }
+      }
       errEl.textContent = '';
       login(nombre);
     } else {
@@ -40626,8 +40706,11 @@ function renderViajeHeader() {
   html += '    </div>';
   if (total > 0) {
     html += '    <div class="ch-viaje-progreso-cobrado">';
-    html += '      💰 $' + Math.round(cobrado).toLocaleString('es-AR') +
-            ' cobrado / $' + Math.round(total).toLocaleString('es-AR');
+    // v14.199.0 — monto_cobrado es solo dinero; la cta. cte. va aparte
+    var _mmH = _chMontosViaje(_entregasCache);
+    html += '      💰 $' + Math.round(cobrado).toLocaleString('es-AR') + ' cobrado' +
+            (_mmH.cuentaCorriente > 0 ? ' · $' + Math.round(_mmH.cuentaCorriente).toLocaleString('es-AR') + ' a cta. cte.' : '') +
+            ' / $' + Math.round(total).toLocaleString('es-AR');
     html += '    </div>';
   }
   html += '  </div>';
@@ -40757,6 +40840,16 @@ async function mvArrancarViaje(viajeId) {
   }
   if (!confirm('¿EL CAMIÓN ESTÁ SALIENDO FÍSICAMENTE DEL DEPÓSITO?\n\n' +
                'Al confirmar, el viaje quedará EN RUTA.')) return;
+  // v14.198.0 — carga v2: el pedido de arranque sale autenticado del celular del chofer
+  if (typeof cv2On === 'function' && cv2On()) {
+    var _cv2v = (_viajesActivos || []).find(function (x) { return x && x.id === viajeId; });
+    if (!_cv2v || !_chEsTL(_cv2v.zona)) {
+      _mvArrancando = true;
+      var _cv2ok = false;
+      try { _cv2ok = await cv2SolicitarArranque(viajeId); } finally { _mvArrancando = false; }
+      if (!_cv2ok) return;
+    }
+  }
   _mvArrancando = true;
   var btn = document.getElementById('mv-arrancar-btn');
   var prev = btn ? btn.innerHTML : null;
@@ -40774,8 +40867,9 @@ async function mvArrancarViaje(viajeId) {
       await cargarEntregas();
     } else {
       // Mensaje REAL del backend (C2 es la autoridad). Sigue carga_cerrada.
+      try { if (typeof cv2ArranqueFallido === 'function') cv2ArranqueFallido(viajeId, r && r.message); } catch (_eF) {}   // v14.198.0
       alert('\u26D4 NO SE PUEDE ARRANCAR\n\n' +
-            ((r && r.message) || 'Error desconocido'));
+            (typeof cv2LimpiarMsg === 'function' ? cv2LimpiarMsg((r && r.message) || 'Error desconocido') : ((r && r.message) || 'Error desconocido')));
     }
   } catch (e) {
     alert('\u26D4 No se pudo arrancar el viaje.\n\nRevisá la conexión y volvé a intentar.\n\n' +
@@ -40796,6 +40890,12 @@ function mvRenderViajeActivo() {
   }
 
   const v = _mvViajeActivo;
+
+  // v14.198.0 — carga v2: el chofer cuenta a ciegas y acepta antes de ARRANCAR (interior)
+  if (typeof cv2On === 'function' && cv2On() && (v.estado === 'preparando' || v.estado === 'carga_cerrada') && !_chEsTL(v.zona)) {
+    wrap.innerHTML = cv2ChoferAtajoHtml(v);   // la recepción vive en la pestaña Entregas
+    return;
+  }
 
   // ═══ v14.172.0 — el viaje todavia no salio ═══════════════════════
   // Deposito cierra la carga; el chofer arranca al salir. Antes de
@@ -41021,12 +41121,13 @@ function mvRenderHistorial() {
     const cobrado = Number(v.monto_cobrado) || 0;
     const total = Number(v.monto_total) || 0;
     const totalPedidos2 = v.total_pedidos || 0;
-    const entregadas = total > 0 ? Math.round((cobrado / total) * totalPedidos2) : 0;
+    // v14.199.0 — ya no se estiman "entregadas" con el dinero cobrado
+    // (monto_cobrado excluye la cta. cte.; la cuenta daba cualquier cosa)
 
     html += '<div class="mv-hist-row" onclick="mvAbrirDetalleHist(\'' + v.id + '\')">';
     html += '  <div class="mv-hist-info">';
     html += '    <div class="mv-hist-fecha">' + f + '</div>';
-    html += '    <div class="mv-hist-zona">' + zonaDisplay + ' · ' + entregadas + ' de ' + totalPedidos2 + ' entregadas</div>';
+    html += '    <div class="mv-hist-zona">' + zonaDisplay + ' · ' + totalPedidos2 + ' pedidos</div>';
     html += '  </div>';
     html += '  <div class="mv-hist-cifras">';
     html += '    <div class="mv-hist-cobrado">$' + Math.round(cobrado).toLocaleString('es-AR') + '</div>';
@@ -41413,6 +41514,57 @@ async function _defPendientesAccion(entregaId, motivo) {
 }
 // ── FIN FIX N42-A ───────────────────────────────────────────────
 
+// v14.199.0 — IMPORTES DEL VIAJE SEPARADOS.
+// viajes.monto_cobrado = dinero efectivamente recibido (efectivo,
+// transferencia, cheque u otro medio de dinero). La cuenta corriente NO es
+// cobro. Para que el chofer vea todo cuadrado se muestran por separado:
+// cobrado + cuenta corriente = total entregado; devuelto/faltante aparte.
+var _CH_NO_DINERO = ['cuenta_corriente','cuentacorriente','cta_cte','ctacte','cc','no_cobro','no_cobró','nocobro','nocobró'];
+function _chNormMedio(k) { return String(k || '').trim().toLowerCase().replace(/[\s.]+/g, '_'); }
+function _chMontosViaje(entregas) {
+  var r = { efectivo: 0, transferencia: 0, cheque: 0, otros: 0, cobrado: 0,
+            cuentaCorriente: 0, devuelto: 0, entregado: 0 };
+  (entregas || []).forEach(function(e) {
+    var m = parseFloat(e.monto) || 0;
+    if (m > 0 && m < 1000) m = m * 1000;
+    if (e.estado === 'no_entregado') { r.devuelto += m; return; }
+    if (e.estado !== 'entregado') return;
+    var declarado = 0, leido = false;
+    if (e.detalle_cobro) {
+      try {
+        var det = JSON.parse(e.detalle_cobro);
+        if (det && typeof det === 'object' && !Array.isArray(det)) {
+          leido = true;
+          Object.keys(det).forEach(function(k) {
+            var v = parseFloat(det[k]);
+            if (!(v > 0)) return;
+            var nk = _chNormMedio(k);
+            declarado += v;
+            if (_CH_NO_DINERO.indexOf(nk) >= 0) { if (nk.indexOf('no') !== 0) r.cuentaCorriente += v; }
+            else if (nk === 'efectivo') r.efectivo += v;
+            else if (nk === 'transferencia') r.transferencia += v;
+            else if (nk === 'cheque') r.cheque += v;
+            else r.otros += v;
+          });
+        }
+      } catch (_) {}
+    }
+    if (!leido) {
+      // filas viejas sin detalle: por forma de cobro (igual que antes)
+      var f = _chNormMedio(e.forma_cobro);
+      if (f === 'efectivo') r.efectivo += m;
+      else if (f === 'transferencia') r.transferencia += m;
+      else if (f === 'cheque') r.cheque += m;
+      else if (f === 'cuenta_corriente') r.cuentaCorriente += m;
+      return;
+    }
+    if (m - declarado > 0.5) r.devuelto += (m - declarado);
+  });
+  r.cobrado = r.efectivo + r.transferencia + r.cheque + r.otros;
+  r.entregado = r.cobrado + r.cuentaCorriente;
+  return r;
+}
+
 async function mvCerrarViajeYRendir() {
   // v14.180.0 — C3 · el resumen se arma SOBRE LA SELECCION VIGENTE.
   const v = _mvViajeVigente();
@@ -41429,35 +41581,11 @@ async function mvCerrarViajeYRendir() {
   // Resumen para confirmar
   const cobrado = Number(v.monto_cobrado) || 0;
 
-  // Calcular cobros por método (si tenemos entregas en cache)
-  let efectivo = 0, transf = 0, cheque = 0, cta = 0;
-  if (_entregasCache && _entregasCache.length) {
-    _entregasCache.forEach(function(e) {
-      if (e.estado !== 'entregado') return;
-      let m = parseFloat(e.monto) || 0;
-      if (m > 0 && m < 1000) m = m * 1000;
-      if (e.detalle_cobro) {
-        try {
-          const det = JSON.parse(e.detalle_cobro);
-          efectivo += det.efectivo || 0;
-          transf   += det.transferencia || 0;
-          cheque   += det.cheque || 0;
-          cta      += det.cuenta_corriente || 0;
-        } catch(_) {
-          // fallback a forma_cobro
-          if (e.forma_cobro === 'efectivo') efectivo += m;
-          else if (e.forma_cobro === 'transferencia') transf += m;
-          else if (e.forma_cobro === 'cheque') cheque += m;
-          else if (e.forma_cobro === 'cuenta_corriente') cta += m;
-        }
-      } else {
-        if (e.forma_cobro === 'efectivo') efectivo += m;
-        else if (e.forma_cobro === 'transferencia') transf += m;
-        else if (e.forma_cobro === 'cheque') cheque += m;
-        else if (e.forma_cobro === 'cuenta_corriente') cta += m;
-      }
-    });
-  }
+  // v14.199.0 — cobros por método y conceptos separados (ver _chMontosViaje)
+  const _hayCache = !!(_entregasCache && _entregasCache.length);
+  const _mm = _chMontosViaje(_hayCache ? _entregasCache : []);
+  const efectivo = _mm.efectivo, transf = _mm.transferencia, cheque = _mm.cheque, cta = _mm.cuentaCorriente;
+  const _cobradoTot = _hayCache ? _mm.cobrado : cobrado;
 
   const fmt = function(n) { return '$' + Math.round(n).toLocaleString('es-AR'); };
   // v14.180.0 — C3 · el chofer tiene que ver QUE viaje esta cerrando.
@@ -41470,8 +41598,12 @@ async function mvCerrarViajeYRendir() {
   if (efectivo > 0) resumen += '• Efectivo: ' + fmt(efectivo) + '\n';
   if (cheque > 0) resumen += '• Cheques: ' + fmt(cheque) + '\n';
   if (transf > 0) resumen += '• Transf (registro): ' + fmt(transf) + '\n';
-  if (cta > 0) resumen += '• Cta. corriente: ' + fmt(cta) + '\n';
-  resumen += '\nTotal: ' + fmt(cobrado) + '\n\n';
+  if (_mm.otros > 0) resumen += '• Otros medios: ' + fmt(_mm.otros) + '\n';
+  // v14.199.0 — conceptos separados: la cta. cte. no es cobro
+  resumen += 'MONTO COBRADO: ' + fmt(_cobradoTot) + '\n\n';
+  if (cta > 0) resumen += 'A cuenta corriente (no se cobra hoy): ' + fmt(cta) + '\n';
+  if (_mm.devuelto > 0) resumen += 'Devuelto / faltante / diferencia: ' + fmt(_mm.devuelto) + '\n';
+  resumen += 'Total entregado (cobrado + cta. cte.): ' + fmt(_hayCache ? _mm.entregado : _cobradoTot) + '\n\n';
   resumen += 'El viaje se cierra y queda esperando confirmación del admin.';
 
   if (!confirm(resumen)) return;
@@ -41518,8 +41650,8 @@ async function mvCerrarViajeYRendir() {
   try {
     var _devPend = await sbFetch('devoluciones' +
       '?viaje_id=eq.' + encodeURIComponent(_idEnv) +
-      '&tipo=eq.no_entrega_total&estado=eq.registrada' +
-      '&select=id,pedido_id,cliente,comercio,items',
+      '&estado=eq.registrada' +   // v14.199.0: totales Y parciales (igual que el trigger)
+      '&select=id,pedido_id,cliente,comercio,items,tipo',
       { timeoutMs: 12000 });
     if (Array.isArray(_devPend) && _devPend.length > 0) {
       var _lista = _devPend.slice(0, 6).map(function (d) {
@@ -41529,7 +41661,7 @@ async function mvCerrarViajeYRendir() {
       console.warn('[v14.182.0] cierre frenado: ' + _devPend.length +
                    ' devolución(es) total(es) sin recibir en Cámara.');
       alert('\uD83D\uDCE6 FALTA ENTREGAR MERCADERÍA A CÁMARA\n\n' +
-            'Este viaje tiene ' + _devPend.length + ' pedido(s) no entregados cuya ' +
+            'Este viaje tiene ' + _devPend.length + ' devolución(es) cuya ' +
             'mercadería todavía no fue recibida en el depósito:\n\n' + _lista + '\n\n' +
             'Entregala y pedí que Cámara la reciba. Después volvé a cerrar.\n\n' +
             'NO SE CERRÓ NADA.');
@@ -41710,6 +41842,15 @@ async function _cargarEntregasInterno(esRefresh) {
     // que todavia esta en el deposito. No alcanza con esconder botones:
     // este es el unico punto por el que se pintan las entregas.
     if (_viajeActivo && _viajeActivo.estado !== 'en_ruta') {
+      // v14.198.0 — carga v2: contar y aceptar la carga desde Entregas (antes quedaba en blanco)
+      if (typeof cv2On === 'function' && cv2On() && (_viajeActivo.estado === 'preparando' || _viajeActivo.estado === 'carga_cerrada') && !_chEsTL(_viajeActivo.zona)) {
+        _entregasCache = [];
+        var _elV2 = document.getElementById('entregas-lista');
+        if (_elV2) cv2ChoferMontar(_elV2, _viajeActivo);
+        _mvViajeActivo = _viajeActivo;
+        try { if (typeof mvRenderViajeActivo === 'function') mvRenderViajeActivo(); } catch (_eMv) {}
+        return [];
+      }
       _entregasCache = [];
       var _elG = document.getElementById('entregas-lista');
       if (_elG) _elG.innerHTML = '';
@@ -42662,6 +42803,11 @@ function entItemsRender() {
   if (!prodsEl) return;
   if (!_entItems.length) return;
   var h = '<div class="ent-it-hint">Tocá <b>−</b> si bajás menos de lo pedido. Lo que no baja tiene que tener motivo.</div>';
+  // v14.199.0 — devolución total en un toque (y vuelta atrás con el mismo botón)
+  var _todoDev = _entModoTotal();
+  h += '<button type="button" id="ent-btn-devuelve-todo" onclick="entItemsDevuelveTodo()" style="width:100%;margin:2px 0 10px;padding:11px 10px;border-radius:10px;cursor:pointer;touch-action:manipulation;font-family:\'Barlow Condensed\',sans-serif;font-size:15px;font-weight:900;' +
+       (_todoDev ? 'background:#fff;color:#1565C0;border:1.5px dashed #1565C0;">↩️ Me equivoqué: bajé todo' : 'background:#FFEBEE;color:#C62828;border:1.5px solid #C62828;">🚫 Devuelve todo (no se entregó nada)') +
+       '</button>';
   _entItems.forEach(function(it, idx) {
     var menos = it.bajada < it.pedida;
     var cls = menos ? (it.motivo === 'faltante' ? ' falta' : ' menos') : '';
@@ -42683,6 +42829,7 @@ function entItemsRender() {
     h += '</div>';
   });
   prodsEl.innerHTML = h;
+  _entAplicarModoTotal();   // v14.199.0
 }
 
 function entItemQty(idx, delta) {
@@ -42767,6 +42914,273 @@ function _entItemsFaltanteTexto() {
 // Renglones bajados de menos que todavía no tienen motivo (bloquean la confirmación)
 function _entItemsSinMotivo() {
   return _entItems.filter(function(it) { return it.bajada < it.pedida && !it.motivo; }).map(function(it) { return it.nombre; });
+}
+
+// ══════════════════════════════════════════════════════════════════
+// v14.199.0 — DEVOLUCIÓN TOTAL DESDE EL MODAL ("🚫 Devuelve todo")
+// Problema (Joan, 17/09): con "Vencido" / "Cliente no quiso" / etc. y todo
+// devuelto, la app seguía pidiendo cómo cobró. Para cerrar se cargaba $1 en
+// efectivo → entrega ENTREGADA, pedido "Entregado", viaje con el monto
+// completo como cobrado y el $1 viajando a Xubio al rendir.
+// Ahora, si NO bajó nada y todo es devolución (modo "no entrega total"):
+// sin medios de cobro, motivo + foto de lo que vuelve obligatorios, y se
+// registra con fn_no_entrega_registrar (atómica en la base: entrega
+// no_entregado + devolución no_entrega_total con viaje_id). Cámara la
+// recibe y hasta entonces el viaje no rinde. Nunca pasa por 'entregado'.
+// Requiere Supabase devolucion_total_v1 r2 (p_categoria / p_fotos).
+// ══════════════════════════════════════════════════════════════════
+var _devTotalEnCurso = false;
+
+// entregado y no_entregado ya están resueltos: el modal los muestra sin acciones de cobro
+function _entSoloLectura(e) {
+  return !!e && (e.estado === 'entregado' || e.estado === 'no_entregado');
+}
+// ¿la lista de la entrega abierta tiene TODOS los renglones en 0?
+function _entNadaBajado() {
+  return _entItems.length > 0 && _entItemsEntregaId === _entregaModalId &&
+    _entItems.every(function(it) { return (Number(it.bajada) || 0) === 0; });
+}
+// ¿nada bajado y todo marcado como devolución?
+function _entModoTotal() {
+  return _entNadaBajado() && _entItems.every(function(it) { return it.motivo === 'devolucion'; });
+}
+
+function entItemsDevuelveTodo() {
+  if (!_entItems.length || _entItemsEntregaId !== _entregaModalId) {
+    toast('⏳ Esperá que carguen los productos', 'err');
+    return;
+  }
+  if (_entModoTotal()) {
+    // vuelta atrás: todo bajado, sin devolución
+    _entItems.forEach(function(it) {
+      if (it.motivo === 'devolucion') _entSyncDevolucion(it, 0);
+      it.bajada = it.pedida; it.motivo = null;
+    });
+  } else {
+    _entItems.forEach(function(it, i) {
+      it.bajada = 0; it.motivo = 'devolucion';
+      _entSyncDevolucion(it, it.pedida, i === 0);
+    });
+  }
+  entItemsRender();
+  _actualizarMontoConDevolucion();
+}
+
+// Ajusta el modal al modo "no entrega total" (o lo devuelve al normal).
+function _entAplicarModoTotal() {
+  var e = _entregasCache.find(function(x) { return x.id === _entregaModalId; });
+  var soloLectura = !e || _entSoloLectura(e);
+  var total = !soloLectura && _entModoTotal();
+  var cobroWrap = document.getElementById('entrega-modal-cobro-wrap');
+  if (cobroWrap && !soloLectura) {
+    if (total && cobroWrap.style.display !== 'none') {
+      // una no entrega no tiene cobro: se vacía lo que se hubiera cargado
+      ['efectivo','transferencia','cheque','cuenta_corriente'].forEach(function(m) {
+        var inp = document.getElementById('cobro-m-' + m + '-val');
+        if (inp) inp.value = '';
+        var it = document.getElementById('cobro-m-' + m);
+        if (it) it.classList.remove('activo');
+      });
+      var totEl = document.getElementById('cobro-multiple-total');
+      if (totEl) totEl.textContent = '';
+      var alCM = document.getElementById('cobro-menos-alerta');
+      if (alCM) alCM.remove();
+      window._cobroMenosMotivo = null;
+      window._cobroMenosMonto = null;
+      try { _toggleComprobanteTransfer(); } catch (eTC) {}
+    }
+    cobroWrap.style.display = total ? 'none' : '';
+  }
+  var tit = document.getElementById('foto-entrega-tit');
+  var txt = document.getElementById('foto-entrega-txt');
+  if (txt && !txt.getAttribute('data-orig')) txt.setAttribute('data-orig', txt.innerHTML);
+  if (tit) tit.innerHTML = total ? '&#128230; Foto de la mercader&iacute;a que vuelve' : '&#128230; Foto de la entrega';
+  if (txt) txt.innerHTML = total
+    ? 'Sac&aacute; una foto de <b>toda la mercader&iacute;a que vuelve al cami&oacute;n</b>. Es la prueba para C&aacute;mara y ante reclamos. <b>Sin foto no se puede registrar la devoluci&oacute;n.</b>'
+    : txt.getAttribute('data-orig');
+  var btn = document.getElementById('entrega-btn-confirmar');
+  if (btn && !_devTotalEnCurso) btn.innerHTML = total ? '↩️ Registrar devolución total' : '✅ Confirmar entrega';
+  var aviso = document.getElementById('dev-total-aviso');
+  if (aviso) aviso.style.display = total ? '' : 'none';
+  // "Sin stock" no es devolución total: es faltante
+  var grid = document.getElementById('entrega-devolucion-cats');
+  var bSS = grid ? grid.querySelector('.dev-cat-btn[data-cat="sin_stock"]') : null;
+  if (bSS) { bSS.disabled = total; bSS.style.opacity = total ? '0.35' : ''; }
+  if (total && _devolucionCategoria === 'sin_stock') devolucionSetCategoria('');
+  var mot = document.getElementById('entrega-devolucion-motivo');
+  if (mot) mot.placeholder = (total && _devolucionCategoria === 'otro')
+    ? 'Contá qué pasó (obligatorio)...' : 'Detalle adicional (opcional)...';
+}
+
+function _noEntregaMensaje(m) {
+  m = String(m || '');
+  if (m.indexOf('SIN_RENGLONES') >= 0) return 'Este pedido no tiene el detalle de productos cargado, así que no se puede armar la devolución. Avisá a administración.';
+  if (m.indexOf('CHOFER_NO_AUTORIZADO') >= 0) return 'Este viaje no figura a tu nombre. Cerrá sesión y volvé a entrar.';
+  if (m.indexOf('AMBIGUEDAD_DEVOLUCION') >= 0) return 'Este pedido ya tiene una devolución parcial cargada. Avisá a administración.';
+  if (m.indexOf('INCONSISTENCIA_SIN_DEVOLUCION') >= 0) return 'Este pedido quedó marcado como no entregado en una versión anterior. Avisá a administración.';
+  if (m.indexOf('VIAJE_NO_EN_RUTA') >= 0) return 'El viaje ya no está en ruta. Recargá la app.';
+  if (m.indexOf('ESTADO_NO_ADMITIDO') >= 0) return 'Este pedido ya figura resuelto. Recargá la app.';
+  if (m.indexOf('CATEGORIA_SIN_STOCK') >= 0) return '"Sin stock" no es una devolución: si no estaba en el camión es un faltante. Avisá a administración.';
+  if (m.indexOf('FALTA_FOTO') >= 0) return 'Falta la foto de la mercadería que vuelve.';
+  if (m.indexOf('RENGLON_INVALIDO') >= 0) return 'El pedido tiene renglones mal cargados (sin producto o en 0). Avisá a administración.';
+  if (m.indexOf('MONTO_INVALIDO') >= 0) return 'No se pudo determinar el importe del pedido. Avisá a administración.';
+  if (m.indexOf('PGRST202') >= 0 || m.indexOf('Could not find the function') >= 0) return 'Falta actualizar la base de datos para esta versión. Avisá a Braian.';
+  var _cod = /\b([A-Z][A-Z_]{5,}):/.exec(m);
+  if (_cod) return 'La base rechazó el registro (' + _cod[1] + '). Avisá a administración.';
+  return 'No se pudo registrar. Revisá la señal y reintentá.';
+}
+
+async function _confirmarDevolucionTotal() {
+  if (_devTotalEnCurso) { toast('⏳ Esperá, ya se está registrando…', 'err'); return; }
+  var e = _entregasCache.find(function(x) { return x.id === _entregaModalId; });
+  if (!e) return;
+  var entregaId = e.id;
+  var devWrap = document.getElementById('entrega-devolucion-wrap');
+  var _scroll = function(el) { if (el) { try { el.scrollIntoView({ behavior: 'smooth', block: 'center' }); } catch (eS) {} } };
+
+  // nada bajado pero no todo es devolución
+  if (!_entModoTotal()) {
+    var _faltan = _entItemsFaltantes();
+    if (_faltan.length) {
+      alert('⛔ NO SE REGISTRÓ NADA\n\nNo bajaste ningún producto y hay renglones marcados "no estaba en el camión".\n\n' +
+            'Eso lo tiene que ver Administración antes de seguir: avisá con el nombre del cliente.\n' +
+            'Si el cliente rechazó todo lo que llevabas, tocá "🚫 Devuelve todo".');
+      return;
+    }
+    toast('❌ No bajaste nada: tocá "🚫 Devuelve todo" o decí por qué no bajó cada producto', 'err');
+    _scroll(document.getElementById('entrega-modal-prods-wrap'));
+    return;
+  }
+
+  // motivo obligatorio
+  var devData = _getDevolucionData();
+  if (!devData || devData === 'SIN_CATEGORIA' || !_devolucionCategoria) {
+    toast('❌ Elegí el motivo de la devolución', 'err');
+    _scroll(devWrap);
+    return;
+  }
+  if (_devolucionCategoria === 'sin_stock') {
+    toast('❌ "Sin stock" no es devolución: si no estaba en el camión es un faltante', 'err');
+    _scroll(devWrap);
+    return;
+  }
+  if (_devolucionCategoria === 'otro' && String(devData.detalle || '').trim().length < 5) {
+    toast('❌ Contá qué pasó (mínimo 5 letras)', 'err');
+    var _ta = document.getElementById('entrega-devolucion-motivo');
+    if (_ta) { _ta.style.borderColor = 'var(--red)'; _scroll(_ta); try { _ta.focus(); } catch (eF) {} }
+    return;
+  }
+
+  // foto obligatoria de lo que vuelve
+  if (_fotosEntrega.some(function(f) { return f.subiendo; })) {
+    toast('⏳ Esperá: hay una foto subiéndose', 'err');
+    return;
+  }
+  var fotos = _fotosEntrega.map(function(f) { return f.path; }).filter(function(p) { return !!p; });
+  if (!fotos.length) {
+    toast('📦 Falta la foto de la mercadería que vuelve', 'err');
+    var _wfe = document.getElementById('foto-entrega-wrap');
+    if (_wfe) {
+      _wfe.style.display = 'block';
+      _scroll(_wfe);
+      if (_wfe.animate) {
+        _wfe.animate(
+          [{ boxShadow:'0 0 0 0 rgba(198,40,40,.55)' }, { boxShadow:'0 0 0 9px rgba(198,40,40,0)' }],
+          { duration:850, iterations:2 }
+        );
+      }
+    }
+    return;
+  }
+
+  // sesión vencida: la RPC exige usuario autenticado
+  if (typeof jwtVigente === 'function' && !jwtVigente()) {
+    _chEvento('chofer_devtotal_sesion_vencida', e, null);
+    alert('🔒 TU SESIÓN VENCIÓ — LA DEVOLUCIÓN NO SE GUARDÓ\n\n' +
+          'Tocá ⏻ (arriba a la derecha), salí y volvé a entrar con tu PIN. ' +
+          'Después registrala de nuevo.');
+    return;   // el modal queda abierto: foto y motivo no se pierden
+  }
+
+  var motivoRpc = (_devolucionCategoria === 'otro') ? 'otro' : 'rechazo';
+  var btn = document.getElementById('entrega-btn-confirmar');
+  _devTotalEnCurso = true;
+  if (btn) { btn.disabled = true; btn.style.opacity = '0.6'; btn.innerHTML = '⏳ Registrando devolución…'; }
+
+  var rpc = null;
+  try {
+    rpc = await sbFetch('rpc/fn_no_entrega_registrar', {
+      method: 'POST',
+      timeoutMs: 20000,
+      body: JSON.stringify({
+        p_entrega_id: entregaId,
+        p_chofer:     vendedorActual,
+        p_motivo:     motivoRpc,
+        p_detalle:    devData.motivo,
+        p_categoria:  _devolucionCategoria,
+        p_fotos:      fotos
+      })
+    });
+    if (!rpc || rpc.ok !== true || !rpc.devolucion_id) {
+      throw new Error('La base no confirmó la devolución. No se cambió nada.');
+    }
+  } catch (err) {
+    _devTotalEnCurso = false;
+    if (btn) { btn.disabled = false; btn.style.opacity = ''; }
+    _entAplicarModoTotal();
+    _chEvento('chofer_devtotal_fallo', e, err);
+    console.error('[v14.199.0 devolución total] error:', err);
+    var _st = _chErrStatus(err);
+    if (_st === 401 || _st === 403) {
+      alert('🔒 TU SESIÓN VENCIÓ — LA DEVOLUCIÓN NO SE GUARDÓ\n\n' +
+            'Tocá ⏻ (arriba a la derecha), salí y volvé a entrar con tu PIN. ' +
+            'Después registrala de nuevo.');
+      return;
+    }
+    var _msg = (typeof _esErrorDeRed === 'function' && _esErrorDeRed(err)) || (err && err.esTimeout)
+      ? 'Sin señal. La foto quedó guardada: reintentá cuando tengas señal (si ya había entrado, no se duplica).'
+      : _noEntregaMensaje(err && err.message ? err.message : err);
+    alert('⛔ NO SE REGISTRÓ NADA\n\n' + _msg + '\n\nLa entrega sigue pendiente.');
+    return;
+  }
+
+  // detalle ítem por ítem (best-effort, igual que la entrega normal)
+  try { await _entItemsGuardar(entregaId, { motivo: devData.motivo }); } catch (eEI) { console.warn('[entregas_items]', eEI); }
+  // fotos que quedaron en cola por señal débil
+  try {
+    var _pend = [];
+    _fotosEntrega.forEach(function(f) { if (f.pendiente && f.blob && f.path) _pend.push(f); });
+    for (var _pi = 0; _pi < _pend.length; _pi++) {
+      await _colaPut({ id: _pend[_pi].path, tipo: 'storage', bucket: 'entregas-fotos', ruta: _pend[_pi].path, blob: _pend[_pi].blob, creado: Date.now(), intentos: 0 });
+    }
+    if (_pend.length > 0) { _colaFlush().catch(function() {}); }
+  } catch (_eCola) { console.warn('[cola] no se pudo encolar foto pendiente:', _eCola); }
+
+  // cache local SOLO con lo que confirmó la base
+  e.estado = 'no_entregado';
+  e.resultado_final = 'no_entregado';
+  e.motivo_no_entrega = motivoRpc;
+  e.motivo_detalle = devData.motivo;
+  e.forma_cobro = null;
+  e.detalle_cobro = null;
+  e.monto_cobrado_real = null;
+  e.foto_urls = fotos;
+  console.log('[v14.199.0] devolución total ' + String(rpc.devolucion_id).substring(0, 8) +
+              ' · ' + (rpc.items_n || 0) + ' renglones · $' + (rpc.monto_devuelto || 0) + ' · ' + _devolucionCategoria);
+  _devTotalEnCurso = false;
+  if (btn) { btn.disabled = false; btn.style.opacity = ''; }
+
+  cerrarEntregaModal();   // si venía de "Definir pendientes", lo retoma
+  renderEntregas(_entregasCache);
+  renderResumenChofer(_entregasCache);
+  toast('↩️ Devolución total registrada', 'ok');
+  alert('📦 LA MERCADERÍA VUELVE AL DEPÓSITO\n\n' +
+        (e.cliente || '') + ' · ' + (e.ciudad || '') + '\n' +
+        (rpc.items_n || 0) + ' producto(s) · $' +
+        Math.round(Number(rpc.monto_devuelto) || 0).toLocaleString('es-AR') + '\n\n' +
+        'Entregala en el depósito y pedí que Cámara la reciba.\n' +
+        'Hasta que la reciban, este viaje NO se puede rendir.');
+  try { if (typeof cargarEntregas === 'function') await cargarEntregas(); } catch (_eR) {}
 }
 
 // Guarda la foto ítem por ítem en entregas_items (RPC). Best-effort: si falla,
@@ -42958,6 +43372,9 @@ function abrirEntregaModal(entregaId) {
   const tel = telObjM ? telObjM.digitos : '';
   const waNum = telParaWhatsApp(tel, e.telefono_tiene_prefijo_intl) || '';
   const entregado = e.estado === 'entregado';
+  // v14.199.0 — no_entregado también es final: se muestra sin acciones de cobro
+  const noEntregado = e.estado === 'no_entregado';
+  const soloLectura = _entSoloLectura(e);
 
   // Header
   const hdr = document.getElementById('entrega-modal-hdr');
@@ -42966,6 +43383,10 @@ function abrirEntregaModal(entregaId) {
   document.getElementById('entrega-modal-nombre').textContent = e.cliente || '—';
   document.getElementById('entrega-modal-comercio').textContent = e.comercio ? '🏪 ' + e.comercio : '';
   document.getElementById('entrega-modal-monto').textContent = fmt(montoReal);
+  if (noEntregado) {
+    document.getElementById('entrega-modal-monto').innerHTML =
+      '<span style="text-decoration:line-through;opacity:.5;font-size:14px;">' + fmt(montoReal) + '</span> $0 · no entregado';
+  }
 
   // Dirección
   const dirEl = document.getElementById('entrega-modal-dir');
@@ -43003,15 +43424,15 @@ function abrirEntregaModal(entregaId) {
   // v14.187.0 — lista "¿Qué bajaste?" con cantidad por renglón (pedidos_items;
   // fallback Sheet). Entregado: muestra lo registrado ítem por ítem.
   var _titProds = prodsWrap.querySelector('.entrega-modal-section-title');
-  if (_titProds) _titProds.textContent = entregado ? '📦 Productos' : '📦 ¿Qué bajaste?';
-  entItemsCargar(e, entregado).catch(function(eEI) {
+  if (_titProds) _titProds.textContent = soloLectura ? '📦 Productos' : '📦 ¿Qué bajaste?';
+  entItemsCargar(e, soloLectura).catch(function(eEI) {
     console.warn('[entItems]', eEI);
     cargarProductosEntrega(e.pedido_id, e.nota).then(function(html) { prodsEl.innerHTML = html; });
   });
 
   // Cobro múltiple
   const cobroWrap = document.getElementById('entrega-modal-cobro-wrap');
-  cobroWrap.style.display = entregado ? 'none' : '';
+  cobroWrap.style.display = soloLectura ? 'none' : '';
   // Limpiar inputs
   ['efectivo','transferencia','cheque','cuenta_corriente'].forEach(m => {
     const inp = document.getElementById('cobro-m-' + m + '-val');
@@ -43023,8 +43444,8 @@ function abrirEntregaModal(entregaId) {
   _resetComprobanteTransfer();
   _resetFotoEntrega();
   var _feWrap = document.getElementById('foto-entrega-wrap');
-  if (_feWrap) _feWrap.style.display = entregado ? 'none' : 'block';
-  if (!entregado) _renderFotoEntregaEstado();
+  if (_feWrap) _feWrap.style.display = soloLectura ? 'none' : 'block';
+  if (!soloLectura) _renderFotoEntregaEstado();
   document.getElementById('cobro-multiple-total').textContent = '';
 
   // Botones
@@ -43048,12 +43469,12 @@ function abrirEntregaModal(entregaId) {
       '💬 WA</button>';
   }
 
-  if (!entregado) {
+  if (!soloLectura) {
     btnsHtml += '<button class="entrega-modal-btn" style="background:#FFF3E0;color:#E65100;border:1.5px solid #FFB74D;" onclick="toggleDevolucionSection()">' +
       '↩️ Devolución</button>';
-    btnsHtml += '<button class="entrega-modal-btn entregar" onclick="confirmarEntregaModal()">' +
+    btnsHtml += '<button class="entrega-modal-btn entregar" id="entrega-btn-confirmar" onclick="confirmarEntregaModal()">' +
       '✅ Confirmar entrega</button>';
-  } else {
+  } else if (entregado) {
     btnsHtml += '<button class="entrega-modal-btn" style="background:#E3F2FD;color:#1565C0;border:1.5px solid rgba(21,101,192,.2);" onclick="reabrirCobroModal()">' +
       '✏️ Cambiar cobro</button>';
     btnsHtml += '<button class="entrega-modal-btn deshacer" onclick="deshacerEntregaModal()">' +
@@ -43073,8 +43494,9 @@ function abrirEntregaModal(entregaId) {
   // SOLUCIÓN: leer en lazy-load desde Supabase (campos diferencia_motivo,
   // monto_cobrado_real ya están en _entregasCache; devoluciones requieren fetch).
   // Modo solo-lectura. Para corregir: usar "Deshacer" y volver a registrar.
-  _renderNovedadesGuardadas(e, entregado);
+  _renderNovedadesGuardadas(e, soloLectura);   // v14.199.0: también no_entregado
   // ── FIN FIX N42-B ─────────────────────────────────────────────────
+  _entAplicarModoTotal();   // v14.199.0: arranca en modo normal (lista vacía hasta que carga)
 
   // Mostrar modal
   const overlay = document.getElementById('entrega-modal');
@@ -43117,8 +43539,18 @@ async function _renderNovedadesGuardadas(e, entregado) {
   let html = '';
   let tieneAlgo = false;
 
+  // v14.199.0 — NO ENTREGADO (solo lectura)
+  if (e.estado === 'no_entregado') {
+    tieneAlgo = true;
+    html += '<div class="novedad-card novedad-devolucion">';
+    html += '  <div class="novedad-titulo">🚫 No entregado — no se cobra</div>';
+    html += '  <div class="novedad-fila">La mercadería vuelve a Cámara.' +
+      (e.motivo_detalle ? ' <span class="novedad-label">Motivo:</span> ' + _escapeHtmlBasic(e.motivo_detalle) : '') + '</div>';
+    html += '</div>';
+  }
+
   // ── 1. COBRÓ MENOS ──
-  if (e.diferencia_motivo && String(e.diferencia_motivo).trim()) {
+  if (e.estado === 'entregado' && e.diferencia_motivo && String(e.diferencia_motivo).trim()) {
     tieneAlgo = true;
     const montoReal = parseFloat(e.monto_cobrado_real) || 0;
     const fmt = n => '$' + Math.round(n).toLocaleString('es-AR');
@@ -43205,7 +43637,9 @@ async function _renderNovedadesGuardadas(e, entregado) {
         devHtml += '  <div class="novedad-fila"><span class="novedad-label">Monto devuelto:</span> <strong>' +
           fmt(dev.monto_devuelto) + '</strong></div>';
       }
-      devHtml += '  <div class="novedad-hint">💡 Para corregir, tocá "Deshacer" y volvé a registrar.</div>';
+      devHtml += e.estado === 'entregado'
+        ? '  <div class="novedad-hint">💡 Para corregir, tocá "Deshacer" y volvé a registrar.</div>'
+        : '  <div class="novedad-hint">💡 Para corregir, avisá a Administración.</div>';
       devHtml += '</div>';
       devContainer.innerHTML = devHtml;
       tieneAlgo = true;
@@ -43428,6 +43862,11 @@ function devolucionQtyBtn(btn) {
 
 // ── Selector de categoría ───────────────────────────────────────
 function devolucionSetCategoria(cat) {
+  // v14.199.0 — en devolución total "Sin stock" no corresponde (es faltante)
+  if (cat === 'sin_stock' && typeof _entModoTotal === 'function' && _entModoTotal()) {
+    toast('❌ "Sin stock" no es devolución: si no estaba en el camión es un faltante', 'err');
+    return;
+  }
   _devolucionCategoria = cat;
   // Actualizar estado visual de los botones
   var grid = document.getElementById('entrega-devolucion-cats');
@@ -43438,6 +43877,7 @@ function devolucionSetCategoria(cat) {
       else b.classList.remove('sel');
     });
   }
+  if (typeof _entAplicarModoTotal === 'function') _entAplicarModoTotal();   // v14.199.0 (placeholder de "Otro")
 }
 
 function devolucionQty(safe, delta) {
@@ -43540,7 +43980,11 @@ function cerrarEntregaModal() {
   if (motEl) motEl.value = '';
   // Limpiar selección visual de categorías
   const grid = document.getElementById('entrega-devolucion-cats');
-  if (grid) grid.querySelectorAll('.dev-cat-btn').forEach(function(b) { b.classList.remove('sel'); });
+  if (grid) grid.querySelectorAll('.dev-cat-btn').forEach(function(b) { b.classList.remove('sel'); b.disabled = false; b.style.opacity = ''; });
+  // v14.199.0 — el modo "devolución total" no se arrastra a la próxima entrega
+  const avisoDT = document.getElementById('dev-total-aviso');
+  if (avisoDT) avisoDT.style.display = 'none';
+  if (motEl) { motEl.style.borderColor = ''; motEl.placeholder = 'Detalle adicional (opcional)...'; }
   // FIX N42-B: limpiar tarjetas de novedades guardadas
   const novWrap = document.getElementById('entrega-novedades-wrap');
   if (novWrap) { novWrap.innerHTML = ''; novWrap.style.display = 'none'; }
@@ -43661,6 +44105,20 @@ function cobroMultipleActualizar() {
 
 async function confirmarEntregaModal() {
   if (!_entregaModalId) return;
+  // v14.199.0 — una entrega ya resuelta no se vuelve a confirmar desde acá
+  var _eCM = _entregasCache.find(function(x) { return x.id === _entregaModalId; });
+  if (_eCM && _entSoloLectura(_eCM)) { toast('Esta entrega ya está resuelta', 'err'); return; }
+  // v14.199.0 — no bajó nada: devolución total (sin cobro, nunca 'entregado')
+  if (_entNadaBajado()) { await _confirmarDevolucionTotal(); return; }
+  // v14.199.0 — sin detalle de productos no hay devolución total posible: no inventar cobro
+  if (!_entItems.length) {
+    var _mT = _getMontoConDevolucion();
+    if (_mT.original > 0 && _mT.devolucion > 0 && _mT.aCobrar <= 0) {
+      alert('⛔ NO SE REGISTRÓ NADA\n\nEste pedido no tiene el detalle de productos cargado, así que la devolución total no se puede registrar desde acá.\n\n' +
+            'No cargues un cobro inventado: avisá a Administración con el nombre del cliente.');
+      return;
+    }
+  }
   const metodos = ['efectivo','transferencia','cheque','cuenta_corriente'];
   const cobros = {};
   let totalCobrado = 0;
@@ -44665,6 +45123,9 @@ async function _ejecutarConfirmacionEntrega(cobros) {
   // v14.113.0 — lo REALMENTE cobrado (suma de instrumentos), para monto_cobrado
   let montoCobradoReal = 0;
   Object.keys(cobros).forEach(function(k) { montoCobradoReal += parseFloat(cobros[k]) || 0; });
+  // v14.199.0 — lo que efectivamente ENTRÓ (la cta. cte. no es cobro)
+  let montoCobradoInstr = 0;
+  ['efectivo','transferencia','cheque'].forEach(function(k) { montoCobradoInstr += parseFloat(cobros[k]) || 0; });
   let montoDevuelto = 0;
   let montoOriginalEntrega = 0;
   let montoAcobrar = 0;
@@ -44720,6 +45181,12 @@ async function _ejecutarConfirmacionEntrega(cobros) {
     var _faltTxt = 'FALTANTE (no estaba en el camión): ' + _entItemsFaltanteTexto();
     payload.diferencia_motivo = payload.diferencia_motivo ? (_faltTxt + ' · ' + payload.diferencia_motivo) : _faltTxt;
     payload.monto_cobrado_real = montoCobradoReal;
+  }
+  // v14.199.0 — entrega PARCIAL (devolución o faltante): monto_cobrado_real =
+  // efectivo + transferencia + cheque. Sin esto la cuenta corriente tomaba el
+  // monto ORIGINAL completo como cobrado.
+  if ((devDataFinal && devDataFinal !== 'SIN_CATEGORIA') || _faltMonto > 0) {
+    payload.monto_cobrado_real = Math.round(montoCobradoInstr * 100) / 100;
   }
 
   // v14.188.0 — sesión vencida: el PATCH caería a anon → 401 y la entrega se
@@ -44842,6 +45309,7 @@ async function _ejecutarConfirmacionEntrega(cobros) {
         const devPayload = {
           pedido_id:        e.pedido_id || null,
           entrega_id:       e.id || null,
+          viaje_id:         e.viaje_id || null,   // v14.199.0: traba de Cámara al rendir
           cliente:          e.cliente || null,
           comercio:         e.comercio || null,
           ciudad:           e.ciudad || null,
@@ -45067,15 +45535,46 @@ function cambiarCobroEntrega(entregaId, clienteNombre, monto) {
 async function deshacerEntrega(entregaId) {
   if (!confirm('¿Deshacer esta entrega?')) return;
   try {
+    // v14.199.0 — la devolución parcial de esta entrega: si Cámara ya la
+    // recibió, no se deshace desde la app (queda para Administración).
+    var _devsP = await sbFetch('devoluciones?entrega_id=eq.' + encodeURIComponent(entregaId) +
+      '&tipo=eq.parcial&estado=neq.archivada&select=id,estado') || [];
+    if (_devsP.some(function(d) { return d.estado !== 'registrada'; })) {
+      alert('⛔ NO SE DESHIZO\n\nCámara ya recibió la devolución de esta entrega. Para corregirla, avisá a Administración.');
+      return;
+    }
     await sbFetch('entregas?id=eq.' + entregaId, {
       method: 'PATCH',
-      body: JSON.stringify({ estado: 'pendiente', forma_cobro: null, fecha_entrega: null })
+      // v14.199.0: también se limpian los datos de cobro, para que no queden
+      // colgados si la entrega se vuelve a confirmar distinta
+      body: JSON.stringify({ estado: 'pendiente', forma_cobro: null, fecha_entrega: null,
+                             detalle_cobro: null, monto_cobrado_real: null, diferencia_motivo: null })
     });
     const idx = _entregasCache.findIndex(e => e.id === entregaId);
     if (idx >= 0) {
       _entregasCache[idx].estado      = 'pendiente';
       _entregasCache[idx].forma_cobro = null;
       _entregasCache[idx].fecha_entrega = null;
+      _entregasCache[idx].detalle_cobro = null;
+      _entregasCache[idx].monto_cobrado_real = null;
+      _entregasCache[idx].diferencia_motivo = null;
+    }
+    // v14.199.0 — la devolución anterior se archiva (si no, al volver a
+    // confirmar quedaba duplicada)
+    if (_devsP.length) {
+      try {
+        var _arch = await sbFetch('devoluciones?entrega_id=eq.' + encodeURIComponent(entregaId) +
+          '&tipo=eq.parcial&estado=eq.registrada', {
+          method: 'PATCH',
+          headers: { 'Prefer': 'return=representation' },
+          body: JSON.stringify({ estado: 'archivada',
+            nota_admin: 'Archivada al deshacer la entrega (' + (vendedorActual || 'chofer') + ', ' + new Date().toLocaleString('es-AR') + ')' })
+        });
+        if (!_arch || !_arch.length) throw new Error('PATCH devolvió vacío');
+      } catch (eArch) {
+        console.error('[v14.199.0] deshacer: no se pudo archivar la devolución:', eArch);
+        toast('⚠️ Entrega deshecha, pero la devolución anterior no se pudo anular: avisá a Administración', 'err');
+      }
     }
     renderEntregas(_entregasCache);
     renderResumenChofer(_entregasCache);
@@ -55453,6 +55952,9 @@ async function depositoRecargar() {
       '&order=fecha_devolucion.desc&limit=400') || [];
   } catch(e) {
     console.error('[depósito] cargar:', e);
+    if (typeof cv2On === 'function' && cv2On() && _depSeccion === 'cargas') {   // v14.198.0
+      _depCargando = false; depositoRender(); cv2DepRecargar(); return;
+    }
     var root0 = document.getElementById('dep-root');
     if (root0) root0.innerHTML = '<div class="dep-empty">⚠️ No se pudieron cargar las devoluciones.<br>Revisá la conexión y tocá Actualizar.</div>' +
       '<div style="text-align:center;margin-top:12px;"><button class="dep-refresh" onclick="depositoRecargar()">🔄 Actualizar</button></div>';
@@ -55553,6 +56055,9 @@ function depositoRender() {
   else if (_depSeccion === 'vencimientos')  h += _depVencHtml();
   else                                      h += _depDevolucionesHtml();
 
+  // v14.198.0 — carga v2: el panel vive en un nodo propio (no se pierde lo tipeado)
+  if (typeof cv2On === 'function' && cv2On() && _depSeccion === 'cargas') { cv2MontarEnDeposito(root, h); return; }
+  root.dataset.cv2 = '';
   root.innerHTML = h;
 }
 
@@ -56944,6 +57449,7 @@ function depSeccionIr(sec) {
 }
 
 function _depCargasPendientes() {
+  if (typeof cv2On === 'function' && cv2On()) return cv2PendientesN();   // v14.198.0
   // v14.186.0 — "pendiente" = la carga todavía no está cerrada (antes miraba
   // cargas_conformidad, tabla histórica que ya no se escribe desde v14.169.0).
   return _depViajesHoy.filter(function(v) { return v.estado !== 'carga_cerrada'; }).length
@@ -57129,6 +57635,7 @@ function _depBannerPlanilla(viajeId) {
 
 var _depCargasCargando = false;
 async function depCargasRecargar() {
+  if (typeof cv2On === 'function' && cv2On()) { return cv2DepRecargar(); }   // v14.198.0
   if (_depCargasCargando) return;
   _depCargasCargando = true;
   try {
@@ -57708,6 +58215,7 @@ function _depHuerfanosHtml() {
 }
 
 function _depCargasHtml() {
+  if (typeof cv2On === 'function' && cv2On()) return cv2DepHtml();   // v14.198.0
   var h = '<div style="font-size:12px;color:#8A7E72;margin:0 2px 8px;">Viajes de HOY y MAÑANA · orden de carga (última parada primero). Tildá cada producto al cargarlo y confirmá el control cuando esté todo arriba. Si la planilla cambió, arriba de la tarjeta ves QUÉ CAMBIÓ.</div>';
   if (!_depCargasCargado) return h + '<div class="dep-empty">Cargando viajes…</div>';
   // v14.88.0 — pedidos sin viaje SIEMPRE arriba (red de seguridad)
@@ -57839,7 +58347,7 @@ async function depCerrarCarga(viajeId) {
     } else {
       // Mensaje REAL del backend. No se toca el estado local.
       alert('\u26D4 NO SE PUEDE CERRAR LA CARGA\n\n' +
-            ((r && r.message) || 'Error desconocido'));
+            (typeof cv2LimpiarMsg === 'function' ? cv2LimpiarMsg((r && r.message) || 'Error desconocido') : ((r && r.message) || 'Error desconocido')));
     }
   } catch (e) {
     alert('\u26D4 No se pudo cerrar la carga.\n\nRevisá la conexión y volvé a intentar.\n\n' +
@@ -58311,7 +58819,7 @@ function depPollIniciar() {
    TCK_UPD_LOCAL aca Y el archivo version.json del repo.
    ============================================================ */
 (function(){
-  var TCK_UPD_LOCAL = '14.193.1';        /* <-- bump en cada deploy */
+  var TCK_UPD_LOCAL = '14.199.0';        /* <-- bump en cada deploy */
   /* v14.159.0: fuente UNICA de version. La telemetria del shadow la reporta,
      asi que un desfasaje contra version.json se ve solo en el primer pedido
      (paso 4 veces sin que nadie lo notara: 14.109, 14.128, 14.137, 14.147). */
@@ -59106,6 +59614,1551 @@ async function recoReintentarPedido(pedidoId) {
   var r = await _pedidoReconciliar(pedidoId);
   toast(r.ok ? "✅ Pedido actualizado" : ("⚠️ " + r.motivo), r.ok ? "ok" : "err");
   return r;
+}
+
+</script>
+<style id="cv2-style">
+/* ═══ v14.198.0 — CARGA V2 (Depósito + Chofer) ═══ */
+.cv2 { font-family: 'Barlow', system-ui, sans-serif; color: #2A2018; }
+.cv2 * { box-sizing: border-box; }
+.cv2-h1 { font-family: 'Barlow Condensed', sans-serif; font-weight: 900; font-size: 22px; line-height: 1.1; }
+.cv2-sub { font-size: 12.5px; color: #7A6E62; }
+.cv2-card { background: #fff; border: 1.5px solid #E6DDD2; border-radius: 14px; padding: 12px; margin: 10px 0; }
+.cv2-card.clk { cursor: pointer; }
+.cv2-row { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.cv2-sp { flex: 1; }
+.cv2-chip { display: inline-flex; align-items: center; gap: 4px; font-size: 11.5px; font-weight: 800; border-radius: 999px; padding: 3px 9px; border: 1px solid transparent; white-space: nowrap; }
+.cv2-chip.ok { background: #E8F5E9; color: #1B5E20; border-color: #A5D6A7; }
+.cv2-chip.warn { background: #FFF3E0; color: #B45309; border-color: #FFCC80; }
+.cv2-chip.err { background: #FFEBEE; color: #B71C1C; border-color: #EF9A9A; }
+.cv2-chip.info { background: #E3F2FD; color: #0D47A1; border-color: #90CAF9; }
+.cv2-chip.gris { background: #F2EDE7; color: #5C4A38; border-color: #E0D6CA; }
+.cv2-chip.fis { background: #FFF8E1; color: #7A5B00; border-color: #FFE082; }
+.cv2-bar { height: 10px; background: #EFE7DD; border-radius: 99px; overflow: hidden; margin-top: 6px; }
+.cv2-bar > i { display: block; height: 100%; background: linear-gradient(90deg,#2E7D32,#66BB6A); border-radius: 99px; transition: width .3s; }
+.cv2-btn { font: inherit; font-weight: 800; border-radius: 12px; border: 1.5px solid #D8CEC2; background: #fff; color: #2A2018; padding: 10px 14px; cursor: pointer; min-height: 44px; }
+.cv2-btn:disabled { opacity: .45; cursor: not-allowed; }
+.cv2-btn.pri { background: #8B1A1A; color: #fff; border-color: #8B1A1A; }
+.cv2-btn.ok { background: #2E7D32; color: #fff; border-color: #2E7D32; }
+.cv2-btn.warn { background: #E65100; color: #fff; border-color: #E65100; }
+.cv2-btn.big { width: 100%; font-size: 18px; min-height: 56px; font-family: 'Barlow Condensed', sans-serif; letter-spacing: .5px; }
+.cv2-btn.sm { min-height: 34px; padding: 6px 10px; font-size: 12.5px; }
+.cv2-link { background: none; border: none; color: #8B1A1A; font-weight: 800; cursor: pointer; padding: 4px; font: inherit; font-size: 12.5px; text-decoration: underline; }
+.cv2-alert { border-radius: 12px; padding: 10px 12px; margin: 10px 0; font-size: 13.5px; }
+.cv2-alert.err { background: #FFEBEE; border: 2px solid #C62828; color: #7F1414; }
+.cv2-alert.warn { background: #FFF3E0; border: 1.5px solid #FB8C00; color: #7A3E00; }
+.cv2-alert.fis { background: #FFFBEA; border: 1.5px dashed #D4A017; color: #5C4600; }
+.cv2-alert.ok { background: #E8F5E9; border: 1.5px solid #66BB6A; color: #1B5E20; }
+.cv2-alert b.t { display: block; font-family: 'Barlow Condensed', sans-serif; font-size: 17px; letter-spacing: .3px; margin-bottom: 4px; }
+.cv2-tools { position: sticky; top: 0; z-index: 5; background: #FBF7F2; padding: 8px 0; }
+.cv2-search { width: 100%; font: inherit; font-size: 16px; padding: 10px 12px; border: 1.5px solid #D8CEC2; border-radius: 12px; }
+.cv2-filtros { display: flex; gap: 6px; overflow-x: auto; margin-top: 8px; padding-bottom: 2px; }
+.cv2-filtros button { font: inherit; font-size: 13px; font-weight: 800; border: 1.5px solid #D8CEC2; background: #fff; border-radius: 999px; padding: 7px 12px; white-space: nowrap; cursor: pointer; }
+.cv2-filtros button.sel { background: #2A2018; color: #fff; border-color: #2A2018; }
+.cv2-grp { border: 1.5px solid #E6DDD2; border-radius: 14px; margin: 10px 0; background: #fff; overflow: hidden; }
+.cv2-grp-h { display: flex; align-items: center; gap: 8px; padding: 10px 12px; background: #F7F1EA; cursor: pointer; font-weight: 900; font-family: 'Barlow Condensed', sans-serif; font-size: 16px; }
+.cv2-line { border-top: 1px solid #EFE7DD; padding: 10px 12px; }
+.cv2-line.st-ok { background: #F6FBF6; }
+.cv2-line.st-cambio { background: #FFF5F5; border-left: 5px solid #C62828; }
+.cv2-line.st-diferencia { background: #FFF8EF; border-left: 5px solid #E65100; }
+.cv2-l-top { display: flex; gap: 10px; align-items: center; }
+.cv2-l-name { font-weight: 800; font-size: 15px; }
+.cv2-cal { font-size: 11px; font-weight: 900; background: #2A2018; color: #fff; border-radius: 6px; padding: 1px 6px; margin-left: 4px; }
+.cv2-req { font-family: 'Barlow Condensed', sans-serif; font-size: 26px; font-weight: 900; min-width: 44px; text-align: right; }
+.cv2-in { width: 84px; font: inherit; font-size: 22px; font-weight: 900; text-align: center; padding: 6px; border: 2px solid #BDB1A3; border-radius: 10px; }
+.cv2-in:focus { outline: none; border-color: #8B1A1A; box-shadow: 0 0 0 3px rgba(139,26,26,.15); }
+.cv2-task { font-family: 'Barlow Condensed', sans-serif; font-size: 20px; font-weight: 900; color: #B71C1C; }
+.cv2-motivos { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 8px; }
+.cv2-motivos button { font: inherit; font-size: 13px; border: 1.5px solid #D8CEC2; background: #fff; border-radius: 10px; padding: 8px 10px; cursor: pointer; }
+.cv2-motivos button.sel { border-color: #E65100; background: #FFF3E0; font-weight: 800; }
+.cv2-ped { font-size: 12.5px; color: #5C4A38; margin-top: 6px; padding: 6px 8px; background: #FBF7F2; border-radius: 8px; }
+.cv2-ped div { padding: 2px 0; }
+.cv2-footer { position: sticky; bottom: 0; background: linear-gradient(transparent, #FBF7F2 18%); padding: 16px 0 10px; z-index: 5; }
+.cv2-bloq { font-size: 12.5px; color: #7F1414; margin-top: 6px; }
+.cv2-sync { font-size: 11px; font-weight: 800; color: #8A6D1F; background: #FFF4E0; border: 1px solid #FFD48A; border-radius: 6px; padding: 1px 6px; }
+.cv2-modal-bk { position: fixed; inset: 0; background: rgba(20,12,6,.55); z-index: 100000; display: flex; align-items: center; justify-content: center; padding: 14px; }
+.cv2-modal { background: #fff; border-radius: 16px; max-width: 520px; width: 100%; max-height: 90vh; overflow: auto; padding: 16px; }
+.cv2-lote { border: 1.5px solid #E6DDD2; border-radius: 14px; padding: 12px; margin: 10px 0; background: #fff; }
+.cv2-lote.ok { border-color: #66BB6A; background: #F6FBF6; }
+.cv2-lote.diferencia { border-color: #E65100; background: #FFF8EF; }
+.cv2-cont { display: flex; align-items: center; justify-content: center; gap: 10px; margin: 10px 0; }
+.cv2-cont button { width: 64px; height: 64px; border-radius: 16px; border: 2px solid #D8CEC2; background: #fff; font-size: 30px; font-weight: 900; cursor: pointer; }
+.cv2-cont .n { font-family: 'Barlow Condensed', sans-serif; font-size: 44px; font-weight: 900; min-width: 90px; text-align: center; border: 2px solid #BDB1A3; border-radius: 12px; padding: 2px 6px; }
+.cv2-hash { font-family: ui-monospace, Menlo, monospace; font-size: 11.5px; background: #F2EDE7; border-radius: 6px; padding: 1px 5px; }
+@media (min-width: 900px) { .cv2 { max-width: 880px; margin: 0 auto; } }
+@media (max-width: 899px) { .cv2-footer { bottom: calc(76px + env(safe-area-inset-bottom, 0px)); } }
+/* v14.198.0 — conteo del chofer para cantidades grandes, con guantes */
+.cv2-lotes { display: grid; grid-template-columns: 1fr; gap: 0 14px; }
+@media (min-width: 900px) { .cv2-lotes { grid-template-columns: 1fr 1fr; } }
+.cv2-cnt-uni { margin: 8px 0 6px; font-size: 15px; }
+.cv2-cnt-uni b { display: inline-block; background: #2A2018; color: #fff; border-radius: 8px; padding: 2px 10px; font-size: 18px; letter-spacing: .5px; font-family: 'Barlow Condensed', sans-serif; }
+.cv2-cnt-in { width: 100%; font-family: 'Barlow Condensed', sans-serif; font-size: 52px; font-weight: 900; text-align: center; padding: 6px 10px; min-height: 84px;
+  border: 3px solid #BDB1A3; border-radius: 16px; background: #fff; color: #2A2018; }
+.cv2-cnt-in:focus { outline: none; border-color: #8B1A1A; box-shadow: 0 0 0 4px rgba(139,26,26,.18); }
+.cv2-cnt-err { min-height: 18px; color: #B71C1C; font-weight: 800; font-size: 13px; margin: 4px 2px; }
+.cv2-cnt-btns { display: grid; grid-template-columns: repeat(4, 1fr); gap: 10px; }
+.cv2-cnt-btns button { min-height: 68px; border-radius: 16px; border: 2px solid #CFC4B6; background: #F7F1EA; font: 900 26px 'Barlow Condensed', sans-serif; color: #2A2018; cursor: pointer; touch-action: manipulation; }
+.cv2-cnt-btns button:active { background: #EADFD2; transform: scale(.98); }
+.cv2-cnt-acc { display: grid; grid-template-columns: 1fr 2.2fr; gap: 10px; margin-top: 10px; }
+.cv2-cnt-acc .cv2-btn { min-height: 68px; font-size: 18px; touch-action: manipulation; }
+.cv2-conf { text-align: center; background: #FFFBEA; border: 2px solid #D4A017; border-radius: 16px; padding: 10px; margin-top: 6px; }
+.cv2-conf-q { font-size: 18px; font-weight: 800; }
+.cv2-conf-n { font-family: 'Barlow Condensed', sans-serif; font-size: 64px; font-weight: 900; line-height: 1; }
+.cv2-conf-btns { display: grid; grid-template-columns: 1.4fr 1fr; gap: 10px; margin-top: 10px; }
+.cv2-conf-btns .cv2-btn { min-height: 68px; touch-action: manipulation; }
+.cv2-in-grande { width: 110px; font-size: 28px; min-height: 58px; }
+</style>
+<script id="cv2-module">
+/* ═══════════════════════════════════════════════════════════════════
+   v14.198.0 — CARGA V2: núcleo compartido (Depósito + Chofer)
+   Todo el estado vive en Supabase (RPC carga_* / chofer_*). Acá solo hay
+   vista, una cola offline de envíos (con request_id, idempotente) y el
+   borrador del contador del chofer. Nada de esto es fuente de verdad.
+   FLAG: CARGA_V2_CFG.modo = 'off' | 'piloto' | 'on'
+   ═══════════════════════════════════════════════════════════════════ */
+var CARGA_V2_CFG = {
+  modo: 'off',
+  piloto: ['Pancho', 'Joan', 'Juan Pablo', 'Francisco'],   // Nahuel y Cesar: sumar cuando se confirme su situación
+  pingMs: 8000,
+  autoPlanillaMinMs: 15000
+};
+function cv2On() {
+  try {
+    if (CARGA_V2_CFG.modo === 'on') return true;
+    if (CARGA_V2_CFG.modo === 'piloto') return CARGA_V2_CFG.piloto.indexOf(vendedorActual) !== -1;
+  } catch (e) {}
+  return false;
+}
+try { window.cv2On = cv2On; } catch (e) {}
+
+function cv2Esc(s) {
+  return String(s == null ? '' : s).replace(/[&<>"']/g, function (c) {
+    return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c];
+  });
+}
+function cv2Norm(s) {
+  return String(s || '').toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '');
+}
+function cv2Rid() {
+  try { if (window.crypto && crypto.randomUUID) return crypto.randomUUID(); } catch (e) {}
+  return 'r' + Date.now().toString(36) + Math.random().toString(36).slice(2, 10);
+}
+function cv2Hora(ts) {
+  if (!ts) return '';
+  try { return new Date(ts).toLocaleTimeString('es-AR', { hour: '2-digit', minute: '2-digit' }); } catch (e) { return ''; }
+}
+function cv2Dia(fecha) {
+  var hoy = new Date(); hoy.setHours(0, 0, 0, 0);
+  var p = String(fecha || '').split('-');
+  if (p.length !== 3) return fecha || '';
+  var d = new Date(+p[0], +p[1] - 1, +p[2]);
+  var dd = Math.round((d - hoy) / 86400000);
+  if (dd === 0) return 'Hoy';
+  if (dd === 1) return 'Mañana';
+  if (dd === -1) return 'Ayer';
+  return p[2] + '/' + p[1];
+}
+var CV2_UNI = { caja: ['caja', 'cajas'], bolsa: ['bolsa', 'bolsas'], maple: ['maple', 'maples'], cajita: ['cajita', 'cajitas'],
+  paquete: ['paquete', 'paquetes'], estuche: ['estuche', 'estuches'], bulto: ['bulto', 'bultos'], tubo: ['tubo', 'tubos'], unidad: ['unidad', 'unidades'] };
+function cv2Uni(u, n) { var x = CV2_UNI[u] || [u, u]; return Number(n) === 1 ? x[0] : x[1]; }
+function cv2Zona(z) {
+  var m = { zona1a: 'Zona 1A', zona1b: 'Zona 1B', zona2a: 'Zona 2A', zona2b: 'Zona 2B', zona3: 'Zona 3',
+            tl_manana: 'TL mañana', tl_tarde: 'TL tarde', america_fortin: 'América / Fortín' };
+  return m[z] || z || 'Viaje';
+}
+function cv2Beep() {
+  try { if (typeof sonarTono === 'function') sonarTono([660, 880, 660], 0.18); } catch (e) {}
+  try { if (navigator.vibrate) navigator.vibrate([250, 120, 250]); } catch (e) {}
+}
+function cv2Toast(m, t) { try { if (typeof toast === 'function') toast(m, t || 'ok'); } catch (e) {} }
+
+// RPC. Devuelve el JSON de la función; si la red falla, lanza {red:true}.
+async function cv2Rpc(fn, args) {
+  try {
+    return await sbFetch('rpc/' + fn, { method: 'POST', body: JSON.stringify(args || {}), timeoutMs: 20000 });
+  } catch (e) {
+    var msg = String(e && e.message || e);
+    var esRed = (e && e.esTimeout) || /Failed to fetch|NetworkError|Load failed|Timeout/i.test(msg);
+    var err = new Error(msg); err.red = esRed; throw err;
+  }
+}
+
+// ── Cola offline: envíos pendientes con su request_id (idempotentes) ──
+function cv2OutboxKey() { return 'cv2_outbox_' + (vendedorActual || 'x'); }
+function cv2OutboxLeer() { try { return JSON.parse(localStorage.getItem(cv2OutboxKey()) || '[]'); } catch (e) { return []; } }
+function cv2OutboxGuardar(a) { try { localStorage.setItem(cv2OutboxKey(), JSON.stringify(a)); } catch (e) {} }
+function cv2OutboxPendiente(viajeId, clave) {
+  return cv2OutboxLeer().some(function (x) { return x.args && x.args.p_viaje_id === viajeId && (clave === undefined || x.args.p_clave === clave); });
+}
+// Envía una operación. Si no hay red, queda en cola y devuelve {ok:true, encolado:true}.
+async function cv2Enviar(fn, args) {
+  if (!args.p_request_id) args.p_request_id = cv2Rid();
+  var cola = cv2OutboxLeer();
+  cola.push({ fn: fn, args: args, ts: Date.now() });
+  cv2OutboxGuardar(cola);
+  try {
+    var r = await cv2Rpc(fn, args);
+    cv2OutboxGuardar(cv2OutboxLeer().filter(function (x) { return x.args.p_request_id !== args.p_request_id; }));
+    return r;
+  } catch (e) {
+    if (e.red) return { ok: true, encolado: true };
+    cv2OutboxGuardar(cv2OutboxLeer().filter(function (x) { return x.args.p_request_id !== args.p_request_id; }));
+    return { ok: false, code: 'ERROR', message: e.message };
+  }
+}
+var _cv2Flushing = false;
+async function cv2OutboxFlush() {
+  if (_cv2Flushing) return 0;
+  _cv2Flushing = true;
+  var n = 0;
+  try {
+    var cola = cv2OutboxLeer();
+    for (var i = 0; i < cola.length; i++) {
+      var it = cola[i];
+      try {
+        var r = await cv2Rpc(it.fn, it.args);
+        cv2OutboxGuardar(cv2OutboxLeer().filter(function (x) { return x.args.p_request_id !== it.args.p_request_id; }));
+        n++;
+        if (r && r.ok === false) cv2Toast('⚠️ Un registro guardado sin señal no se aplicó: ' + (r.message || r.code), 'err');
+      } catch (e) { if (e.red) break; }
+    }
+  } finally { _cv2Flushing = false; }
+  if (n > 0) {   // lo que estaba en cola ya llegó: refrescar lo que se ve
+    try { if (typeof cv2ChoferEl !== 'undefined' && cv2ChoferEl && document.body.contains(cv2ChoferEl)) cv2ChoferCargar(); } catch (e) {}
+    try { if (typeof cv2DepEl !== 'undefined' && cv2DepEl && document.body.contains(cv2DepEl) && CV2D.vista === 'detalle') cv2DCargarDetalle(); } catch (e) {}
+  }
+  return n;
+}
+
+// ── Modal propio (reemplaza confirm/prompt en acciones importantes) ──
+function cv2Modal(html, onMount) {
+  var bk = document.createElement('div');
+  bk.className = 'cv2-modal-bk';
+  bk.innerHTML = '<div class="cv2-modal cv2">' + html + '</div>';
+  bk.addEventListener('click', function (e) { if (e.target === bk) bk.remove(); });
+  document.body.appendChild(bk);
+  if (onMount) onMount(bk);
+  return bk;
+}
+
+// ── Render sin perder el foco ni lo tipeado ──
+function cv2Pintar(el, html) {
+  if (!el) return;
+  var ae = document.activeElement, keep = null;
+  if (ae && ae.id && el.contains(ae)) {
+    keep = { id: ae.id, v: ae.value, s: ae.selectionStart, e: ae.selectionEnd };
+  }
+  var borr = {};
+  el.querySelectorAll('input[data-keep],textarea[data-keep]').forEach(function (x) { if (x.id && x.value) borr[x.id] = x.value; });
+  el.innerHTML = html;
+  Object.keys(borr).forEach(function (id) { var x = document.getElementById(id); if (x && !x.value) x.value = borr[id]; });
+  if (keep) {
+    var n = document.getElementById(keep.id);
+    if (n) {
+      n.value = keep.v;
+      try { n.focus({ preventScroll: true }); if (keep.s != null) n.setSelectionRange(keep.s, keep.e); } catch (e) {}
+    }
+  }
+}
+
+var CV2_MOTIVOS = null;
+async function cv2Motivos() {
+  if (CV2_MOTIVOS) return CV2_MOTIVOS;
+  try {
+    CV2_MOTIVOS = await sbFetch('carga_motivo?select=codigo,ambito,texto,exige_nota&activo=eq.true&order=codigo') || [];
+  } catch (e) { CV2_MOTIVOS = []; }
+  return CV2_MOTIVOS;
+}
+
+window.addEventListener('online', function () { if (cv2On()) cv2OutboxFlush().then(function () { cv2Tick(true); }); });
+document.addEventListener('visibilitychange', function () { if (!document.hidden && cv2On()) cv2Tick(true); });
+
+// Al recargar la página, la sesión se restaura antes de que exista el módulo de
+// Depósito y Pancho quedaba en una pestaña vacía (defecto previo, 14.191.0).
+setTimeout(function () {
+  try {
+    if (cv2On() && (vendedorActual === 'Pancho' || vendedorActual === 'Chan') &&
+        typeof _tabActual !== 'undefined' && _tabActual !== 'deposito' && typeof cambiarTab === 'function') {
+      cambiarTab('deposito');
+    }
+  } catch (e) {}
+}, 0);
+
+// Francisco como chofer: el botón existe solo con el módulo v2 prendido, y el
+// login se acepta solo si hoy hay un viaje a su nombre.
+async function cv2FranciscoVerificarReparto() {
+  try {
+    var d = new Date(); d.setDate(d.getDate() - 1);
+    var ayer = d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0');
+    var r = await sbFetch('viajes?select=id&chofer=eq.Francisco&estado=in.(planificado,preparando,carga_cerrada,en_ruta)' +
+      '&fecha_salida=gte.' + ayer + '&limit=1');
+    var hoy = new Date();
+    var h = hoy.getFullYear() + '-' + String(hoy.getMonth() + 1).padStart(2, '0') + '-' + String(hoy.getDate()).padStart(2, '0');
+    if (Array.isArray(r) && r.length) { localStorage.setItem('tck_fr_reparto', h); return true; }
+    localStorage.removeItem('tck_fr_reparto');
+    return false;
+  } catch (e) { return false; }
+}
+(function () {
+  try {
+    if (CARGA_V2_CFG.modo === 'off') return;
+    var b = document.getElementById('login-btn-franciscochofer');
+    if (b) b.style.display = '';
+  } catch (e) {}
+})();
+
+// Los errores del Apps Script llegan como 'Error: HTTP 400: {"code":"P0001",...,"message":"CARGA_V2: ..."}'
+// (_viajeSbFetch, L13246 del Código.gs). Se muestra solo el texto útil.
+function cv2LimpiarMsg(m) {
+  var t = String(m == null ? '' : m);
+  var i = t.indexOf('CARGA_V2:');
+  if (i >= 0) {
+    var r = t.slice(i + 9);
+    var f = r.search(/"|\\"/);
+    return (f >= 0 ? r.slice(0, f) : r).trim();
+  }
+  return t.replace(/^Error:\s*/, '');
+}
+try { window.cv2LimpiarMsg = cv2LimpiarMsg; } catch (e) {}
+
+// ── Incidencias posteriores a la salida (la carga aceptada no cambia) ──
+var CV2_INC_TXT = {
+  pedido_derivado: 'pedido nuevo: va en la próxima salida',
+  pedido_sin_viaje: 'pedido nuevo sin viaje disponible: lo resuelve Administración',
+  edicion_items: 'pedido modificado después de salir',
+  version_bloqueada: 'se intentó generar una planilla nueva: bloqueado',
+  entrega_redirigida: 'entrega pasada a la próxima salida',
+  pedido_retirado_en_ruta: 'Administración sacó este pedido del viaje: no se entrega en esta salida y vuelve a Cámara'
+};
+function cv2IncidenciaLinea(i) {
+  var d = i.detalle || {};
+  var extra = '';
+  if (i.subtipo === 'edicion_items' && d.producto) {
+    extra = ' (' + cv2Esc(d.producto) + ': ' + (d.antes == null ? '—' : d.antes) + ' → ' + (d.despues == null ? 'quitado' : d.despues) + ')';
+  }
+  if (i.subtipo === 'version_bloqueada' && d.version_intentada) extra = ' (v' + d.version_intentada + ')';
+  return '<div style="padding:3px 0;">• <b>' + cv2Esc(i.cliente || i.pedido_id || cv2Zona(i.zona)) + '</b> — ' +
+         cv2Esc(CV2_INC_TXT[i.subtipo] || i.subtipo) + extra +
+         ' <span class="cv2-sub">' + cv2Hora(i.creada_at) + (i.estado === 'revisada' ? ' · revisada por ' + cv2Esc(i.revisada_por) : '') + '</span></div>';
+}
+function cv2IncidenciasHtml(inc, modo) {
+  if (!inc || !inc.length) return '';
+  var h = '<div class="cv2-alert err"><b class="t">⚠ CAMBIOS DESPUÉS DE LA SALIDA (' + inc.length + ')</b>';
+  h += modo === 'chofer'
+    ? 'La carga que aceptaste <b>no cambia</b>. No subas ni bajes mercadería por tu cuenta: esto lo resuelve Administración.'
+    : 'Los viajes ya salieron: la carga aceptada por el chofer no se modifica. Queda para revisar con Administración.';
+  var porViaje = {};
+  inc.forEach(function (i) { (porViaje[i.viaje_id] = porViaje[i.viaje_id] || []).push(i); });
+  Object.keys(porViaje).forEach(function (vid) {
+    var l = porViaje[vid];
+    if (modo !== 'chofer') h += '<div style="margin-top:6px;font-weight:800;">🚚 ' + cv2Esc(cv2Zona(l[0].zona)) + ' · ' + cv2Esc(cv2Dia(l[0].fecha_salida)) + ' · ' + cv2Esc(l[0].chofer || '') + '</div>';
+    l.forEach(function (i) { h += cv2IncidenciaLinea(i); });
+  });
+  return h + '</div>';
+}
+function cv2ArranqueFallido(viajeId, msg) {
+  try { if (!cv2On()) return; cv2Rpc('carga_arranque_fallido', { p_viaje_id: viajeId, p_mensaje: String(msg || '') }).catch(function () {}); } catch (e) {}
+}
+try { window.cv2ArranqueFallido = cv2ArranqueFallido; } catch (e) {}
+
+/* ═══ v14.198.0 — CARGA V2 · PANEL DE DEPÓSITO ═══════════════════════ */
+var CV2D = { vista: 'lista', viajeId: null, lista: null, est: null, err: null, cargando: false,
+             filtro: null, busca: '', cerrados: {}, pedAbiertos: {}, edit: {}, motivoSel: {},
+             kidx: {}, kn: 0, ping: {}, autoPl: {}, generando: {}, verAnt: {}, sinPedidos: {} };
+var cv2DepEl = null;
+
+function cv2K(clave) { if (!CV2D.kidx[clave]) CV2D.kidx[clave] = 'l' + (++CV2D.kn); return CV2D.kidx[clave]; }
+function cv2ClaveDe(k) { for (var c in CV2D.kidx) if (CV2D.kidx[c] === k) return c; return null; }
+function cv2Linea(clave) { return (CV2D.est && CV2D.est.lineas || []).find(function (l) { return l.clave === clave; }); }
+
+// Enganches desde el módulo viejo de Depósito
+function cv2DepHtml() { return '<div id="cv2-dep-slot"></div>'; }
+function cv2MontarEnDeposito(root, h) {
+  if (!cv2DepEl) { cv2DepEl = document.createElement('div'); cv2DepEl.className = 'cv2'; cv2DepRender(); }
+  var slot = root.querySelector('#cv2-dep-slot');
+  if (root.dataset.cv2 === '1' && slot && slot.firstChild === cv2DepEl) {
+    // Solo refresco del encabezado/solapas: la carga no se repinta (no se pierde lo tipeado)
+    var tmp = document.createElement('div'); tmp.innerHTML = h;
+    var nuevo = tmp.querySelector('.dep-seg'), viejo = root.querySelector('.dep-seg');
+    if (nuevo && viejo) viejo.outerHTML = nuevo.outerHTML;
+    return;
+  }
+  root.innerHTML = h;
+  root.dataset.cv2 = '1';
+  slot = root.querySelector('#cv2-dep-slot');
+  if (slot) slot.appendChild(cv2DepEl);
+}
+function cv2PendientesN() {
+  return (CV2D.lista || []).filter(function (v) { return v.estado !== 'carga_cerrada' && v.chofer && v.chofer !== '—'; }).length;
+}
+
+async function cv2DepRecargar() {
+  if (CV2D.vista === 'detalle' && CV2D.viajeId) return cv2DCargarDetalle();
+  if (CV2D.cargando) return;
+  CV2D.cargando = true;
+  try {
+    var r = await cv2Rpc('carga_viajes_listado', {});
+    if (r && r.ok) { CV2D.lista = r.viajes || []; CV2D.incidencias = r.incidencias || []; CV2D.err = null; }
+    else CV2D.err = (r && r.message) || 'No se pudo leer la lista';
+  } catch (e) { CV2D.err = e.red ? 'Sin conexión: mostrando lo último que se cargó.' : e.message; }
+  CV2D.cargando = false;
+  cv2DepRender();
+  try { if (typeof _depBadgeTab === 'function') _depBadgeTab(); } catch (e) {}
+}
+
+async function cv2DCargarDetalle() {
+  if (!CV2D.viajeId) return;
+  try {
+    var r = await cv2Rpc('carga_estado', { p_viaje_id: CV2D.viajeId });
+    if (r && r.ok) {
+      var prev = CV2D.est;
+      if (prev && prev.viaje && prev.viaje.id === r.viaje.id && prev.planilla.version !== r.planilla.version) {
+        CV2D.verAnt[r.viaje.id] = { desde: prev.planilla.version, hasta: r.planilla.version, at: Date.now() };
+        cv2Beep();
+        cv2Toast('⚠️ La planilla cambió: v' + prev.planilla.version + ' → v' + r.planilla.version, 'err');
+      }
+      CV2D.est = r; CV2D.err = null;
+      if (CV2D.filtro === null) CV2D.filtro = cv2DHayPendientes() ? 'pendientes' : 'todas';
+      cv2DAutoPlanilla();
+    } else {
+      CV2D.err = (r && r.message) || 'No se pudo leer la carga';
+    }
+  } catch (e) { CV2D.err = e.red ? 'Sin conexión: los cambios se guardan y se envían al volver la señal.' : e.message; }
+  cv2DepRender();
+}
+
+// Versión nueva automática: si hay cambios de pedidos, el panel pide la planilla nueva solo.
+// Se reintenta en cada ciclo del refresco mientras el viaje siga desactualizado.
+function cv2DAutoPlanilla() {
+  var e = CV2D.est; if (!e || !e.puede_operar || e.viaje.estado !== 'preparando') return;
+  // Igual que el Apps Script: vale el contenido VIVO, no solo la bandera
+  if (e.planilla.desactualizada || (e.planilla.version > 0 && e.contenido_vivo_ok === false)) cv2DGenerarVersion(e.viaje.id);
+}
+async function cv2DGenerarVersion(id) {
+  var ult = CV2D.autoPl[id] || 0;
+  if (CV2D.generando[id] || Date.now() - ult < CARGA_V2_CFG.autoPlanillaMinMs) return;
+  CV2D.generando[id] = true; CV2D.autoPl[id] = Date.now();
+  if (CV2D.vista === 'detalle' && CV2D.viajeId === id) cv2DepRender();
+  try {
+    var r = await _colaFetchJson(APPS_SCRIPT_URL + '?accion=planillaImprimir&viaje_id=' + encodeURIComponent(id) +
+      '&quien=' + encodeURIComponent(vendedorActual || 'deposito'), 60000);
+    if (r && r.status === 'error' && /no tiene pedidos activos/i.test(r.message || '')) {
+      CV2D.sinPedidos[id] = true;                       // no se insiste con avisos: el panel lo muestra
+    } else if (!r || r.status !== 'ok') {
+      cv2Toast('⛔ No se pudo generar la planilla nueva (se reintenta): ' + cv2LimpiarMsg((r && r.message) || 'sin detalle'), 'err');
+    } else {
+      delete CV2D.sinPedidos[id];
+    }
+  } catch (err) { cv2Toast('⛔ Sin conexión para generar la planilla nueva (se reintenta)', 'err'); }
+  CV2D.generando[id] = false;
+  if (CV2D.vista === 'detalle' && CV2D.viajeId === id) cv2DCargarDetalle(); else cv2DepRecargar();
+}
+
+function cv2DAbrir(id) { CV2D.vista = 'detalle'; CV2D.viajeId = id; CV2D.est = null; CV2D.filtro = null; CV2D.busca = ''; cv2DepRender(); cv2DCargarDetalle(); }
+function cv2DVolver() { CV2D.vista = 'lista'; CV2D.viajeId = null; CV2D.est = null; cv2DepRender(); cv2DepRecargar(); }
+
+// ── LISTA ──
+function cv2DListaHtml() {
+  var h = '<div class="cv2-row" style="margin-top:4px;"><div class="cv2-sub">Viajes de hoy y los próximos dos días. Tocá uno para preparar su carga.</div></div>';
+  if (CV2D.err) h += '<div class="cv2-alert warn">' + cv2Esc(CV2D.err) + '</div>';
+  h += cv2IncidenciasHtml(CV2D.incidencias, 'deposito');
+  if (!CV2D.lista) return h + '<div class="cv2-card">Cargando viajes…</div>';
+  if (!CV2D.lista.length) return h + '<div class="cv2-card">No hay viajes para preparar.</div>';
+  CV2D.lista.forEach(function (v) {
+    var sinChofer = !v.chofer || v.chofer === '—';
+    var tot = Number(v.lineas_total) || 0, okn = Number(v.lineas_ok) || 0;
+    var pct = tot ? Math.round(okn / tot * 100) : 0;
+    var est;
+    if (sinChofer) est = '<span class="cv2-chip gris">Sin chofer asignado</span>';
+    else if (v.estado === 'carga_cerrada' && v.aceptada_version) est = '<span class="cv2-chip ok">✅ Aceptada por ' + cv2Esc(v.aceptada_por) + '</span>';
+    else if (v.estado === 'carga_cerrada') est = '<span class="cv2-chip info">🔒 Cerrada y congelada · esperando al chofer</span>';
+    else if (!v.planilla_version) est = '<span class="cv2-chip gris">Sin planilla todavía</span>';
+    else if (!v.sesion_version) est = '<span class="cv2-chip warn">Sin empezar</span>';
+    else est = '<span class="cv2-chip warn">Preparando</span>';
+    h += '<div class="cv2-card clk" onclick="cv2DAbrir(\'' + v.id + '\')">';
+    h += '<div class="cv2-row"><div class="cv2-h1">🚚 ' + cv2Esc(cv2Zona(v.zona)) + '</div><span class="cv2-chip gris">' + cv2Esc(cv2Dia(v.fecha_salida)) + '</span><span class="cv2-sp"></span>' + est + '</div>';
+    h += '<div class="cv2-sub">' + cv2Esc(sinChofer ? '—' : v.chofer) + ' · ' + cv2Esc(v.vehiculo || '—') + ' · ' + (v.total_pedidos || 0) + ' pedidos · horario: sin cargar</div>';
+    h += '<div class="cv2-row" style="margin-top:6px;">';
+    if (v.planilla_version) h += '<span class="cv2-chip ' + (v.planilla_desactualizada ? 'err' : 'gris') + '">📄 v' + v.planilla_version + (v.planilla_desactualizada ? ' · cambió' : '') + '</span>';
+    if (Number(v.cambios)) h += '<span class="cv2-chip err">↕ ' + v.cambios + ' cambio(s)</span>';
+    if (Number(v.diferencias)) h += '<span class="cv2-chip warn">≠ ' + v.diferencias + ' diferencia(s)</span>';
+    if (Number(v.sin_factura)) h += '<span class="cv2-chip fis">🧾 ' + v.sin_factura + ' sin factura</span>';
+    h += '</div>';
+    if (tot) h += '<div class="cv2-bar"><i style="width:' + pct + '%"></i></div><div class="cv2-sub" style="margin-top:3px;">' + okn + ' de ' + tot + ' productos listos' + (v.ultima_actividad ? ' · última actividad ' + cv2Hora(v.ultima_actividad) : '') + '</div>';
+    h += '<div style="margin-top:8px;"><button class="cv2-btn ' + (sinChofer ? '' : 'pri') + ' big" ' + (sinChofer ? 'disabled' : '') + '>' +
+         (v.estado === 'carga_cerrada' ? 'Ver carga' : (v.sesion_version && okn ? 'Continuar carga' : 'Abrir carga')) + '</button></div>';
+    h += '</div>';
+  });
+  return h;
+}
+
+// ── DETALLE ──
+function cv2DHayPendientes() {
+  return (CV2D.est && CV2D.est.lineas || []).some(function (l) { return cv2DEsPendiente(l); });
+}
+function cv2DEsPendiente(l) {
+  return l.estado === 'pendiente' || l.estado === 'cambio' || (l.estado === 'diferencia' && !l.dif_autorizada);
+}
+function cv2DPasaFiltro(l) {
+  var f = CV2D.filtro || 'todas';
+  if (f === 'pendientes' && !cv2DEsPendiente(l)) return false;
+  if (f === 'cambios' && l.estado !== 'cambio') return false;
+  if (f === 'diferencias' && l.estado !== 'diferencia') return false;
+  if (f === 'completos' && !(l.estado === 'ok' || (l.estado === 'diferencia' && l.dif_autorizada))) return false;
+  if (CV2D.busca) {
+    var q = cv2Norm(CV2D.busca);
+    var txt = cv2Norm(l.producto + ' ' + (l.calibre || '') + ' ' + (l.lote_nombre || '') + ' ' +
+      (l.pedidos || []).map(function (p) { return p.cliente + ' ' + (p.localidad || ''); }).join(' '));
+    if (txt.indexOf(q) === -1) return false;
+  }
+  return true;
+}
+
+function cv2DLineaHtml(l, puede, cerrada) {
+  var k = cv2K(l.clave), u = l.unidad;
+  var sync = cv2OutboxPendiente(CV2D.viajeId, l.clave) ? ' <span class="cv2-sync">⏳ sin enviar</span>' : '';
+  var nPed = (l.pedidos || []).length;
+  var sinF = (l.pedidos || []).some(function (p) { return p.sin_factura; });
+  var h = '<div class="cv2-line st-' + l.estado + '" id="cv2-line-' + k + '">';
+  h += '<div class="cv2-l-top"><div style="flex:1;min-width:0;">';
+  h += '<div class="cv2-l-name">' + cv2Esc(l.producto) + (l.calibre ? '<span class="cv2-cal">' + cv2Esc(l.calibre) + '</span>' : '') + sync + '</div>';
+  h += '<div class="cv2-sub">' + cv2Esc(cv2Uni(u, 2)) + ' · <button class="cv2-link" onclick="cv2DPedidos(\'' + k + '\')">' + nPed + ' pedido' + (nPed === 1 ? '' : 's') + ' ▾</button>' +
+       (sinF ? ' <span class="cv2-chip fis">🧾 incluye sin factura</span>' : '') + '</div>';
+  h += '</div><div style="text-align:right;"><div class="cv2-sub">pide</div><div class="cv2-req">' + l.requerido + '</div></div></div>';
+
+  var editando = CV2D.edit[l.clave];
+  if (l.estado === 'cambio' && !editando) {
+    var d = Number(l.delta) || 0;
+    var txt = Number(l.requerido) === 0 ? 'BAJAR TODO: ' + l.contado + ' ' + cv2Uni(u, l.contado)
+            : d > 0 ? 'SUBIR +' + d + ' ' + cv2Uni(u, d) + ' → total ' + l.requerido
+            : 'BAJAR ' + (-d) + ' ' + cv2Uni(u, -d) + ' → quedan ' + l.requerido;
+    h += '<div class="cv2-row" style="margin-top:8px;"><div class="cv2-task">' + (d > 0 ? '⬆ ' : '⬇ ') + cv2Esc(txt) + '</div>';
+    h += '<div class="cv2-sub" style="width:100%;">Tenías preparadas ' + (l.contado == null ? 0 : l.contado) + '.</div>';
+    if (puede && !cerrada) {
+      h += '<button class="cv2-btn ok" onclick="cv2DHecho(\'' + k + '\')">✔ Hecho: quedan ' + l.requerido + '</button>';
+      h += '<button class="cv2-link" onclick="cv2DCorregir(\'' + k + '\')">Conté otra cantidad</button>';
+    }
+    h += '</div>';
+  } else if (l.estado === 'ok' && !editando) {
+    h += '<div class="cv2-row" style="margin-top:6px;"><span class="cv2-chip ok">✓ ' + l.contado + ' ' + cv2Esc(cv2Uni(u, l.contado)) + '</span>' +
+         '<span class="cv2-sub">' + cv2Esc(l.contado_por || '') + ' ' + cv2Hora(l.contado_at) + '</span><span class="cv2-sp"></span>' +
+         (puede && !cerrada ? '<button class="cv2-link" onclick="cv2DCorregir(\'' + k + '\')">Corregir</button>' : '') + '</div>';
+  } else if (l.estado === 'diferencia' && !editando) {
+    var mot = (CV2_MOTIVOS || []).find(function (m) { return m.codigo === l.motivo_codigo; });
+    h += '<div style="margin-top:6px;"><span class="cv2-chip warn">≠ Preparaste ' + l.contado + ' de ' + l.requerido + '</span> ' +
+         '<span class="cv2-sub">' + cv2Esc(mot ? mot.texto : (l.motivo_codigo || '')) + (l.motivo_nota ? ' — ' + cv2Esc(l.motivo_nota) : '') + '</span></div>';
+    h += '<div class="cv2-sub" style="margin-top:4px;">' + (l.dif_autorizada
+          ? '✅ Salida autorizada por ' + cv2Esc(l.dif_autorizada_por)
+          : '⏳ Se resuelve corrigiendo el pedido (entra una versión nueva) o con una autorización registrada desde Administración.') + '</div>';
+    if (puede && !cerrada) h += '<button class="cv2-link" onclick="cv2DCorregir(\'' + k + '\')">Corregir cantidad</button>';
+  } else if (puede && !cerrada) {
+    var val = editando && editando.valor != null ? editando.valor : '';
+    h += '<div class="cv2-row" style="margin-top:8px;">' +
+         '<input class="cv2-in" id="cv2-in-' + k + '" data-keep="1" type="text" inputmode="numeric" pattern="[0-9]*" autocomplete="off" enterkeyhint="next" placeholder="cant." value="' + cv2Esc(val) + '" ' +
+         'onkeydown="cv2DKey(event,\'' + k + '\')" oninput="cv2DInput(\'' + k + '\',this.value)">' +
+         '<button class="cv2-btn pri" onclick="cv2DGuardar(\'' + k + '\')">Guardar</button>' +
+         (editando ? '<button class="cv2-link" onclick="cv2DCancelar(\'' + k + '\')">Cancelar</button>' : '') + '</div>';
+    h += '<div id="cv2-mot-' + k + '">' + cv2DMotivoHtml(l, k) + '</div>';
+  } else if (l.estado === 'pendiente') {
+    h += '<div class="cv2-sub" style="margin-top:6px;">Sin controlar</div>';
+  }
+
+  if (CV2D.pedAbiertos[l.clave]) {
+    h += '<div class="cv2-ped">' + (l.pedidos || []).map(function (p) {
+      return '<div>• <b>' + cv2Esc(p.cantidad) + '</b> · ' + cv2Esc(p.cliente) + (p.localidad ? ' — ' + cv2Esc(p.localidad) : '') +
+             (p.sin_factura ? ' <span class="cv2-chip fis">sin factura</span>' : '') + '</div>';
+    }).join('') + '</div>';
+  }
+  h += '</div>';
+  return h;
+}
+
+function cv2DTareasHtml(e) {
+  var tar = e.tareas || [];
+  var nCambio = e.lineas.filter(function (l) { return l.estado === 'cambio'; }).length;
+  var pend = e.planilla.desactualizada || (e.viaje.estado === 'preparando' && e.contenido_vivo_ok === false);
+  if (!tar.length && !nCambio && !pend) return '';
+  var va = CV2D.verAnt[e.viaje.id];
+  var h = '<div class="cv2-alert err">';
+  if (pend) {
+    h += '<b class="t">⏳ ENTRARON CAMBIOS DE PEDIDOS · generando la versión nueva…</b>No cierres ni sigas contando: en segundos aparece qué mover.';
+  } else {
+    var desde = tar.length ? tar[0].version_desde : (va ? va.desde : null);
+    h += '<b class="t">⚠ LA PLANILLA CAMBIÓ' + (desde ? ': v' + desde + ' → v' + e.planilla.version : '') + '</b>';
+    h += nCambio ? 'Tenés <b>' + nCambio + ' producto(s) para mover</b>. Lo que ya estaba bien quedó guardado.' : 'Todos los cambios físicos ya están hechos.';
+  }
+  if (tar.length) {
+    var ic = { pedido_nuevo: '🆕 Pedido nuevo', pedido_quitado: '❌ Pedido quitado', pedido_editado: '✏️ Pedido editado', reemplazo: '🔁 Reemplazo' };
+    h += '<div style="margin-top:6px;">' + tar.map(function (t) {
+      var its = (t.detalle && (t.tipo === 'pedido_quitado' ? t.detalle.antes : t.detalle.ahora)) || [];
+      return '<div style="padding:3px 0;">' + (t.pendiente ? '⬜ ' : '✅ ') + '<b>' + ic[t.tipo] + ':</b> ' + cv2Esc(t.cliente || t.pedido_id) +
+             ' <span class="cv2-sub">(' + its.map(function (i) { return i.cantidad + ' ' + i.producto; }).join(', ') + ')</span></div>';
+    }).join('') + '</div>';
+  }
+  if (nCambio) h += '<div style="margin-top:8px;"><button class="cv2-btn sm pri" onclick="cv2DFiltro(\'cambios\')">Ver solo lo que hay que mover</button></div>';
+  h += '</div>';
+  return h;
+}
+
+function cv2DFiscalHtml(e) {
+  if (!e.fiscal || !e.fiscal.length) return '<div class="cv2-row" style="margin:6px 0;"><span class="cv2-chip ok">🧾 Estado fiscal: todo facturado</span></div>';
+  var h = '<div class="cv2-alert fis"><b class="t">🧾 ESTADO FISCAL (aparte de la carga)</b>' +
+          e.fiscal.length + ' pedido(s) sin factura. <b>Preparalos igual:</b> no afecta tu trabajo. Regla fiscal vigente: para cerrar la carga, cada uno tiene que estar facturado o salir del viaje.';
+  h += '<div style="margin-top:6px;">' + e.fiscal.map(function (f) {
+    return '<div>• ' + cv2Esc(f.cliente) + (f.localidad ? ' — ' + cv2Esc(f.localidad) : '') +
+           (f.contingencia ? ' <span class="cv2-chip info">contingencia autorizada por ' + cv2Esc(f.contingencia.por) + '</span>' : ' <span class="cv2-chip fis">pendiente</span>') + '</div>';
+  }).join('') + '</div></div>';
+  return h;
+}
+
+function cv2DBloqueos(e) {
+  var b = [];
+  if ((e.retiros || []).some(function (r) { return r.estado === 'pendiente_descarga'; })) b.push('recibir la mercadería del retiro');
+  var L = e.lineas || [];
+  var p = L.filter(function (l) { return l.estado === 'pendiente'; }).length;
+  var c = L.filter(function (l) { return l.estado === 'cambio'; }).length;
+  var d = L.filter(function (l) { return l.estado === 'diferencia' && !l.dif_autorizada; }).length;
+  var f = (e.fiscal || []).filter(function (x) { return !x.contingencia; }).length;
+  if (e.planilla.desactualizada || e.contenido_vivo_ok === false) b.push('se está generando una versión nueva');
+  if (p) b.push(p + ' producto(s) sin controlar');
+  if (c) b.push(c + ' cambio(s) sin hacer');
+  if (d) b.push(d + ' diferencia(s) sin resolver');
+  if (f) b.push(f + ' pedido(s) sin factura sin resolver');
+  if (cv2OutboxPendiente(e.viaje.id)) b.push('hay registros sin enviar (falta señal)');
+  if (!e.viaje.chofer || e.viaje.chofer === '—') b.push('falta asignar chofer');
+  return b;
+}
+
+function cv2DDetalleHtml() {
+  var e = CV2D.est;
+  var h = '<div class="cv2-row"><button class="cv2-btn sm" onclick="cv2DVolver()">← Viajes</button><span class="cv2-sp"></span>' +
+          '<button class="cv2-btn sm" onclick="cv2DCargarDetalle()">🔄</button></div>';
+  if (CV2D.err) h += '<div class="cv2-alert warn">' + cv2Esc(CV2D.err) + '</div>';
+  if (!e) return h + '<div class="cv2-card">Cargando la carga…</div>';
+  var v = e.viaje, pl = e.planilla, s = e.sesion || {};
+  var cerrada = v.estado === 'carga_cerrada';
+  var puede = !!e.puede_operar;
+  h += '<div class="cv2-card">';
+  h += '<div class="cv2-row"><div class="cv2-h1">🚚 ' + cv2Esc(cv2Zona(v.zona)) + ' · ' + cv2Esc(cv2Dia(v.fecha_salida)) + '</div></div>';
+  h += '<div class="cv2-sub">' + cv2Esc(v.chofer) + ' · ' + cv2Esc(v.vehiculo) + ' · ' + (pl.total_pedidos || v.total_pedidos || 0) + ' pedidos</div>';
+  if (!pl.version) {
+    h += '<div class="cv2-alert warn">Este viaje todavía no tiene planilla. Se genera sola apenas haya pedidos confirmados.</div></div>';
+    return h;
+  }
+  h += '<div class="cv2-row" style="margin-top:6px;">' +
+       (pl.desactualizada ? '<span class="cv2-chip err">📄 v' + pl.version + ' DESACTUALIZADA</span>' : '<span class="cv2-chip ok">📄 PLANILLA v' + pl.version + ' VIGENTE</span>') +
+       '<span class="cv2-hash" title="hash">' + cv2Esc(String(pl.hash || '').slice(0, 8)) + '</span>' +
+       '<span class="cv2-sub">generada ' + cv2Hora(pl.generada_at) + ' por ' + cv2Esc(pl.generada_por || '—') + '</span></div>';
+  h += '<div class="cv2-row" style="margin-top:8px;">' +
+       '<button class="cv2-btn sm" onclick="cv2Pdf(\'' + v.id + '\',' + pl.version + ',\'ver\')">📄 Ver planilla</button>' +
+       '<button class="cv2-btn sm" onclick="cv2Pdf(\'' + v.id + '\',' + pl.version + ',\'descargar\')">⬇ Descargar</button>' +
+       '<button class="cv2-btn sm" onclick="cv2Pdf(\'' + v.id + '\',' + pl.version + ',\'imprimir\')">🖨 Imprimir</button></div>';
+  var L = e.lineas || [];
+  var okN = L.filter(function (l) { return l.estado === 'ok' || (l.estado === 'diferencia' && l.dif_autorizada); }).length;
+  h += '<div class="cv2-bar"><i style="width:' + (L.length ? Math.round(okN / L.length * 100) : 0) + '%"></i></div>' +
+       '<div class="cv2-sub" style="margin-top:3px;"><b>' + okN + ' de ' + L.length + '</b> productos listos</div>';
+  h += '</div>';
+
+  var cierreV2Vigente = cerrada && s.cerrada_version === pl.version && s.cerrada_hash === pl.hash;
+  if (cerrada && !cierreV2Vigente) {
+    var vieja = v.planilla_version_cerrada && v.planilla_version_cerrada !== pl.version;
+    h += '<div class="cv2-alert err"><b class="t">' + (vieja ? '⚠ LA CARGA SE CERRÓ CON LA v' + v.planilla_version_cerrada + ' Y AHORA RIGE LA v' + pl.version
+                                                          : '⚠ CARGA CERRADA FUERA DE ESTE PANEL') + '</b>' +
+         (vieja ? 'Entraron cambios después del cierre. El camión no puede salir así: reabrí la carga, hacé los cambios y volvé a cerrar.'
+                : 'La cerró ' + cv2Esc(v.carga_cerrada_por || '—') + ' ' + cv2Hora(v.carga_cerrada_at) + ' por el circuito anterior (sin control por producto ni conteo del chofer).') +
+         (puede ? '<div style="margin-top:8px;"><button class="cv2-btn sm warn" onclick="cv2DReabrir()">↩ Reabrir para controlar</button></div>' : '') + '</div>';
+  }
+  if (cierreV2Vigente) {
+    h += '<div class="cv2-alert ok"><b class="t">🔒 CARGA CERRADA · v' + s.cerrada_version + '</b>Cerró ' + cv2Esc(s.cerrada_por || v.estado) + ' a las ' + cv2Hora(s.cerrada_at) + '.';
+    if (s.aceptada_version) h += '<br>✅ <b>' + cv2Esc(s.aceptada_por) + '</b> verificó y aceptó la carga a las ' + cv2Hora(s.aceptada_at) + '.';
+    else h += '<br>⏳ Esperando que el chofer cuente lo que subió.';
+    var lotes = e.lotes || [];
+    if (lotes.length) h += '<div style="margin-top:6px;">' + lotes.map(function (lo) {
+      var ic = lo.estado === 'ok' ? '✅' : lo.estado === 'diferencia' ? '⚠️' : '⬜';
+      return '<div>' + ic + ' ' + cv2Esc(lo.lote_nombre) + (lo.estado === 'diferencia' ? ' — <b>el chofer contó ' + lo.ultimo_conteo + ', cerraste ' + lo.esperado + '</b>' : '') +
+             (lo.validado_por ? ' <span class="cv2-sub">(' + cv2Esc(lo.validado_por) + ')</span>' : '') + '</div>';
+    }).join('') + '</div>';
+    h += '<div class="cv2-row" style="margin-top:8px;">' +
+         (e.planilla_final ? '<button class="cv2-btn sm" onclick="cv2DPdfFinal(\'ver\')">📄 Planilla final N° ' + e.planilla_final.id + '</button>' +
+                             '<button class="cv2-btn sm" onclick="cv2DPdfFinal(\'imprimir\')">🖨 Imprimir para firmar</button>' : '') +
+         (puede && !s.aceptada_version ? '<button class="cv2-btn sm warn" onclick="cv2DReabrir()">↩ Corregir conteo (no cambia pedidos)</button>' : '') + '</div>';
+    h += '<div class="cv2-sub" style="margin-top:6px;">🔒 Carga congelada: no se agregan, editan ni sacan pedidos. Los pedidos nuevos van a la próxima salida.</div>';
+    h += '</div>';
+  }
+
+  if (CV2D.sinPedidos[v.id]) h += '<div class="cv2-alert warn"><b class="t">El viaje quedó sin pedidos activos</b>No hay nada para cargar. Si es un error, avisá a Administración.</div>';
+  h += cv2DRetiroHtml(e, puede);
+  h += cv2DTareasHtml(e);
+  h += cv2DFiscalHtml(e);
+
+  // Herramientas
+  var cnt = { pendientes: 0, cambios: 0, diferencias: 0, completos: 0, todas: L.length };
+  L.forEach(function (l) {
+    if (cv2DEsPendiente(l)) cnt.pendientes++;
+    if (l.estado === 'cambio') cnt.cambios++;
+    if (l.estado === 'diferencia') cnt.diferencias++;
+    if (l.estado === 'ok' || (l.estado === 'diferencia' && l.dif_autorizada)) cnt.completos++;
+  });
+  var nom = { pendientes: 'Pendientes', cambios: 'Cambios', diferencias: 'Diferencias', completos: 'Completos', todas: 'Todos' };
+  h += '<div class="cv2-tools"><input class="cv2-search" id="cv2-busca" placeholder="🔎 Buscar producto o cliente" value="' + cv2Esc(CV2D.busca) + '" oninput="cv2DBuscar(this.value)">';
+  h += '<div class="cv2-filtros">' + Object.keys(nom).map(function (f) {
+    return '<button class="' + ((CV2D.filtro || 'todas') === f ? 'sel' : '') + '" onclick="cv2DFiltro(\'' + f + '\')">' + nom[f] + ' ' + cnt[f] + '</button>';
+  }).join('') + '</div></div>';
+
+  // Grupos por lote logístico
+  var grupos = {}, orden = [];
+  L.forEach(function (l) {
+    if (!grupos[l.lote_codigo]) { grupos[l.lote_codigo] = { nombre: l.lote_nombre, orden: l.lote_orden, clasif: l.clasificado, ls: [] }; orden.push(l.lote_codigo); }
+    grupos[l.lote_codigo].ls.push(l);
+  });
+  orden.sort(function (a, b) { return (grupos[a].orden - grupos[b].orden) || String(grupos[a].nombre).localeCompare(grupos[b].nombre); });
+  var algo = false;
+  orden.forEach(function (g) {
+    var G = grupos[g];
+    var vis = G.ls.filter(cv2DPasaFiltro);
+    if (!vis.length) return;
+    algo = true;
+    var ok = G.ls.filter(function (l) { return l.estado === 'ok' || (l.estado === 'diferencia' && l.dif_autorizada); }).length;
+    var abierto = !CV2D.cerrados[g];
+    h += '<div class="cv2-grp"><div class="cv2-grp-h" onclick="cv2DGrupo(\'' + cv2Esc(g) + '\')">' + (abierto ? '▾' : '▸') + ' ' + cv2Esc(G.nombre) +
+         (G.clasif ? '' : ' <span class="cv2-chip warn">sin normalizar</span>') +
+         '<span class="cv2-sp"></span><span class="cv2-chip ' + (ok === G.ls.length ? 'ok' : 'gris') + '">' + ok + '/' + G.ls.length + '</span></div>';
+    if (abierto) vis.forEach(function (l) { h += cv2DLineaHtml(l, puede, cerrada); });
+    h += '</div>';
+  });
+  if (!algo) h += '<div class="cv2-card">' + (CV2D.filtro === 'pendientes' ? '✅ No queda nada pendiente.' : 'Nada para mostrar con este filtro.') + '</div>';
+
+  if (!cerrada && puede) {
+    var bl = cv2DBloqueos(e);
+    h += '<div class="cv2-footer"><button class="cv2-btn big ' + (bl.length ? '' : 'ok') + '" ' + (bl.length ? 'disabled' : '') + ' onclick="cv2DCerrar()">🔒 CERRAR CARGA v' + pl.version + '</button>';
+    if (bl.length) h += '<div class="cv2-bloq">Falta: ' + cv2Esc(bl.join(' · ')) + '</div>';
+    h += '</div>';
+  } else if (!puede) {
+    h += '<div class="cv2-alert warn">Vista de consulta: solo el encargado de Depósito registra y cierra la carga.</div>';
+  }
+  return h;
+}
+
+function cv2DepRender() {
+  if (!cv2DepEl) return;
+  if (!CV2_MOTIVOS) cv2Motivos().then(function () { cv2DepRender(); });
+  cv2Pintar(cv2DepEl, CV2D.vista === 'detalle' ? cv2DDetalleHtml() : cv2DListaHtml());
+}
+
+// ── Acciones ──
+function cv2DFiltro(f) { CV2D.filtro = f; cv2DepRender(); }
+function cv2DBuscar(q) { CV2D.busca = q; cv2DepRender(); }
+function cv2DGrupo(g) { CV2D.cerrados[g] = !CV2D.cerrados[g]; cv2DepRender(); }
+function cv2DPedidos(k) { var c = cv2ClaveDe(k); CV2D.pedAbiertos[c] = !CV2D.pedAbiertos[c]; cv2DepRender(); }
+function cv2DCorregir(k) { var c = cv2ClaveDe(k); CV2D.edit[c] = { valor: '', motivo: null, nota: '' }; cv2DepRender(); var i = document.getElementById('cv2-in-' + k); if (i) i.focus(); }
+function cv2DCancelar(k) { delete CV2D.edit[cv2ClaveDe(k)]; cv2DepRender(); }
+// Recuadro "No coincide → motivo" de una línea (se actualiza solo, sin repintar el campo)
+function cv2DMotivoHtml(l, k) {
+  var ed = CV2D.edit[l.clave];
+  if (!ed || ed.valor === '' || ed.valor == null) return '';
+  var t = String(ed.valor).trim();
+  if (!/^\d+$/.test(t)) return '<div class="cv2-bloq">Solo números enteros.</div>';
+  if (Number(t) === Number(l.requerido)) return '';
+  var h = '<div class="cv2-alert warn" style="margin:8px 0 0;"><b>No coincide: pide ' + l.requerido + ', preparaste ' + cv2Esc(t) + '.</b> ¿Por qué?';
+  h += '<div class="cv2-motivos">';
+  (CV2_MOTIVOS || []).filter(function (m) { return m.ambito === 'diferencia'; }).forEach(function (m) {
+    h += '<button class="' + (ed.motivo === m.codigo ? 'sel' : '') + '" onclick="cv2DMotivo(\'' + k + '\',\'' + m.codigo + '\')">' + cv2Esc(m.texto) + '</button>';
+  });
+  h += '</div>';
+  var mm = (CV2_MOTIVOS || []).find(function (m) { return m.codigo === ed.motivo; });
+  if (mm && mm.exige_nota) h += '<input class="cv2-search" style="margin-top:8px;font-size:14px;" id="cv2-nota-' + k + '" data-keep="1" placeholder="Contá qué pasó (mínimo 15 letras)" oninput="cv2DNota(\'' + k + '\',this.value)" value="' + cv2Esc(ed.nota || '') + '">';
+  h += '<div style="margin-top:8px;"><button class="cv2-btn warn" ' + (ed.motivo ? '' : 'disabled') + ' onclick="cv2DGuardar(\'' + k + '\')">Guardar diferencia</button></div></div>';
+  return h;
+}
+function cv2DMotivoRefrescar(k) {
+  var c = cv2ClaveDe(k), l = cv2Linea(c), box = document.getElementById('cv2-mot-' + k);
+  if (box && l) box.innerHTML = cv2DMotivoHtml(l, k);
+}
+function cv2DInput(k, v) {
+  var c = cv2ClaveDe(k);
+  var ed = CV2D.edit[c] = CV2D.edit[c] || { valor: '', motivo: null, nota: '' };
+  ed.valor = v;
+  cv2DMotivoRefrescar(k);
+}
+function cv2DMotivo(k, cod) { var c = cv2ClaveDe(k); if (CV2D.edit[c]) CV2D.edit[c].motivo = cod; cv2DMotivoRefrescar(k); }
+function cv2DNota(k, v) { var c = cv2ClaveDe(k); if (CV2D.edit[c]) CV2D.edit[c].nota = v; }
+function cv2DKey(ev, k) { if (ev.key === 'Enter') { ev.preventDefault(); cv2DGuardar(k); } }
+function cv2DHecho(k) { var c = cv2ClaveDe(k), l = cv2Linea(c); cv2DRegistrar(c, Number(l.requerido), null, null); }
+
+function cv2DGuardar(k) {
+  var c = cv2ClaveDe(k), l = cv2Linea(c);
+  var inp = document.getElementById('cv2-in-' + k);
+  var raw = inp ? String(inp.value).trim() : '';
+  if (raw === '' || !/^\d+$/.test(raw)) { cv2Toast('Ingresá la cantidad que preparaste (número entero)', 'err'); if (inp) inp.focus(); return; }
+  var n = Number(raw);
+  var ed = CV2D.edit[c] = CV2D.edit[c] || {};
+  ed.valor = raw;
+  if (n !== Number(l.requerido) && !ed.motivo) { cv2DMotivoRefrescar(k); if (inp) try { inp.focus(); } catch (x) {} return; }
+  cv2DRegistrar(c, n, n === Number(l.requerido) ? null : ed.motivo, ed.nota || null);
+}
+
+var _cv2Guardando = {};
+async function cv2DRegistrar(clave, cant, motivo, nota) {
+  var e = CV2D.est; if (!e) return;
+  if (_cv2Guardando[clave]) return;
+  _cv2Guardando[clave] = true;
+  var k = cv2K(clave);
+  var r = await cv2Enviar('carga_linea_registrar', {
+    p_viaje_id: e.viaje.id, p_version: e.planilla.version, p_hash: e.planilla.hash, p_clave: clave,
+    p_cantidad: cant, p_motivo_codigo: motivo, p_motivo_nota: nota
+  });
+  _cv2Guardando[clave] = false;
+  if (r && r.ok) {
+    delete CV2D.edit[clave];
+    var l = cv2Linea(clave);
+    if (l) {   // reflejo inmediato; el servidor confirma en la recarga
+      l.contado = cant; l.estado = r.encolado ? (cant === Number(l.requerido) ? 'ok' : 'diferencia') : r.estado;
+      l.contado_por = vendedorActual; l.contado_at = new Date().toISOString(); l.motivo_codigo = motivo; l.delta = null;
+    }
+    if (r.encolado) cv2Toast('📶 Sin señal: quedó guardado en este equipo y se envía solo', 'err');
+    cv2DepRender();
+    // foco al siguiente pendiente visible
+    setTimeout(function () {
+      var ins = cv2DepEl ? cv2DepEl.querySelectorAll('input.cv2-in') : [];
+      if (ins.length) try { ins[0].focus({ preventScroll: false }); } catch (x) {}
+    }, 30);
+    if (!r.encolado) cv2DCargarDetalle();
+  } else {
+    var code = r && r.code;
+    if (code === 'MOTIVO_REQUERIDO' || code === 'NOTA_REQUERIDA') cv2Toast(r.message, 'err');
+    else if (code === 'VERSION_VIEJA' || code === 'VERSION_DESACTUALIZADA') { cv2Beep(); cv2Toast('⚠️ ' + r.message, 'err'); cv2DCargarDetalle(); }
+    else cv2Toast('⛔ ' + ((r && r.message) || 'No se pudo guardar'), 'err');
+  }
+}
+
+function cv2DCerrar() {
+  var e = CV2D.est; if (!e) return;
+  var L = e.lineas || [];
+  var bultos = L.reduce(function (a, l) { return a + (Number(l.contado) || 0); }, 0);
+  var difs = L.filter(function (l) { return l.estado === 'diferencia'; });
+  var cont = (e.fiscal || []).filter(function (f) { return f.contingencia; });
+  var html = '<div class="cv2-h1">🔒 Cerrar carga · ' + cv2Esc(cv2Zona(e.viaje.zona)) + '</div>' +
+    '<div class="cv2-sub">Planilla v' + e.planilla.version + ' · <span class="cv2-hash">' + cv2Esc(String(e.planilla.hash).slice(0, 8)) + '</span></div>' +
+    '<div class="cv2-card">✓ ' + L.length + ' productos controlados · ' + bultos + ' bultos en total' +
+    (difs.length ? '<br>≠ ' + difs.length + ' diferencia(s) autorizada(s)' : '') +
+    (cont.length ? '<br>🧾 ' + cont.length + ' contingencia(s) fiscal(es) autorizada(s)' : '') + '</div>' +
+    '<div class="cv2-alert warn">Al cerrar, certificás que esta versión quedó preparada completa. <b>No arranca el viaje:</b> ahora el chofer cuenta lo que sube y acepta la carga.</div>' +
+    '<button class="cv2-btn big ok" id="cv2-cerrar-ok">Confirmo y cierro la carga</button>' +
+    '<button class="cv2-btn" style="width:100%;margin-top:8px;" id="cv2-cerrar-no">Volver</button>';
+  cv2Modal(html, function (bk) {
+    bk.querySelector('#cv2-cerrar-no').onclick = function () { bk.remove(); };
+    var b = bk.querySelector('#cv2-cerrar-ok');
+    b.onclick = async function () {
+      b.disabled = true; b.textContent = 'Cerrando…';
+      var r;
+      try { r = await cv2Rpc('carga_cerrar', { p_viaje_id: e.viaje.id, p_version: e.planilla.version, p_hash: e.planilla.hash, p_request_id: cv2Rid() }); }
+      catch (err) { r = { ok: false, message: err.red ? 'Sin conexión: el cierre necesita señal. Probá de nuevo.' : err.message }; }
+      bk.remove();
+      if (r && r.ok) { cv2Toast('🔒 Carga cerrada · v' + r.version + '. Ahora el chofer verifica.', 'ok'); }
+      else if (r && r.code === 'CONTENIDO_CAMBIO') { cv2Beep(); cv2Toast('⚠️ ' + r.message, 'err'); cv2DGenerarVersion(e.viaje.id); }
+      else { cv2Beep(); cv2Modal('<div class="cv2-h1">⛔ No se pudo cerrar</div><div class="cv2-alert err">' + cv2Esc((r && r.message) || 'Error') + '</div>' +
+          (r && r.pedidos ? '<div class="cv2-sub">' + r.pedidos.map(function (p) { return '• ' + cv2Esc(p.cliente); }).join('<br>') + '</div>' : '') +
+          '<button class="cv2-btn big" onclick="this.closest(\'.cv2-modal-bk\').remove()">Entendido</button>'); }
+      cv2DCargarDetalle();
+    };
+  });
+}
+
+async function cv2DReabrir() {
+  var e = CV2D.est; if (!e) return;
+  await cv2Motivos();
+  var ops = (CV2_MOTIVOS || []).filter(function (m) { return m.ambito === 'reapertura'; });
+  var html = '<div class="cv2-h1">↩ Reabrir carga</div><div class="cv2-sub">Se invalida el cierre. Los lotes donde el chofer contó distinto vuelven a controlarse.</div>' +
+    '<div class="cv2-motivos" id="cv2-rea-ops">' + ops.map(function (m) { return '<button data-c="' + m.codigo + '" data-n="' + (m.exige_nota ? 1 : 0) + '">' + cv2Esc(m.texto) + '</button>'; }).join('') + '</div>' +
+    '<input class="cv2-search" id="cv2-rea-nota" style="margin-top:8px;display:none;" placeholder="Detalle (mínimo 15 letras)">' +
+    '<button class="cv2-btn big warn" id="cv2-rea-ok" disabled style="margin-top:10px;">Reabrir</button>' +
+    '<button class="cv2-btn" style="width:100%;margin-top:8px;" onclick="this.closest(\'.cv2-modal-bk\').remove()">Volver</button>';
+  cv2Modal(html, function (bk) {
+    var sel = null;
+    bk.querySelectorAll('#cv2-rea-ops button').forEach(function (b) {
+      b.onclick = function () {
+        sel = b.getAttribute('data-c');
+        bk.querySelectorAll('#cv2-rea-ops button').forEach(function (x) { x.classList.toggle('sel', x === b); });
+        bk.querySelector('#cv2-rea-nota').style.display = b.getAttribute('data-n') === '1' ? '' : 'none';
+        bk.querySelector('#cv2-rea-ok').disabled = false;
+      };
+    });
+    bk.querySelector('#cv2-rea-ok').onclick = async function () {
+      var r;
+      try { r = await cv2Rpc('carga_reabrir', { p_viaje_id: e.viaje.id, p_motivo_codigo: sel, p_nota: bk.querySelector('#cv2-rea-nota').value || null, p_request_id: cv2Rid() }); }
+      catch (err) { r = { ok: false, message: err.message }; }
+      if (r && r.ok) { bk.remove(); cv2Toast('↩ Carga reabierta', 'ok'); cv2DCargarDetalle(); }
+      else cv2Toast('⛔ ' + ((r && r.message) || 'No se pudo reabrir'), 'err');
+    };
+  });
+}
+
+
+// ── Retiro excepcional de una carga cerrada (regla 16/09) ──
+function cv2DRetiroHtml(e, puede) {
+  var rs = (e.retiros || []);
+  var pend = rs.filter(function (r) { return r.estado === 'pendiente_descarga'; })[0];
+  var h = '';
+  if (pend) {
+    h += '<div class="cv2-alert err"><b class="t">📦 RETIRO DE MERCADERÍA · N° ' + pend.id + '</b>' +
+         'Administración (' + cv2Esc(pend.iniciado_por) + ') rompió el cierre' + (pend.aceptacion_anulada ? ' y anuló la aceptación de ' + cv2Esc(pend.aceptada_por_anulada) : '') +
+         '. Motivo: ' + cv2Esc(pend.nota) + '<br><b>Bajá del camión y recibí:</b>';
+    (pend.items || []).forEach(function (it, i) {
+      h += '<div class="cv2-row" style="margin-top:6px;"><div style="flex:1;"><b>' + cv2Esc(it.cantidad_retiro) + '</b> · ' + cv2Esc(it.producto) +
+           (it.calibre ? ' <span class="cv2-cal">' + cv2Esc(it.calibre) + '</span>' : '') + ' <span class="cv2-sub">(pedido ' + cv2Esc(it.pedido_id) + ')</span></div>' +
+           (puede ? '<input class="cv2-in" id="cv2-ret-' + i + '" data-keep="1" type="text" inputmode="numeric" pattern="[0-9]*" placeholder="recibí">' : '') + '</div>';
+    });
+    if (puede) h += '<div style="margin-top:8px;"><button class="cv2-btn warn" onclick="cv2DRecibirRetiro(' + pend.id + ',' + (pend.items || []).length + ')">✔ Descargué y recibí la mercadería</button></div>';
+    h += '<div class="cv2-sub" style="margin-top:6px;">Después se genera la planilla nueva, cerrás de nuevo y el chofer vuelve a controlar y aceptar.</div></div>';
+  }
+  var rec = rs.filter(function (r) { return r.estado === 'recibido' && e.viaje.estado === 'preparando' && (!r.planilla_nueva_version || r.planilla_nueva_version === e.planilla.version); })[0];
+  if (!pend && rec) {
+    h += '<div class="cv2-alert warn"><b class="t">Retiro N° ' + rec.id + ' recibido por ' + cv2Esc(rec.recibido_por) + '</b>' +
+         (rec.planilla_nueva_version ? 'Planilla nueva v' + rec.planilla_nueva_version + ': hacé los cambios marcados y cerrá de nuevo.' : 'Generando la planilla nueva…') + '</div>';
+  }
+  return h;
+}
+async function cv2DRecibirRetiro(retiroId, n) {
+  var cant = [];
+  for (var i = 0; i < n; i++) {
+    var inp = document.getElementById('cv2-ret-' + i);
+    var t = inp ? String(inp.value).trim() : '';
+    if (!/^\d+$/.test(t)) { cv2Toast('Escribí cuánto recibiste de cada producto', 'err'); if (inp) inp.focus(); return; }
+    cant.push(Number(t));
+  }
+  var r;
+  try { r = await cv2Rpc('carga_retiro_recibir', { p_retiro_id: retiroId, p_recibidos: cant, p_request_id: cv2Rid() }); }
+  catch (err) { r = { ok: false, message: err.red ? 'Sin conexión: la recepción necesita señal.' : err.message }; }
+  if (r && r.ok) { cv2Toast('✔ Mercadería recibida. Se genera la planilla nueva.', 'ok'); cv2DCargarDetalle(); }
+  else { cv2Beep(); cv2Toast('⛔ ' + cv2LimpiarMsg((r && r.message) || 'No se pudo registrar'), 'err'); }
+}
+function cv2DPdfFinal(modo) {
+  var e = CV2D.est; if (!e) return;
+  cv2PdfFinal(cv2Rpc, e.viaje.id, null, modo).catch(function (err) { cv2Toast('⛔ ' + err.message, 'err'); });
+}
+
+/* ═══ v14.198.0 — CARGA V2 · RECEPCIÓN DEL CHOFER ═══════════════════ */
+var CV2C = { viajeId: null, est: null, err: null, abiertos: {}, reconteo: {}, res: {}, ev: null, ver: null, idx: {}, conf: {}, envio: {} };
+var cv2ChoferEl = null;
+
+function cv2ChoferMontar(wrap, v) {
+  if (!cv2ChoferEl) { cv2ChoferEl = document.createElement('div'); cv2ChoferEl.className = 'cv2'; }
+  if (wrap.firstChild !== cv2ChoferEl || wrap.childNodes.length !== 1) { wrap.innerHTML = ''; wrap.appendChild(cv2ChoferEl); }
+  if (CV2C.viajeId !== v.id) { CV2C.viajeId = v.id; CV2C.est = null; CV2C._firma = null; cv2ChoferRender(); }
+  cv2ChoferCargar();
+}
+
+// Borrador del conteo (texto tal cual lo escribió el chofer). Sobrevive a recarga y a falta de señal.
+function cv2BorradorKey(lote) { return 'cv2_cont_' + CV2C.viajeId + '_' + (CV2C.est && CV2C.est.sesion ? CV2C.est.sesion.cerrada_version : 0) + '_' + lote; }
+function cv2Borrador(lote) { try { return localStorage.getItem(cv2BorradorKey(lote)) || ''; } catch (e) { return ''; } }
+function cv2BorradorSet(lote, v) { try { if (v === '' || v == null) localStorage.removeItem(cv2BorradorKey(lote)); else localStorage.setItem(cv2BorradorKey(lote), String(v)); } catch (e) {} }
+
+var _cv2CCargando = false;
+async function cv2ChoferCargar() {
+  if (!CV2C.viajeId || _cv2CCargando) return;
+  _cv2CCargando = true;
+  try {
+    var r = await cv2Rpc('chofer_carga_estado', { p_viaje_id: CV2C.viajeId });
+    if (r && r.ok) {
+      if (CV2C.est && CV2C.est.carga_lista === false && r.carga_lista) { cv2Beep(); cv2Toast('📦 Depósito cerró la carga: contá lo que sube', 'ok'); }
+      if (CV2C.est && CV2C.est.carga_lista && !r.carga_lista) { cv2Beep(); cv2Toast('↩ Depósito reabrió la carga', 'err'); }
+      CV2C.est = r; CV2C.err = null; CV2C.ev = r.ultimo_evento; CV2C.ver = r.planilla && r.planilla.version;
+      (r.lotes || []).forEach(function (l) { if (l.estado !== 'pendiente') { delete CV2C.envio[l.lote_codigo]; delete CV2C.conf[l.lote_codigo]; } });
+      Object.keys(CV2C.envio).forEach(function (k) { if (CV2C.envio[k].encolado && !cv2OutboxLeer().some(function (x) { return x.args && x.args.p_lote_codigo === k; })) delete CV2C.envio[k]; });
+    } else CV2C.err = (r && r.message) || 'No se pudo leer la carga';
+  } catch (e) { CV2C.err = e.red ? 'Sin conexión. Seguí contando: se guarda en el celular.' : e.message; }
+  _cv2CCargando = false;
+  cv2ChoferRender();
+}
+
+function cv2ChoferHtml() {
+  var e = CV2C.est;
+  var h = '';
+  if (CV2C.err) h += '<div class="cv2-alert warn">' + cv2Esc(CV2C.err) + '</div>';
+  if (!e) return h + '<div class="cv2-card">Cargando la carga…</div>';
+  var v = e.viaje, s = e.sesion || {};
+  h += '<div class="cv2-card"><div class="cv2-h1">🚚 ' + cv2Esc(cv2Zona(v.zona)) + ' · ' + cv2Esc(cv2Dia(v.fecha_salida)) + '</div>' +
+       '<div class="cv2-sub">' + cv2Esc(v.vehiculo) + ' · ' + (v.total_pedidos || 0) + ' pedidos</div>';
+  if (!e.carga_lista && e.retiro_en_curso) {
+    h += '<div class="cv2-alert err" style="margin-bottom:0;"><b class="t">📦 RETIRO DE MERCADERÍA EN CURSO</b>' +
+         'Administración rompió el cierre para bajar mercadería. Si ya habías aceptado, esa aceptación quedó anulada. ' +
+         'Cuando Depósito vuelva a cerrar, contás y aceptás de nuevo.</div></div>';
+    return h;
+  }
+  if (!e.carga_lista) {
+    h += '<div class="cv2-alert warn" style="margin-bottom:0;"><b class="t">🔧 DEPÓSITO PREPARANDO LA CARGA</b>' +
+         'Cuando Pancho cierre la carga, acá vas a contar los bultos que suben al camión. Esta pantalla se actualiza sola.</div></div>';
+    return h;
+  }
+  h += '<div class="cv2-row" style="margin-top:6px;"><span class="cv2-chip info">📄 Planilla v' + s.cerrada_version + '</span>' +
+       '<span class="cv2-hash">' + cv2Esc(String(s.cerrada_hash || '').slice(0, 8)) + '</span>' +
+       '<span class="cv2-sub">cerrada por <b>' + cv2Esc(s.cerrada_por) + '</b> ' + cv2Hora(s.cerrada_at) + '</span></div>' +
+       (e.planilla_final ? '<div style="margin-top:6px;"><button class="cv2-btn sm" onclick="cv2CPdfFinal()">📄 Ver planilla final</button></div>' : '') + '</div>';
+
+  if (e.contenido_vivo_ok === false) {
+    h += '<div class="cv2-alert err"><b class="t">⏳ LOS PEDIDOS CAMBIARON DESPUÉS DEL CIERRE</b>' +
+         'No aceptes ni arranques todavía: Depósito tiene que actualizar la carga. Esta pantalla se actualiza sola.</div>';
+    return h;
+  }
+  var aceptada = s.aceptada_version === s.cerrada_version && s.aceptada_hash === s.cerrada_hash;
+  if (aceptada) {
+    h += '<div class="cv2-alert ok"><b class="t">✅ CARGA ACEPTADA</b>' + cv2Esc(s.aceptada_por) + ' verificó y aceptó la v' + s.aceptada_version + ' a las ' + cv2Hora(s.aceptada_at) +
+         '. Desde ese momento la mercadería está a tu cargo.</div>';
+    if (e.planilla_final) h += '<button class="cv2-btn" style="width:100%;margin-bottom:8px;" onclick="cv2CPdfFinal()">📄 Planilla final N° ' + e.planilla_final.id + ' (para firmar)</button>';
+    h += '<button class="cv2-btn big pri" id="mv-arrancar-btn" onclick="mvArrancarViaje(\'' + v.id + '\')">🚚 ARRANCAR VIAJE</button>' +
+         '<div class="cv2-sub" style="text-align:center;margin-top:6px;">Tocalo cuando el camión esté saliendo del depósito.</div>';
+    return h;
+  }
+
+  var lotes = e.lotes || [];
+  var nOk = lotes.filter(function (l) { return l.estado === 'ok'; }).length;
+  h += '<div class="cv2-alert warn"><b class="t">📦 CONTÁ LO QUE SUBE AL CAMIÓN</b>En cada grupo escribí cuántos bultos subieron (o usá los botones) y confirmá. No hace falta mirar la planilla: el sistema compara con lo que cerró Depósito.</div>';
+  h += '<div class="cv2-bar"><i style="width:' + (lotes.length ? Math.round(nOk / lotes.length * 100) : 0) + '%"></i></div>' +
+       '<div class="cv2-sub" style="margin:3px 0 6px;"><b>' + nOk + ' de ' + lotes.length + '</b> grupos verificados</div>';
+
+  CV2C.idx = {};
+  h += '<div class="cv2-lotes">';
+  lotes.forEach(function (lo, i) {
+    var id = 'c' + i;
+    h += '<div class="cv2-lote ' + lo.estado + '">';
+    h += '<div class="cv2-row"><div style="font-weight:900;font-size:16px;">' + cv2Esc(lo.lote_nombre) + '</div><span class="cv2-sp"></span>' +
+         (lo.estado === 'ok' ? '<span class="cv2-chip ok">✓ ' + lo.ultimo_conteo + ' ' + cv2Esc(cv2Uni(lo.unidad, lo.ultimo_conteo)) + '</span>'
+          : lo.estado === 'diferencia' ? '<span class="cv2-chip err">No coincide</span>' : '<span class="cv2-chip gris">Por contar</span>') + '</div>';
+    CV2C.idx[id] = lo.lote_codigo;
+    if (lo.estado === 'pendiente') {
+      h += cv2CContadorHtml(lo, id);
+    } else if (lo.estado === 'diferencia') {
+      h += '<div class="cv2-alert err" style="margin:8px 0;">Contaste <b>' + lo.ultimo_conteo + '</b> y Depósito cerró <b>' + lo.esperado + '</b>. ' +
+           'Recuenten juntos con Depósito, producto por producto:</div>';
+      var rc = CV2C.reconteo[lo.lote_codigo] = CV2C.reconteo[lo.lote_codigo] || {};
+      (lo.detalle || []).forEach(function (d, j) {
+        h += '<div class="cv2-row" style="border-top:1px solid #EFE7DD;padding:6px 0;"><div style="flex:1;">' + cv2Esc(d.producto) + (d.calibre ? '<span class="cv2-cal">' + cv2Esc(d.calibre) + '</span>' : '') +
+             '<div class="cv2-sub">Depósito cerró ' + d.esperado + '</div></div>' +
+             '<input class="cv2-in cv2-in-grande" id="cv2-rc-' + id + '-' + j + '" data-keep="1" type="text" inputmode="numeric" pattern="[0-9]*" autocomplete="off" placeholder="hay" value="' + (rc[d.clave] != null ? rc[d.clave] : '') + '" oninput="cv2CRec(\'' + cv2Esc(lo.lote_codigo) + '\',\'' + cv2Esc(d.clave) + '\',this.value)"></div>';
+      });
+      var res = CV2C.res[lo.lote_codigo] || '';
+      h += '<div class="cv2-motivos"><button class="' + (res === 'reconteo_coincide' ? 'sel' : '') + '" onclick="cv2CRes(\'' + cv2Esc(lo.lote_codigo) + '\',\'reconteo_coincide\')">Estaba bien, contamos mal</button>' +
+           '<button class="' + (res === 'corregido_en_camion' ? 'sel' : '') + '" onclick="cv2CRes(\'' + cv2Esc(lo.lote_codigo) + '\',\'corregido_en_camion\')">Faltaba/sobraba y ya lo corregimos</button></div>';
+      h += '<button class="cv2-btn big warn" style="margin-top:8px;" ' + (res ? '' : 'disabled') + ' onclick="cv2CReconteo(\'' + cv2Esc(lo.lote_codigo) + '\')">Registrar reconteo</button>';
+      h += '<div class="cv2-sub" style="margin-top:6px;">Si no coincide, Pancho tiene que reabrir la carga y corregirla.</div>';
+    } else {
+      h += '<div class="cv2-sub">Verificado por ' + cv2Esc(lo.validado_por || '') + ' ' + cv2Hora(lo.validado_at) + (lo.resolucion && lo.resolucion !== 'coincide' ? ' · ' + cv2Esc(lo.resolucion.replace(/_/g, ' ')) : '') + '</div>';
+    }
+    h += '</div>';
+  });
+  h += '</div>';
+  var todo = lotes.length > 0 && nOk === lotes.length;
+  h += '<div class="cv2-footer"><button class="cv2-btn big ' + (todo ? 'ok' : '') + '" ' + (todo ? '' : 'disabled') + ' onclick="cv2CAceptar()">✅ ACEPTO LA CARGA v' + s.cerrada_version + '</button>';
+  if (!todo) h += '<div class="cv2-bloq">Falta verificar ' + (lotes.length - nOk) + ' grupo(s).</div>';
+  h += '</div>';
+  return h;
+}
+function cv2ChoferRender() { if (cv2ChoferEl) cv2Pintar(cv2ChoferEl, cv2ChoferHtml()); }
+
+function cv2CRec(lote, clave, v) { CV2C.reconteo[lote] = CV2C.reconteo[lote] || {}; CV2C.reconteo[lote][clave] = v; }
+function cv2CRes(lote, r) { CV2C.res[lote] = r; cv2ChoferRender(); }
+
+// ── v14.198.0 — Conteo de un grupo: teclado numérico + botones rápidos + confirmación ──
+var CV2_CONT_MAX = 99999;
+function cv2CValida(txt) {
+  var t = String(txt == null ? '' : txt).trim();
+  if (t === '') return { ok: false, vacio: true, msg: '' };
+  if (!/^\d+$/.test(t)) return { ok: false, msg: 'Solo números enteros, sin letras, puntos ni comas.' };
+  var n = parseInt(t, 10);
+  if (n > CV2_CONT_MAX) return { ok: false, msg: 'Número demasiado grande. Revisalo.' };
+  return { ok: true, n: n };
+}
+function cv2CContadorHtml(lo, id) {
+  var cod = lo.lote_codigo;
+  var uniP = cv2Uni(lo.unidad, 2).toUpperCase();
+  var cf = CV2C.conf[cod];
+  var env = CV2C.envio[cod];
+  var h = '<div class="cv2-cnt-uni">Contás <b>' + cv2Esc(uniP) + '</b></div>';
+  if (env && env.encolado) {
+    return h + '<div class="cv2-alert warn" style="margin:8px 0 0;"><b>⏳ ' + env.n + ' ' + cv2Esc(cv2Uni(lo.unidad, env.n)) +
+      '</b> guardado sin señal. Se envía solo cuando vuelva la conexión.</div>';
+  }
+  if (cf) {
+    var n = cf.n, enviando = !!(env && env.enviando);
+    return h + '<div class="cv2-conf" id="cv2-conf-' + id + '">' +
+      '<div class="cv2-conf-q">¿Subieron</div><div class="cv2-conf-n">' + n + '</div>' +
+      '<div class="cv2-conf-q">' + cv2Esc(cv2Uni(lo.unidad, n)) + '?</div>' +
+      '<div class="cv2-conf-btns">' +
+      '<button class="cv2-btn ok big" id="cv2-si-' + id + '" ' + (enviando ? 'disabled' : '') + ' onclick="cv2CEnviar(\'' + id + '\')">' +
+        (enviando ? 'Enviando…' : '✔ Sí, confirmar') + '</button>' +
+      '<button class="cv2-btn big" id="cv2-no-' + id + '" ' + (enviando ? 'disabled' : '') + ' onclick="cv2CCorregir(\'' + id + '\')">✎ Corregir</button>' +
+      '</div></div>';
+  }
+  var val = cv2Borrador(cod);
+  var vv = cv2CValida(val);
+  h += '<input class="cv2-cnt-in" id="cv2-cn-' + id + '" type="text" inputmode="numeric" pattern="[0-9]*" autocomplete="off" ' +
+       'enterkeyhint="done" placeholder="0" aria-label="Cantidad de ' + cv2Esc(cv2Uni(lo.unidad, 2)) + '" value="' + cv2Esc(val) + '" ' +
+       'oninput="cv2CInput(\'' + id + '\',this.value)" onkeydown="cv2CKey(event,\'' + id + '\')">';
+  h += '<div class="cv2-cnt-err" id="cv2-ce-' + id + '">' + cv2Esc(vv.ok || vv.vacio ? '' : vv.msg) + '</div>';
+  h += '<div class="cv2-cnt-btns">' +
+       '<button id="cv2-m1-' + id + '" onclick="cv2CMas(\'' + id + '\',-1)" aria-label="menos uno">−1</button>' +
+       '<button id="cv2-p1-' + id + '" onclick="cv2CMas(\'' + id + '\',1)" aria-label="más uno">+1</button>' +
+       '<button id="cv2-p5-' + id + '" onclick="cv2CMas(\'' + id + '\',5)" aria-label="más cinco">+5</button>' +
+       '<button id="cv2-p10-' + id + '" onclick="cv2CMas(\'' + id + '\',10)" aria-label="más diez">+10</button></div>';
+  h += '<div class="cv2-cnt-acc"><button class="cv2-btn" id="cv2-bo-' + id + '" onclick="cv2CBorrar(\'' + id + '\')">Borrar</button>' +
+       '<button class="cv2-btn ok" id="cv2-cb-' + id + '" ' + (vv.ok ? '' : 'disabled') + ' onclick="cv2CPedir(\'' + id + '\')">' +
+       (vv.ok ? 'Confirmar ' + vv.n + ' ' + cv2Esc(cv2Uni(lo.unidad, vv.n)) : 'Escribí la cantidad') + '</button></div>';
+  return h;
+}
+function cv2CLote(id) {
+  var cod = CV2C.idx[id];
+  return (CV2C.est && CV2C.est.lotes || []).find(function (l) { return l.lote_codigo === cod; });
+}
+// Actualiza solo el botón y el aviso (sin repintar: no se pierde el foco ni el teclado del celular)
+function cv2CRefrescar(id) {
+  var lo = cv2CLote(id); if (!lo) return;
+  var inp = document.getElementById('cv2-cn-' + id);
+  var b = document.getElementById('cv2-cb-' + id);
+  var er = document.getElementById('cv2-ce-' + id);
+  var vv = cv2CValida(inp ? inp.value : '');
+  if (b) { b.disabled = !vv.ok; b.textContent = vv.ok ? 'Confirmar ' + vv.n + ' ' + cv2Uni(lo.unidad, vv.n) : 'Escribí la cantidad'; }
+  if (er) er.textContent = (vv.ok || vv.vacio) ? '' : vv.msg;
+}
+function cv2CInput(id, v) { cv2BorradorSet(CV2C.idx[id], v); cv2CRefrescar(id); }
+function cv2CMas(id, d) {
+  var inp = document.getElementById('cv2-cn-' + id);
+  var vv = cv2CValida(inp ? inp.value : '');
+  if (!vv.ok && !vv.vacio) { cv2CRefrescar(id); return; }   // hay texto inválido: primero corregirlo
+  var n = Math.min(CV2_CONT_MAX, Math.max(0, (vv.ok ? vv.n : 0) + d));
+  if (inp) inp.value = String(n);
+  cv2BorradorSet(CV2C.idx[id], String(n));
+  cv2CRefrescar(id);
+  try { if (navigator.vibrate) navigator.vibrate(15); } catch (e) {}
+}
+function cv2CBorrar(id) {
+  var inp = document.getElementById('cv2-cn-' + id);
+  if (inp) { inp.value = ''; try { inp.focus(); } catch (e) {} }
+  cv2BorradorSet(CV2C.idx[id], '');
+  cv2CRefrescar(id);
+}
+function cv2CKey(ev, id) { if (ev.key === 'Enter') { ev.preventDefault(); cv2CPedir(id); } }
+
+// Paso 1: "¿Subieron N?" — se puede corregir antes de enviar
+function cv2CPedir(id) {
+  var cod = CV2C.idx[id];
+  if (CV2C.conf[cod] || (CV2C.envio[cod] && CV2C.envio[cod].enviando)) return;
+  var inp = document.getElementById('cv2-cn-' + id);
+  var vv = cv2CValida(inp ? inp.value : cv2Borrador(cod));
+  if (!vv.ok) { cv2CRefrescar(id); if (inp) try { inp.focus(); } catch (e) {} return; }
+  cv2BorradorSet(cod, String(vv.n));
+  CV2C.conf[cod] = { n: vv.n, rid: cv2Rid(), desde: Date.now() };
+  cv2ChoferRender();
+  var si = document.getElementById('cv2-si-' + id);
+  if (si) try { si.focus({ preventScroll: true }); } catch (e) {}
+}
+function cv2CCorregir(id) {
+  var cod = CV2C.idx[id];
+  delete CV2C.conf[cod];
+  cv2ChoferRender();
+  var inp = document.getElementById('cv2-cn-' + id);
+  if (inp) try { inp.focus(); inp.select(); } catch (e) {}
+}
+
+// Paso 2: enviar UNA vez (request_id fijo para ese número; el servidor ignora repeticiones)
+var _cv2CEnvio = {};
+async function cv2CEnviar(id) {
+  var cod = CV2C.idx[id], cf = CV2C.conf[cod], e = CV2C.est;
+  if (!cf || !e) return;
+  if (Date.now() - cf.desde < 400) return;   // un Enter repetido no confirma de un golpe
+  if (_cv2CEnvio[cod]) return;
+  _cv2CEnvio[cod] = true;
+  CV2C.envio[cod] = { enviando: true, n: cf.n };
+  cv2ChoferRender();
+  var r = await cv2Enviar('chofer_lote_contar', {
+    p_viaje_id: e.viaje.id, p_version: e.sesion.cerrada_version, p_hash: e.sesion.cerrada_hash,
+    p_lote_codigo: cod, p_cantidad: cf.n, p_request_id: cf.rid
+  });
+  _cv2CEnvio[cod] = false;
+  if (r && r.encolado) {
+    CV2C.envio[cod] = { encolado: true, n: cf.n };
+    cv2Toast('📶 Sin señal: el conteo quedó guardado y se envía solo', 'err');
+    cv2ChoferRender();
+    return;
+  }
+  delete CV2C.envio[cod];
+  delete CV2C.conf[cod];
+  if (r && r.ok && r.estado === 'ok') { cv2BorradorSet(cod, ''); cv2Toast('✓ Coincide', 'ok'); }
+  else if (r && r.ok && r.estado === 'diferencia') { cv2BorradorSet(cod, ''); cv2Beep(); cv2Toast('✗ No coincide: recuenten por producto', 'err'); }
+  else cv2Toast('⛔ ' + ((r && r.message) || 'No se pudo registrar'), 'err');
+  await cv2ChoferCargar();
+  setTimeout(function () {
+    var n = cv2ChoferEl && cv2ChoferEl.querySelector('input.cv2-cnt-in');
+    if (n) try { n.focus({ preventScroll: false }); } catch (x) {}
+  }, 50);
+}
+
+async function cv2CReconteo(lote) {
+  var e = CV2C.est; if (!e) return;
+  var lo = (e.lotes || []).find(function (x) { return x.lote_codigo === lote; });
+  var rc = CV2C.reconteo[lote] || {};
+  var det = (lo.detalle || []).map(function (d) { return { clave: d.clave, cantidad: rc[d.clave] === '' || rc[d.clave] == null ? null : Number(rc[d.clave]) }; });
+  if (det.some(function (d) { return d.cantidad == null || isNaN(d.cantidad); })) { cv2Toast('Completá la cantidad de cada producto', 'err'); return; }
+  var r;
+  try { r = await cv2Rpc('chofer_lote_reconteo', { p_viaje_id: e.viaje.id, p_version: e.sesion.cerrada_version, p_hash: e.sesion.cerrada_hash, p_lote_codigo: lote, p_detalle: det, p_resolucion: CV2C.res[lote], p_request_id: cv2Rid() }); }
+  catch (err) { r = { ok: false, message: err.red ? 'Sin conexión: el reconteo necesita señal' : err.message }; }
+  if (r && r.ok && r.estado === 'ok') cv2Toast('✓ Reconteo coincide', 'ok');
+  else if (r && r.ok) { cv2Beep(); cv2Modal('<div class="cv2-h1">Sigue sin coincidir</div><div class="cv2-alert err">' + cv2Esc(r.mensaje) + '</div>' +
+      (r.diferencias || []).map(function (d) { return '<div>• ' + cv2Esc(d.producto) + ': Depósito ' + d.esperado + ' · contaron ' + d.contado + '</div>'; }).join('') +
+      '<button class="cv2-btn big" style="margin-top:10px;" onclick="this.closest(\'.cv2-modal-bk\').remove()">Entendido</button>'); }
+  else cv2Toast('⛔ ' + ((r && r.message) || 'No se pudo registrar'), 'err');
+  cv2ChoferCargar();
+}
+function cv2CAceptar() {
+  var e = CV2C.est; if (!e) return;
+  var s = e.sesion;
+  cv2Modal('<div class="cv2-h1">✅ Aceptar la carga</div>' +
+    '<div class="cv2-card">Planilla <b>v' + s.cerrada_version + '</b> · <span class="cv2-hash">' + cv2Esc(String(s.cerrada_hash).slice(0, 8)) + '</span><br>Cerrada por ' + cv2Esc(s.cerrada_por) + ' · ' + (e.lotes || []).length + ' grupos verificados por vos.</div>' +
+    '<div class="cv2-alert warn">Al aceptar, <b>la mercadería queda bajo tu responsabilidad</b>. Todavía no arranca el viaje.</div>' +
+    '<button class="cv2-btn big ok" id="cv2-acc-ok">Acepto la carga</button><button class="cv2-btn" style="width:100%;margin-top:8px;" id="cv2-acc-no">Volver</button>',
+    function (bk) {
+      bk.querySelector('#cv2-acc-no').onclick = function () { bk.remove(); };
+      var b = bk.querySelector('#cv2-acc-ok');
+      b.onclick = async function () {
+        b.disabled = true;
+        var r;
+        try { r = await cv2Rpc('chofer_aceptar_carga', { p_viaje_id: e.viaje.id, p_version: s.cerrada_version, p_hash: s.cerrada_hash, p_request_id: cv2Rid() }); }
+        catch (err) { r = { ok: false, message: err.red ? 'Sin conexión: aceptar necesita señal' : err.message }; }
+        bk.remove();
+        if (r && r.ok) cv2Toast('✅ Carga aceptada. Tocá ARRANCAR cuando salgas.', 'ok');
+        else cv2Toast('⛔ ' + ((r && r.message) || 'No se pudo aceptar'), 'err');
+        cv2ChoferCargar();
+      };
+    });
+}
+
+// Llamado desde mvArrancarViaje antes del Apps Script
+async function cv2SolicitarArranque(viajeId) {
+  // El servidor decide y registra: el celular no rechaza por su cuenta.
+  var r;
+  try {
+    var st = await cv2Rpc('chofer_carga_estado', { p_viaje_id: viajeId });
+    var s = (st && st.sesion) || {};
+    var ver = s.aceptada_version != null ? s.aceptada_version : s.cerrada_version;
+    var hash = s.aceptada_version != null ? s.aceptada_hash : s.cerrada_hash;
+    r = await cv2Rpc('chofer_arranque_solicitar', { p_viaje_id: viajeId, p_version: ver, p_hash: hash, p_request_id: cv2Rid() });
+  } catch (e) { r = { ok: false, message: e.red ? 'Sin conexión: arrancar necesita señal.' : e.message }; }
+  if (!r || !r.ok) {
+    var msg = cv2LimpiarMsg((r && r.message) || 'Error');
+    cv2ArranqueFallido(viajeId, 'pedido de arranque rechazado: ' + msg);
+    alert('⛔ NO SE PUEDE ARRANCAR\n\n' + msg);
+    try { cv2ChoferCargar(); } catch (x) {}
+    return false;
+  }
+  return true;
+}
+
+// ── Refresco automático (Depósito y Chofer) ──
+var _cv2TickT = null, _cv2TickEn = false, _cv2TickPend = false;
+var _cv2IncCh = { t: 0, viaje: null };
+async function cv2IncidenciasChofer(forzar) {
+  try {
+    var el = document.getElementById('cv2-incid-chofer');
+    var va = (typeof _viajeActivo !== 'undefined') ? _viajeActivo : null;
+    if (!va || va.estado !== 'en_ruta' || !(typeof esNombreChofer === 'function' && esNombreChofer(vendedorActual))) { if (el) el.remove(); return; }
+    if (!forzar && _cv2IncCh.viaje === va.id && Date.now() - _cv2IncCh.t < 30000) return;
+    _cv2IncCh.t = Date.now(); _cv2IncCh.viaje = va.id;
+    var r = await cv2Rpc('chofer_incidencias', { p_viaje_id: va.id });
+    var lista = document.getElementById('entregas-lista');
+    var inc = (r && r.ok && r.incidencias) || [];
+    el = document.getElementById('cv2-incid-chofer');
+    if (!inc.length || !lista) { if (el) el.remove(); return; }
+    if (!el) { el = document.createElement('div'); el.id = 'cv2-incid-chofer'; el.className = 'cv2'; lista.parentNode.insertBefore(el, lista); }
+    el.innerHTML = cv2IncidenciasHtml(inc, 'chofer');
+  } catch (e) {}
+}
+async function cv2Tick(forzar) {
+  if (!cv2On()) return;
+  cv2IncidenciasChofer(forzar);
+  if (_cv2TickEn) { if (forzar) _cv2TickPend = true; return; }   // se repite al terminar el ciclo actual
+  if (document.hidden && !forzar) return;
+  _cv2TickEn = true;
+  try {
+    await cv2OutboxFlush();
+    var ids = [];
+    var enDep = cv2DepEl && document.body.contains(cv2DepEl);
+    var enCh = cv2ChoferEl && document.body.contains(cv2ChoferEl) && CV2C.viajeId;
+    if (enDep) {
+      if (CV2D.vista === 'detalle' && CV2D.viajeId) ids = [CV2D.viajeId];
+      else ids = (CV2D.lista || []).map(function (v) { return v.id; });
+    }
+    if (enCh) ids.push(CV2C.viajeId);
+    if (!ids.length) {
+      if (enDep && CV2D.vista === 'lista') await cv2DepRecargar();
+      return;
+    }
+    var p = await cv2Rpc('carga_ping', { p_viaje_ids: ids });
+    if (!p || !p.ok) return;
+    var cambioDep = false;
+    (p.viajes || []).forEach(function (x) {
+      var prev = CV2D.ping[x.id];
+      var firma = x.ultimo_evento + '|' + x.planilla_version + '|' + x.planilla_desactualizada + '|' + x.estado + '|' + x.sin_factura;
+      // la primera firma se compara con lo que está en pantalla (el cambio pudo ocurrir antes del primer ping)
+      var difiere = function (est) {
+        return !!est && est.viaje && (est.viaje.estado !== x.estado || String(est.ultimo_evento) !== String(x.ultimo_evento)
+                                      || Number(est.planilla && est.planilla.version) !== Number(x.planilla_version));
+      };
+      if (!prev || prev.firma !== firma) {
+        if ((prev && prev.firma) || (CV2D.est && CV2D.est.viaje && CV2D.est.viaje.id === x.id && difiere(CV2D.est))) cambioDep = true;
+        CV2D.ping[x.id] = { firma: firma };
+      }
+      if (enCh && x.id === CV2C.viajeId && CV2C._firma !== firma) {
+        if (CV2C._firma || difiere(CV2C.est)) cv2ChoferCargar();
+        CV2C._firma = firma;
+      }
+      // Mientras haya cambios sin versión nueva, Depósito la pide en cada ciclo (con intervalo mínimo)
+      var esDep = typeof _depSecciones === 'function' && _depSecciones().indexOf('cargas') !== -1 && vendedorActual === 'Pancho';
+      if (enDep && esDep && x.planilla_desactualizada && x.estado === 'preparando' && x.planilla_version > 0) cv2DGenerarVersion(x.id);
+    });
+    if (enDep && (cambioDep || forzar)) {
+      if (CV2D.vista === 'detalle') await cv2DCargarDetalle(); else await cv2DepRecargar();
+    }
+    if (enDep && CV2D.vista === 'lista' && Math.random() < 0.2) await cv2DepRecargar();   // viajes nuevos
+  } catch (e) { /* sin señal: se reintenta en el próximo tick */ }
+  finally {
+    _cv2TickEn = false;
+    if (_cv2TickPend) { _cv2TickPend = false; setTimeout(function () { cv2Tick(true); }, 0); }
+  }
+}
+function cv2TickIniciar() {
+  if (_cv2TickT) return;
+  _cv2TickT = setInterval(function () { cv2Tick(false); }, CARGA_V2_CFG.pingMs);
+}
+cv2TickIniciar();
+
+// Mis Viajes: acceso directo a la recepción (que vive en Entregas)
+function cv2ChoferAtajoHtml(v) {
+  var cerr = v.estado === 'carga_cerrada';
+  return '<div class="cv2"><div class="cv2-card"><div class="cv2-h1">' + (cerr ? '📦 CARGA CERRADA POR DEPÓSITO' : '🔧 DEPÓSITO PREPARANDO LA CARGA') + '</div>' +
+    '<div class="cv2-sub">' + cv2Esc(cv2Zona(v.zona)) + ' · ' + cv2Esc(cv2Dia(v.fecha_salida)) + ' · ' + cv2Esc(v.vehiculo || '—') + '</div>' +
+    (cerr ? '<button class="cv2-btn big pri" style="margin-top:10px;" onclick="cambiarTab(\'entregas\')">Contar y aceptar la carga</button>'
+          : '<div class="cv2-sub" style="margin-top:6px;">Cuando Pancho la cierre, la contás desde la pestaña Entregas.</div>') + '</div></div>';
+}
+
+function cv2CPdfFinal() {
+  var e = CV2C.est; if (!e) return;
+  cv2PdfFinal(cv2Rpc, e.viaje.id, null, 'ver').catch(function (err) { cv2Toast('⛔ ' + err.message, 'err'); });
+}
+
+/* ═══ v14.198.0 — CARGA V2 · PLANILLA PDF (misma versión y hash que el panel) ═══ */
+var CV2_JSPDF_URL = 'https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js';
+function cv2CargarJsPDF() {
+  if (window.jspdf && window.jspdf.jsPDF) return Promise.resolve(window.jspdf.jsPDF);
+  return new Promise(function (ok, ko) {
+    var s = document.createElement('script');
+    s.src = CV2_JSPDF_URL;
+    s.onload = function () { (window.jspdf && window.jspdf.jsPDF) ? ok(window.jspdf.jsPDF) : ko(new Error('jsPDF no cargó')); };
+    s.onerror = function () { ko(new Error('No se pudo bajar jsPDF')); };
+    document.head.appendChild(s);
+  });
+}
+async function cv2Pdf(viajeId, version, modo) {
+  try {
+    var rows = await sbFetch('viajes_planillas?viaje_id=eq.' + encodeURIComponent(viajeId) + '&version=eq.' + version +
+      '&select=version,hash,generada_at,generada_por,total_pedidos,monto_total,pedidos,consolidado');
+    var p = rows && rows[0];
+    if (!p) { cv2Toast('⛔ No se encontró la planilla v' + version, 'err'); return; }
+    var e = (CV2D.est && CV2D.est.viaje && CV2D.est.viaje.id === viajeId) ? CV2D.est : null;
+    var v = e ? e.viaje : { zona: '', chofer: '', vehiculo: '', fecha_salida: '' };
+    var jsPDF = await cv2CargarJsPDF();
+    var doc = new jsPDF({ unit: 'mm', format: 'a4' });
+    var y = 14, W = 210, M = 12;
+    function linea(txt, x, size, bold) { doc.setFont('helvetica', bold ? 'bold' : 'normal'); doc.setFontSize(size || 10); doc.text(String(txt), x, y); }
+    function salto(n) { y += n; if (y > 282) { doc.addPage(); y = 14; } }
+    linea('Planilla de carga — ' + cv2Zona(v.zona).toUpperCase(), M, 16, true);
+    doc.setFontSize(16); doc.text('v' + p.version, W - M, y, { align: 'right' }); salto(6);
+    linea('Salida ' + (v.fecha_salida || '') + ' · Chofer ' + (v.chofer || '') + ' · ' + (v.vehiculo || ''), M, 9); salto(4.5);
+    linea('Generada ' + new Date(p.generada_at).toLocaleString('es-AR') + ' por ' + (p.generada_por || '—') + ' · ' + p.total_pedidos + ' pedidos · hash ' + p.hash, M, 8.5); salto(6);
+    var sinF = (p.pedidos || []).filter(function (x) { return !x.facturado; });
+    if (sinF.length) {
+      linea('Pedidos sin factura al generar (estado fiscal aparte de la carga): ' + sinF.map(function (x) { return x.cliente; }).join(', '), M, 8.5, true);
+      salto(6);
+    }
+    // Consolidado agrupado por lote logístico (misma regla que el panel)
+    var grupos = {}, orden = [];
+    (e ? e.lineas : []).forEach(function (l) { grupos[l.clave] = l; });
+    var porLote = {};
+    (p.consolidado || []).forEach(function (c) {
+      var k = String(c.producto || '').trim().toLowerCase() + '|' + String(c.calibre || '').trim().toLowerCase();
+      var l = grupos[k] || {};
+      var ln = l.lote_nombre || 'Sin clasificar';
+      if (!porLote[ln]) { porLote[ln] = { orden: l.lote_orden || 999, u: l.unidad || '', it: [] }; orden.push(ln); }
+      porLote[ln].it.push({ c: c, l: l });
+    });
+    orden.sort(function (a, b) { return porLote[a].orden - porLote[b].orden; });
+    orden.forEach(function (ln) {
+      salto(2); linea(ln.toUpperCase(), M, 10.5, true);
+      var tot = porLote[ln].it.reduce(function (a, x) { return a + (Number(x.c.requerido) || 0); }, 0);
+      doc.text(tot + ' ' + cv2Uni(porLote[ln].u, tot), W - M, y, { align: 'right' }); salto(5);
+      porLote[ln].it.forEach(function (x) {
+        doc.rect(M, y - 3.2, 3.5, 3.5);
+        linea(x.c.producto + (x.c.calibre ? ' (' + x.c.calibre + ')' : ''), M + 6, 9.5);
+        doc.text(String(x.c.pedidos || ''), 160, y, { align: 'right' });
+        doc.setFont('helvetica', 'bold'); doc.text(String(x.c.requerido), W - M, y, { align: 'right' });
+        salto(5);
+      });
+    });
+    salto(4); linea('POR CLIENTE', M, 10.5, true); salto(5);
+    (p.pedidos || []).forEach(function (x, i) {
+      linea((i + 1) + '. ' + x.cliente + (x.localidad ? ' — ' + x.localidad : '') + (x.facturado ? '  · Fact. ' + (x.factura_nro || '') : '  · SIN FACTURA'), M, 9, true); salto(4);
+      var t = (x.items || []).map(function (it) { return it.cantidad + ' ' + it.producto + (it.calibre ? ' ' + it.calibre : ''); }).join(' · ');
+      doc.splitTextToSize(t, W - 2 * M - 4).forEach(function (row) { linea(row, M + 4, 8.5); salto(4); });
+    });
+    var n = doc.getNumberOfPages();
+    for (var i = 1; i <= n; i++) { doc.setPage(i); doc.setFontSize(7.5); doc.text('TCK · v' + p.version + ' · ' + p.hash + ' · ' + i + '/' + n, W / 2, 292, { align: 'center' }); }
+    var nombre = 'Carga-' + (v.zona || 'viaje') + '-' + (v.fecha_salida || '') + '-v' + p.version + '.pdf';
+    if (modo === 'descargar') { doc.save(nombre); return; }
+    if (modo === 'imprimir') doc.autoPrint();
+    var url = doc.output('bloburl');
+    var w = window.open(url, '_blank');
+    if (!w) { doc.save(nombre); cv2Toast('El navegador bloqueó la ventana: se descargó el PDF', 'ok'); }
+    try { window.__cv2UltimoPdf = { nombre: nombre, paginas: n, version: p.version, hash: p.hash }; } catch (x) {}
+  } catch (err) {
+    cv2Toast('⛔ No se pudo armar el PDF: ' + (err && err.message ? err.message : err), 'err');
+  }
+}
+
+/* ═══ CARGA V2 · PLANILLA FINAL DE CARGA (documento inmutable) ═══════
+   Compartido por TCK Ventas (Depósito y chofer) y TCK Admin.
+   Lee carga_planilla_final_ver: el contenido se tomó al cerrar y no cambia.
+   cv2PdfFinal(rpc, viajeId, id, modo) · modo: 'ver' | 'descargar' | 'imprimir'   */
+var CV2PF_JSPDF_URL = 'https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js';
+function cv2pfJsPDF() {
+  if (window.jspdf && window.jspdf.jsPDF) return Promise.resolve(window.jspdf.jsPDF);
+  return new Promise(function (ok, ko) {
+    var sc = document.createElement('script');
+    sc.src = CV2PF_JSPDF_URL;
+    sc.onload = function () { (window.jspdf && window.jspdf.jsPDF) ? ok(window.jspdf.jsPDF) : ko(new Error('jsPDF no cargó')); };
+    sc.onerror = function () { ko(new Error('No se pudo bajar jsPDF')); };
+    document.head.appendChild(sc);
+  });
+}
+function cv2pfFecha(ts) {
+  if (!ts) return '—';
+  try { return new Date(ts).toLocaleString('es-AR', { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' }); }
+  catch (e) { return String(ts); }
+}
+var CV2PF_UNI = { caja: 'cajas', bolsa: 'bolsas', maple: 'maples', cajita: 'cajitas', paquete: 'paquetes', estuche: 'estuches', bulto: 'bultos', tubo: 'tubos', unidad: 'unidades' };
+
+async function cv2PdfFinal(rpc, viajeId, id, modo) {
+  var r = await rpc('carga_planilla_final_ver', { p_viaje_id: viajeId, p_id: id || null });
+  if (!r || !r.ok) throw new Error((r && r.message) || 'No se pudo leer la planilla final');
+  var pf = r.planilla;
+  if (!pf) throw new Error('Este viaje todavía no tiene planilla final (se emite al cerrar la carga).');
+  var c = pf.contenido || {};
+  var vj = c.viaje || {};
+  var jsPDF = await cv2pfJsPDF();
+  var doc = new jsPDF({ unit: 'mm', format: 'a4' });
+  var W = 210, M = 12, y = 14, TXT = [];
+  function t(s, x, size, bold, align) {
+    doc.setFont('helvetica', bold ? 'bold' : 'normal'); doc.setFontSize(size || 9.5);
+    doc.text(String(s), x, y, align ? { align: align } : undefined); TXT.push(String(s));
+  }
+  function salto(n) { y += n; if (y > 270) { doc.addPage(); y = 16; } }
+  function reservar(n) { if (y + n > 270) { doc.addPage(); y = 16; } }
+
+  t('PLANILLA FINAL DE CARGA', M, 17, true);
+  t('Documento N° ' + pf.id, W - M, 10, true, 'right'); salto(6);
+  if (pf.anulada_at) {
+    doc.setTextColor(183, 28, 28);
+    t('ANULADA el ' + cv2pfFecha(pf.anulada_at) + ' por ' + (pf.anulada_por || '—') + ' — ' + (pf.anulada_motivo || ''), M, 9.5, true);
+    doc.setTextColor(0, 0, 0); salto(6);
+  }
+  t('Viaje: ' + (vj.zona || '') + ' · salida ' + (vj.fecha_salida || '') + ' · Vehículo: ' + (pf.vehiculo || vj.vehiculo || '—'), M, 10, true); salto(5);
+  t('Chofer: ' + (pf.chofer || '—') + ' · Encargado de depósito: ' + pf.cerrada_por, M, 10); salto(5);
+  t('Cierre de carga: ' + cv2pfFecha(pf.cerrada_at) + ' · Planilla v' + pf.version, M, 10); salto(5);
+  t('Hash: ' + pf.hash, M, 8.5); salto(7);
+
+  // Productos por grupo físico
+  var grupos = {}, orden = [];
+  (c.lineas || []).forEach(function (l) {
+    var g = l.lote_nombre || l.lote || 'Sin clasificar';
+    if (!grupos[g]) { grupos[g] = []; orden.push(g); }
+    grupos[g].push(l);
+  });
+  t('PRODUCTOS Y CANTIDADES', M, 11, true); salto(5);
+  orden.forEach(function (g) {
+    reservar(12);
+    t(g, M, 9.5, true); salto(4.5);
+    grupos[g].forEach(function (l) {
+      reservar(6);
+      var dif = l.diferencia ? '  ≠ pedido ' + l.requerido + ' · ' + (l.motivo || '') + (l.autorizada_por ? ' · autorizó ' + l.autorizada_por : '') : '';
+      t(l.producto + (l.calibre ? ' (' + l.calibre + ')' : ''), M + 3, 9);
+      t((l.cargado == null ? '—' : l.cargado) + ' ' + (CV2PF_UNI[l.unidad] || l.unidad || ''), W - M, 9, true, 'right');
+      if (dif) { salto(4); t(dif, M + 6, 8); }
+      salto(4.5);
+    });
+  });
+  salto(2);
+  reservar(10);
+  t('BULTOS POR GRUPO (control del chofer)', M, 10, true); salto(4.5);
+  (c.lotes || []).forEach(function (lo) { reservar(5); t(lo.nombre + ': ' + lo.bultos + ' ' + (CV2PF_UNI[lo.unidad] || ''), M + 3, 9); salto(4.2); });
+
+  salto(2); reservar(10);
+  t('PEDIDOS INCLUIDOS Y DOCUMENTACIÓN', M, 10, true); salto(4.5);
+  (c.pedidos || []).forEach(function (p) {
+    reservar(9);
+    t(p.pedido_id + ' · ' + (p.cliente || '') + (p.localidad ? ' — ' + p.localidad : ''), M + 3, 9, true);
+    t(p.documentado ? ('Factura ' + (p.factura_nro || 'emitida')) : 'SIN DOCUMENTACIÓN', W - M, 9, true, 'right'); salto(4);
+    var its = (p.items || []).map(function (i) { return i.cantidad + ' ' + i.producto + (i.calibre ? ' ' + i.calibre : ''); }).join(' · ');
+    doc.splitTextToSize(its, W - 2 * M - 8).forEach(function (row) { reservar(5); t(row, M + 6, 8); salto(3.8); });
+  });
+
+  var difs = (c.lineas || []).filter(function (l) { return l.diferencia; });
+  salto(2); reservar(10);
+  t('DIFERENCIAS Y RESOLUCIONES', M, 10, true); salto(4.5);
+  if (!difs.length) { t('Sin diferencias.', M + 3, 9); salto(4.2); }
+  difs.forEach(function (l) {
+    reservar(6);
+    t(l.producto + ': pedido ' + l.requerido + ', cargado ' + l.cargado + ' · ' + (l.motivo || '') + (l.motivo_nota ? ' — ' + l.motivo_nota : '') +
+      (l.autorizada_por ? ' · autorizó ' + l.autorizada_por + (l.autorizada_nota ? ': ' + l.autorizada_nota : '') : ''), M + 3, 8.5);
+    salto(4.2);
+  });
+  if ((c.retiros || []).length) {
+    salto(2); reservar(10);
+    t('RETIROS DE MERCADERÍA ANTERIORES A ESTE CIERRE', M, 10, true); salto(4.5);
+    c.retiros.forEach(function (rt) {
+      (rt.items || []).forEach(function (i) {
+        reservar(5);
+        t('Retiro N° ' + rt.id + ': ' + i.cantidad_retiro + ' ' + i.producto + ' (pedido ' + i.pedido_id + ') · ' + rt.motivo + ' · inició ' +
+          rt.iniciado_por + ' · recibió ' + (rt.recibido_por || '—'), M + 3, 8.5);
+        salto(4.2);
+      });
+    });
+  }
+
+  // Cierre, aceptación y firmas
+  salto(4); reservar(62);
+  t('CIERRE DE DEPÓSITO', M, 10, true); salto(4.5);
+  t('Cerró ' + pf.cerrada_por + ' el ' + cv2pfFecha(pf.cerrada_at) + ' (usuario autenticado).', M + 3, 9); salto(6);
+  t('ACEPTACIÓN DEL CHOFER', M, 10, true); salto(4.5);
+  if (pf.aceptada_at) t('Aceptada digitalmente por ' + pf.aceptada_por + ' el ' + cv2pfFecha(pf.aceptada_at) + ' (versión v' + pf.version + ' y hash de este documento).', M + 3, 9);
+  else t('PENDIENTE DE ACEPTACIÓN DIGITAL del chofer.', M + 3, 9, true);
+  salto(9);
+  doc.setDrawColor(90); doc.setLineWidth(0.3);
+  doc.rect(M, y - 2, 88, 26); doc.rect(W - M - 88, y - 2, 88, 26);
+  y += 20;
+  t('Firma del chofer', M + 2, 8.5); t('Firma del encargado de depósito', W - M - 86, 8.5); salto(8);
+  t('Aclaración: ______________________   DNI: ____________', M, 8.5); salto(6);
+  t('Fecha y hora: ____/____/______  ____:____', M, 8.5); salto(6);
+  t('El original firmado queda en poder del encargado de depósito. La fuente de verdad es el registro digital.', M, 8);
+
+  var n = doc.getNumberOfPages();
+  for (var i = 1; i <= n; i++) {
+    doc.setPage(i); doc.setFont('helvetica', 'normal'); doc.setFontSize(7.5);
+    doc.text('TCK · Planilla final N° ' + pf.id + ' · v' + pf.version + ' · ' + pf.hash + ' · pág. ' + i + '/' + n, W / 2, 290, { align: 'center' });
+    if (pf.anulada_at) { doc.setTextColor(200, 40, 40); doc.setFontSize(40); doc.text('ANULADA', W / 2, 150, { align: 'center', angle: 30 }); doc.setTextColor(0, 0, 0); }
+  }
+  var nombre = 'PlanillaFinal-' + (vj.zona || 'viaje') + '-' + (vj.fecha_salida || '') + '-v' + pf.version + '-N' + pf.id + '.pdf';
+  try { window.__cv2UltimoPdfFinal = { id: pf.id, version: pf.version, hash: pf.hash, paginas: n, anulada: !!pf.anulada_at, texto: TXT.join('\n'), nombre: nombre }; } catch (e) {}
+  if (modo === 'descargar') { doc.save(nombre); return; }
+  if (modo === 'imprimir') doc.autoPrint();
+  var w = window.open(doc.output('bloburl'), '_blank');
+  if (!w) doc.save(nombre);
 }
 
 </script>
