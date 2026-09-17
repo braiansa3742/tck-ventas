@@ -2,6 +2,26 @@
 <html lang="es">
 <head>
 <!-- ═══════════════════════════════════════════════════════════════════════
+     TCK VENTAS — v14.200.0 — 17/09/2026
+     v14.200.0: CARGA V2 · REGLAS DEL PILOTO + UNA SOLA MERCADERÍA QUE VUELVE.
+       (rebase sobre v14.199.0 productivo: NO cambia nada de devoluciones,
+       cobranzas, cuenta corriente ni "Devuelve todo". Carga v2 sigue en 'off'.)
+       · Congelamiento completo: cerrada la carga no cambia ningún dato del
+         pedido (productos, cantidades, precio, descuento, cliente, fecha).
+       · Se elimina "Corregir conteo": Depósito PIDE "Anular cierre por error
+         de conteo" y lo autoriza Chan; la planilla cerrada queda ANULADA y la
+         aceptación del chofer se anula expresamente.
+       · Retiro antes de salir: se pide y lo autoriza Chan (nunca directo).
+       · En ruta el pedido no sale del manifiesto: sigue el circuito de
+         devolución ya desplegado (fn_no_entrega_registrar → devoluciones).
+       · Depósito recibe la mercadería que vuelve por CANTIDAD REAL (o "No
+         recibida"): lo que falta queda como diferencia para Administración.
+         Se usa la MISMA tabla devoluciones, sin duplicar registros.
+       · Chan autoriza/rechaza excepciones desde su propio perfil, con motivo
+         obligatorio y aviso automático al grupo. Nadie se autoriza a sí mismo.
+       Requiere el SQL tck_carga_v2_integrador (idempotente). Apps Script v25.142.0.
+       DEPLOY: subir como index.html y version.json a 14.200.0.
+     ─────────────────────────────────────────────────────────────────────
      TCK VENTAS — v14.199.0 — 17/09/2026
      v14.199.0: DEVOLUCIÓN TOTAL SIN COBRO INVENTADO + IMPORTES DEL VIAJE SEPARADOS.
        (rebase sobre v14.198.0; no cambia nada de esa versión ni de Carga v2)
@@ -58819,7 +58839,7 @@ function depPollIniciar() {
    TCK_UPD_LOCAL aca Y el archivo version.json del repo.
    ============================================================ */
 (function(){
-  var TCK_UPD_LOCAL = '14.199.0';        /* <-- bump en cada deploy */
+  var TCK_UPD_LOCAL = '14.200.0';        /* <-- bump en cada deploy */
   /* v14.159.0: fuente UNICA de version. La telemetria del shadow la reporta,
      asi que un desfasaje contra version.json se ve solo en el primer pedido
      (paso 4 veces sin que nadie lo notara: 14.109, 14.128, 14.137, 14.147). */
@@ -59618,7 +59638,7 @@ async function recoReintentarPedido(pedidoId) {
 
 </script>
 <style id="cv2-style">
-/* ═══ v14.198.0 — CARGA V2 (Depósito + Chofer) ═══ */
+/* ═══ v14.199.0 — CARGA V2 (Depósito + Chofer) ═══ */
 .cv2 { font-family: 'Barlow', system-ui, sans-serif; color: #2A2018; }
 .cv2 * { box-sizing: border-box; }
 .cv2-h1 { font-family: 'Barlow Condensed', sans-serif; font-weight: 900; font-size: 22px; line-height: 1.1; }
@@ -59687,7 +59707,7 @@ async function recoReintentarPedido(pedidoId) {
 .cv2-hash { font-family: ui-monospace, Menlo, monospace; font-size: 11.5px; background: #F2EDE7; border-radius: 6px; padding: 1px 5px; }
 @media (min-width: 900px) { .cv2 { max-width: 880px; margin: 0 auto; } }
 @media (max-width: 899px) { .cv2-footer { bottom: calc(76px + env(safe-area-inset-bottom, 0px)); } }
-/* v14.198.0 — conteo del chofer para cantidades grandes, con guantes */
+/* v14.199.0 — conteo del chofer para cantidades grandes, con guantes */
 .cv2-lotes { display: grid; grid-template-columns: 1fr; gap: 0 14px; }
 @media (min-width: 900px) { .cv2-lotes { grid-template-columns: 1fr 1fr; } }
 .cv2-cnt-uni { margin: 8px 0 6px; font-size: 15px; }
@@ -59710,7 +59730,7 @@ async function recoReintentarPedido(pedidoId) {
 </style>
 <script id="cv2-module">
 /* ═══════════════════════════════════════════════════════════════════
-   v14.198.0 — CARGA V2: núcleo compartido (Depósito + Chofer)
+   v14.199.0 — CARGA V2: núcleo compartido (Depósito + Chofer)
    Todo el estado vive en Supabase (RPC carga_* / chofer_*). Acá solo hay
    vista, una cola offline de envíos (con request_id, idempotente) y el
    borrador del contador del chofer. Nada de esto es fuente de verdad.
@@ -59718,7 +59738,7 @@ async function recoReintentarPedido(pedidoId) {
    ═══════════════════════════════════════════════════════════════════ */
 var CARGA_V2_CFG = {
   modo: 'off',
-  piloto: ['Pancho', 'Joan', 'Juan Pablo', 'Francisco'],   // Nahuel y Cesar: sumar cuando se confirme su situación
+  piloto: ['Pancho', 'Joan', 'Juan Pablo', 'Francisco', 'Chan'],   // Chan: autoriza excepciones del piloto. Nahuel y Cesar: sumar cuando se confirme su situación
   pingMs: 8000,
   autoPlanillaMinMs: 15000
 };
@@ -59961,7 +59981,14 @@ function cv2ArranqueFallido(viajeId, msg) {
 }
 try { window.cv2ArranqueFallido = cv2ArranqueFallido; } catch (e) {}
 
-/* ═══ v14.198.0 — CARGA V2 · PANEL DE DEPÓSITO ═══════════════════════ */
+
+// Misma regla que _cv2_nota_valida del servidor: 15 caracteres y al menos 2 palabras de 3 letras
+function cv2NotaValida(t) {
+  t = String(t == null ? '' : t).trim();
+  return t.length >= 15 && (t.match(/[A-Za-zÁÉÍÓÚÜÑáéíóúüñ]{3,}/g) || []).length >= 2;
+}
+
+/* ═══ v14.199.0 — CARGA V2 · PANEL DE DEPÓSITO ═══════════════════════ */
 var CV2D = { vista: 'lista', viajeId: null, lista: null, est: null, err: null, cargando: false,
              filtro: null, busca: '', cerrados: {}, pedAbiertos: {}, edit: {}, motivoSel: {},
              kidx: {}, kn: 0, ping: {}, autoPl: {}, generando: {}, verAnt: {}, sinPedidos: {} };
@@ -59998,7 +60025,7 @@ async function cv2DepRecargar() {
   CV2D.cargando = true;
   try {
     var r = await cv2Rpc('carga_viajes_listado', {});
-    if (r && r.ok) { CV2D.lista = r.viajes || []; CV2D.incidencias = r.incidencias || []; CV2D.err = null; }
+    if (r && r.ok) { CV2D.lista = r.viajes || []; CV2D.incidencias = r.incidencias || []; CV2D.retornos = r.retornos || []; CV2D.err = null; }
     else CV2D.err = (r && r.message) || 'No se pudo leer la lista';
   } catch (e) { CV2D.err = e.red ? 'Sin conexión: mostrando lo último que se cargó.' : e.message; }
   CV2D.cargando = false;
@@ -60061,6 +60088,7 @@ function cv2DVolver() { CV2D.vista = 'lista'; CV2D.viajeId = null; CV2D.est = nu
 function cv2DListaHtml() {
   var h = '<div class="cv2-row" style="margin-top:4px;"><div class="cv2-sub">Viajes de hoy y los próximos dos días. Tocá uno para preparar su carga.</div></div>';
   if (CV2D.err) h += '<div class="cv2-alert warn">' + cv2Esc(CV2D.err) + '</div>';
+  h += cv2DRetornosHtml(CV2D.retornos);
   h += cv2IncidenciasHtml(CV2D.incidencias, 'deposito');
   if (!CV2D.lista) return h + '<div class="cv2-card">Cargando viajes…</div>';
   if (!CV2D.lista.length) return h + '<div class="cv2-card">No hay viajes para preparar.</div>';
@@ -60281,8 +60309,10 @@ function cv2DDetalleHtml() {
     h += '<div class="cv2-row" style="margin-top:8px;">' +
          (e.planilla_final ? '<button class="cv2-btn sm" onclick="cv2DPdfFinal(\'ver\')">📄 Planilla final N° ' + e.planilla_final.id + '</button>' +
                              '<button class="cv2-btn sm" onclick="cv2DPdfFinal(\'imprimir\')">🖨 Imprimir para firmar</button>' : '') +
-         (puede && !s.aceptada_version ? '<button class="cv2-btn sm warn" onclick="cv2DReabrir()">↩ Corregir conteo (no cambia pedidos)</button>' : '') + '</div>';
-    h += '<div class="cv2-sub" style="margin-top:6px;">🔒 Carga congelada: no se agregan, editan ni sacan pedidos. Los pedidos nuevos van a la próxima salida.</div>';
+         (puede && !(e.excepciones || []).some(function (x) { return x.estado === 'pendiente'; })
+           ? '<button class="cv2-btn sm warn" onclick="cv2DPedirAnulacion()">↩ Pedir anulación del cierre (error de conteo)</button>' : '') + '</div>';
+    h += '<div class="cv2-sub" style="margin-top:6px;">🔒 Carga congelada: no se modifica ningún dato de los pedidos (productos, cantidades, precios, cliente, fecha). Los pedidos nuevos van a la próxima salida.</div>';
+    if ((e.excepciones || []).length) h += '<div class="cv2-sub" style="margin-top:6px;">' + cv2xExcepcionesHtml(e.excepciones) + '</div>';
     h += '</div>';
   }
 
@@ -60464,80 +60494,113 @@ function cv2DCerrar() {
   });
 }
 
-async function cv2DReabrir() {
+async function cv2DReabrir() { cv2DPedirAnulacion(); }
+async function cv2DPedirAnulacion() {
   var e = CV2D.est; if (!e) return;
   await cv2Motivos();
-  var ops = (CV2_MOTIVOS || []).filter(function (m) { return m.ambito === 'reapertura'; });
-  var html = '<div class="cv2-h1">↩ Reabrir carga</div><div class="cv2-sub">Se invalida el cierre. Los lotes donde el chofer contó distinto vuelven a controlarse.</div>' +
-    '<div class="cv2-motivos" id="cv2-rea-ops">' + ops.map(function (m) { return '<button data-c="' + m.codigo + '" data-n="' + (m.exige_nota ? 1 : 0) + '">' + cv2Esc(m.texto) + '</button>'; }).join('') + '</div>' +
-    '<input class="cv2-search" id="cv2-rea-nota" style="margin-top:8px;display:none;" placeholder="Detalle (mínimo 15 letras)">' +
-    '<button class="cv2-btn big warn" id="cv2-rea-ok" disabled style="margin-top:10px;">Reabrir</button>' +
-    '<button class="cv2-btn" style="width:100%;margin-top:8px;" onclick="this.closest(\'.cv2-modal-bk\').remove()">Volver</button>';
-  cv2Modal(html, function (bk) {
-    var sel = null;
-    bk.querySelectorAll('#cv2-rea-ops button').forEach(function (b) {
-      b.onclick = function () {
-        sel = b.getAttribute('data-c');
-        bk.querySelectorAll('#cv2-rea-ops button').forEach(function (x) { x.classList.toggle('sel', x === b); });
-        bk.querySelector('#cv2-rea-nota').style.display = b.getAttribute('data-n') === '1' ? '' : 'none';
-        bk.querySelector('#cv2-rea-ok').disabled = false;
-      };
-    });
-    bk.querySelector('#cv2-rea-ok').onclick = async function () {
-      var r;
-      try { r = await cv2Rpc('carga_reabrir', { p_viaje_id: e.viaje.id, p_motivo_codigo: sel, p_nota: bk.querySelector('#cv2-rea-nota').value || null, p_request_id: cv2Rid() }); }
-      catch (err) { r = { ok: false, message: err.message }; }
-      if (r && r.ok) { bk.remove(); cv2Toast('↩ Carga reabierta', 'ok'); cv2DCargarDetalle(); }
-      else cv2Toast('⛔ ' + ((r && r.message) || 'No se pudo reabrir'), 'err');
-    };
-  });
+  cv2xPedirAnulacion(e.viaje.id, (e.lineas || []).filter(function (l) { return l.estado !== 'anulada' && (Number(l.requerido) > 0 || Number(l.contado) > 0); }),
+                     CV2_MOTIVOS || [], function () { cv2DCargarDetalle(); });
 }
 
-
-// ── Retiro excepcional de una carga cerrada (regla 16/09) ──
 function cv2DRetiroHtml(e, puede) {
   var rs = (e.retiros || []);
   var pend = rs.filter(function (r) { return r.estado === 'pendiente_descarga'; })[0];
   var h = '';
   if (pend) {
     h += '<div class="cv2-alert err"><b class="t">📦 RETIRO DE MERCADERÍA · N° ' + pend.id + '</b>' +
-         'Administración (' + cv2Esc(pend.iniciado_por) + ') rompió el cierre' + (pend.aceptacion_anulada ? ' y anuló la aceptación de ' + cv2Esc(pend.aceptada_por_anulada) : '') +
-         '. Motivo: ' + cv2Esc(pend.nota) + '<br><b>Bajá del camión y recibí:</b>';
+         'Autorizado por Chan (pidió ' + cv2Esc(pend.iniciado_por) + '). Se rompió el cierre' + (pend.aceptacion_anulada ? ' y se anuló la aceptación de ' + cv2Esc(pend.aceptada_por_anulada) : '') +
+         '. Motivo: ' + cv2Esc(pend.nota) + '<br><b>Bajá del camión y anotá lo que REALMENTE recibís:</b>';
     (pend.items || []).forEach(function (it, i) {
-      h += '<div class="cv2-row" style="margin-top:6px;"><div style="flex:1;"><b>' + cv2Esc(it.cantidad_retiro) + '</b> · ' + cv2Esc(it.producto) +
+      h += '<div class="cv2-row" style="margin-top:6px;"><div style="flex:1;">Retirar <b>' + cv2Esc(it.cantidad_retiro) + '</b> · ' + cv2Esc(it.producto) +
            (it.calibre ? ' <span class="cv2-cal">' + cv2Esc(it.calibre) + '</span>' : '') + ' <span class="cv2-sub">(pedido ' + cv2Esc(it.pedido_id) + ')</span></div>' +
            (puede ? '<input class="cv2-in" id="cv2-ret-' + i + '" data-keep="1" type="text" inputmode="numeric" pattern="[0-9]*" placeholder="recibí">' : '') + '</div>';
     });
-    if (puede) h += '<div style="margin-top:8px;"><button class="cv2-btn warn" onclick="cv2DRecibirRetiro(' + pend.id + ',' + (pend.items || []).length + ')">✔ Descargué y recibí la mercadería</button></div>';
-    h += '<div class="cv2-sub" style="margin-top:6px;">Después se genera la planilla nueva, cerrás de nuevo y el chofer vuelve a controlar y aceptar.</div></div>';
+    if (puede) h += '<input class="cv2-search" id="cv2-ret-nota" data-keep="1" style="margin-top:8px;" placeholder="Nota (obligatoria si no llegó nada)">' +
+                    '<div class="cv2-row" style="margin-top:8px;"><button class="cv2-btn warn" onclick="cv2DRecibirRetiro(' + pend.id + ',' + (pend.items || []).length + ',false)">✔ Registrar lo recibido</button>' +
+                    '<button class="cv2-btn" onclick="cv2DRecibirRetiro(' + pend.id + ',0,true)">✖ No recibida</button></div>';
+    h += '<div class="cv2-sub" style="margin-top:6px;">Si recibís menos, queda una diferencia para Administración. Después: planilla nueva, cerrás de nuevo y el chofer vuelve a controlar y aceptar.</div></div>';
   }
-  var rec = rs.filter(function (r) { return r.estado === 'recibido' && e.viaje.estado === 'preparando' && (!r.planilla_nueva_version || r.planilla_nueva_version === e.planilla.version); })[0];
-  if (!pend && rec) {
-    h += '<div class="cv2-alert warn"><b class="t">Retiro N° ' + rec.id + ' recibido por ' + cv2Esc(rec.recibido_por) + '</b>' +
-         (rec.planilla_nueva_version ? 'Planilla nueva v' + rec.planilla_nueva_version + ': hacé los cambios marcados y cerrá de nuevo.' : 'Generando la planilla nueva…') + '</div>';
+  var ult = rs.filter(function (r) { return r.estado !== 'pendiente_descarga'; }).slice(-1)[0];
+  if (!pend && ult && e.viaje.estado === 'preparando') {
+    var txt = { recibido_completo: 'recibido completo', recibido_parcial: 'recibido PARCIAL', no_recibido: 'NO RECIBIDO' }[ult.estado] || ult.estado;
+    h += '<div class="cv2-alert warn"><b class="t">Retiro N° ' + ult.id + ' · ' + txt + ' (' + cv2Esc(ult.recibido_por) + ')</b>' +
+         (ult.diferencia_estado === 'pendiente' ? 'Diferencia pendiente: la resuelve Administración. ' : '') +
+         (ult.estado === 'no_recibido' ? 'La carga no cambió: volvé a cerrar.' :
+          (ult.planilla_nueva_version ? 'Planilla nueva v' + ult.planilla_nueva_version + ': hacé los cambios marcados y cerrá de nuevo.' : 'Generando la planilla nueva…')) + '</div>';
   }
   return h;
 }
-async function cv2DRecibirRetiro(retiroId, n) {
+async function cv2DRecibirRetiro(retiroId, n, noRecibida) {
   var cant = [];
-  for (var i = 0; i < n; i++) {
-    var inp = document.getElementById('cv2-ret-' + i);
-    var t = inp ? String(inp.value).trim() : '';
-    if (!/^\d+$/.test(t)) { cv2Toast('Escribí cuánto recibiste de cada producto', 'err'); if (inp) inp.focus(); return; }
-    cant.push(Number(t));
-  }
+  var notaEl = document.getElementById('cv2-ret-nota');
+  var nota = notaEl ? notaEl.value : '';
+  if (!noRecibida) {
+    for (var i = 0; i < n; i++) {
+      var inp = document.getElementById('cv2-ret-' + i);
+      var t = inp ? String(inp.value).trim() : '';
+      if (!/^\d+$/.test(t)) { cv2Toast('Escribí cuánto recibiste de cada producto (0 si no llegó)', 'err'); if (inp) inp.focus(); return; }
+      cant.push(Number(t));
+    }
+  } else if (!cv2NotaValida(nota)) { cv2Toast('Contá por qué no se recibió (mínimo 15 letras)', 'err'); if (notaEl) notaEl.focus(); return; }
   var r;
-  try { r = await cv2Rpc('carga_retiro_recibir', { p_retiro_id: retiroId, p_recibidos: cant, p_request_id: cv2Rid() }); }
+  try { r = await cv2Rpc('carga_retiro_recibir', { p_retiro_id: retiroId, p_recibidos: noRecibida ? null : cant, p_no_recibido: !!noRecibida, p_nota: nota, p_request_id: cv2Rid() }); }
   catch (err) { r = { ok: false, message: err.red ? 'Sin conexión: la recepción necesita señal.' : err.message }; }
-  if (r && r.ok) { cv2Toast('✔ Mercadería recibida. Se genera la planilla nueva.', 'ok'); cv2DCargarDetalle(); }
-  else { cv2Beep(); cv2Toast('⛔ ' + cv2LimpiarMsg((r && r.message) || 'No se pudo registrar'), 'err'); }
+  if (r && r.ok) {
+    cv2Toast(r.estado === 'recibido_completo' ? '✔ Recibido completo. Se genera la planilla nueva.' : '⚠ Registrado: ' + r.estado.replace('_', ' ') + '. Administración resuelve la diferencia.', r.estado === 'recibido_completo' ? 'ok' : 'err');
+    try { if (typeof cv2xAvisar === 'function') cv2xAvisar(); } catch (x) {}
+    cv2DCargarDetalle();
+  } else { cv2Beep(); cv2Toast('⛔ ' + cv2LimpiarMsg((r && r.message) || 'No se pudo registrar'), 'err'); }
+}
+
+// ── Mercadería que vuelve de reparto (no entregada en un viaje de Carga v2) ──
+function cv2DRetornosHtml(lista) {
+  if (!lista || !lista.length) return '';
+  var puede = vendedorActual === 'Pancho';
+  var h = '<div class="cv2-alert warn"><b class="t">🔁 MERCADERÍA QUE VUELVE DE REPARTO (' + lista.length + ')</b>' +
+          'Sigue a cargo del chofer hasta que la recibas. Anotá lo que REALMENTE llega (0 si no llegó).';
+  lista.forEach(function (r) {
+    h += '<div class="cv2-card" style="margin-top:8px;"><b>' + cv2Esc(r.pedido_id) + ' · ' + cv2Esc(r.cliente || '') + '</b>' +
+         (r.tipo === 'parcial' ? ' <span class="cv2-cal">devolución parcial</span>' : ' <span class="cv2-cal">no entregado</span>') +
+         '<div class="cv2-sub">' + cv2Esc(r.viaje || '') + ' · motivo: ' + cv2Esc(r.motivo || '') + (r.motivo_detalle ? ' — ' + cv2Esc(r.motivo_detalle) : '') + '</div>';
+    (r.items || []).forEach(function (it, i) {
+      h += '<div class="cv2-row" style="margin-top:4px;"><div style="flex:1;">' + cv2Esc(it.producto) + (it.calibre ? ' ' + cv2Esc(it.calibre) : '') +
+           ' · declarado <b>' + cv2Esc(it.esperado) + '</b></div>' +
+           (puede ? '<input class="cv2-in" id="cv2-rtn-' + r.id + '-' + i + '" data-keep="1" type="text" inputmode="numeric" pattern="[0-9]*" placeholder="recibí">' : '') + '</div>';
+    });
+    if (puede) h += '<input class="cv2-search" id="cv2-rtn-nota-' + r.id + '" data-keep="1" style="margin-top:6px;" placeholder="Nota (obligatoria si no llegó nada)">' +
+                    '<div class="cv2-row" style="margin-top:6px;"><button class="cv2-btn warn" onclick="cv2DRecibirRetorno(\'' + r.id + '\',' + (r.items || []).length + ',false)">✔ Registrar recepción</button>' +
+                    '<button class="cv2-btn" onclick="cv2DRecibirRetorno(\'' + r.id + '\',0,true)">✖ No recibida</button></div>';
+    h += '</div>';
+  });
+  return h + '</div>';
+}
+async function cv2DRecibirRetorno(id, n, noRecibida) {
+  var cant = [];
+  var notaEl = document.getElementById('cv2-rtn-nota-' + id);
+  var nota = notaEl ? notaEl.value : '';
+  if (!noRecibida) {
+    for (var i = 0; i < n; i++) {
+      var inp = document.getElementById('cv2-rtn-' + id + '-' + i);
+      var t = inp ? String(inp.value).trim() : '';
+      if (!/^\d+$/.test(t)) { cv2Toast('Escribí cuánto recibiste de cada producto (0 si no llegó)', 'err'); if (inp) inp.focus(); return; }
+      cant.push(Number(t));
+    }
+  } else if (!cv2NotaValida(nota)) { cv2Toast('Contá qué pasó (mínimo 15 letras)', 'err'); if (notaEl) notaEl.focus(); return; }
+  var r;
+  try { r = await cv2Rpc('carga_retorno_recibir', { p_id: id, p_recibidos: noRecibida ? null : cant, p_no_recibido: !!noRecibida, p_nota: nota, p_request_id: cv2Rid() }); }
+  catch (err) { r = { ok: false, message: err.red ? 'Sin conexión: la recepción necesita señal.' : err.message }; }
+  if (r && r.ok) {
+    cv2Toast(r.estado === 'completo' ? '✔ Recepción completa registrada' : '⚠ Registrado: ' + r.estado.replace('_', ' ') + ' — Administración resuelve la diferencia', r.estado === 'completo' ? 'ok' : 'err');
+    try { if (typeof cv2xAvisar === 'function') cv2xAvisar(); } catch (x) {}
+    cv2DepRecargar();
+  } else { cv2Beep(); cv2Toast('⛔ ' + cv2LimpiarMsg((r && r.message) || 'No se pudo registrar'), 'err'); }
 }
 function cv2DPdfFinal(modo) {
   var e = CV2D.est; if (!e) return;
   cv2PdfFinal(cv2Rpc, e.viaje.id, null, modo).catch(function (err) { cv2Toast('⛔ ' + err.message, 'err'); });
 }
 
-/* ═══ v14.198.0 — CARGA V2 · RECEPCIÓN DEL CHOFER ═══════════════════ */
+/* ═══ v14.199.0 — CARGA V2 · RECEPCIÓN DEL CHOFER ═══════════════════ */
 var CV2C = { viajeId: null, est: null, err: null, abiertos: {}, reconteo: {}, res: {}, ev: null, ver: null, idx: {}, conf: {}, envio: {} };
 var cv2ChoferEl = null;
 
@@ -60579,6 +60642,12 @@ function cv2ChoferHtml() {
   var v = e.viaje, s = e.sesion || {};
   h += '<div class="cv2-card"><div class="cv2-h1">🚚 ' + cv2Esc(cv2Zona(v.zona)) + ' · ' + cv2Esc(cv2Dia(v.fecha_salida)) + '</div>' +
        '<div class="cv2-sub">' + cv2Esc(v.vehiculo) + ' · ' + (v.total_pedidos || 0) + ' pedidos</div>';
+  if (!e.carga_lista && e.cierre_anulado && !e.retiro_en_curso) {
+    h += '<div class="cv2-alert err" style="margin-bottom:0;"><b class="t">↩ CIERRE ANULADO POR ERROR DE CONTEO</b>' +
+         'Autorizó ' + cv2Esc(e.cierre_anulado.por) + ' (pidió ' + cv2Esc(e.cierre_anulado.pidio) + '). Si ya habías aceptado, esa aceptación quedó anulada. ' +
+         'Cuando Depósito vuelva a cerrar, controlás lo afectado y aceptás de nuevo.</div></div>';
+    return h;
+  }
   if (!e.carga_lista && e.retiro_en_curso) {
     h += '<div class="cv2-alert err" style="margin-bottom:0;"><b class="t">📦 RETIRO DE MERCADERÍA EN CURSO</b>' +
          'Administración rompió el cierre para bajar mercadería. Si ya habías aceptado, esa aceptación quedó anulada. ' +
@@ -60658,7 +60727,7 @@ function cv2ChoferRender() { if (cv2ChoferEl) cv2Pintar(cv2ChoferEl, cv2ChoferHt
 function cv2CRec(lote, clave, v) { CV2C.reconteo[lote] = CV2C.reconteo[lote] || {}; CV2C.reconteo[lote][clave] = v; }
 function cv2CRes(lote, r) { CV2C.res[lote] = r; cv2ChoferRender(); }
 
-// ── v14.198.0 — Conteo de un grupo: teclado numérico + botones rápidos + confirmación ──
+// ── v14.199.0 — Conteo de un grupo: teclado numérico + botones rápidos + confirmación ──
 var CV2_CONT_MAX = 99999;
 function cv2CValida(txt) {
   var t = String(txt == null ? '' : txt).trim();
@@ -60863,16 +60932,27 @@ async function cv2IncidenciasChofer(forzar) {
     if (!forzar && _cv2IncCh.viaje === va.id && Date.now() - _cv2IncCh.t < 30000) return;
     _cv2IncCh.t = Date.now(); _cv2IncCh.viaje = va.id;
     var r = await cv2Rpc('chofer_incidencias', { p_viaje_id: va.id });
+    var rr = await cv2Rpc('carga_retornos', { p_viaje_id: va.id });
     var lista = document.getElementById('entregas-lista');
     var inc = (r && r.ok && r.incidencias) || [];
+    var ret = ((rr && rr.ok && rr.retornos) || []).filter(function (x) { return x.recepcion_estado === 'pendiente'; });
     el = document.getElementById('cv2-incid-chofer');
-    if (!inc.length || !lista) { if (el) el.remove(); return; }
+    if ((!inc.length && !ret.length) || !lista) { if (el) el.remove(); return; }
     if (!el) { el = document.createElement('div'); el.id = 'cv2-incid-chofer'; el.className = 'cv2'; lista.parentNode.insertBefore(el, lista); }
-    el.innerHTML = cv2IncidenciasHtml(inc, 'chofer');
+    el.innerHTML = (ret.length ? '<div class="cv2-alert warn"><b class="t">🔁 NO ENTREGADO · VUELVE A DEPÓSITO (' + ret.length + ')</b>' +
+      'Sigue a tu cargo hasta que Depósito lo reciba. No lo dejes en otro lado.' +
+      ret.map(function (x) { return '<div style="padding:3px 0;">• <b>' + cv2Esc(x.cliente || x.pedido_id) + '</b>: ' +
+        (x.items || []).map(function (i) { return i.esperado + ' ' + cv2Esc(i.producto); }).join(' · ') + '</div>'; }).join('') + '</div>' : '') +
+      cv2IncidenciasHtml(inc, 'chofer');
   } catch (e) {}
 }
 async function cv2Tick(forzar) {
   if (!cv2On()) return;
+  try {
+    if (typeof cv2xInit === 'function' && typeof vendedorActual !== 'undefined' && vendedorActual && !CV2X.rpc) {
+      cv2xInit({ rpc: cv2Rpc, toast: cv2Toast, gas: function (q) { try { fetch(APPS_SCRIPT_URL + '?' + q).catch(function () {}); } catch (e) {} } });
+    }
+  } catch (eX) {}
   cv2IncidenciasChofer(forzar);
   if (_cv2TickEn) { if (forzar) _cv2TickPend = true; return; }   // se repite al terminar el ciclo actual
   if (document.hidden && !forzar) return;
@@ -60944,7 +61024,7 @@ function cv2CPdfFinal() {
   cv2PdfFinal(cv2Rpc, e.viaje.id, null, 'ver').catch(function (err) { cv2Toast('⛔ ' + err.message, 'err'); });
 }
 
-/* ═══ v14.198.0 — CARGA V2 · PLANILLA PDF (misma versión y hash que el panel) ═══ */
+/* ═══ v14.199.0 — CARGA V2 · PLANILLA PDF (misma versión y hash que el panel) ═══ */
 var CV2_JSPDF_URL = 'https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js';
 function cv2CargarJsPDF() {
   if (window.jspdf && window.jspdf.jsPDF) return Promise.resolve(window.jspdf.jsPDF);
@@ -61159,6 +61239,161 @@ async function cv2PdfFinal(rpc, viajeId, id, modo) {
   if (modo === 'imprimir') doc.autoPrint();
   var w = window.open(doc.output('bloburl'), '_blank');
   if (!w) doc.save(nombre);
+}
+
+/* ═══ CARGA V2 · EXCEPCIONES ANTES DE SALIR (regla del piloto 16/09) ═══
+   Anular cierre por error de conteo / retiro de mercadería: se PIDEN y las autoriza
+   únicamente la persona designada (Chan). Cada paso dispara el aviso al grupo.
+   Compartido por TCK Ventas y TCK Admin: cv2xInit({ rpc, toast, gas }).            */
+var CV2X = { rpc: null, toast: null, gas: null, autoriza: null, pend: [], t: null };
+
+function cv2xEsc(s) {
+  return String(s == null ? '' : s).replace(/[&<>"']/g, function (c) {
+    return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c];
+  });
+}
+function cv2xFecha(ts) {
+  try { return new Date(ts).toLocaleString('es-AR', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' }); }
+  catch (e) { return String(ts || ''); }
+}
+function cv2xInit(opts) {
+  CV2X.rpc = opts.rpc; CV2X.toast = opts.toast; CV2X.gas = opts.gas;
+  if (CV2X.t) return;
+  cv2xRevisar();
+  CV2X.t = setInterval(cv2xRevisar, 30000);
+}
+// Dispara el envío inmediato de los avisos pendientes (el Apps Script tiene además un disparador de respaldo)
+function cv2xAvisar() { try { if (CV2X.gas) CV2X.gas('accion=cargaV2Avisos'); } catch (e) {} }
+
+async function cv2xRevisar() {
+  if (!CV2X.rpc || CV2X.autoriza === false) return;
+  var r;
+  try { r = await CV2X.rpc('carga_excepciones', {}); } catch (e) { return; }
+  if (!r || !r.ok) return;
+  CV2X.autoriza = !!r.autoriza;
+  if (!CV2X.autoriza) { cv2xFab(0); if (CV2X.t) { clearInterval(CV2X.t); CV2X.t = null; } return; }
+  var antes = CV2X.pend.length;
+  CV2X.pend = r.excepciones || [];
+  cv2xFab(CV2X.pend.length);
+  if (CV2X.pend.length > antes && CV2X.toast) CV2X.toast('⚠ Hay ' + CV2X.pend.length + ' excepción(es) de carga para autorizar', 'err');
+  var md = document.getElementById('cv2x-modal');
+  if (md && md.getAttribute('data-vista') === 'pendientes') cv2xPendientes();
+}
+function cv2xFab(n) {
+  var el = document.getElementById('cv2x-fab');
+  if (!n) { if (el) el.remove(); return; }
+  if (!el) {
+    el = document.createElement('button');
+    el.id = 'cv2x-fab';
+    el.style.cssText = 'position:fixed;right:14px;bottom:84px;z-index:99990;background:#C62828;color:#fff;border:0;border-radius:24px;' +
+                       'padding:12px 16px;font-weight:800;font-size:14px;box-shadow:0 4px 14px rgba(0,0,0,.3);cursor:pointer;';
+    el.onclick = cv2xPendientes;
+    document.body.appendChild(el);
+  }
+  el.textContent = '⚠ ' + n + ' excepción' + (n === 1 ? '' : 'es') + ' de carga para autorizar';
+}
+function cv2xModal(html, vista) {
+  var md = document.getElementById('cv2x-modal');
+  if (!md) {
+    md = document.createElement('div');
+    md.id = 'cv2x-modal';
+    md.style.cssText = 'position:fixed;inset:0;z-index:99995;background:rgba(0,0,0,.45);display:flex;align-items:flex-start;justify-content:center;overflow:auto;padding:24px 10px;';
+    md.onclick = function (ev) { if (ev.target === md) md.remove(); };
+    document.body.appendChild(md);
+  }
+  md.setAttribute('data-vista', vista || '');
+  md.innerHTML = '<div style="background:#fff;color:#2a1a10;border-radius:14px;max-width:640px;width:100%;padding:16px;font-size:14px;line-height:1.4;">' + html + '</div>';
+  return md;
+}
+function cv2xCerrar() { var md = document.getElementById('cv2x-modal'); if (md) md.remove(); }
+function cv2xItemsHtml(x) {
+  return (x.items || []).map(function (i) {
+    return '<div>· ' + cv2xEsc(i.producto || i.clave) + (i.calibre ? ' ' + cv2xEsc(i.calibre) : '') +
+      (i.pedido_id ? ' — pedido ' + cv2xEsc(i.pedido_id) : '') +
+      (i.cantidad_retiro != null ? ': <b>' + cv2xEsc(i.cantidad_retiro) + '</b>' : (i.cantidad != null ? ': contado ' + cv2xEsc(i.cantidad) : '')) + '</div>';
+  }).join('');
+}
+function cv2xPendientes() {
+  var h = '<div style="display:flex;justify-content:space-between;align-items:center;"><b style="font-size:17px;">Excepciones de carga para autorizar</b>' +
+          '<button onclick="cv2xCerrar()" style="border:0;background:#eee;border-radius:8px;padding:6px 10px;">Cerrar</button></div>' +
+          '<div style="font-size:12.5px;color:#7a5a4a;margin:4px 0 10px;">Autorizás la excepción; Depósito y el chofer mantienen sus controles. Cada decisión se avisa al grupo.</div>';
+  if (!CV2X.pend.length) h += '<div>No hay pedidos pendientes.</div>';
+  CV2X.pend.forEach(function (x) {
+    h += '<div style="border:2px solid #E0B4B4;border-radius:10px;padding:10px;margin:8px 0;background:#FFF8F8;">' +
+         '<b>N° ' + x.id + ' · ' + (x.tipo === 'retiro' ? '📦 Retiro de mercadería' : '↩ Anular cierre por error de conteo') + '</b><br>' +
+         cv2xEsc(x.viaje) + '<br>Versión cerrada v' + x.version + ' · <span style="font-family:monospace;">' + cv2xEsc(String(x.hash).slice(0, 8)) + '</span><br>' +
+         'Pidió <b>' + cv2xEsc(x.solicitada_por) + '</b> (' + cv2xEsc(x.solicitada_rol) + ') · ' + cv2xFecha(x.solicitada_at) + '<br>' +
+         'Motivo: ' + cv2xEsc(x.nota) + '<div style="margin:6px 0;">' + cv2xItemsHtml(x) + '</div>' +
+         '<textarea id="cv2x-nota-' + x.id + '" rows="2" style="width:100%;box-sizing:border-box;padding:6px;" placeholder="Motivo de tu decisión (obligatorio, mínimo 15 caracteres)"></textarea>' +
+         '<div style="display:flex;gap:8px;margin-top:6px;">' +
+         '<button onclick="cv2xDecidir(' + x.id + ',true)" style="flex:1;border:0;border-radius:8px;padding:10px;background:#2E7D32;color:#fff;font-weight:800;">Autorizar</button>' +
+         '<button onclick="cv2xDecidir(' + x.id + ',false)" style="flex:1;border:0;border-radius:8px;padding:10px;background:#B71C1C;color:#fff;font-weight:800;">Rechazar</button></div></div>';
+  });
+  cv2xModal(h, 'pendientes');
+}
+async function cv2xDecidir(id, autoriza) {
+  var ta = document.getElementById('cv2x-nota-' + id);
+  var nota = ta ? ta.value : '';
+  var r;
+  try {
+    r = autoriza ? await CV2X.rpc('carga_excepcion_autorizar', { p_id: id, p_nota: nota, p_request_id: 'x' + id + '-' + Date.now() })
+                 : await CV2X.rpc('carga_excepcion_rechazar', { p_id: id, p_nota: nota });
+  } catch (e) { r = { ok: false, message: e.message }; }
+  if (r && r.ok) {
+    cv2xAvisar();
+    if (CV2X.toast) CV2X.toast(autoriza ? '✔ Excepción ' + id + ' autorizada' : 'Excepción ' + id + ' rechazada', 'ok');
+    CV2X.pend = CV2X.pend.filter(function (x) { return x.id !== id; });
+    cv2xFab(CV2X.pend.length);
+    cv2xPendientes();
+    cv2xRevisar();
+  } else if (CV2X.toast) CV2X.toast('⛔ ' + ((r && r.message) || 'No se pudo'), 'err');
+}
+
+// Pedido de excepción (Depósito o Administración)
+async function cv2xSolicitar(viajeId, tipo, items, motivo, nota) {
+  var r;
+  try {
+    r = await CV2X.rpc('carga_excepcion_solicitar', { p_viaje_id: viajeId, p_tipo: tipo, p_items: items, p_motivo_codigo: motivo, p_nota: nota,
+                                                      p_request_id: 'xs' + Date.now() });
+  } catch (e) { r = { ok: false, message: e.message }; }
+  if (r && r.ok) cv2xAvisar();
+  return r;
+}
+function cv2xExcepcionesHtml(lista) {
+  return (lista || []).slice(-4).map(function (x) {
+    var est = { pendiente: '⏳ esperando autorización de Chan', autorizada: '✔ autorizada por ' + cv2xEsc(x.resuelta_por),
+                rechazada: '✖ rechazada por ' + cv2xEsc(x.resuelta_por) }[x.estado] || x.estado;
+    return '<div style="padding:4px 0;">' + (x.tipo === 'retiro' ? '📦 Retiro' : '↩ Anulación de cierre') + ' N° ' + x.id +
+           ' · pidió ' + cv2xEsc(x.solicitada_por) + ' · <b>' + est + '</b>' + (x.resolucion_nota ? ' — ' + cv2xEsc(x.resolucion_nota) : '') + '</div>';
+  }).join('');
+}
+function cv2xPedirAnulacion(viajeId, lineas, motivos, alTerminar) {
+  var ops = (motivos || []).filter(function (m) { return m.ambito === 'anulacion'; });
+  var h = '<b style="font-size:17px;">↩ Anular cierre por error de conteo</b>' +
+    '<div style="font-size:13px;background:#FFF3E0;border-radius:8px;padding:8px;margin:8px 0;">El cierre y la planilla final quedan ANULADOS (se conservan). ' +
+    'Si el chofer ya aceptó, su aceptación se anula. Solo se corrige el control físico: los pedidos no cambian. Lo autoriza Chan.</div>' +
+    '<div style="font-weight:700;">¿Qué productos hay que volver a contar?</div>' +
+    (lineas || []).map(function (l, i) {
+      return '<label style="display:block;padding:3px 0;"><input type="checkbox" class="cv2x-lin" value="' + cv2xEsc(l.clave) + '"> ' +
+             cv2xEsc(l.producto) + (l.calibre ? ' ' + cv2xEsc(l.calibre) : '') + ' <span style="color:#888;">(contado ' + cv2xEsc(l.contado) + ')</span></label>';
+    }).join('') +
+    '<select id="cv2x-mot" style="width:100%;padding:8px;margin:8px 0;"><option value="">— Motivo —</option>' +
+    ops.map(function (m) { return '<option value="' + m.codigo + '">' + cv2xEsc(m.texto) + '</option>'; }).join('') + '</select>' +
+    '<textarea id="cv2x-nota" rows="3" style="width:100%;box-sizing:border-box;padding:8px;" placeholder="Qué pasó (obligatorio, mínimo 15 caracteres)"></textarea>' +
+    '<div style="display:flex;gap:8px;margin-top:10px;"><button id="cv2x-ok" style="flex:1;border:0;border-radius:8px;padding:10px;background:#E65100;color:#fff;font-weight:800;">Pedir la anulación</button>' +
+    '<button onclick="cv2xCerrar()" style="border:0;border-radius:8px;padding:10px;background:#eee;">Cancelar</button></div>';
+  var md = cv2xModal(h, 'anulacion');
+  md.querySelector('#cv2x-ok').onclick = async function () {
+    var items = Array.prototype.slice.call(md.querySelectorAll('.cv2x-lin:checked')).map(function (c) { return { clave: c.value }; });
+    if (!items.length) return CV2X.toast && CV2X.toast('Marcá qué productos hay que recontar', 'err');
+    var mot = md.querySelector('#cv2x-mot').value;
+    if (!mot) return CV2X.toast && CV2X.toast('Elegí el motivo', 'err');
+    this.disabled = true;
+    var r = await cv2xSolicitar(viajeId, 'anulacion_conteo', items, mot, md.querySelector('#cv2x-nota').value);
+    this.disabled = false;
+    if (r && r.ok) { cv2xCerrar(); if (CV2X.toast) CV2X.toast('Pedido de anulación N° ' + r.excepcion_id + ' enviado a Chan', 'ok'); if (alTerminar) alTerminar(); }
+    else if (CV2X.toast) CV2X.toast('⛔ ' + ((r && r.message) || 'No se pudo'), 'err');
+  };
 }
 
 </script>
