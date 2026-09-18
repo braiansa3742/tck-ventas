@@ -2,6 +2,103 @@
 <html lang="es">
 <head>
 <!-- ═══════════════════════════════════════════════════════════════════════
+     TCK VENTAS — v14.208.4 — 18/09/2026
+     v14.208.4: EN CARGA V2 NO HAY FALLBACK A LA TABLA CRUDA.
+       (sobre v14.208.3, que NO se publico. Incluye los dos P0 de esa version:
+        cuenta corriente y lineas del modal desde el snapshot.)
+       · EL AGUJERO: 14.208.3 todavia caia a pedidos_items cuando no conseguia
+         el snapshot, marcado como 'pedidos_items_fallback'. Sin señal volvia a
+         pasar lo de Amaro: la pantalla mostraba el Pollo B x7 que la NC habia
+         sacado. Quedaba avisado en consola, pero el chofer no lee la consola.
+         Que el servidor lo rechace despues no alcanza: entre que se muestra una
+         linea que no existe y el rechazo hay una persona bajando mercaderia.
+       · LA REGLA: si el viaje va por Carga v2, el detalle sale del snapshot
+         cerrado o NO SALE. Dos intentos contra chofer_paradas_del_viaje; si los
+         dos fallan se bloquea la entrega y el cobro, y NO se consulta
+         pedidos_items ni para mostrar.
+       · El cartel dice exactamente: "No pudimos cargar el detalle vigente de
+         esta entrega. No entregues ni cobres todavia. Reintenta cuando vuelva
+         la conexion.", con boton Reintentar.
+       · Fotos, comprobantes de transferencia y lo cargado en el cobro quedan
+         intactos: el modal no se cierra y el reintento solo vuelve a pedir el
+         detalle.
+       · Diagnostico tecnico: pedido, viaje, version, intentos y motivo. Sin
+         JWT, sin cliente, sin telefono y sin importes.
+       · El fallback a pedidos_items sigue vivo SOLO en viajes legacy
+         (_chVaPorRpc === false), donde no hay manifiesto contra el cual
+         contrastar y es el unico camino que existe.
+       DEPLOY: subir como index.html y version.json a 14.208.4.
+     ─────────────────────────────────────────────────────────────────────
+     TCK VENTAS — v14.208.3 — 18/09/2026
+     v14.208.3: LAS LINEAS DEL MODAL SALEN DEL SNAPSHOT CERRADO.
+       (sobre v14.208.2, que NO se publico. Incluye todo lo de esa version.)
+       · EL INCIDENTE: Roberto Amaro, TCK-20260916-1121-MIG-CV0EN. Factura
+         $552.400, NC parcial de Pollo B x7 Congelado x1 ($74.900), importe
+         vigente del snapshot v8 $477.500. La pantalla mostraba bien el total,
+         pero el detalle editable seguia listando "Pollo B x7: 1" y el servidor
+         rechazaba: "el manifiesto dice 0 y estas declarando 1".
+       · LA CAUSA: entItemsCargar() armaba la lista con
+         sbFetch('pedidos_items?pedido_id=eq...'), PostgREST directo contra la
+         tabla cruda, sin pasar por ninguna RPC y sin mirar el snapshot. El
+         importe, en cambio, si venia del snapshot. Esa era la mezcla.
+       · LO QUE YA ESTABA: chofer_paradas_del_viaje devuelve 'productos' por
+         pedido desde el snapshot y filtra las lineas en 0 del lado del
+         servidor. _chCargarParadas ya llamaba a esa RPC y tiraba esa clave.
+         Ahora la guarda. No se agrega ni una llamada nueva.
+       · El detalle avisa cuando el pedido tiene NC aplicada, para que el
+         chofer no crea que falta mercaderia ni la registre como devolucion.
+       · GUARDIA: del telefono no sale una linea que el manifiesto no tenga,
+         venga de cache, de un modal viejo o de la cola. No se relaja nada del
+         servidor: se lo acompaña.
+       · FORMULARIO VIEJO: si la version cambio con el modal abierto, o si el
+         servidor rechaza por manifiesto, se recarga el detalle vigente y se
+         frena. Las fotos y los medios de cobro quedan intactos.
+       · Sin snapshot disponible se reintenta una vez y recien despues se cae a
+         pedidos_items, marcado y avisado. Nunca peor que antes.
+       DEPLOY: subir como index.html y version.json a 14.208.3.
+     ─────────────────────────────────────────────────────────────────────
+     TCK VENTAS — v14.208.2 — 18/09/2026
+     v14.208.2: VUELVE LA CUENTA CORRIENTE, ESTA VEZ EN SU LUGAR.
+       (sobre v14.208.1 publicada. Solo front: no se toca Supabase, ninguna
+        RPC, la carga, el viaje, el snapshot, las facturas ni las cobranzas.)
+       · QUE SE ROMPIO: hasta el 17/09 ningun viaje aplicaba Carga v2 y el
+         chofer dejaba la factura en cuenta corriente por el PATCH viejo. El
+         18/09 los dos viajes con entregas aplican v2 — alcanza con que
+         Deposito cierre la carga para que el viaje se auto-adopte —, el
+         PATCH quedo bloqueado por _cv2_trg_entrega_solo_rpc y el unico
+         camino pasa a ser carga_entrega_registrar. Medido: 6 cuentas
+         corrientes el 17/09, CERO el 18/09 sobre 23 entregas. Y en toda la
+         base no hay un solo carga_evento con 'cuenta_corriente': nunca paso
+         por la RPC.
+       · EL BACKEND NUNCA FUE EL PROBLEMA: carga_entrega_registrar acepta el
+         medio 'cuenta_corriente', no lo escribe en detalle_cobro, y su error
+         COBRO_SIN_DECLARAR dice "no declaraste ni cobro, ni cuenta corriente,
+         ni por que no cobraste". El servidor la esperaba; el front no se la
+         mandaba nunca.
+       · LOS TRES ESLABONES QUE SE CORRIGEN:
+         1. cobroRapido('cuenta_corriente') escribia en un input que no
+            existe en el DOM. El boton no hacia nada y borraba lo cargado.
+         2. cuenta_corriente no estaba en COBRO_METODOS, asi que
+            totalCobrado quedaba en 0 y saltaba "Ingresa al menos un metodo
+            de cobro". Ese es el cartel que vio Ian.
+         3. El guard de v14.202.0 borraba la clave justo antes de armar
+            p_cobros.
+       · EL MODELO CORRECTO: la cuenta corriente NO es un cuarto medio de
+         pago — ese fue el error que la saco en v14.202.0. Es el SALDO de la
+         factura de hoy que el cliente no pago. Por eso vive afuera del
+         bloque de medios, en su propio control "Dejar saldo en cuenta
+         corriente", con el atajo "Todo a cuenta corriente". El importe es
+         siempre total - efectivo - transferencia - cheque, calculado, nunca
+         tipeado. COBRO_METODOS sigue teniendo tres medios y totalCobrado
+         nunca la incluye.
+       · SE BLOQUEA: cobrar mas que la factura; no declarar ni plata ni
+         deuda; dejar saldo sin cubrir sin marcar cuenta corriente. Y antes
+         de guardar se muestra factura / cobrado / saldo y se pide
+         confirmacion explicita de que se entrega mercaderia y queda deuda.
+       · NO incluye deuda anterior ni imputacion a otras facturas: eso es
+         Fase 2 y espera a que se reconcilien las fuentes de saldo.
+       DEPLOY: subir como index.html y version.json a 14.208.2.
+     ─────────────────────────────────────────────────────────────────────
      TCK VENTAS — v14.203.0 — 18/09/2026
      v14.203.0: EL MANIFIESTO, COMO LO RECORRE EL CHOFER.
        (sobre v14.202.0, que NO se publicó)
@@ -10148,6 +10245,27 @@ body {
   transition: all .12s; white-space: nowrap;
 }
 .cobro-rapido-btn:active { background: #E3F2FD; border-color: #1565C0; color: #1565C0; }
+/* v14.208.2 — la cuenta corriente va SEPARADA de los medios de cobro, porque
+   no es un medio de cobro: es lo que queda sin pagar. */
+.ctacte-wrap { margin-top:12px; background:#FFF8E1; border:1.5px solid #F57F17; border-radius:12px; padding:12px; }
+.ctacte-label { display:flex; align-items:center; gap:9px; cursor:pointer; font-family:'Barlow Condensed',sans-serif;
+                font-size:15px; font-weight:900; color:#E65100; line-height:1.2; }
+.ctacte-label input { width:20px; height:20px; accent-color:#F57F17; flex:0 0 auto; cursor:pointer; }
+.ctacte-ayuda { font-size:12px; color:#8D6E63; margin-top:6px; line-height:1.35; }
+.ctacte-resumen:not(:empty) { margin-top:10px; padding-top:10px; border-top:1.5px dashed #F57F17; }
+.ctacte-linea { display:flex; justify-content:space-between; gap:10px; font-size:13.5px; color:#5D4037; padding:2px 0; }
+.ctacte-linea b { font-variant-numeric:tabular-nums; }
+.ctacte-saldo { font-size:15px; color:#E65100; font-weight:900; margin-top:4px; }
+.ctacte-falta { font-size:14px; color:#C62828; font-weight:900; margin-top:4px; }
+/* v14.208.4 — sin el detalle vigente no se entrega ni se cobra. */
+.ent-bloqueo { background:#FFEBEE; border:2px solid #C62828; border-radius:12px; padding:14px; margin:6px 0 10px; }
+.ent-bloqueo-t { font-family:'Barlow Condensed',sans-serif; font-size:17px; font-weight:900; color:#C62828; margin-bottom:6px; }
+.ent-bloqueo-p { font-size:13.5px; color:#B71C1C; line-height:1.4; margin-bottom:10px; }
+.ent-bloqueo-btn { width:100%; padding:12px; border:0; border-radius:10px; background:#C62828; color:#fff;
+                   font-family:'Barlow Condensed',sans-serif; font-size:16px; font-weight:900; cursor:pointer;
+                   touch-action:manipulation; }
+.ent-bloqueo-btn:active { background:#8E0000; }
+.ent-bloqueo-diag { font-size:11px; color:#8D6E63; margin-top:8px; font-family:ui-monospace,monospace; word-break:break-all; }
 
 .cobro-multiple-item { display: flex; align-items: center; gap: 10px; background: #F9F9F9; border-radius: 10px; padding: 8px 12px; border: 1.5px solid #eee; }
 .cobro-multiple-item.activo { background: #E8F5E9; border-color: #2E7D32; }
@@ -19161,7 +19279,7 @@ body {
             <button class="cobro-rapido-btn" onclick="cobroRapido('efectivo')">💵 Todo efectivo</button>
             <button class="cobro-rapido-btn" onclick="cobroRapido('transferencia')">📲 Todo transfer.</button>
             <button class="cobro-rapido-btn" onclick="cobroRapido('cheque')">📋 Todo cheque</button>
-            <button class="cobro-rapido-btn" onclick="cobroRapido('cuenta_corriente')">📒 Cta. corriente</button>
+            <button class="cobro-rapido-btn" onclick="ctaCteTodo()">📒 Todo a cuenta corriente</button>
           </div>
           <div class="cobro-multiple-wrap" id="cobro-multiple-wrap">
             <div class="cobro-multiple-item" id="cobro-m-efectivo">
@@ -19194,6 +19312,20 @@ body {
           </div>
 
           <div id="cobro-multiple-total" style="text-align:right;font-family:'Barlow Condensed',sans-serif;font-size:13px;color:var(--text3);margin-top:8px;"></div>
+
+          <!-- v14.208.2 — CUENTA CORRIENTE, de vuelta y en su lugar correcto.
+               No es un cuarto medio de pago (ese fue el error que la saco en
+               v14.202.0): es el saldo de la factura de hoy que el cliente no
+               pago. Por eso esta afuera del bloque de medios, el importe se
+               calcula solo y no se puede tipear. -->
+          <div class="ctacte-wrap" id="ctacte-wrap">
+            <label class="ctacte-label" for="ctacte-check">
+              <input type="checkbox" id="ctacte-check" onchange="ctaCteToggle()">
+              <span>📒 Dejar saldo en cuenta corriente</span>
+            </label>
+            <div class="ctacte-ayuda">Le entregás la mercadería y el saldo que no pagó queda como deuda del cliente.</div>
+            <div class="ctacte-resumen" id="ctacte-resumen"></div>
+          </div>
         </div>
       </div>
       <!-- v14.80.0 - Foto de entrega OBLIGATORIA (registro ante reclamos) -->
@@ -40432,6 +40564,11 @@ function _cobroEvaluarExceso(total, techo) {
 // siguen VIENDO (mvRenderEntregaHist la sabe dibujar), pero no se puede cargar
 // una nueva. La lista de métodos vive acá y en un solo lugar.
 var COBRO_METODOS = ['efectivo', 'transferencia', 'cheque'];
+// v14.208.2 — la cuenta corriente NO entra aca a proposito. COBRO_METODOS son
+// los medios por los que entra PLATA; la cuenta corriente es lo que NO entro.
+// Meterla en esta lista la volveria un cobro y romperia totalCobrado, el tope
+// de cobro, la rendicion y fn_entrega_importe_cobrado del lado del servidor.
+var _ctaCteMarcada = false;
 
 // ══════════════════════════════════════════════════════════════════════
 // v14.202.0 — La app del chofer ve la carga cerrada. Ni más ni menos.
@@ -40504,7 +40641,16 @@ async function _chCargarParadas(viajeId) {
           n: (p.pedidos || []).length, idx: i + 1,
           resueltos: p.pedidos_resueltos, importe_total: p.importe_total,
           factura: ped.factura_nro, cae: ped.cae, importe: ped.importe,
-          pospuesta: !!ped.pospuesta, pospuesta_nota: ped.pospuesta_nota
+          pospuesta: !!ped.pospuesta, pospuesta_nota: ped.pospuesta_nota,
+          // v14.208.3 — LO QUE FALTABA. La RPC ya mandaba los productos del
+          // snapshot cerrado (con las lineas en 0 ya filtradas del lado del
+          // servidor) y acá se descartaban. El modal terminaba leyendo
+          // pedidos_items en crudo y mostrando lineas que la NC ya saco.
+          productos:         Array.isArray(ped.productos) ? ped.productos : null,
+          ajustado:          (ped.ajustado === true),
+          importe_facturado: (ped.importe_facturado != null ? ped.importe_facturado : null),
+          fuente:            (r.fuente || null),
+          version:           (r.version != null ? r.version : null)
         };
       });
     });
@@ -43299,14 +43445,116 @@ function toggleEntregadasSection() {
 // ══════════════════════════════════════════════════════════════════
 var _entItems = [];            // [{nombre, calibre, pedida, bajada, precioUnit, safe, motivo:null|'faltante'|'devolucion'}]
 var _entItemsEntregaId = null; // a qué entrega pertenece _entItems
+// v14.208.3 — de dónde salieron las líneas que están en pantalla, y de qué
+// versión. Sin esto no se puede saber si lo que el chofer tiene abierto sigue
+// siendo válido. 'snapshot' | 'pedidos_items' | 'pedidos_items_fallback' | ''
+var _entItemsFuente  = '';
+var _entItemsVersion = null;
+// v14.208.4 — en Carga v2, sin detalle vigente no se entrega ni se cobra.
+var _entItemsBloqueado = false;
+var _entItemsDiag      = null;   // {pedido_id, viaje_id, version, intentos, motivo, ts}
 
 function _entSafe(nombre, i) {
   return String(nombre || '').replace(/[^a-zA-Z0-9]/g, '_') + (i != null ? '_' + i : '');
 }
 
+// v14.208.3 — las líneas vigentes, tal cual las devuelve chofer_paradas_del_viaje
+// desde el snapshot cerrado. El servidor ya filtró las que quedaron en 0 por un
+// ajuste de NC, así que acá no hay que decidir nada: lo que no está, no va.
+function _entItemsDelSnapshot(e) {
+  if (!e || !_chVaPorRpc(e)) return null;
+  var m = _chParadasMap[String(e.pedido_id)];
+  if (!m || !Array.isArray(m.productos)) return null;
+  if (String(m.fuente || '').indexOf('snapshot') !== 0) return null;   // 'entregas' no sirve
+  var rows = [];
+  m.productos.forEach(function (p, i) {
+    var q = Number(p.cantidad) || 0;
+    if (!p.producto || q <= 0) return;
+    var pu = Number(p.precio_unitario);
+    rows.push({ nombre: p.producto, calibre: p.calibre || '', pedida: q, bajada: q,
+                precioUnit: (isFinite(pu) && pu > 0) ? pu : null,
+                safe: _entSafe(p.producto, i), motivo: null });
+  });
+  return rows;
+}
+
+// Las claves del snapshot, para que no se pueda mandar una línea que no esté.
+// Devuelve null — o sea, NO se filtra nada — salvo que lo que hay en pantalla
+// haya salido efectivamente del snapshot. Si las líneas vinieron de
+// pedidos_items (viaje sin Carga v2, o fallback sin snapshot), filtrar contra
+// un mapa de paradas viejo borraría líneas legítimas. Lo detectó la prueba 12.
+function _entItemsClavesVigentes(e) {
+  if (_entItemsFuente !== 'snapshot') return null;
+  if (!e || !_chVaPorRpc(e)) return null;
+  var m = e && _chParadasMap[String(e.pedido_id)];
+  if (!m || !Array.isArray(m.productos)) return null;
+  if (String(m.fuente || '').indexOf('snapshot') !== 0) return null;
+  var set = {};
+  m.productos.forEach(function (p) {
+    if ((Number(p.cantidad) || 0) > 0) {
+      set[String(p.producto || '') + '|' + String(p.calibre || '')] = Number(p.cantidad) || 0;
+    }
+  });
+  return set;
+}
+
+// v14.208.4 — DOS INTENTOS REALES contra chofer_paradas_del_viaje. El primero
+// puede resolverse con el mapa que ya está en memoria; si no, se pide de nuevo.
+// Devuelve las líneas, o null si despues de los dos intentos no hay snapshot.
+async function _entItemsObtenerSnapshot(e) {
+  var s = _entItemsDelSnapshot(e);
+  if (s && s.length) return s;
+  if (!e || !_chVaPorRpc(e) || !e.viaje_id) return null;
+  var ultimo = 'sin_productos_en_el_snapshot';
+  for (var intento = 1; intento <= 2; intento++) {
+    try {
+      await _chCargarParadas(e.viaje_id);
+      s = _entItemsDelSnapshot(e);
+      if (s && s.length) return s;
+    } catch (err) {
+      ultimo = 'rpc_fallo';
+    }
+    _entItemsDiag = { pedido_id: e.pedido_id || null, viaje_id: e.viaje_id || null,
+                      version: (_chCv2De(e.viaje_id) || {}).version || null,
+                      intentos: intento, motivo: ultimo, ts: new Date().toISOString() };
+  }
+  return null;
+}
+
+// El cartel. Sin lista de productos: no hay nada vigente que mostrar, y mostrar
+// lo crudo es justamente lo que no se puede hacer.
+function _entItemsRenderBloqueo() {
+  var prodsEl = document.getElementById('entrega-modal-prods');
+  if (!prodsEl) return;
+  var d = _entItemsDiag || {};
+  prodsEl.innerHTML =
+    '<div class="ent-bloqueo">' +
+      '<div class="ent-bloqueo-t">⛔ No pudimos cargar el detalle</div>' +
+      '<div class="ent-bloqueo-p">No pudimos cargar el detalle vigente de esta entrega. ' +
+        'No entregues ni cobres todavía. Reintentá cuando vuelva la conexión.</div>' +
+      '<button type="button" class="ent-bloqueo-btn" onclick="entItemsReintentar()">🔄 Reintentar</button>' +
+      '<div class="ent-bloqueo-diag">' + _escapeHtmlBasic(
+        'pedido ' + (d.pedido_id || '—') + ' · v' + (d.version != null ? d.version : '?') +
+        ' · ' + (d.motivo || '—') + ' · ' + (d.intentos || 0) + ' intento(s)') + '</div>' +
+    '</div>';
+}
+
+// Reintento manual. NO toca fotos, comprobantes ni lo cargado en el cobro:
+// solo vuelve a pedir el detalle.
+async function entItemsReintentar() {
+  var e = _entregasCache.find(function (x) { return x.id === _entregaModalId; });
+  if (!e) return;
+  var el = document.getElementById('entrega-modal-prods');
+  if (el) el.innerHTML = '<div class="ent-it-hint">Buscando el detalle vigente…</div>';
+  await entItemsCargar(e, false);
+  if (!_entItemsBloqueado) toast('✅ Detalle actualizado', 'ok');
+}
+
 async function entItemsCargar(e, entregado) {
   var prodsEl = document.getElementById('entrega-modal-prods');
   _entItems = []; _entItemsEntregaId = e.id;
+  _entItemsFuente = ''; _entItemsVersion = null;
+  _entItemsBloqueado = false; _entItemsDiag = null;
   // Entrega ya hecha: mostrar lo que se registró ítem por ítem (si existe)
   if (entregado) {
     try {
@@ -43328,17 +43576,55 @@ async function entItemsCargar(e, entregado) {
   }
   // Entrega pendiente: armar la lista para bajar
   var rows = [];
-  try {
-    var its = await sbFetch('pedidos_items?pedido_id=eq.' + encodeURIComponent(e.pedido_id) +
-      '&select=producto_tck_nombre,calibre,cantidad,precio_unitario&order=id.asc&limit=200') || [];
-    (its || []).forEach(function(it, i) {
-      var q = Number(it.cantidad) || 0;
-      if (!it.producto_tck_nombre || q <= 0) return;
-      var pu = Number(it.precio_unitario);
-      rows.push({ nombre: it.producto_tck_nombre, calibre: it.calibre || '', pedida: q, bajada: q,
-                  precioUnit: (isFinite(pu) && pu > 0) ? pu : null, safe: _entSafe(it.producto_tck_nombre, i), motivo: null });
-    });
-  } catch (eI) { console.warn('[entItems] pedidos_items', eI); }
+
+  // v14.208.3 — PRIMERO EL SNAPSHOT. Ésta es la corrección del incidente de
+  // Amaro: leer pedidos_items acá traía la cantidad original de la factura
+  // ("Pollo B x7: 1") aunque la NC ya la hubiera dejado en 0 en el manifiesto,
+  // mientras el importe de la misma pantalla sí venía del snapshot.
+  var _snap = await _entItemsObtenerSnapshot(e);
+  if (_snap && _snap.length) {
+    rows = _snap;
+    _entItemsFuente  = 'snapshot';
+    _entItemsVersion = (_chParadasMap[String(e.pedido_id)] || {}).version;
+  } else if (_chVaPorRpc(e)) {
+    // v14.208.4 — SE ACABO EL FALLBACK. Este viaje va por Carga v2 y despues de
+    // dos intentos no hay detalle vigente. NO se consulta pedidos_items: mostrar
+    // la tabla cruda es exactamente lo que produjo el incidente de Amaro, y el
+    // chofer no tiene como saber que lo que ve no es lo que hay que bajar.
+    // Se bloquea acá, con la mercaderia todavia en el camion.
+    if (_entItemsEntregaId !== e.id) return;
+    _entItems = [];
+    _entItemsFuente    = 'bloqueado';
+    _entItemsVersion   = null;
+    _entItemsBloqueado = true;
+    if (!_entItemsDiag) {
+      _entItemsDiag = { pedido_id: e.pedido_id || null, viaje_id: e.viaje_id || null,
+                        version: (_chCv2De(e.viaje_id) || {}).version || null,
+                        intentos: 2, motivo: 'sin_snapshot', ts: new Date().toISOString() };
+    }
+    // Diagnostico: id de pedido y viaje, version e intentos. Nada de JWT, ni
+    // cliente, ni telefono, ni importes.
+    console.warn('[v14.208.4] detalle vigente no disponible:', JSON.stringify(_entItemsDiag));
+    _chEvento('chofer_detalle_vigente_no_disponible',
+              { pedido_id: e.pedido_id, cliente: null, monto: null }, null);
+    _entItemsRenderBloqueo();
+    return;
+  } else {
+    // Viaje legacy: no hay manifiesto contra el cual contrastar y pedidos_items
+    // es el unico camino que existe. Se mantiene tal cual estaba.
+    _entItemsFuente = 'pedidos_items';
+    try {
+      var its = await sbFetch('pedidos_items?pedido_id=eq.' + encodeURIComponent(e.pedido_id) +
+        '&select=producto_tck_nombre,calibre,cantidad,precio_unitario&order=id.asc&limit=200') || [];
+      (its || []).forEach(function(it, i) {
+        var q = Number(it.cantidad) || 0;
+        if (!it.producto_tck_nombre || q <= 0) return;
+        var pu = Number(it.precio_unitario);
+        rows.push({ nombre: it.producto_tck_nombre, calibre: it.calibre || '', pedida: q, bajada: q,
+                    precioUnit: (isFinite(pu) && pu > 0) ? pu : null, safe: _entSafe(it.producto_tck_nombre, i), motivo: null });
+      });
+    } catch (eI) { console.warn('[entItems] pedidos_items', eI); }
+  }
   if (!rows.length) {
     try {
       var prods = await _cargarProductosDesdeSheet(e.pedido_id);
@@ -43362,6 +43648,17 @@ function entItemsRender() {
   if (!prodsEl) return;
   if (!_entItems.length) return;
   var h = '<div class="ent-it-hint">Tocá <b>−</b> si bajás menos de lo pedido. Lo que no baja tiene que tener motivo.</div>';
+  // v14.208.3 — si el pedido tiene una NC aplicada, decirlo. Sin esto Ian ve
+  // menos productos que en la factura del cliente y no sabe por qué.
+  try {
+    var _mAj = _chParadasMap[String((_entregasCache.find(function (x) { return x.id === _entItemsEntregaId; }) || {}).pedido_id)];
+    if (_mAj && _mAj.ajustado && _entItemsFuente === 'snapshot') {
+      h += '<div class="ent-it-hint" style="background:#FFF8E1;border:1.5px solid #F57F17;color:#E65100;' +
+           'border-radius:10px;padding:9px 10px;margin:6px 0 10px;font-weight:700;">' +
+           '📄 Este pedido tiene una nota de crédito aplicada. Lo que ves acá es lo que hay que bajar. ' +
+           'Lo que la NC sacó <b>no viaja en el camión y no es una devolución</b>.</div>';
+    }
+  } catch (eAj) {}
   // v14.199.0 — devolución total en un toque (y vuelta atrás con el mismo botón)
   var _todoDev = _entModoTotal();
   h += '<button type="button" id="ent-btn-devuelve-todo" onclick="entItemsDevuelveTodo()" style="width:100%;margin:2px 0 10px;padding:11px 10px;border-radius:10px;cursor:pointer;touch-action:manipulation;font-family:\'Barlow Condensed\',sans-serif;font-size:15px;font-weight:900;' +
@@ -43542,6 +43839,7 @@ function _entAplicarModoTotal() {
       });
       var totEl = document.getElementById('cobro-multiple-total');
       if (totEl) totEl.textContent = '';
+      _ctaCteReset();   // v14.208.2 — una no entrega tampoco deja deuda
       var alCM = document.getElementById('cobro-menos-alerta');
       if (alCM) alCM.remove();
       window._cobroMenosMotivo = null;
@@ -43997,6 +44295,7 @@ function abrirEntregaModal(entregaId) {
     const item = document.getElementById('cobro-m-' + m);
     if (item) item.classList.remove('activo');
   });
+  _ctaCteReset();   // v14.208.2 — sin esto, la marca de una entrega pasaba a la siguiente
   // v14.38.0 — reset del comprobante de transferencia al abrir otra entrega
   _resetComprobanteTransfer();
   _resetFotoEntrega();
@@ -44525,6 +44824,7 @@ function cerrarEntregaModal() {
   _revocarPreviewsCheques();
   _cobrosPendientes = null;
   _chequesData = [];
+  _ctaCteReset();   // v14.208.2 — al cerrar el modal no queda nada marcado
   _resetComprobanteTransfer();
   _resetFotoEntrega();
   window._cobroMenosMotivo = null;
@@ -44624,6 +44924,113 @@ function cobroRapido(metodo) {
   cobroMultipleActualizar();
 }
 
+// ── v14.208.2 · CUENTA CORRIENTE ───────────────────────────────────────
+// Lo que se le factura por esta entrega: lo original, menos lo que devolvio,
+// menos lo que no estaba en el camion. Es EXACTAMENTE la misma cuenta que hace
+// _validarDiferenciaYConfirmar; si algun dia cambia una, tiene que cambiar la
+// otra o el saldo deja de cerrar.
+function _cobroTotalEsperado() {
+  var e0 = _entregasCache.find(function (x) { return x.id === _entregaModalId; });
+  if (!e0) return 0;
+  var mo = parseFloat(e0.monto) || 0;
+  if (mo > 0 && mo < 1000) mo = mo * 1000;           // mismo ajuste que el historico
+  var dev = 0;
+  var d = _getDevolucionData();
+  if (d && d !== 'SIN_CATEGORIA') {
+    try { dev = _getMontoConDevolucion().devolucion || 0; } catch (e1) { dev = 0; }
+  }
+  var falt = 0;
+  try { falt = _entItemsFaltanteMonto() || 0; } catch (e2) { falt = 0; }
+  return Math.max(0, Math.round(mo - dev - falt));
+}
+
+// Suma SOLO de los medios por los que entro plata. Nunca incluye cta. cte.
+function _cobroSumaMonetaria(cobros) {
+  var t = 0;
+  COBRO_METODOS.forEach(function (m) { t += parseFloat(cobros && cobros[m]) || 0; });
+  return t;
+}
+
+// Lo que queda sin pagar de la factura de hoy.
+function _ctaCteSaldo(cobros) {
+  return Math.max(0, Math.round(_cobroTotalEsperado() - _cobroSumaMonetaria(cobros)));
+}
+
+// Devuelve una COPIA de los cobros con la clave cuenta_corriente agregada, solo
+// si el chofer la marco y queda saldo. Nunca escribe una cuenta corriente de
+// $0: eso seria inventar un movimiento que no existe.
+function _cobrosConCtaCte(cobros) {
+  var out = {};
+  Object.keys(cobros || {}).forEach(function (k) { out[k] = cobros[k]; });
+  var saldo = _ctaCteSaldo(cobros);
+  if (_ctaCteMarcada && saldo > 0) out.cuenta_corriente = saldo;
+  return out;
+}
+
+// Lee los tres inputs de plata tal como estan en pantalla.
+function _cobrosDeLaPantalla() {
+  var c = {};
+  COBRO_METODOS.forEach(function (m) {
+    var el = document.getElementById('cobro-m-' + m + '-val');
+    var v = tckMontoAR(el ? el.value : '') || 0;
+    if (v > 0) c[m] = v;
+  });
+  return c;
+}
+
+function ctaCteToggle() {
+  var chk = document.getElementById('ctacte-check');
+  _ctaCteMarcada = !!(chk && chk.checked);
+  cobroMultipleActualizar();
+}
+
+// Atajo: nada de plata, todo queda a deber.
+function ctaCteTodo() {
+  COBRO_METODOS.forEach(function (m) {
+    var inp = document.getElementById('cobro-m-' + m + '-val');
+    if (inp) inp.value = '';
+    var it = document.getElementById('cobro-m-' + m);
+    if (it) it.classList.remove('activo');
+  });
+  var chk = document.getElementById('ctacte-check');
+  if (chk) chk.checked = true;
+  _ctaCteMarcada = true;
+  cobroMultipleActualizar();
+}
+
+// Deja _ctaCteMarcada y el checkbox en cero. Se llama en cada lugar donde se
+// limpian los inputs de cobro: si no, la marca de una entrega se arrastraba a
+// la siguiente.
+function _ctaCteReset() {
+  _ctaCteMarcada = false;
+  var chk = document.getElementById('ctacte-check');
+  if (chk) chk.checked = false;
+  var box = document.getElementById('ctacte-resumen');
+  if (box) box.innerHTML = '';
+}
+
+// El resumen explicito, arriba del boton de confirmar.
+function _ctaCteRender() {
+  var box = document.getElementById('ctacte-resumen');
+  if (!box) return;
+  var chk = document.getElementById('ctacte-check');
+  if (chk) chk.checked = _ctaCteMarcada;
+  var cobros  = _cobrosDeLaPantalla();
+  var total   = _cobroTotalEsperado();
+  var cobrado = _cobroSumaMonetaria(cobros);
+  var saldo   = Math.max(0, Math.round(total - cobrado));
+  if (!_ctaCteMarcada && cobrado <= 0) { box.innerHTML = ''; return; }
+  var f = function (n) { return '$' + Math.round(n).toLocaleString('es-AR'); };
+  var h = '<div class="ctacte-linea"><span>Factura actual:</span><b>' + f(total) + '</b></div>' +
+          '<div class="ctacte-linea"><span>Cobrado ahora:</span><b>' + f(cobrado) + '</b></div>';
+  if (_ctaCteMarcada) {
+    h += '<div class="ctacte-linea ctacte-saldo"><span>Queda en cuenta corriente:</span><b>' + f(saldo) + '</b></div>';
+  } else if (saldo > 0) {
+    h += '<div class="ctacte-linea ctacte-falta"><span>⚠️ Sin cubrir:</span><b>' + f(saldo) + '</b></div>';
+  }
+  box.innerHTML = h;
+}
+
 function cobroMultipleActualizar() {
   const metodos = COBRO_METODOS;
   let total = 0;
@@ -44658,6 +45065,8 @@ function cobroMultipleActualizar() {
         ' comprobante(s) cargado(s) y el reparto no tiene transferencia');
     }
   } catch (_eC5) {}
+
+  _ctaCteRender();   // v14.208.2 — el saldo se recalcula con cada tecla
 }
 
 async function confirmarEntregaModal() {
@@ -44665,6 +45074,17 @@ async function confirmarEntregaModal() {
   // v14.199.0 — una entrega ya resuelta no se vuelve a confirmar desde acá
   var _eCM = _entregasCache.find(function(x) { return x.id === _entregaModalId; });
   if (_eCM && _entSoloLectura(_eCM)) { toast('Esta entrega ya está resuelta', 'err'); return; }
+  // v14.208.4 — sin detalle vigente no se entrega ni se cobra. Lo cargado
+  // (fotos, comprobantes, importes) queda donde está: el modal no se cierra.
+  if (_entItemsBloqueado && _entItemsEntregaId === _entregaModalId) {
+    alert('⛔ NO SE PUEDE CONFIRMAR TODAVÍA\n\n' +
+          'No pudimos cargar el detalle vigente de esta entrega. ' +
+          'No entregues ni cobres todavía. Reintentá cuando vuelva la conexión.\n\n' +
+          'Lo que ya cargaste (fotos, comprobante y cobro) no se pierde.');
+    var _pwB = document.getElementById('entrega-modal-prods');
+    if (_pwB) { try { _pwB.scrollIntoView({ behavior: 'smooth', block: 'center' }); } catch (eB) {} }
+    return;
+  }
   // v14.199.0 — no bajó nada: devolución total (sin cobro, nunca 'entregado')
   if (_entNadaBajado()) { await _confirmarDevolucionTotal(); return; }
   // v14.199.0 — sin detalle de productos no hay devolución total posible: no inventar cobro
@@ -44684,13 +45104,82 @@ async function confirmarEntregaModal() {
     const val = tckMontoAR(_el ? _el.value : '') || 0;   // v14.202.0 — parser unico
     if (val > 0) { cobros[m] = val; totalCobrado += val; }
   });
-  if (totalCobrado === 0) { toast('❌ Ingresá al menos un método de cobro', 'err'); return; }
+  // v14.208.2 — la plata y la deuda se validan juntas, porque la factura tiene
+  // que quedar cubierta entre las dos. totalCobrado sigue siendo SOLO plata.
+  var _totalEsp = _cobroTotalEsperado();
+  var _saldoCC  = Math.max(0, Math.round(_totalEsp - totalCobrado));
+
+  // (a) cobro por encima de la factura: no se guarda. Antes esto pasaba por el
+  //     factor blando y se confirmaba con un OK; ahora frena.
+  if (_totalEsp > 0 && totalCobrado - _totalEsp > 0.5) {
+    alert('⛔ NO SE GUARDÓ\n\nEstás cobrando $' + Math.round(totalCobrado).toLocaleString('es-AR') +
+          ' y la factura es de $' + Math.round(_totalEsp).toLocaleString('es-AR') + '.\n\n' +
+          'Revisá los importes. Si el cliente te pagó de más porque está saldando deuda vieja, ' +
+          'eso todavía no se puede cargar desde acá: avisá a Administración.');
+    return;
+  }
+  // (b) ni plata ni deuda declarada
+  if (totalCobrado === 0 && !_ctaCteMarcada) {
+    toast('❌ Indicá cómo se cobra o marcá que queda en cuenta corriente.', 'err');
+    var _cw0 = document.getElementById('entrega-modal-cobro-wrap');
+    if (_cw0) { try { _cw0.scrollIntoView({ behavior: 'smooth', block: 'center' }); } catch (e0) {} }
+    return;
+  }
+  // (c) cobro parcial y nadie se hace cargo del resto
+  if (_saldoCC > 0 && !_ctaCteMarcada) {
+    toast('❌ Faltan $' + _saldoCC.toLocaleString('es-AR') +
+          '. Cobralos o marcá que quedan en cuenta corriente.', 'err');
+    var _cw1 = document.getElementById('ctacte-wrap');
+    if (_cw1) { try { _cw1.scrollIntoView({ behavior: 'smooth', block: 'center' }); } catch (e1) {} }
+    return;
+  }
+  // (d) confirmacion explicita: se entrega mercaderia y se deja deuda
+  if (_ctaCteMarcada && _saldoCC > 0) {
+    var _fAR = function (n) { return '$' + Math.round(n).toLocaleString('es-AR'); };
+    if (!confirm('📒 ENTREGÁS LA MERCADERÍA Y QUEDA DEUDA\n\n' +
+                 'Factura actual: ' + _fAR(_totalEsp) + '\n' +
+                 'Cobrado ahora: ' + _fAR(totalCobrado) + '\n' +
+                 'Queda en cuenta corriente: ' + _fAR(_saldoCC) + '\n\n' +
+                 '¿Confirmás?')) return;
+  }
+
+  // v14.208.3 — ¿lo que hay en pantalla sigue siendo de la versión vigente?
+  // Un modal que quedó abierto mientras Depósito regeneraba la planilla tiene
+  // líneas viejas. Se recarga el detalle y se frena; las fotos y el cobro
+  // cargados NO se tocan, porque el modal sigue abierto.
+  var _eV = _entregasCache.find(function (x) { return x.id === _entregaModalId; });
+  if (_entItemsFuente === 'snapshot' && _eV) {
+    var _cv = _chCv2De(_eV.viaje_id) || {};
+    if (_cv.version != null && _entItemsVersion != null && _cv.version !== _entItemsVersion) {
+      try { await _chCargarParadas(_eV.viaje_id); await entItemsCargar(_eV, false); } catch (eR) {}
+      alert('🔄 LA CARGA CAMBIÓ — NO SE GUARDÓ\n\nDepósito generó una versión nueva ' +
+            '(v' + _cv.version + ') mientras tenías la pantalla abierta.\n\n' +
+            'Ya actualicé los productos. Revisá y confirmá de nuevo. ' +
+            'Las fotos y el cobro que cargaste siguen ahí.');
+      return;
+    }
+  }
 
   // v14.203.0 — la suma por producto la valida el SERVIDOR antes de guardar:
   // cargada = entregada + vuelve, contra el manifiesto congelado.
   var _vi = await _chValidarItemsServidor(_entregaModalId);
   if (_vi && _vi.ok === false) {
     var _errs = (_vi.errores || []).map(function (x) { return '• ' + x.mensaje; }).join('\n');
+    // v14.208.3 — si el rechazo es porque la pantalla tiene líneas que el
+    // manifiesto no tiene (el caso Amaro), se recarga el detalle vigente en vez
+    // de dejar al chofer golpeando contra el mismo error.
+    var _esManifiesto = (_vi.errores || []).some(function (x) {
+      return /manifiesto/i.test(String(x && (x.mensaje || x.codigo) || ''));
+    });
+    if (_esManifiesto && _eV && _chVaPorRpc(_eV)) {
+      try { await _chCargarParadas(_eV.viaje_id); await entItemsCargar(_eV, false); } catch (eR2) {}
+      alert('🔄 LOS PRODUCTOS NO ERAN LOS VIGENTES — NO SE GUARDÓ\n\n' + _errs +
+            '\n\nYa actualicé la lista con lo que dice el manifiesto. ' +
+            'Si un producto desapareció es porque una nota de crédito lo sacó: ' +
+            'no viaja en el camión y NO es una devolución.\n\n' +
+            'Revisá y confirmá de nuevo. Las fotos y el cobro siguen cargados.');
+      return;
+    }
     alert('⛔ LAS CANTIDADES NO CIERRAN — NO SE GUARDÓ\n\n' + _errs +
           '\n\nRevisá lo que bajaste y lo que vuelve.');
     return;
@@ -44832,7 +45321,9 @@ async function confirmarEntregaModal() {
   }
 
   // Sin cheque: validar diferencia directamente y ejecutar.
-  await _validarDiferenciaYConfirmar(cobros, totalCobrado);
+  // v14.208.2 — la cta. cte. se agrega ACA, despues de todas las validaciones y
+  // despues de calcular totalCobrado, para que no pueda colarse en la suma.
+  await _validarDiferenciaYConfirmar(_cobrosConCtaCte(cobros), totalCobrado);
 }
 
 // v14.16.2 — Validación de "cobró menos" extraída a función reutilizable.
@@ -44859,9 +45350,12 @@ async function _validarDiferenciaYConfirmar(cobros, totalCobrado) {
     try { montoFalt = _entItemsFaltanteMonto() || 0; } catch (eMF) { montoFalt = 0; }
     var montoEsperado = montoOriginal - montoDev - montoFalt;
     // Si cobró MENOS de lo esperado y NO es cuenta corriente
-    var diff = Math.round(montoEsperado - totalCobrado);
-    var esSoloCtaCte = (cobros.cuenta_corriente || 0) === totalCobrado;
-    if (diff > 100 && !esSoloCtaCte) {
+    // v14.208.2 — lo que quedo declarado como deuda NO es una diferencia sin
+    // explicar: ya tiene explicacion y quedo asentado. Antes solo se perdonaba
+    // el caso "todo a cuenta corriente"; ahora tambien el cobro parcial.
+    var declaradoCC = Math.round(parseFloat(cobros && cobros.cuenta_corriente) || 0);
+    var diff = Math.round(montoEsperado - totalCobrado - declaradoCC);
+    if (diff > 100) {
       // Ver si ya hay textarea visible
       var motivoEl = document.getElementById('cobro-menos-motivo');
       if (!motivoEl) {
@@ -45698,7 +46192,9 @@ async function confirmarChequeModal() {
   // completos y saltea el sub-modal yendo directo a esta función.
   document.getElementById('cheque-modal').classList.add('hidden');
 
-  const okDif = await _validarDiferenciaYConfirmar(_cobrosPendientes, totalCobrado);
+  // v14.208.2 — _cobrosPendientes guarda SOLO los tres medios con plata (asi
+  // totalCobrado de arriba sigue siendo correcto); la cta. cte. se suma aca.
+  const okDif = await _validarDiferenciaYConfirmar(_cobrosConCtaCte(_cobrosPendientes), totalCobrado);
   if (!okDif) {
     // La validación bloqueó (mostró textarea o motivo corto).
     // El modal de cheques quedó cerrado pero _chequesData sigue en memoria.
@@ -45753,7 +46249,23 @@ function _chReqId(pref, entregaId) {
 function _chItemsParaRpc(entregaId, devData) {
   if (!_entItems || !_entItems.length || _entItemsEntregaId !== entregaId) return [];
   var catLabel = (devData && devData !== 'SIN_CATEGORIA' && devData.motivo) ? devData.motivo : null;
-  return _entItems.map(function (it) {
+  // v14.208.3 — ULTIMA BARRERA. Si hay snapshot, del teléfono no sale una línea
+  // que el manifiesto no tenga, venga de donde venga (caché, modal viejo, cola).
+  // No relaja nada del servidor: lo acompaña.
+  var _e4 = _entregasCache.find(function (x) { return x.id === entregaId; });
+  var _vig = _entItemsClavesVigentes(_e4);
+  var _fuente = _entItems;
+  if (_vig) {
+    _fuente = _entItems.filter(function (it) {
+      var k = String(it.nombre || '') + '|' + String(it.calibre || '');
+      if (_vig[k] === undefined) {
+        console.warn('[v14.208.3] línea fuera del manifiesto, no se envía: ' + k);
+        return false;
+      }
+      return true;
+    });
+  }
+  return _fuente.map(function (it) {
     var cargada   = Number(it.pedida) || 0;
     var entregada = Number(it.bajada) || 0;
     var vuelve    = Math.max(0, cargada - entregada);
@@ -45850,8 +46362,14 @@ async function _ejecutarConfirmacionEntrega(cobros) {
   const devDataFinal = _getDevolucionData();
   const payload = { estado:'entregado', forma_cobro:formaPrincipal, fecha_entrega:new Date().toISOString() };
   // v14.113.0 — lo REALMENTE cobrado (suma de instrumentos), para monto_cobrado
+  // v14.208.2 — se excluye la cta. cte.: es lo que NO se cobro. Antes este
+  // Object.keys barria todas las claves, y con la cta. cte. de vuelta en el
+  // objeto habria contado la deuda como plata cobrada.
   let montoCobradoReal = 0;
-  Object.keys(cobros).forEach(function(k) { montoCobradoReal += parseFloat(cobros[k]) || 0; });
+  Object.keys(cobros).forEach(function(k) {
+    if (k === 'cuenta_corriente') return;
+    montoCobradoReal += parseFloat(cobros[k]) || 0;
+  });
   // v14.199.0 — lo que efectivamente ENTRÓ (la cta. cte. no es cobro)
   let montoCobradoInstr = 0;
   ['efectivo','transferencia','cheque'].forEach(function(k) { montoCobradoInstr += parseFloat(cobros[k]) || 0; });
@@ -45879,12 +46397,19 @@ async function _ejecutarConfirmacionEntrega(cobros) {
   //   1. nunca sale una clave cuenta_corriente, venga de donde venga;
   //   2. si el detalle quedó vacío pero la entrega se marca cobrada, se frena.
   //      Ese es el origen de las 385 filas de vw_cobro_rendidas_sin_detalle.
+  //
+  // v14.208.2 — el guard 1 SE ELIMINA. Era el tercer eslabon del bloqueo: aun
+  // arreglando el boton y totalCobrado, borraba la clave justo antes de armar
+  // p_cobros y la RPC contestaba COBRO_SIN_DECLARAR. El servidor la acepta y la
+  // necesita: carga_entrega_registrar admite el medio 'cuenta_corriente', NO lo
+  // escribe en detalle_cobro, y del lado de la base fn_entrega_importe_cobrado
+  // ya la tiene en su lista c_no_dinero. O sea: nunca se cuenta como plata.
+  //   El guard 2 SE MANTIENE tal cual: es el que ataca las 385 filas.
+  //   Ojo con la suma: ahora la cta. cte. es una clave mas del objeto, asi que
+  //   _sum la incluye. Da igual para lo que el guard mide (detalle vacio con
+  //   cobro declarado), porque totalCobrado ya no la incluye.
   try {
     var _det = JSON.parse(detalleCobroStr || '{}');
-    if (_det && _det.cuenta_corriente !== undefined) {
-      delete _det.cuenta_corriente;
-      console.warn('[v14.202.0] se descartó cuenta_corriente del detalle de cobro');
-    }
     var _sum = Object.keys(_det).reduce(function (a, k) { return a + (Number(_det[k]) || 0); }, 0);
     if (_sum <= 0 && (Number(totalCobrado) || 0) > 0) {
       console.error('[' + DETALLE_COBRO_VACIO + '] total=' + totalCobrado + ' detalle=' + detalleCobroStr);
@@ -46527,6 +47052,7 @@ function _abrirCobroConComprobante(entregaId, metodo) {
     var item = document.getElementById('cobro-m-' + m);
     if (item) item.classList.remove('activo');
   });
+  _ctaCteReset();   // v14.208.2
   var montoReal = (parseFloat(e.monto) || 0) < 1000 && (parseFloat(e.monto) || 0) > 0
     ? parseFloat(e.monto) * 1000 : (parseFloat(e.monto) || 0);
   if (metodo) {
@@ -59694,7 +60220,7 @@ function depPollIniciar() {
    TCK_UPD_LOCAL aca Y el archivo version.json del repo.
    ============================================================ */
 (function(){
-  var TCK_UPD_LOCAL = '14.208.1';        /* <-- bump en cada deploy */
+  var TCK_UPD_LOCAL = '14.208.4';        /* <-- bump en cada deploy */
   /* v14.159.0: fuente UNICA de version. La telemetria del shadow la reporta,
      asi que un desfasaje contra version.json se ve solo en el primer pedido
      (paso 4 veces sin que nadie lo notara: 14.109, 14.128, 14.137, 14.147). */
