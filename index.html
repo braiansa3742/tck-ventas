@@ -24,6 +24,35 @@
          y queda en la bandeja de incidencias con su causa.
        Requiere tck_carga_v2_cierre_v4.sql. Admin 13.232.0, Apps Script v25.145.0.
      ─────────────────────────────────────────────────────────────────────
+     TCK VENTAS — v14.205.0 — 18/09/2026
+     v14.205.0: CARGA V2 YA NO NECESITA APPS SCRIPT PARA NADA.
+       (sobre v14.204.0 publicado. Cambia sólo lo que se nombra acá.)
+       · GENERAR / ACTUALIZAR PLANILLA: cv2DGenerarVersion() llamaba
+         ?accion=planillaImprimir. Ahora llama rpc/carga_planilla_generar.
+         La RPC arma el mismo snapshot y el mismo hash que _planillaSnapshotViaje
+         del .gs (verificado 9 de 9 viajes, 395 pedidos: hash, total y monto
+         idénticos), así que la cadena de versiones no se corta. Sigue siendo
+         idempotente por contenido: si la última versión ya representa la foto
+         actual NO crea una versión nueva, para no invalidar el control físico
+         de Depósito. El PDF se sigue armando acá, en el navegador.
+       · ARRANCAR DE VERDAD: mvArrancarViaje() pedía autorización a Supabase
+         (chofer_arranque_solicitar) pero después movía el viaje con
+         ?accion=viajeArrancar. Ahora la transición final la hace
+         rpc/carga_viaje_arrancar, en una transacción: valida cierre, hash,
+         aceptación y pedido de arranque, crea las entregas que falten, deja
+         el viaje siguiente de la zona y audita. Es idempotente: si el viaje
+         ya salió contesta ok con ya_estaba. Después de una respuesta buena NO
+         se toca Apps Script. No hay fallback al Web App.
+       · cv2SolicitarArranque() devuelve ahora {ok, version, hash} en vez de
+         true, para que el arranque valide contra la MISMA versión que el
+         servidor acaba de aceptar.
+       · NO se migró nada más. La pestaña vieja de Depósito (depActualizarPlanilla,
+         depCerrarCarga) sigue saliendo por Apps Script tal cual: no es parte
+         del circuito de Carga v2 y no estaba en el pedido.
+       Requiere tck_viaje_configurar_v1.sql + tck_planilla_y_arranque_v1.sql
+       (ya aplicados) sobre tck_carga_v2_cierre_v5.sql. Admin 13.233.0.
+       DEPLOY: subir como index.html y version.json a 14.205.0.
+     ─────────────────────────────────────────────────────────────────────
      TCK VENTAS — v14.204.0 — 18/09/2026
      v14.204.0: LA CONFIRMACIÓN DE ENTREGA DEL PILOTO NO ES MÁS UN PATCH.
        (sobre v14.203.0, que NO se publicó)
@@ -41299,10 +41328,19 @@ async function mvArrancarViaje(viajeId) {
   var prev = btn ? btn.innerHTML : null;
   if (btn) { btn.disabled = true; btn.style.opacity = '0.55'; btn.innerHTML = '\u23F3 Arrancando…'; }
   try {
-    var r = await _colaFetchJson(APPS_SCRIPT_URL + '?accion=viajeArrancar' +
-      '&viaje_id=' + encodeURIComponent(viajeId) +
-      '&quien=' + encodeURIComponent(vendedorActual || ''), 60000);
-    if (r && r.status === 'ok') {
+    // v14.205.0 — la transición final a EN RUTA la hace Supabase, no Apps
+    // Script. carga_viaje_arrancar valida cierre, hash, aceptación y pedido de
+    // arranque (_cv2_arranque_motivo), crea las entregas que falten y deja el
+    // viaje siguiente de la zona, todo en una transacción. Es idempotente: si
+    // el viaje ya salió contesta ok con ya_estaba. No hay fallback al Web App.
+    var _arrV = (_cv2ok && typeof _cv2ok === 'object') ? _cv2ok : null;
+    var r = await cv2Rpc('carga_viaje_arrancar', {
+      p_viaje_id: viajeId,
+      p_version: _arrV ? _arrV.version : null,
+      p_hash: _arrV ? _arrV.hash : null,
+      p_request_id: cv2Rid()
+    });
+    if (r && r.ok) {
       if (typeof toast === 'function') toast('\uD83D\uDE9A Viaje EN RUTA. Buen viaje.', 'ok');
       // Sin estado optimista: se relee del backend.
       await cargarViajeActivo();
@@ -59625,7 +59663,7 @@ function depPollIniciar() {
    TCK_UPD_LOCAL aca Y el archivo version.json del repo.
    ============================================================ */
 (function(){
-  var TCK_UPD_LOCAL = '14.204.0';        /* <-- bump en cada deploy */
+  var TCK_UPD_LOCAL = '14.205.0';        /* <-- bump en cada deploy */
   /* v14.159.0: fuente UNICA de version. La telemetria del shadow la reporta,
      asi que un desfasaje contra version.json se ve solo en el primer pedido
      (paso 4 veces sin que nadie lo notara: 14.109, 14.128, 14.137, 14.147). */
@@ -60853,11 +60891,15 @@ async function cv2DGenerarVersion(id) {
   CV2D.generando[id] = true; CV2D.autoPl[id] = Date.now();
   if (CV2D.vista === 'detalle' && CV2D.viajeId === id) cv2DepRender();
   try {
-    var r = await _colaFetchJson(APPS_SCRIPT_URL + '?accion=planillaImprimir&viaje_id=' + encodeURIComponent(id) +
-      '&quien=' + encodeURIComponent(vendedorActual || 'deposito'), 60000);
-    if (r && r.status === 'error' && /no tiene pedidos activos/i.test(r.message || '')) {
+    // v14.205.0 — la versión y el hash de la planilla los crea Supabase, no
+    // Apps Script. Mismo snapshot y mismo hash que _planillaSnapshotViaje del
+    // .gs, e idempotente por contenido: si la última versión ya representa la
+    // foto actual contesta sin_cambios y NO crea una versión nueva (crearla
+    // invalidaría el control físico sin que se haya movido un bulto).
+    var r = await cv2Rpc('carga_planilla_generar', { p_viaje_id: id, p_request_id: cv2Rid() });
+    if (r && !r.ok && r.code === 'SIN_PEDIDOS') {
       CV2D.sinPedidos[id] = true;                       // no se insiste con avisos: el panel lo muestra
-    } else if (!r || r.status !== 'ok') {
+    } else if (!r || !r.ok) {
       cv2Toast('⛔ No se pudo generar la planilla nueva (se reintenta): ' + cv2LimpiarMsg((r && r.message) || 'sin detalle'), 'err');
     } else {
       delete CV2D.sinPedidos[id];
@@ -61704,7 +61746,10 @@ async function cv2SolicitarArranque(viajeId) {
     try { cv2ChoferCargar(); } catch (x) {}
     return false;
   }
-  return true;
+  // v14.205.0 — se devuelve la versión/hash que el servidor acaba de aceptar,
+  // para que carga_viaje_arrancar valide contra exactamente eso. Sigue siendo
+  // un valor verdadero, así que quien sólo lo use como booleano no cambia.
+  return { ok: true, version: (ver != null ? ver : null), hash: (hash != null ? hash : null) };
 }
 
 // ── Refresco automático (Depósito y Chofer) ──
