@@ -2,6 +2,30 @@
 <html lang="es">
 <head>
 <!-- ═══════════════════════════════════════════════════════════════════════
+     TCK VENTAS — v14.208.5 — 18/09/2026
+     v14.208.5: EL IMPORTE TAMBIEN SALE DEL SNAPSHOT CERRADO.
+       (sobre v14.208.4 publicada. Solo front.)
+       · EL BUG: entregas.monto de Amaro vale $552.400 — el importe original,
+         anterior a la NC. El snapshot v8 dice $477.500. Toda la app calculaba
+         el total del pedido desde entregas.monto. Ian bajaba los 9 productos
+         correctos, cobraba los $477.500 que corresponden, y la app le decia
+         "Faltan $74.900"; si marcaba cuenta corriente para avanzar, quedaba
+         una deuda de $74.900 QUE NO EXISTE.
+       · 14.208.3 arreglo los PRODUCTOS y dejo el IMPORTE leyendo de otra
+         fuente. Esta version los pone en la misma.
+       · UNA SOLA FUNCION, _entMontoVigente(e): snapshot en Carga v2 cerrada,
+         entregas.monto en legacy, y null si el vigente no esta (ahi bloquea,
+         nunca vuelve a entregas.monto).
+       · Se corrigio en el ORIGEN (_getMontoOriginal) mas las CINCO rutas que
+         leian e.monto por su cuenta y lo habrian reintroducido igual: tope de
+         cobro, validacion de diferencia, importe del modal, precarga del cobro
+         con comprobante, y las tarjetas y totales de la lista.
+       · En la lista, sin importe vigente se muestra "—". Mostrar el importe
+         viejo en la tarjeta y otro adentro del modal fue parte de la confusion.
+       · No se toca entregas.monto, ni pedidos, ni facturas, ni NC, ni el
+         snapshot, ni el servidor.
+       DEPLOY: subir como index.html y version.json a 14.208.5.
+     ─────────────────────────────────────────────────────────────────────
      TCK VENTAS — v14.208.4 — 18/09/2026
      v14.208.4: EN CARGA V2 NO HAY FALLBACK A LA TABLA CRUDA.
        (sobre v14.208.3, que NO se publico. Incluye los dos P0 de esa version:
@@ -40670,6 +40694,36 @@ async function _chCargarParadas(viajeId) {
   }
 }
 
+// ── v14.208.5 · EL IMPORTE VIGENTE, DE UNA SOLA FUENTE ─────────────────
+// Devuelve lo que hay que cobrar por este pedido HOY:
+//   · Carga v2 con snapshot cerrado → el total del snapshot (ya ajustado por
+//     las NC). Es el MISMO origen del que salen los productos desde 14.208.3.
+//   · viaje legacy                  → entregas.monto, como siempre.
+//   · v2 sin importe vigente        → null. El caller bloquea. NUNCA se cae a
+//     entregas.monto: ese numero es el de la factura original y es justo el
+//     que produjo el incidente de Amaro ($552.400 contra $477.500 reales).
+function _entMontoVigente(e) {
+  if (!e) return 0;
+  if (_chVaPorRpc(e)) {
+    var m = _chParadasMap[String(e.pedido_id)];
+    if (m && String(m.fuente || '').indexOf('snapshot') === 0 && m.importe != null) {
+      var v = parseFloat(m.importe);
+      if (isFinite(v) && v >= 0) return v;   // el snapshot ya viene en pesos reales
+    }
+    return null;
+  }
+  var q = parseFloat(e.monto) || 0;
+  return (q > 0 && q < 1000) ? q * 1000 : q;   // ajuste historico, solo legacy
+}
+
+// Para la lista y los totales: si el vigente no esta, NO se inventa con
+// entregas.monto. Se devuelve null y la tarjeta muestra "—". Mostrar el
+// importe viejo es peor que no mostrar ninguno.
+function _entMontoMostrar(e) {
+  var v = _entMontoVigente(e);
+  return (v == null) ? null : v;
+}
+
 function _chParadaDe(e) {
   var m = _chParadasMap[String(e && e.pedido_id)];
   if (m) return m;
@@ -43129,10 +43183,7 @@ function renderEntregas(entregas) {
     let   _paradaPrev = null;
     const allDone  = items.every(e => e.estado === 'entregado');
     const pendCount = items.filter(e => e.estado !== 'entregado').length;
-    const total    = items.reduce((s,e) => {
-      const m = parseFloat(e.monto)||0;
-      return s + (m < 1000 && m > 0 ? m*1000 : m);
-    }, 0);
+    const total    = items.reduce((s,e) => s + (_entMontoMostrar(e) || 0), 0);   // v14.208.5
 
     // v14.8: data-ciudad-norm para el handler de scroll desde chips
     var _ciudadNorm = normalizarCiudad(ciudad);
@@ -43167,9 +43218,10 @@ function renderEntregas(entregas) {
         : '');
 
     items.forEach(e => {
-      const montoReal = (parseFloat(e.monto)||0) < 1000 && (parseFloat(e.monto)||0) > 0
-        ? parseFloat(e.monto)*1000 : (parseFloat(e.monto)||0);
-      const totalFmt  = montoReal ? '$' + Math.round(montoReal).toLocaleString('es-AR') : '—';
+      // v14.208.5 — el vigente. Si no está, '—': mostrar el importe viejo en la
+      // tarjeta y otro adentro del modal es exactamente lo que confundió con Amaro.
+      const montoReal = _entMontoMostrar(e);
+      const totalFmt  = (montoReal != null && montoReal) ? '$' + Math.round(montoReal).toLocaleString('es-AR') : '—';
       const entregado = e.estado === 'entregado';
       const enCamino = e.estado === 'en_camino';
       const noEstaba = e.estado === 'no_encontrado';
@@ -43354,9 +43406,7 @@ function renderEntregas(entregas) {
     const sumEntregadas = completadas.filter(function(e) { return e.estado === 'entregado'; });
     const sumNoEstaban = completadas.filter(function(e) { return e.estado === 'no_encontrado'; });
     const totalCobrado = sumEntregadas.reduce(function(s, e) {
-      let m = parseFloat(e.monto) || 0;
-      if (m > 0 && m < 1000) m = m * 1000;
-      return s + m;
+      return s + (_entMontoMostrar(e) || 0);   // v14.208.5
     }, 0);
 
     let entregHtml = '<div class="entregadas-section" id="entregadas-section">';
@@ -43372,8 +43422,7 @@ function renderEntregas(entregas) {
     entregHtml += '  </div>';
     entregHtml += '  <div class="entregadas-list" id="entregadas-list" style="display:none;">';
     completadas.forEach(function(e) {
-      let m = parseFloat(e.monto) || 0;
-      if (m > 0 && m < 1000) m = m * 1000;
+      let m = _entMontoMostrar(e) || 0;   // v14.208.5
       const ico = e.estado === 'entregado' ? '✅' : '🚪';
       const formaTxt = e.estado === 'entregado'
         ? ({
@@ -44218,8 +44267,7 @@ function abrirEntregaModal(entregaId) {
   if (!e) return;
   _entregaModalId = entregaId;
 
-  const montoReal = (parseFloat(e.monto)||0) < 1000 && (parseFloat(e.monto)||0) > 0
-    ? parseFloat(e.monto) * 1000 : (parseFloat(e.monto)||0);
+  const montoReal = _entMontoVigente(e) || 0;   // v14.208.5 — vigente
   const fmt = n => '$' + Math.round(n).toLocaleString('es-AR');
   const coords = _coordsCache[e.cliente];
   // v14.172.0 Gate A
@@ -44863,8 +44911,11 @@ function cerrarEntregaModal() {
 function _getMontoOriginal() {
   var e = _entregasCache.find(function(x) { return x.id === _entregaModalId; });
   if (!e) return 0;
-  var m = parseFloat(e.monto) || 0;
-  return (m > 0 && m < 1000) ? m * 1000 : m;
+  // v14.208.5 — de acá derivan _getMontoConDevolucion, los botones "Todo...",
+  // _cobroTotalEsperado, el resumen de cuenta corriente y el prorrateo de
+  // devoluciones. Corregido en el origen, queda corregido todo ese árbol.
+  var v = _entMontoVigente(e);
+  return (v == null) ? 0 : v;
 }
 
 // Helper: monto total que queda por cobrar TENIENDO EN CUENTA devolución actual.
@@ -44932,8 +44983,9 @@ function cobroRapido(metodo) {
 function _cobroTotalEsperado() {
   var e0 = _entregasCache.find(function (x) { return x.id === _entregaModalId; });
   if (!e0) return 0;
-  var mo = parseFloat(e0.monto) || 0;
-  if (mo > 0 && mo < 1000) mo = mo * 1000;           // mismo ajuste que el historico
+  // v14.208.5 — el importe vigente, no el de la factura original.
+  var mo = _entMontoVigente(e0);
+  if (mo == null) return 0;                          // v2 sin snapshot: bloquea arriba
   var dev = 0;
   var d = _getDevolucionData();
   if (d && d !== 'SIN_CATEGORIA') {
@@ -45076,6 +45128,18 @@ async function confirmarEntregaModal() {
   if (_eCM && _entSoloLectura(_eCM)) { toast('Esta entrega ya está resuelta', 'err'); return; }
   // v14.208.4 — sin detalle vigente no se entrega ni se cobra. Lo cargado
   // (fotos, comprobantes, importes) queda donde está: el modal no se cierra.
+  // v14.208.5 — mismo bloqueo si falta el IMPORTE vigente, no solo las líneas.
+  // En la práctica van juntos (salen del mismo _chParadasMap), pero si alguna
+  // vez se separan, del teléfono no sale un cobro contra un importe inventado.
+  if (!_entItemsBloqueado && _eCM && _chVaPorRpc(_eCM) && _entMontoVigente(_eCM) == null) {
+    _entItemsBloqueado = true;
+    if (!_entItemsDiag) {
+      _entItemsDiag = { pedido_id: _eCM.pedido_id || null, viaje_id: _eCM.viaje_id || null,
+                        version: (_chCv2De(_eCM.viaje_id) || {}).version || null,
+                        intentos: 0, motivo: 'sin_importe_vigente', ts: new Date().toISOString() };
+    }
+    _entItemsRenderBloqueo();
+  }
   if (_entItemsBloqueado && _entItemsEntregaId === _entregaModalId) {
     alert('⛔ NO SE PUEDE CONFIRMAR TODAVÍA\n\n' +
           'No pudimos cargar el detalle vigente de esta entrega. ' +
@@ -45191,9 +45255,11 @@ async function confirmarEntregaModal() {
   // v14.202.0 — TOPE DE COBRO (espejo de la Guardia). El pedido es el techo.
   var _techoEnt = (function () {
     var _e0 = _entregasCache.find(function (x) { return x.id === _entregaModalId; });
-    var _m0 = _e0 ? (tckMontoAR(_e0.monto) || 0) : 0;
-    if (_m0 > 0 && _m0 < 1000) _m0 = _m0 * 1000;   // mismo ajuste que el historico
-    return _m0;
+    // v14.208.5 — el techo tambien es el vigente. Con el original, un cobro
+    // correcto de $477.500 contra un techo de $552.400 pasaba, pero uno de
+    // $552.400 contra el vigente real tenia que frenar y no frenaba.
+    var _m0 = _entMontoVigente(_e0);
+    return (_m0 == null) ? 0 : _m0;
   })();
   var _ev = _cobroEvaluarExceso(totalCobrado, _techoEnt);
   if (_ev.decision === 'rechazo') { alert(_ev.mensaje); return; }
@@ -45337,8 +45403,10 @@ async function _validarDiferenciaYConfirmar(cobros, totalCobrado) {
   const e0 = _entregasCache.find(x => x.id === _entregaModalId);
 
   if (e0) {
-    var montoOriginal = (parseFloat(e0.monto)||0);
-    if (montoOriginal > 0 && montoOriginal < 1000) montoOriginal = montoOriginal * 1000;
+    // v14.208.5 — vigente, no original: si no, pide justificar una diferencia
+    // que la nota de credito ya explico.
+    var montoOriginal = _entMontoVigente(e0);
+    if (montoOriginal == null) montoOriginal = 0;
     // Restar devoluciones del monto esperado
     var montoDev = 0;
     if (devData && devData !== 'SIN_CATEGORIA') {
@@ -47053,8 +47121,7 @@ function _abrirCobroConComprobante(entregaId, metodo) {
     if (item) item.classList.remove('activo');
   });
   _ctaCteReset();   // v14.208.2
-  var montoReal = (parseFloat(e.monto) || 0) < 1000 && (parseFloat(e.monto) || 0) > 0
-    ? parseFloat(e.monto) * 1000 : (parseFloat(e.monto) || 0);
+  var montoReal = _entMontoVigente(e) || 0;   // v14.208.5 — vigente
   if (metodo) {
     // Vino de un método elegido en el modal viejo: cargar el total en ese método.
     var inpMet = document.getElementById('cobro-m-' + metodo + '-val');
@@ -60220,7 +60287,7 @@ function depPollIniciar() {
    TCK_UPD_LOCAL aca Y el archivo version.json del repo.
    ============================================================ */
 (function(){
-  var TCK_UPD_LOCAL = '14.208.4';        /* <-- bump en cada deploy */
+  var TCK_UPD_LOCAL = '14.208.5';        /* <-- bump en cada deploy */
   /* v14.159.0: fuente UNICA de version. La telemetria del shadow la reporta,
      asi que un desfasaje contra version.json se ve solo en el primer pedido
      (paso 4 veces sin que nadie lo notara: 14.109, 14.128, 14.137, 14.147). */
