@@ -45829,7 +45829,10 @@ function _chMsgRpc(r) {
 
 async function _ejecutarConfirmacionEntrega(cobros) {
   const formaPrincipal = Object.keys(cobros).reduce((a,b) => cobros[a] > cobros[b] ? a : b);
-  const detalleCobroStr = JSON.stringify(cobros);
+  // v14.207.0 — era const y la linea de abajo (guard de v14.202.0) la reasigna:
+  // "TypeError: Assignment to constant variable", adentro del try, y salia el
+  // alert del detalle de cobro. Bloqueaba TODA confirmacion con cobro.
+  let detalleCobroStr = JSON.stringify(cobros);
   const devDataFinal = _getDevolucionData();
   const payload = { estado:'entregado', forma_cobro:formaPrincipal, fecha_entrega:new Date().toISOString() };
   // v14.113.0 — lo REALMENTE cobrado (suma de instrumentos), para monto_cobrado
@@ -59677,7 +59680,7 @@ function depPollIniciar() {
    TCK_UPD_LOCAL aca Y el archivo version.json del repo.
    ============================================================ */
 (function(){
-  var TCK_UPD_LOCAL = '14.206.0';        /* <-- bump en cada deploy */
+  var TCK_UPD_LOCAL = '14.207.0';        /* <-- bump en cada deploy */
   /* v14.159.0: fuente UNICA de version. La telemetria del shadow la reporta,
      asi que un desfasaje contra version.json se ve solo en el primer pedido
      (paso 4 veces sin que nadie lo notara: 14.109, 14.128, 14.137, 14.147). */
