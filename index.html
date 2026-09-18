@@ -2,6 +2,88 @@
 <html lang="es">
 <head>
 <!-- ═══════════════════════════════════════════════════════════════════════
+     TCK VENTAS — v14.203.0 — 18/09/2026
+     v14.203.0: EL MANIFIESTO, COMO LO RECORRE EL CHOFER.
+       (sobre v14.202.0, que NO se publicó)
+       · PARADAS POR CLIENTE: dos o más pedidos del mismo cliente se muestran
+         en UNA parada. Cada pedido conserva su número, factura, CAE, importe,
+         productos, resultado y cobranza. Se confirma y se cobra de a uno.
+         No se unifica nada. Medido sobre los 11 viajes abiertos: 507 entregas
+         son 476 paradas reales — 31 vueltas de menos, 28 paradas con más de
+         un pedido y 6 con un pedido entregado y otro no.
+       · PARADA PENDIENTE: el chofer deja una parada para después y sigue. No
+         se le inventa resultado ni cobro: el estado sigue 'pendiente' y por
+         eso sigue frenando el fin del recorrido. Vive en la base, así que
+         sobrevive al refresco y al cambio de teléfono.
+       · ENTREGA PARCIAL VALIDADA EN EL SERVIDOR: cargada = entregada + vuelve,
+         por producto, contra el manifiesto congelado. Lo valida
+         carga_entrega_items_validar y lo hace obligatorio el trigger
+         cv2_devolucion_consistente. Lo que vuelve sigue por el circuito de
+         siempre: devoluciones → NC → recepción de Depósito → stock.
+       · Un pedido que no está en la versión cerrada no se muestra como parada
+         y queda en la bandeja de incidencias con su causa.
+       Requiere tck_carga_v2_cierre_v4.sql. Admin 13.232.0, Apps Script v25.145.0.
+     ─────────────────────────────────────────────────────────────────────
+     TCK VENTAS — v14.204.0 — 18/09/2026
+     v14.204.0: LA CONFIRMACIÓN DE ENTREGA DEL PILOTO NO ES MÁS UN PATCH.
+       (sobre v14.203.0, que NO se publicó)
+       · En los viajes que rige Carga v2, confirmar una entrega es UNA sola
+         llamada: rpc/carga_entrega_registrar. Adentro, y en una sola
+         transacción del servidor, entran el resultado, los productos y sus
+         cantidades, la cobranza, la devolución si corresponde, los cheques y
+         la auditoría. Si falla cualquier parte, no se guarda ninguna.
+       · Se terminó el desfile de escrituras sueltas: ya no salen por separado
+         el PATCH de entregas, el INSERT de devoluciones, el INSERT de cheques
+         ni fn_entrega_items_confirmar. Los hace la RPC.
+       · La cola sin conexión sigue igual, pero reintenta la MISMA RPC con el
+         MISMO p_request_id. Por eso un reintento nunca duplica entrega, cobro
+         ni devolución: el servidor devuelve la respuesta ya guardada.
+       · SE ELIMINA, sólo en el circuito piloto, el reintento del catch que
+         borraba detalle_cobro y guardaba la entrega igual. Era la causa de
+         entregas cobradas sin decir con qué.
+       · Deshacer una entrega del piloto también va por RPC
+         (carga_entrega_deshacer): archiva la devolución y borra el detalle por
+         producto en la misma transacción.
+       · Los viajes que NO rige Carga v2 siguen EXACTAMENTE igual que en
+         14.203.0. No se migró ninguna operación histórica.
+       Requiere tck_carga_v2_cierre_v5.sql. Admin 13.232.0, Apps Script v25.145.0.
+       DEPLOY: subir como index.html y version.json a 14.204.0.
+       DEPLOY: subir como index.html y version.json a 14.203.0.
+     ─────────────────────────────────────────────────────────────────────
+     TCK VENTAS — v14.202.0 — 18/09/2026 (NO PUBLICADA — base de esta)
+     v14.202.0: CONSOLIDADO. Sobre v14.201.0, que NO se publicó.
+       (rebase sobre v14.200.0 productivo + los arreglos que Braian pidió
+       después de la inspección del 18/09.)
+       · SE ELIMINA el botón REGRESÉ / FINALICÉ RECORRIDO. El chofer no marca
+         nada: el backend marca el fin del recorrido cuando el último pedido
+         queda resuelto (trigger cv2_fin_recorrido).
+       · SE ELIMINA el botón de subir la planilla firmada de la app del chofer.
+         Esa planilla la sube DEPÓSITO desde el Admin, a un bucket privado.
+       · Selección de viaje: el viaje de HOY manda. Un en_ruta viejo ya no tapa
+         el viaje actual, y los repartos de Trenque atrasados no se pueden tomar.
+       · La app muestra SOLO los pedidos de la versión cerrada y aceptada. El
+         filtro lo resuelve el servidor (chofer_entregas_del_viaje).
+       · Parser de importes: tckMontoAR, espejo exacto de fn_monto_ar de Postgres.
+       · Tope de cobro en el celular, espejo de fn_cobro_validar (Guardia).
+       · Cuenta corriente: fuera del circuito. No se puede cobrar con eso.
+       Requiere tck_carga_v2_cierre_v3.sql. Admin 13.231.0, Apps Script v25.145.0.
+       DEPLOY: subir como index.html y version.json a 14.202.0.
+     ─────────────────────────────────────────────────────────────────────
+     TCK VENTAS — v14.201.0 — 17/09/2026 (NO PUBLICADA — base de esta)
+     v14.201.0: CARGA V2 TAMBIÉN EN TRENQUE LAUQUEN.
+       (rebase sobre v14.200.0 productivo: NO cambia devoluciones, cobranzas,
+       cuenta corriente ni "Devuelve todo". Carga v2 sigue en 'off'.)
+       · El chofer de TL ve y usa EL MISMO panel: conteo de lotes, aceptación
+         de la carga y ARRANCAR autenticado desde el celular.
+       · Se eliminan las tres exenciones de _chEsTL y el arranque directo desde
+         "planificado" sin cierre de Depósito ni aceptación.
+       · Tomar un reparto de Trenque ya no es un PATCH directo a viajes/entregas:
+         va por la RPC carga_viaje_tomar, con el chofer del token y registro en
+         carga_evento y ops_eventos.
+       · Lo único propio de TL que queda es fecha, turno y calendario de entrega.
+       Requiere tck_carga_v2_unificado.sql. Apps Script v25.144.0, Admin 13.230.0.
+       DEPLOY: subir como index.html y version.json a 14.201.0.
+     ─────────────────────────────────────────────────────────────────────
      TCK VENTAS — v14.200.0 — 17/09/2026
      v14.200.0: CARGA V2 · REGLAS DEL PILOTO + UNA SOLA MERCADERÍA QUE VUELVE.
        (rebase sobre v14.199.0 productivo: NO cambia nada de devoluciones,
@@ -12137,6 +12219,27 @@ body {
   animation: ch-card-flash-anim 1.2s ease-out;
 }
 
+/* v14.203.0 — parada con varios pedidos del mismo cliente */
+.parada-multi-hdr{display:flex;align-items:center;gap:8px;margin:10px 0 2px;padding:7px 11px;
+  background:linear-gradient(135deg,#FFF3E0,#FFE0B2);border-left:4px solid #E65100;
+  border-radius:0 10px 10px 0;font-family:'Barlow Condensed',sans-serif;}
+.parada-multi-ico{font-size:15px;}
+.parada-multi-txt{flex:1;font-size:13.5px;color:#5D4037;}
+.parada-multi-tag{font-size:11px;font-weight:900;color:#E65100;background:#fff;
+  border-radius:20px;padding:2px 9px;white-space:nowrap;}
+.parada-multi-item{border-left:4px solid #FFB74D;margin-left:6px;}
+.parada-multi-badge{font-size:10.5px;font-weight:900;color:#E65100;
+  font-family:'Barlow Condensed',sans-serif;letter-spacing:.3px;margin-bottom:2px;}
+/* parada que el chofer dejó para después */
+.parada-pospuesta{background:#FFFDE7 !important;border-left:4px solid #FBC02D !important;}
+.parada-pospuesta-badge{font-size:11px;font-weight:800;color:#8D6E00;background:#FFF9C4;
+  border-radius:8px;padding:3px 8px;margin-bottom:4px;display:inline-block;
+  font-family:'Barlow Condensed',sans-serif;}
+.accion-posponer{background:#fff;color:#8D6E00;border:1.5px solid #FBC02D;border-radius:10px;
+  padding:9px 12px;font-family:'Barlow Condensed',sans-serif;font-size:12.5px;font-weight:900;
+  cursor:pointer;white-space:nowrap;}
+.accion-posponer.activa{background:#FBC02D;color:#3E2723;}
+
 /* ── Items de cliente — tappable ── */
 .entrega-item {
   padding: 12px 14px; border-bottom: 1px solid #EEF2FF;
@@ -19029,10 +19132,11 @@ body {
               <span class="cobro-multiple-metodo">📋 Cheque</span>
               <input class="cobro-multiple-input" id="cobro-m-cheque-val" type="number" min="0" placeholder="$0" oninput="cobroMultipleActualizar()">
             </div>
-            <div class="cobro-multiple-item" id="cobro-m-cuenta_corriente">
-              <span class="cobro-multiple-metodo">📒 Cta. Corriente</span>
-              <input class="cobro-multiple-input" id="cobro-m-cuenta_corriente-val" type="number" min="0" placeholder="$0" oninput="cobroMultipleActualizar()">
-            </div>
+            <!-- v14.202.0 — CUENTA CORRIENTE ELIMINADA del circuito de cobro.
+                 Decisión funcional 8: no existe como forma de pago. Si el cliente
+                 no paga, el pedido es NO ENTREGADO, no "a cuenta".
+                 Las entregas viejas que la tienen se siguen viendo en el
+                 historial; lo que no se puede es cargar una nueva. -->
           </div>
 
           <!-- v14.38.0 — Comprobante de transferencia (foto obligatoria si hay transferencia) -->
@@ -23682,7 +23786,7 @@ function tckAbrirPrecioManual(nombre, ctx) {
     + 'Tabla para ' + Math.max(1, qty) + ' u.: $' + piso.toLocaleString('es-AR') + ' (mínimo)\n'
     + 'Solo se cobra HACIA ARRIBA. Para vender abajo de tabla: foto de la oferta a Braian.', String(piso));
   if (v === null) return;
-  var n = parseInt(String(v).replace(/[^\d]/g, ''), 10);
+  var n = tckMontoAR(String(v));
   if (isNaN(n) || n <= 0) return;
   if (n < piso) {
     toast('$' + n.toLocaleString('es-AR') + ' está ABAJO de la tabla ($' + piso.toLocaleString('es-AR') + '). Para eso: circuito de defensa con Braian.', 'err');
@@ -26572,7 +26676,7 @@ function actualizarStats() {
   var mis = pedidosFiltrados();
   var activos = mis.filter(function(p){return p.estado!=='Cancelado';});
   var total = activos.reduce(function(acc,p){
-    var n = parseInt((p.total||'0').replace(/[^\d]/g,''));
+    var n = tckMontoAR((p.total||'0'));
     return acc + (isNaN(n)?0:n);
   }, 0);
   document.getElementById('stat-total').textContent = activos.length;
@@ -26889,7 +26993,7 @@ function renderPedidos(forzar) {
 }
 
 function fmtTotal(t) {
-  var n = parseInt((t||'').replace(/[^\d]/g,''));
+  var n = tckMontoAR((t||''));
   return isNaN(n) ? (t||'') : '$' + n.toLocaleString('es-AR');
 }
 
@@ -27666,7 +27770,7 @@ function abrirExport() {
   else if (filtroFecha === 'ayer') filtroLabel = 'Ayer' + filtroLabel;
   else if (filtroFecha === 'semana') filtroLabel = 'Esta semana' + filtroLabel;
   var sub = document.getElementById('export-hdr-sub');
-  var montoActivos = activos.reduce(function(a,p){ return a+(parseInt((p.total||'').replace(/[^\d]/g,''))||0); },0);
+  var montoActivos = activos.reduce(function(a,p){ return a+(tckMontoAR((p.total||''))||0); },0);
   if (sub) sub.textContent = activos.length + ' pedidos · $' + montoActivos.toLocaleString('es-AR') + (filtroLabel ? ' · ' + filtroLabel : '');
 
   // Mostrar/ocultar opción camión según si es admin o tiene filtro todos
@@ -27700,7 +27804,7 @@ function generarMensaje(modo) {
   var pend    = activos.filter(function(p){ return p.estado === 'Pendiente'; });
   var conf    = activos.filter(function(p){ return p.estado === 'Confirmado'; });
   var entr    = activos.filter(function(p){ return p.estado === 'Entregado'; });
-  var totalMonto = activos.reduce(function(acc,p){ return acc+(parseInt((p.total||'').replace(/[^\d]/g,''))||0); }, 0);
+  var totalMonto = activos.reduce(function(acc,p){ return acc+(tckMontoAR((p.total||''))||0); }, 0);
 
   var hoy = new Date().toLocaleDateString('es-AR', {weekday:'long', day:'numeric', month:'long'});
   var sep = '━━━━━━━━━━━━━━━';
@@ -27746,7 +27850,7 @@ function generarMensaje(modo) {
     if (esAdmin) {
       msg += '\n' + sep + '\n';
       var byVend = {};
-      activos.forEach(function(p){ var v=p.vendedor||'Sin asignar'; if(!byVend[v]) byVend[v]={n:0,m:0}; byVend[v].n++; byVend[v].m+=parseInt((p.total||'').replace(/[^\d]/g,''))||0; });
+      activos.forEach(function(p){ var v=p.vendedor||'Sin asignar'; if(!byVend[v]) byVend[v]={n:0,m:0}; byVend[v].n++; byVend[v].m+=tckMontoAR((p.total||''))||0; });
       Object.keys(byVend).sort().forEach(function(v) {
         msg += '👤 ' + v + ': ' + byVend[v].n + ' ped · $' + byVend[v].m.toLocaleString('es-AR') + '\n';
       });
@@ -27766,7 +27870,7 @@ function generarMensaje(modo) {
       activos.forEach(function(p){ var v=p.vendedor||'Sin asignar'; if(!byVend[v]) byVend[v]=[]; byVend[v].push(p); });
       Object.keys(byVend).sort().forEach(function(v) {
         var ps = byVend[v];
-        var sub = ps.reduce(function(a,p){ return a+(parseInt((p.total||'').replace(/[^\d]/g,''))||0); },0);
+        var sub = ps.reduce(function(a,p){ return a+(tckMontoAR((p.total||''))||0); },0);
         msg += sep + '\n';
         msg += '👤 *' + v + '*  ' + ps.length + ' ped · $' + sub.toLocaleString('es-AR') + '\n\n';
         ps.forEach(function(p){ msg += lineaBase(p) + '\n'; });
@@ -27799,7 +27903,7 @@ function generarMensaje(modo) {
       activos.forEach(function(p){ var v=p.vendedor||'Sin asignar'; if(!byVend[v]) byVend[v]=[]; byVend[v].push(p); });
       Object.keys(byVend).sort().forEach(function(v) {
         var ps = byVend[v];
-        var sub = ps.reduce(function(a,p){ return a+(parseInt((p.total||'').replace(/[^\d]/g,''))||0); },0);
+        var sub = ps.reduce(function(a,p){ return a+(tckMontoAR((p.total||''))||0); },0);
         msg += sep + '\n';
         msg += '👤 *' + v + '*  ' + ps.length + ' ped · $' + sub.toLocaleString('es-AR') + '\n\n';
         ps.forEach(function(p){ msg += lineaDetalle(p) + '\n'; });
@@ -28458,7 +28562,7 @@ function renderMiDia() {
     return;
   }
 
-  var totalMonto = activos.reduce(function(acc,p){ return acc+(parseInt((p.total||'').replace(/[^\d]/g,''))||0); }, 0);
+  var totalMonto = activos.reduce(function(acc,p){ return acc+(tckMontoAR((p.total||''))||0); }, 0);
   var pend = activos.filter(function(p){ return p.estado==='Pendiente'; }).length;
   var conf = activos.filter(function(p){ return p.estado==='Confirmado'; }).length;
   var entr = activos.filter(function(p){ return p.estado==='Entregado'; }).length;
@@ -28484,7 +28588,7 @@ function renderMiDia() {
     var loc = rawLoc ? _ciudadCanonizar(rawLoc) : '?';
     if (!locMap[loc]) locMap[loc] = { monto: 0, pedidos: 0 };
     locMap[loc].pedidos += 1;
-    locMap[loc].monto += parseInt((p.total||'').replace(/[^\d]/g,''))||0;
+    locMap[loc].monto += tckMontoAR((p.total||''))||0;
   });
   var locs = Object.entries(locMap).sort(function(a,b){ return b[1].pedidos - a[1].pedidos; }).slice(0, 5);
   var maxLoc = locs.length ? locs[0][1].pedidos : 1;
@@ -28563,7 +28667,7 @@ function renderMiDia() {
       localidad: p.localidad ? _ciudadCanonizar(p.localidad) : '',
       monto: 0, pedidos: 0, ultimaFecha: ''
     };
-    clienteMap[key].monto   += parseInt((p.total||'').replace(/[^\d]/g,''))||0;
+    clienteMap[key].monto   += tckMontoAR((p.total||''))||0;
     clienteMap[key].pedidos += 1;
     var fecha = p.pedidoId.match(/TCK-(\d{8})/);
     if (fecha && fecha[1] > clienteMap[key].ultimaFecha) clienteMap[key].ultimaFecha = fecha[1];
@@ -29632,8 +29736,8 @@ function renderReportes() {
     return f.getTime() === ayer.getTime() && p.estado !== 'Cancelado' && misVend;
   });
 
-  var montoHoy  = pedidosHoy.reduce(function(a,p){ return a+(parseInt((p.total||'').replace(/[^\d]/g,''))||0); },0);
-  var montoAyer = pedidosAyer.reduce(function(a,p){ return a+(parseInt((p.total||'').replace(/[^\d]/g,''))||0); },0);
+  var montoHoy  = pedidosHoy.reduce(function(a,p){ return a+(tckMontoAR((p.total||''))||0); },0);
+  var montoAyer = pedidosAyer.reduce(function(a,p){ return a+(tckMontoAR((p.total||''))||0); },0);
   var pendHoy   = pedidosHoy.filter(function(p){ return p.estado==='Pendiente'; }).length;
   var ticketHoy = pedidosHoy.length ? Math.round(montoHoy/pedidosHoy.length) : 0;
 
@@ -29708,7 +29812,7 @@ function renderReportes() {
     titulo.innerHTML = _repVendedor === 'todos' ? '📈 Todos los vendedores' : '📈 ' + _repVendedor;
   }
 
-  var totalMonto   = datos.reduce(function(a,p){ return a+(parseInt((p.total||'').replace(/[^\d]/g,''))||0); },0);
+  var totalMonto   = datos.reduce(function(a,p){ return a+(tckMontoAR((p.total||''))||0); },0);
   var totalPedidos = datos.length;
   var ticket       = totalPedidos ? Math.round(totalMonto/totalPedidos) : 0;
 
@@ -29754,7 +29858,7 @@ function renderGrafico(datos) {
     var f = fechaPedido(p);
     var key = f.getFullYear() + '-' + String(f.getMonth()+1).padStart(2,'0') + '-' + String(f.getDate()).padStart(2,'0');
     if (!diasMap[key]) diasMap[key] = { monto: 0, pedidos: 0, fecha: f };
-    diasMap[key].monto   += parseInt((p.total||'').replace(/[^\d]/g,''))||0;
+    diasMap[key].monto   += tckMontoAR((p.total||''))||0;
     diasMap[key].pedidos += 1;
   });
 
@@ -29854,7 +29958,7 @@ function renderVendedoresHoy(pedidosHoy) {
   pedidosHoy.forEach(function(p) {
     var v = p.vendedor || 'Sin asignar';
     if (!vendMap[v]) vendMap[v] = { monto:0, pedidos:0, pendientes:0 };
-    vendMap[v].monto   += parseInt((p.total||'').replace(/[^\d]/g,''))||0;
+    vendMap[v].monto   += tckMontoAR((p.total||''))||0;
     vendMap[v].pedidos += 1;
     if (p.estado === 'Pendiente') vendMap[v].pendientes++;
   });
@@ -29940,7 +30044,7 @@ function renderVendedores(datos) {
   datos.forEach(function(p) {
     var v = p.vendedor || 'Sin asignar';
     if (!vendMap[v]) vendMap[v] = { nombre: v, monto: 0, pedidos: 0 };
-    vendMap[v].monto   += parseInt((p.total||'').replace(/[^\d]/g,''))||0;
+    vendMap[v].monto   += tckMontoAR((p.total||''))||0;
     vendMap[v].pedidos += 1;
   });
 
@@ -30016,7 +30120,7 @@ function renderLocalidades(datos) {
     var rawLoc = (p.localidad || '').trim();
     var loc = rawLoc ? _ciudadCanonizar(rawLoc) : '?';
     if (!locMap[loc]) locMap[loc] = { monto: 0, pedidos: 0, clientes: new Set() };
-    locMap[loc].monto   += parseInt((p.total||'').replace(/[^\d]/g,''))||0;
+    locMap[loc].monto   += tckMontoAR((p.total||''))||0;
     locMap[loc].pedidos += 1;
     if (p.cliente) locMap[loc].clientes.add(p.cliente.trim().toLowerCase());
   });
@@ -30088,7 +30192,7 @@ function agruparClientesFuzzy(pedidos) {
     var raw      = p.cliente.trim();
     var normRaw  = normalizarNombre(raw);
     var tel      = p.telCliente || '';
-    var monto    = parseInt((p.total||'').replace(/[^\d]/g,''))||0;
+    var monto    = tckMontoAR((p.total||''))||0;
     var fecha    = fechaPedido(p);
 
     // Buscar grupo existente
@@ -30346,8 +30450,8 @@ function renderComparativa(actual, anterior) {
   var wrap = document.getElementById('rep-comparativa');
   if (!wrap || _repPeriodo === 'todos') { if (wrap) wrap.innerHTML = ''; return; }
 
-  var montoAct  = actual.reduce(function(a,p)  { return a + (parseInt((p.total||'').replace(/[^\d]/g,''))||0); }, 0);
-  var montoAnt  = anterior.reduce(function(a,p) { return a + (parseInt((p.total||'').replace(/[^\d]/g,''))||0); }, 0);
+  var montoAct  = actual.reduce(function(a,p)  { return a + (tckMontoAR((p.total||''))||0); }, 0);
+  var montoAnt  = anterior.reduce(function(a,p) { return a + (tckMontoAR((p.total||''))||0); }, 0);
   var pedAct    = actual.length;
   var pedAnt    = anterior.length;
 
@@ -30390,8 +30494,8 @@ function renderAlertas(actual, anterior) {
 
   // 1. Caída de facturación > 30%
   if (_repPeriodo !== 'todos' && anterior.length > 0) {
-    var montoAct = actual.reduce(function(a,p)  { return a + (parseInt((p.total||'').replace(/[^\d]/g,''))||0); }, 0);
-    var montoAnt = anterior.reduce(function(a,p) { return a + (parseInt((p.total||'').replace(/[^\d]/g,''))||0); }, 0);
+    var montoAct = actual.reduce(function(a,p)  { return a + (tckMontoAR((p.total||''))||0); }, 0);
+    var montoAnt = anterior.reduce(function(a,p) { return a + (tckMontoAR((p.total||''))||0); }, 0);
     if (montoAnt > 0) {
       var caida = Math.round(((montoAnt - montoAct) / montoAnt) * 100);
       if (caida >= ALERTA_CAIDA_PCT) {
@@ -32482,7 +32586,7 @@ function _tomadorMostrarExito(pedidoId, clienteNombre, entregaData, nroPresupues
   var prev = document.getElementById('tomador-xubio-exito');
   if (prev) prev.remove();
 
-  var totalNum = parseInt(String(total || '0').replace(/[^\d]/g, '')) || 0;
+  var totalNum = tckMontoAR(String(total || '0')) || 0;
   var totalFmt = '$' + totalNum.toLocaleString('es-AR');
   var fechaTxt = (entregaData && entregaData.dia) ? entregaData.dia : '—';
   if (entregaData && entregaData.turno && entregaData.zona && entregaData.zona.indexOf('tl') === 0) {
@@ -32561,7 +32665,7 @@ function _colaEncolarPresupuesto(pedidoId, clienteNombre, entregaData, motivo) {
       etapa:          'presupuesto',
       cliente:        clienteNombre || (ped && ped.cliente) || '',
       vendedor:       (typeof recuperarSesion === 'function' ? recuperarSesion() : '') || '',
-      total:          (ped && Number(String(ped.total).replace(/[^\d]/g,''))) || 0,
+      total:          (ped && tckMontoAR(String(ped.total))) || 0,
       xubioClienteId: sel.clienteId,
       fechaISO:       (entregaData && entregaData.fechaISO) || '',
       ultimoError:    motivo || ''
@@ -32743,7 +32847,7 @@ function getClientesData(periodo) {
         fechas: []
       };
     }
-    mapa[key].monto   += parseInt((p.total||'').replace(/[^\d]/g,''))||0;
+    mapa[key].monto   += tckMontoAR((p.total||''))||0;
     mapa[key].pedidos += 1;
     var m = (p.pedidoId||'').match(/TCK-(\d{4})(\d{2})(\d{2})/);
     if (m) {
@@ -33212,7 +33316,7 @@ function adminVisitasRenderVendedor(nombre, visitas, pedidos, objetivos, fecha) 
   var conPedido      = visitasAgrupadas.filter(function(v){ return v.tuvo_pedido; }).length;
   var sinPedido      = totalVisitas - conPedido;
   var conversion     = totalVisitas ? Math.round((conPedido/totalVisitas)*100) : 0;
-  var totalMonto     = pedidos.reduce(function(a,p){ return a+(parseInt((p.total||'').replace(/[^\d]/g,''))||0); },0);
+  var totalMonto     = pedidos.reduce(function(a,p){ return a+(tckMontoAR((p.total||''))||0); },0);
 
   // Horario
   var primero = visitasAgrupadas.length ? visitasAgrupadas[0].entrada : null;
@@ -33683,7 +33787,7 @@ function vdesVentasDia() {
     if (mm) iso = mm[1] + '-' + mm[2] + '-' + mm[3];
     else if ((p.fechaHora || '').length >= 10) iso = p.fechaHora.substring(0, 10);
     if (!iso) return;
-    var monto = parseInt((p.total || '0').replace(/[^\d]/g, ''), 10) || 0;
+    var monto = tckMontoAR((p.total || '0')) || 0;
     if (!mapa[iso]) mapa[iso] = { total: 0, pend: 0, n: 0, np: 0, ori: {} };
     if (p.estado === 'Confirmado') {
       mapa[iso].total += monto; mapa[iso].n++;
@@ -33712,7 +33816,7 @@ function vdesPedidosDelDia(iso) {
     var mm = (p.pedidoId || '').match(/TCK-(\d{4})(\d{2})(\d{2})/);
     var pi = mm ? mm[1] + '-' + mm[2] + '-' + mm[3] : ((p.fechaHora || '').substring(0, 10));
     if (pi !== iso) return;
-    out.push({ cliente: p.cliente || p.comercio || '—', monto: parseInt((p.total || '0').replace(/[^\d]/g, ''), 10) || 0, estado: p.estado, origen: (p.origen || '').toLowerCase() });
+    out.push({ cliente: p.cliente || p.comercio || '—', monto: tckMontoAR((p.total || '0')) || 0, estado: p.estado, origen: (p.origen || '').toLowerCase() });
   });
   out.sort(function(a, b) { return b.monto - a.monto; });
   return out;
@@ -36686,7 +36790,7 @@ async function mapaCargarHistorialCliente(nombreCliente, popupId) {
     }).sort(function(a,b) { return fechaPedido(b) - fechaPedido(a); });
 
     var ultimoPedido = pedidos.length ? pedidos[0] : null;
-    var totalMonto   = pedidos.reduce(function(a,p){ return a+(parseInt((p.total||'').replace(/[^\d]/g,''))||0); },0);
+    var totalMonto   = pedidos.reduce(function(a,p){ return a+(tckMontoAR((p.total||''))||0); },0);
     var diasSinComprar = ultimoPedido
       ? Math.floor((new Date() - fechaPedido(ultimoPedido)) / 86400000)
       : null;
@@ -36733,7 +36837,7 @@ async function mapaCargarHistorialCliente(nombreCliente, popupId) {
       var sinColor = diasSinComprar > 14 ? '#C62828' : diasSinComprar > 7 ? '#E65100' : '#2E7D32';
       html += '<div style="margin-bottom:8px;padding:6px 8px;background:#fff3e0;border-radius:8px;font-size:12px;">'
         + '🛒 Última compra: <b style="color:' + sinColor + '">hace ' + diasSinComprar + ' días</b><br>'
-        + '<span style="color:#666;">' + fechaPedido(ultimoPedido).toLocaleDateString('es-AR') + ' · ' + fmt(parseInt((ultimoPedido.total||'').replace(/[^\d]/g,''))||0) + '</span>'
+        + '<span style="color:#666;">' + fechaPedido(ultimoPedido).toLocaleDateString('es-AR') + ' · ' + fmt(tckMontoAR((ultimoPedido.total||''))||0) + '</span>'
         + '</div>';
     } else {
       html += '<div style="margin-bottom:8px;padding:6px 8px;background:#fce4ec;border-radius:8px;font-size:12px;color:#C62828;">⚠️ Sin pedidos registrados</div>';
@@ -40191,7 +40295,278 @@ function scrollAProximaCiudad() {
 // FIX N42-D (07/05/2026): un chofer puede tener varios viajes en_ruta
 // abiertos al mismo tiempo (porque hasta hoy no se podían cerrar con
 // pendientes). Ahora traemos TODOS y permitimos al chofer alternar.
+
+// ══════════════════════════════════════════════════════════════════════
+// v14.202.0 — IMPORTES: UN SOLO PARSER Y UN SOLO TOPE
+// ══════════════════════════════════════════════════════════════════════
+// tckMontoAR es el espejo EXACTO de fn_monto_ar(text) de Postgres, que es la
+// función que usa la Guardia de Cobranzas para decidir. Si el celular y el
+// servidor interpretan distinto el mismo texto, la Guardia rechaza cobros
+// legítimos o deja pasar los imposibles.
+//
+// El parser viejo, replace(/[^\d]/g,''), borra la coma decimal:
+//   "$104.200,01" -> 10420001   (cien veces más)
+// Ese es el bug que generó el recibo X-0001-00028046 por $10.149.081 cuando
+// el cobro real era $104.200,01.
+//
+// Reglas, idénticas a fn_monto_ar:
+//   · si hay coma -> la coma es el decimal y el punto es separador de miles;
+//   · si no hay coma y hay UN punto con 1 o 2 decimales -> punto decimal;
+//   · cualquier otro punto -> separador de miles;
+//   · se conserva el signo negativo.
+function tckMontoAR(txt) {
+  if (txt === null || txt === undefined) return null;
+  var s = String(txt).replace(/[^0-9,.\-]/g, '');
+  if (s === '') return null;
+  var neg = s.charAt(0) === '-';
+  s = s.replace(/-/g, '');
+  if (s === '') return null;
+  if (s.indexOf(',') >= 0) {
+    s = s.replace(/\./g, '').replace(/,/g, '.');
+    while ((s.split('.').length - 1) > 1) s = s.replace('.', '');
+  } else {
+    var np = s.split('.').length - 1;
+    if (np === 1) {
+      var decs = s.length - s.lastIndexOf('.') - 1;
+      if (decs !== 1 && decs !== 2) s = s.replace(/\./g, '');
+    } else if (np > 1) {
+      s = s.replace(/\./g, '');
+    }
+  }
+  if (s === '' || s === '.') return null;
+  var n = Number(s);
+  if (!isFinite(n)) return null;
+  return neg ? -n : n;
+}
+
+// ── Tope de cobro: espejo de fn_cobro_validar(entrega, instrumento, importe, total)
+// Valores por defecto = los de tck_cobro_guardia_cfg al 18/09. El servidor
+// manda: esto sólo evita que el chofer llegue a mandar un disparate.
+var COBRO_FACTOR_DURO   = 5.0;    // más que esto -> se rechaza, es un error de coma
+var COBRO_FACTOR_BLANDO = 1.15;   // entre esto y el duro -> se pide confirmar
+var COBRO_PISO_BLANDO   = 1000;   // tolerancia fija en pesos
+var DETALLE_COBRO_VACIO = 'DETALLE_COBRO_VACIO';
+
+function _cobroEvaluarExceso(total, techo) {
+  total = Number(total) || 0;
+  techo = Number(techo) || 0;
+  if (total <= 0) return { decision: 'ok', motivo: 'SIN_IMPORTE' };
+  if (techo <= 0) return { decision: 'revisar', motivo: 'SIN_TECHO',
+    mensaje: 'Este pedido no tiene total cargado. Revisá el importe antes de confirmar.' };
+  var ratio = total / techo;
+  if (total > techo * COBRO_FACTOR_DURO) {
+    return { decision: 'rechazo', motivo: 'SUPERA_FACTOR_DURO', ratio: ratio, techo: techo,
+      mensaje: '⛔ IMPORTE IMPOSIBLE\n\nEstás cargando $' + Math.round(total).toLocaleString('es-AR') +
+               ' y el pedido es de $' + Math.round(techo).toLocaleString('es-AR') + '.\n' +
+               'Son ' + ratio.toFixed(1) + ' veces más. Casi seguro se te fue una coma.\n\n' +
+               'Corregí el importe. Si de verdad es así, avisá a Administración.' };
+  }
+  if (total > techo * COBRO_FACTOR_BLANDO + COBRO_PISO_BLANDO) {
+    return { decision: 'revisar', motivo: 'SUPERA_SALDO', ratio: ratio, techo: techo,
+      mensaje: '⚠️ Estás cobrando $' + Math.round(total - techo).toLocaleString('es-AR') +
+               ' MÁS que el pedido ($' + Math.round(techo).toLocaleString('es-AR') + ').\n\n' +
+               '¿Es correcto? (pago adelantado o saldo a favor)' };
+  }
+  return { decision: 'ok', ratio: ratio, techo: techo };
+}
+
+// ── Cuenta corriente: no existe más como forma de cobro ──
+// Decisión funcional 8 de Braian. Las entregas históricas que la tienen se
+// siguen VIENDO (mvRenderEntregaHist la sabe dibujar), pero no se puede cargar
+// una nueva. La lista de métodos vive acá y en un solo lugar.
+var COBRO_METODOS = ['efectivo', 'transferencia', 'cheque'];
+
+// ══════════════════════════════════════════════════════════════════════
+// v14.202.0 — La app del chofer ve la carga cerrada. Ni más ni menos.
+// ══════════════════════════════════════════════════════════════════════
+// chofer_entregas_del_viaje devuelve, desde el servidor:
+//   en_la_carga → pedidos de la versión cerrada y aceptada
+//   sobrantes   → entregas del viaje que NO están en esa versión
+//   faltantes   → pedidos de la planilla sin entrega creada
+// Los sobrantes NO se esconden en silencio: se sacan de la lista operativa y
+// se avisan. Un pedido que aparece después del cierre es una incidencia, no
+// una entrega más.
+var _chCargaCerradaInfo = null;
+
+async function _chFiltrarPorCargaCerrada(viajeId) {
+  var r = await sbFetch('rpc/chofer_entregas_del_viaje',
+    { method: 'POST', body: JSON.stringify({ p_viaje_id: viajeId }), timeoutMs: VIAJE_TIMEOUT_MS });
+  _chCargaCerradaInfo = r || null;
+  if (!r || r.ok !== true || r.aplica !== true) return;      // viaje fuera de Carga v2
+  if (r.carga_cerrada !== true) return;                       // todavía sin cierre
+
+  var permitidos = {};
+  (r.en_la_carga || []).forEach(function (p) { permitidos[String(p)] = true; });
+
+  var antes = _entregasCache.length;
+  var fuera = _entregasCache.filter(function (e) { return !permitidos[String(e.pedido_id)]; });
+  if (fuera.length) {
+    _entregasCache = _entregasCache.filter(function (e) { return permitidos[String(e.pedido_id)]; });
+    console.warn('[v14.202.0] ' + fuera.length + ' pedido(s) fuera de la carga cerrada v' + r.version);
+    _chEvento('chofer_pedidos_fuera_de_carga', {
+      pedido_id: fuera.map(function (e) { return e.pedido_id; }).join(','),
+      cliente: 'v' + r.version, monto: null
+    }, null);
+    toast('⚠️ ' + fuera.length + ' pedido(s) no están en la carga que aceptaste (v' + r.version +
+          '). No los repartas: avisá a Depósito.', 'err');
+  }
+  if ((r.faltantes || []).length) {
+    console.warn('[v14.202.0] faltan entregas de ' + r.faltantes.length + ' pedido(s) de la planilla');
+  }
+  if (antes !== _entregasCache.length) renderResumenChofer(_entregasCache);
+}
+
+// ══════════════════════════════════════════════════════════════════════
+// v14.203.0 — PARADAS POR CLIENTE Y PARADA PENDIENTE
+// ══════════════════════════════════════════════════════════════════════
+// Hasta la 14.202.0 la lista agrupaba por CIUDAD y dentro listaba entregas
+// sueltas. Dos pedidos del mismo cliente eran dos paradas: el chofer iba dos
+// veces, o hacía una sola y la otra quedaba mal marcada. Medido sobre los 11
+// viajes abiertos al 18/09: 507 entregas, 476 paradas reales.
+//
+// La agrupación la calcula el SERVIDOR (chofer_paradas_del_viaje). Si la
+// hiciera el celular, dos versiones de la app agruparían distinto y el mismo
+// cliente sería una parada en un teléfono y dos en otro.
+//
+// Lo que NO cambia: cada pedido se confirma y se cobra por separado, con su
+// factura, su CAE, su importe y su resultado. Acá sólo se agrupa la VISTA.
+var _chParadasMap = {};        // pedido_id -> {parada_id, cliente, n, idx}
+var _chParadasAt  = null;
+
+async function _chCargarParadas(viajeId) {
+  if (!viajeId) { _chParadasMap = {}; return; }
+  try {
+    var r = await sbFetch('rpc/chofer_paradas_del_viaje',
+      { method: 'POST', body: JSON.stringify({ p_viaje_id: viajeId }), timeoutMs: VIAJE_TIMEOUT_MS });
+    if (!r || r.ok !== true) return;
+    var mapa = {};
+    (r.paradas || []).forEach(function (p) {
+      (p.pedidos || []).forEach(function (ped, i) {
+        mapa[String(ped.pedido_id)] = {
+          parada_id: p.parada_id, cliente: p.cliente, ciudad: p.ciudad,
+          n: (p.pedidos || []).length, idx: i + 1,
+          resueltos: p.pedidos_resueltos, importe_total: p.importe_total,
+          factura: ped.factura_nro, cae: ped.cae, importe: ped.importe,
+          pospuesta: !!ped.pospuesta, pospuesta_nota: ped.pospuesta_nota
+        };
+      });
+    });
+    _chParadasMap = mapa;
+    _chParadasAt = new Date();
+    // v14.204.0 — de acá sale si este viaje va por RPC y con qué versión/hash.
+    // Es la misma llamada que ya se hacía: no agrega un viaje de ida y vuelta.
+    _chCv2[String(viajeId)] = {
+      aplica:   (r.aplica === true),
+      version:  (r.version != null ? r.version : null),
+      hash:     (r.hash != null ? r.hash : null),
+      aceptada: (r.aceptada === true)
+    };
+  } catch (e) {
+    console.warn('[v14.203.0] no pude traer las paradas:', e && e.message);
+    // sin el mapa la lista se sigue viendo, sólo que sin agrupar
+  }
+}
+
+function _chParadaDe(e) {
+  var m = _chParadasMap[String(e && e.pedido_id)];
+  if (m) return m;
+  // fallback local, mismo criterio que el servidor: nunca por nombre solo
+  var k = 'n:' + String(e && e.cliente || '').toLowerCase().replace(/[^a-z0-9]/g, '') +
+          '|' + String(e && e.ciudad || '').toLowerCase().replace(/[^a-z0-9]/g, '');
+  return { parada_id: k, cliente: (e && e.cliente) || '', n: 1, idx: 1 };
+}
+
+// Reordena para que los pedidos de una misma parada queden juntos, SIN romper
+// el orden de recorrido: la parada toma la posición de su primer pedido.
+function _chOrdenarPorParada(items) {
+  var orden = {}, i;
+  for (i = 0; i < items.length; i++) {
+    var k = _chParadaDe(items[i]).parada_id;
+    if (orden[k] === undefined) orden[k] = i;
+  }
+  return items.slice().sort(function (a, b) {
+    var ka = _chParadaDe(a).parada_id, kb = _chParadaDe(b).parada_id;
+    if (ka !== kb) return orden[ka] - orden[kb];
+    return String(a.pedido_id || '').localeCompare(String(b.pedido_id || ''));
+  });
+}
+
+// ── Parada temporalmente pendiente ───────────────────────────────────
+// No escribe estado ni cobro. La entrega sigue 'pendiente' y por eso sigue
+// frenando el fin del recorrido, que es exactamente lo que tiene que pasar.
+async function chParadaPosponer(entregaId) {
+  var e = _entregasCache.find(function (x) { return x.id === entregaId; });
+  var nota = prompt('¿Por qué la dejás para después?\n\n' +
+    'Ejemplos: "estaba cerrado", "no había nadie", "vuelvo a la tarde".\n' +
+    'Queda en la lista y el viaje no termina hasta que la resuelvas.', '');
+  if (nota === null) return;
+  try {
+    var r = await sbFetch('rpc/carga_parada_posponer', {
+      method: 'POST', timeoutMs: VIAJE_TIMEOUT_MS,
+      body: JSON.stringify({ p_entrega_id: entregaId, p_nota: nota || null,
+                             p_request_id: 'pos:' + entregaId + ':' + Date.now() })
+    });
+    if (r && r.ok) {
+      if (e) { e.pospuesta_at = new Date().toISOString(); e.pospuesta_nota = nota || null; }
+      toast('🕐 ' + (r.mensaje || 'La dejamos para después.'), 'ok');
+      renderEntregas(_entregasCache);
+    } else {
+      toast('⛔ ' + ((r && r.message) || 'No se pudo dejar pendiente.'), 'err');
+    }
+  } catch (err) { toast('⛔ ' + (err && err.message), 'err'); }
+}
+
+async function chParadaRetomar(entregaId) {
+  var e = _entregasCache.find(function (x) { return x.id === entregaId; });
+  try {
+    var r = await sbFetch('rpc/carga_parada_retomar', {
+      method: 'POST', timeoutMs: VIAJE_TIMEOUT_MS,
+      body: JSON.stringify({ p_entrega_id: entregaId, p_request_id: 'ret:' + entregaId + ':' + Date.now() })
+    });
+    if (r && r.ok) {
+      if (e) { e.pospuesta_at = null; e.pospuesta_nota = null; }
+      toast('✅ Volvés a esta parada.', 'ok');
+      renderEntregas(_entregasCache);
+    } else {
+      toast('⛔ ' + ((r && r.message) || 'No se pudo retomar.'), 'err');
+    }
+  } catch (err) { toast('⛔ ' + (err && err.message), 'err'); }
+}
+
+// ── Entrega parcial: que la suma la valide el servidor ───────────────
+// El celular ya arma pedida/bajada/motivo por producto. Lo que faltaba es que
+// alguien lo controle del otro lado: hasta acá el front podía mandar cualquier
+// cosa y entraba. Se manda el detalle y se pregunta si cierra.
+async function _chValidarItemsServidor(entregaId) {
+  if (!_entItems || !_entItems.length) return { ok: true, sin_items: true };
+  var items = _entItems.map(function (it) {
+    var cargada   = Number(it.pedida) || 0;
+    var entregada = Number(it.bajada) || 0;
+    return {
+      producto: it.nombre, calibre: it.calibre || '',
+      cargada: cargada, entregada: entregada,
+      vuelve: Math.max(0, cargada - entregada),
+      motivo: (cargada - entregada) > 0 ? (it.motivo || '') : ''
+    };
+  });
+  try {
+    var r = await sbFetch('rpc/carga_entrega_items_validar', {
+      method: 'POST', timeoutMs: VIAJE_TIMEOUT_MS,
+      body: JSON.stringify({ p_entrega_id: entregaId, p_items: items })
+    });
+    return r || { ok: true, sin_respuesta: true };
+  } catch (e) {
+    // Sin señal no se frena la entrega: el trigger del servidor la valida
+    // igual cuando la devolución llegue. Queda avisado en consola.
+    console.warn('[v14.203.0] no pude validar los items contra el servidor:', e && e.message);
+    return { ok: true, sin_conexion: true };
+  }
+}
+
 let _viajesActivos = [];   // todos los en_ruta del chofer
+// v14.202.0 — viajes de días anteriores que quedaron sin cerrar. Se muestran
+// como advertencia, NUNCA se seleccionan solos.
+let _viajesAtrasados = [];
 let _viajeSeleccionadoId = null; // id del viaje que está mostrando ahora
 
 // ═══ v14.180.0 — C3 · IDENTIDAD ÚNICA DEL VIAJE EN EL CIERRE ═══════
@@ -40295,13 +40670,35 @@ async function cargarViajeActivo() {
         if (!v || v.estado !== 'planificado') return true;
         return _chEsTL(v.zona) && String(v.fecha_salida || '') <= _hoyTL;
       });
+      // v14.202.0 — LA FECHA MANDA ANTES QUE EL ESTADO.
+      // Bug reproducido el 18/09 con datos reales: Juan Pablo tenía dos viajes
+      // en_ruta sin cerrar (08/09 y 15/09) y su viaje de HOY en 'preparando'
+      // (17/09, tl_manana). Con la prioridad vieja —en_ruta primero— la app le
+      // mostraba el del 15/09 y le tapaba el de hoy. Un viaje viejo sin cerrar
+      // no puede esconder el viaje que el chofer está por hacer.
+      //   0 = es de hoy          → siempre primero
+      //   1 = atrasado           → se ve, pero abajo y con cartel
+      //   2 = futuro             → último (no debería estar acá)
+      var _vig = function (v) {
+        var f = String(v.fecha_salida || '');
+        if (f === _hoyTL) return 0;
+        if (f >  _hoyTL) return 2;
+        return 1;
+      };
       var _pri = { en_ruta: 0, carga_cerrada: 1, preparando: 2, planificado: 3 };
       viajes.sort(function (a, b) {
-        var pa = _pri[a.estado], pb = _pri[b.estado];
+        var va = _vig(a), vb = _vig(b);
+        if (va !== vb) return va - vb;                 // 1º: el de hoy
+        var pa = _pri[a.estado], pb = _pri[b.estado];  // 2º: en qué etapa está
         if (pa === undefined) pa = 9;
         if (pb === undefined) pb = 9;
         if (pa !== pb) return pa - pb;
         return String(b.fecha_salida || '').localeCompare(String(a.fecha_salida || ''));
+      });
+      // Los en_ruta atrasados quedan a la vista para que el chofer avise, pero
+      // no se eligen solos nunca más.
+      _viajesAtrasados = viajes.filter(function (v) {
+        return _vig(v) === 1 && (v.estado === 'en_ruta' || v.estado === 'rindiendo');
       });
     }
     _viajeActivoError = null;
@@ -40360,6 +40757,8 @@ async function seleccionarViaje(viajeId) {
 // ═══════════════════════════════════════════════════════════════
 var _chPendPorViaje = {};            // viaje_id -> entregas pendiente/en_camino
 var _chUltimoPatchPendiente = false; // el último PATCH de confirmación quedó en cola
+var _chPilotoActual = false;         // v14.204.0: la entrega en curso va por RPC
+var _chGuardadoOk = false;           // v14.204.0: el servidor ya confirmó esta entrega
 
 function _chPad2(x) { return (x < 10 ? '0' : '') + x; }
 function _chFechaISO(offsetDias) {
@@ -40367,6 +40766,8 @@ function _chFechaISO(offsetDias) {
   return d.getFullYear() + '-' + _chPad2(d.getMonth() + 1) + '-' + _chPad2(d.getDate());
 }
 function _chHoyISO() { return _chFechaISO(0); }
+// v14.201.0 — TL ya no es excepción del circuito. El helper queda sólo para
+// identificar la zona (fecha/turno), nunca para eximir de Carga v2.
 function _chEsTL(zona) { return String(zona || '').toLowerCase().indexOf('tl_') === 0; }
 function _chErrStatus(err) {
   var m = /Supabase error:\s*(\d{3})/.exec(String(err && err.message || ''));
@@ -40417,7 +40818,16 @@ async function _chAplicarColaEntregas(lista) {
   try { items = await _colaTodos(); } catch (_e) { return lista; }
   var map = {};
   (items || []).forEach(function (it) {
-    if (!it || it.tipo !== 'rest' || it.metodo !== 'PATCH') return;
+    if (!it || it.tipo !== 'rest') return;
+    // v14.204.0 — la confirmación del piloto viaja como RPC, no como PATCH.
+    // Sin esto la entrega se ve 'pendiente' con el pedido ya entregado: es el
+    // mismo síntoma que reportó Joan y que arregló la 14.188.0 para el PATCH.
+    if (it.rpc === 'carga_entrega_registrar' && it.entrega_id) {
+      map[it.entrega_id] = Object.assign(map[it.entrega_id] || {},
+        { estado: it.estado_optimista || 'entregado' });
+      return;
+    }
+    if (it.metodo !== 'PATCH') return;
     if (typeof it.path !== 'string' || it.path.indexOf('entregas?id=eq.') !== 0) return;
     var id = it.path.slice('entregas?id=eq.'.length).split('&')[0];
     map[id] = Object.assign(map[id] || {}, it.body || {});
@@ -40503,12 +40913,18 @@ async function chCargarTLDisponibles() {
   if (!vendedorActual) return [];
   var q = 'viajes?select=id,zona,fecha_salida,estado,total_pedidos,monto_total,vehiculo,chofer' +
     '&estado=eq.planificado&zona=like.tl_*' +
-    '&fecha_salida=lte.' + _chHoyISO() + '&fecha_salida=gte.' + _chFechaISO(-3) +
+    // v14.202.0 — SOLO los de hoy. Antes la ventana era hoy-3 y el 18/09 se
+    // veían como tomables tres repartos viejos (14/09 y 15/09) entre los 13 que
+    // quedaron planificados sin chofer del 07 al 15/09. El servidor además lo
+    // rechaza con REPARTO_ATRASADO, pero no tiene que llegar a ofrecerse.
+    '&fecha_salida=eq.' + _chHoyISO() +
     '&or=(chofer.is.null,chofer.eq.' + encodeURIComponent('\u2014') + ',chofer.eq.-)' +
     '&order=fecha_salida.asc&limit=10';
   var r = await sbFetch(q, { timeoutMs: VIAJE_TIMEOUT_MS });
-  return Array.isArray(r) ? r : [];
+  _chTLDisponiblesCache = Array.isArray(r) ? r : [];   // v14.202.0
+  return _chTLDisponiblesCache;
 }
+var _chTLDisponiblesCache = [];   // v14.202.0 — para no perder el monto al tomarlo
 
 function chRenderTLDisponiblesHtml(lista) {
   if (!lista || !lista.length) return '';
@@ -40541,20 +40957,25 @@ async function chTomarViajeTL(viajeId) {
   if (!confirm('\uD83D\uDE4B ¿Tomás este reparto de Trenque?\n\nQueda a tu nombre: lo arrancás, marcás cada entrega con el cobro y lo cerrás con la rendición.')) return;
   _chTomando = true;
   try {
-    // Guard anti doble toma: solo si SIGUE sin chofer y planificado.
-    var filas = await sbFetch('viajes?id=eq.' + encodeURIComponent(viajeId) +
-      '&estado=eq.planificado&or=(chofer.is.null,chofer.eq.' + encodeURIComponent('\u2014') + ',chofer.eq.-)',
-      { method: 'PATCH', body: JSON.stringify({ chofer: vendedorActual }), timeoutMs: VIAJE_TIMEOUT_MS });
-    if (!Array.isArray(filas) || !filas.length) {
-      alert('\u26A0\uFE0F Ese reparto ya lo tomó otro chofer (o cambió de estado). Recargá la lista.');
+    // v14.201.0 — ya no se toca viajes/entregas por PATCH directo desde el celular.
+    // La RPC decide con el chofer del token, es atómica contra la doble toma y deja
+    // registro en carga_evento y ops_eventos.
+    var _rt = await sbFetch('rpc/carga_viaje_tomar', {
+      method: 'POST',
+      body: JSON.stringify({ p_viaje_id: viajeId, p_request_id: 'tomar:' + viajeId + ':' + Date.now() }),
+      timeoutMs: VIAJE_TIMEOUT_MS
+    });
+    if (!_rt || _rt.ok !== true) {
+      alert('\u26A0\uFE0F ' + ((_rt && _rt.message) || 'No se pudo tomar el reparto. Recargá la lista.'));
       await chRenderTLDisponibles();
       return;
     }
-    // Las entregas también llevan chofer (planillas, rendición, vistas del admin).
-    try {
-      await sbFetch('entregas?viaje_id=eq.' + encodeURIComponent(viajeId), {
-        method: 'PATCH', prefer: 'return=minimal', body: JSON.stringify({ chofer: vendedorActual }), timeoutMs: VIAJE_TIMEOUT_MS });
-    } catch (_eEnt) { console.warn('[chTomarViajeTL] entregas.chofer:', _eEnt && _eEnt.message); }
+    // v14.202.0 — el monto sale del viaje que ya teníamos listado, no de null.
+    // En 14.201.0 la RPC no lo devuelve y el evento chofer_tl_tomado quedaba
+    // siempre con monto = null.
+    var _vLista = (_chTLDisponiblesCache || []).find(function (x) { return x && x.id === viajeId; });
+    var filas = [{ zona: _rt.zona, fecha_salida: _rt.fecha_salida,
+                   monto_total: (_vLista && _vLista.monto_total) || null }];
     _chEvento('chofer_tl_tomado', { pedido_id: null, cliente: (filas[0].zona || '') + ' ' + (filas[0].fecha_salida || ''), monto: filas[0].monto_total }, null);
     _viajeSeleccionadoId = viajeId;
     toast('\u2705 Reparto tomado. Tocá ARRANCAR cuando salgas.', 'ok');
@@ -40863,7 +41284,10 @@ async function mvArrancarViaje(viajeId) {
   // v14.198.0 — carga v2: el pedido de arranque sale autenticado del celular del chofer
   if (typeof cv2On === 'function' && cv2On()) {
     var _cv2v = (_viajesActivos || []).find(function (x) { return x && x.id === viajeId; });
-    if (!_cv2v || !_chEsTL(_cv2v.zona)) {
+    // v14.202.0 — el arranque autenticado rige en TODAS las zonas, TL incluido.
+    // (En 14.201.0 esto había quedado como `if (!_cv2v || true)`: la condición
+    //  era siempre verdadera y `!_cv2v` no servía para nada.)
+    {
       _mvArrancando = true;
       var _cv2ok = false;
       try { _cv2ok = await cv2SolicitarArranque(viajeId); } finally { _mvArrancando = false; }
@@ -40912,7 +41336,7 @@ function mvRenderViajeActivo() {
   const v = _mvViajeActivo;
 
   // v14.198.0 — carga v2: el chofer cuenta a ciegas y acepta antes de ARRANCAR (interior)
-  if (typeof cv2On === 'function' && cv2On() && (v.estado === 'preparando' || v.estado === 'carga_cerrada') && !_chEsTL(v.zona)) {
+  if (typeof cv2On === 'function' && cv2On() && (v.estado === 'preparando' || v.estado === 'carga_cerrada')) {   // v14.201.0: TL incluido
     wrap.innerHTML = cv2ChoferAtajoHtml(v);   // la recepción vive en la pestaña Entregas
     return;
   }
@@ -41453,14 +41877,12 @@ async function _defPendientesAccion(entregaId, motivo) {
   try {
     // v14.181.0 — C4 · operación ATÓMICA en la base: devolución total + entrega.
     // Si falla cualquiera de las dos, no queda nada a medias.
-    var _rpc = await sbFetch('rpc/fn_no_entrega_registrar', {
-      method: 'POST',
-      body: JSON.stringify({
-        p_entrega_id: entregaId,
-        p_chofer:     vendedorActual,
-        p_motivo:     motivo,
-        p_detalle:    detalleTexto || null
-      })
+    // v14.204.0 — idem: si el viaje es del piloto, va por carga_entrega_registrar.
+    var _rpc = await _chNoEntregaRpc(e, {
+      p_entrega_id: entregaId,
+      p_chofer:     vendedorActual,
+      p_motivo:     motivo,
+      p_detalle:    detalleTexto || null
     });
 
     if (!_rpc || _rpc.ok !== true || !_rpc.devolucion_id) {
@@ -41861,9 +42283,16 @@ async function _cargarEntregasInterno(esRefresh) {
     // habilitaria entregar, no entregar, cobrar y rendir sobre un camion
     // que todavia esta en el deposito. No alcanza con esconder botones:
     // este es el unico punto por el que se pintan las entregas.
+    // v14.202.0 — decisión 10.4: la app muestra SOLO los pedidos de la versión
+    // cerrada y aceptada. El filtro lo resuelve el servidor, no el celular.
+    if (_viajeActivo && _viajeActivo.estado === 'en_ruta') {
+      try { await _chFiltrarPorCargaCerrada(_viajeActivo.id); } catch (_eF) {
+        console.warn('[v14.202.0] no pude filtrar por la carga cerrada:', _eF && _eF.message);
+      }
+    }
     if (_viajeActivo && _viajeActivo.estado !== 'en_ruta') {
       // v14.198.0 — carga v2: contar y aceptar la carga desde Entregas (antes quedaba en blanco)
-      if (typeof cv2On === 'function' && cv2On() && (_viajeActivo.estado === 'preparando' || _viajeActivo.estado === 'carga_cerrada') && !_chEsTL(_viajeActivo.zona)) {
+      if (typeof cv2On === 'function' && cv2On() && (_viajeActivo.estado === 'preparando' || _viajeActivo.estado === 'carga_cerrada')) {   // v14.201.0: TL incluido
         _entregasCache = [];
         var _elV2 = document.getElementById('entregas-lista');
         if (_elV2) cv2ChoferMontar(_elV2, _viajeActivo);
@@ -42035,6 +42464,11 @@ async function _cargarEntregasInterno(esRefresh) {
       }
     }
     _entregasFirmaPrev = _firmaAhora;
+
+    // v14.203.0 — el mapa de paradas se refresca junto con las entregas, así
+    // que sobrevive al refresco de 45 s sin que aparezca ni desaparezca nada.
+    try { await _chCargarParadas(_viajeActivo && _viajeActivo.id); }
+    catch (_eP) { console.warn('[v14.203.0] paradas:', _eP && _eP.message); }
 
     // v14.8: Cargar rutas (orden) y coordenadas GPS en paralelo
     await Promise.all([
@@ -42477,7 +42911,10 @@ function renderEntregas(entregas) {
     // v14.172.0 Gate B: orden por cercania DENTRO de la ciudad.
     // El orden de las ciudades ya se resolvio arriba con ordenDeCiudad()
     // (tabla `rutas`) y no se toca.
-    const items    = repartoOrdenarItems(porCiudad[ciudad]);
+    // v14.203.0 — mismo orden de recorrido, pero con los pedidos de un mismo
+    // cliente juntos. La parada toma la posición de su primer pedido.
+    const items    = _chOrdenarPorParada(repartoOrdenarItems(porCiudad[ciudad]));
+    let   _paradaPrev = null;
     const allDone  = items.every(e => e.estado === 'entregado');
     const pendCount = items.filter(e => e.estado !== 'entregado').length;
     const total    = items.reduce((s,e) => {
@@ -42585,19 +43022,55 @@ function renderEntregas(entregas) {
             ? '<button class="accion-wa-mini" onclick="event.stopPropagation();avisarClienteWA(\'' + waSeguro + '\',\'' + msgWa + '\')" title="Avisar al cliente que estoy yendo">💬</button>'
             : '<button class="accion-wa-mini wa-dudoso" onclick="event.stopPropagation();avisarClienteWADudoso(\'' + tel + '\',\'' + msgWa + '\')" title="No sabemos si es celular — pide confirmación">💬?</button>';
         }
-        accionesHtml = '<div class="entrega-item-acciones-row">' + btnVoy + btnWaInline + '</div>';
+        // v14.203.0 — dejar la parada para después. No marca resultado ni cobro.
+        var btnPosp = e.pospuesta_at
+          ? '<button class="accion-posponer activa" onclick="event.stopPropagation();chParadaRetomar(\'' + e.id + '\')" title="Volver a esta parada">🕐 Retomar</button>'
+          : '<button class="accion-posponer" onclick="event.stopPropagation();chParadaPosponer(\'' + e.id + '\')" title="Dejarla para después y seguir">🕐 Después</button>';
+        accionesHtml = '<div class="entrega-item-acciones-row">' + btnVoy + btnWaInline + btnPosp + '</div>';
       } else if (enCamino) {
         // v14.0: EN CAMINO directo a "Confirmar entrega" + "No estaba"
         accionesHtml = '<div class="entrega-item-acciones-dual">'
           + '<button class="entrega-item-accion accion-llegue" onclick="event.stopPropagation();abrirEntregaModal(\'' + e.id + '\')">✓ Confirmar entrega</button>'
           + '<button class="entrega-item-accion accion-noestaba" onclick="event.stopPropagation();marcarNoEstaba(\'' + e.id + '\')">🚪 No estaba</button>'
+          + '</div>'
+          // v14.203.0 — también se puede dejar para después estando en camino
+          + '<div class="entrega-item-acciones-row" style="margin-top:6px;">'
+          + (e.pospuesta_at
+              ? '<button class="accion-posponer activa" onclick="event.stopPropagation();chParadaRetomar(\'' + e.id + '\')">🕐 Retomar esta parada</button>'
+              : '<button class="accion-posponer" onclick="event.stopPropagation();chParadaPosponer(\'' + e.id + '\')">🕐 Dejarla para después</button>')
           + '</div>';
       } else if (noEstaba) {
         // NO ESTABA: Reintentar
         accionesHtml = '<button class="entrega-item-accion accion-reintentar" onclick="event.stopPropagation();reintentarEntrega(\'' + e.id + '\')">🔄 Reintentar</button>';
       }
 
+      // v14.203.0 — cabecera de la parada cuando el cliente tiene más de un
+      // pedido. Los pedidos NO se fusionan: cada uno sigue con su fila, su
+      // botón y su cobro. Esto sólo dice "estos tres son la misma puerta".
+      var _pInfo = _chParadaDe(e);
+      if (_pInfo.parada_id !== _paradaPrev) {
+        _paradaPrev = _pInfo.parada_id;
+        if ((_pInfo.n || 1) > 1) {
+          html += '<div class="parada-multi-hdr">' +
+            '<span class="parada-multi-ico">👥</span>' +
+            '<span class="parada-multi-txt"><b>' + (e.cliente || '—') + '</b> · ' +
+              _pInfo.n + ' pedidos en la misma parada</span>' +
+            '<span class="parada-multi-tag">' + (_pInfo.resueltos || 0) + '/' + _pInfo.n + ' resueltos</span>' +
+          '</div>';
+        }
+      }
+      if ((_pInfo.n || 1) > 1) itemClass += ' parada-multi-item';
+      if (e.pospuesta_at) itemClass += ' parada-pospuesta';
+
       html += '<div class="' + itemClass + '" id="entrega-item-' + e.id + '" onclick="abrirEntregaModal(\'' + e.id + '\')">' +
+        ((_pInfo.n || 1) > 1
+          ? '<div class="parada-multi-badge">Pedido ' + _pInfo.idx + ' de ' + _pInfo.n +
+            (_pInfo.factura ? ' · ' + _pInfo.factura : '') + '</div>'
+          : '') +
+        (e.pospuesta_at
+          ? '<div class="parada-pospuesta-badge">🕐 La dejaste para después' +
+            (e.pospuesta_nota ? ': ' + String(e.pospuesta_nota).slice(0, 60) : '') + '</div>'
+          : '') +
 
         // Fila nombre + monto
         '<div class="entrega-item-top">' +
@@ -42995,7 +43468,7 @@ function _entAplicarModoTotal() {
   if (cobroWrap && !soloLectura) {
     if (total && cobroWrap.style.display !== 'none') {
       // una no entrega no tiene cobro: se vacía lo que se hubiera cargado
-      ['efectivo','transferencia','cheque','cuenta_corriente'].forEach(function(m) {
+      COBRO_METODOS.forEach(function(m) {
         var inp = document.getElementById('cobro-m-' + m + '-val');
         if (inp) inp.value = '';
         var it = document.getElementById('cobro-m-' + m);
@@ -43129,17 +43602,15 @@ async function _confirmarDevolucionTotal() {
 
   var rpc = null;
   try {
-    rpc = await sbFetch('rpc/fn_no_entrega_registrar', {
-      method: 'POST',
-      timeoutMs: 20000,
-      body: JSON.stringify({
-        p_entrega_id: entregaId,
-        p_chofer:     vendedorActual,
-        p_motivo:     motivoRpc,
-        p_detalle:    devData.motivo,
-        p_categoria:  _devolucionCategoria,
-        p_fotos:      fotos
-      })
+    // v14.204.0 — en los viajes de Carga v2 esto entra por
+    // carga_entrega_registrar (cobro $0 obligatorio + motivo). Misma respuesta.
+    rpc = await _chNoEntregaRpc(e, {
+      p_entrega_id: entregaId,
+      p_chofer:     vendedorActual,
+      p_motivo:     motivoRpc,
+      p_detalle:    devData.motivo,
+      p_categoria:  _devolucionCategoria,
+      p_fotos:      fotos
     });
     if (!rpc || rpc.ok !== true || !rpc.devolucion_id) {
       throw new Error('La base no confirmó la devolución. No se cambió nada.');
@@ -43454,7 +43925,7 @@ function abrirEntregaModal(entregaId) {
   const cobroWrap = document.getElementById('entrega-modal-cobro-wrap');
   cobroWrap.style.display = soloLectura ? 'none' : '';
   // Limpiar inputs
-  ['efectivo','transferencia','cheque','cuenta_corriente'].forEach(m => {
+  COBRO_METODOS.forEach(m => {
     const inp = document.getElementById('cobro-m-' + m + '-val');
     if (inp) inp.value = '';
     const item = document.getElementById('cobro-m-' + m);
@@ -43925,7 +44396,7 @@ function _actualizarMontoConDevolucion() {
   // Además, si hay inputs de cobro con valores, refrescar la diferencia
   // (porque al cambiar cantidades de devolución, la diferencia cambia)
   var totalInput = 0;
-  ['efectivo','transferencia','cheque','cuenta_corriente'].forEach(function(met) {
+  COBRO_METODOS.forEach(function(met) {
     var inp = document.getElementById('cobro-m-' + met + '-val');
     if (inp) totalInput += parseFloat(inp.value) || 0;
   });
@@ -44071,7 +44542,7 @@ function cobroRapido(metodo) {
   const montoReal = _getMontoConDevolucion().aCobrar;
 
   // Limpiar todos los campos
-  ['efectivo','transferencia','cheque','cuenta_corriente'].forEach(m => {
+  COBRO_METODOS.forEach(m => {
     const inp = document.getElementById('cobro-m-' + m + '-val');
     const item = document.getElementById('cobro-m-' + m);
     if (inp) inp.value = '';
@@ -44088,7 +44559,7 @@ function cobroRapido(metodo) {
 }
 
 function cobroMultipleActualizar() {
-  const metodos = ['efectivo','transferencia','cheque','cuenta_corriente'];
+  const metodos = COBRO_METODOS;
   let total = 0;
   metodos.forEach(m => {
     const val = parseFloat(document.getElementById('cobro-m-' + m + '-val').value) || 0;
@@ -44139,14 +44610,41 @@ async function confirmarEntregaModal() {
       return;
     }
   }
-  const metodos = ['efectivo','transferencia','cheque','cuenta_corriente'];
+  const metodos = COBRO_METODOS;
   const cobros = {};
   let totalCobrado = 0;
   metodos.forEach(m => {
-    const val = parseFloat(document.getElementById('cobro-m-' + m + '-val').value) || 0;
+    const _el = document.getElementById('cobro-m-' + m + '-val');
+    const val = tckMontoAR(_el ? _el.value : '') || 0;   // v14.202.0 — parser unico
     if (val > 0) { cobros[m] = val; totalCobrado += val; }
   });
   if (totalCobrado === 0) { toast('❌ Ingresá al menos un método de cobro', 'err'); return; }
+
+  // v14.203.0 — la suma por producto la valida el SERVIDOR antes de guardar:
+  // cargada = entregada + vuelve, contra el manifiesto congelado.
+  var _vi = await _chValidarItemsServidor(_entregaModalId);
+  if (_vi && _vi.ok === false) {
+    var _errs = (_vi.errores || []).map(function (x) { return '• ' + x.mensaje; }).join('\n');
+    alert('⛔ LAS CANTIDADES NO CIERRAN — NO SE GUARDÓ\n\n' + _errs +
+          '\n\nRevisá lo que bajaste y lo que vuelve.');
+    return;
+  }
+  if (_vi && (_vi.avisos || []).length) {
+    console.warn('[v14.203.0] avisos de la validación:', _vi.avisos);
+  }
+
+  // v14.202.0 — TOPE DE COBRO (espejo de la Guardia). El pedido es el techo.
+  var _techoEnt = (function () {
+    var _e0 = _entregasCache.find(function (x) { return x.id === _entregaModalId; });
+    var _m0 = _e0 ? (tckMontoAR(_e0.monto) || 0) : 0;
+    if (_m0 > 0 && _m0 < 1000) _m0 = _m0 * 1000;   // mismo ajuste que el historico
+    return _m0;
+  })();
+  var _ev = _cobroEvaluarExceso(totalCobrado, _techoEnt);
+  if (_ev.decision === 'rechazo') { alert(_ev.mensaje); return; }
+  if (_ev.decision === 'revisar' && _ev.mensaje) {
+    if (!confirm(_ev.mensaje)) return;
+  }
   // Validar devolución si hay items marcados
   const devData = _getDevolucionData();
   if (devData === 'SIN_CATEGORIA') { toast('❌ Elegí un motivo de devolución', 'err'); return; }
@@ -44863,7 +45361,22 @@ async function _colaFlush() {
         if (it.tipo === 'storage') {
           await _subirABucket(it.bucket, it.ruta, it.blob);
         } else if (it.tipo === 'rest') {
-          await sbFetch(it.path, { method: it.metodo, body: JSON.stringify(it.body) });
+          var _rc = await sbFetch(it.path, { method: it.metodo, body: JSON.stringify(it.body) });
+          // v14.204.0 — una RPC contesta 200 aunque rechace. Si se descarta en
+          // silencio, la entrega queda sin confirmar y nadie se entera.
+          if (it.rpc && _rc && _rc.ok !== true) {
+            console.error('[cola] ' + it.rpc + ' rechazada:', _rc && _rc.code, _rc && _rc.message);
+            try { _chEvento('chofer_cola_rechazada',
+                    { pedido_id: String(it.entrega_id || '').slice(0, 60), cliente: null, monto: null },
+                    new Error((_rc && _rc.code) || 'RECHAZADA')); } catch (_eT2) {}
+            if (typeof toast === 'function') {
+              toast('\u26D4 Una entrega guardada sin señal fue rechazada: ' +
+                    ((_rc && _rc.message) || 'revisala'), 'err');
+            }
+          } else if (it.rpc && _rc && _rc.ok === true && it.entrega_id) {
+            var _ce = _entregasCache && _entregasCache.find(function (x) { return x.id === it.entrega_id; });
+            if (_ce) { _ce.estado = _rc.resultado || 'entregado'; _ce._sinSync = false; }
+          }
         } else { continue; }
         await _colaBorrar(it.id);
       } catch(e) {
@@ -45135,6 +45648,133 @@ async function confirmarChequeModal() {
   _chequesData = [];
 }
 
+
+// ══════════════════════════════════════════════════════════════════════
+// v14.204.0 — CONFIRMAR ENTREGA POR RPC (sólo viajes de Carga v2)
+// ══════════════════════════════════════════════════════════════════════
+// Hasta la 14.203.0 confirmar una entrega eran seis escrituras sueltas:
+//   PATCH entregas · fn_entrega_items_confirmar · INSERT devoluciones ·
+//   INSERT cheques_recibidos · PATCH GPS · sync del Sheet
+// Cinco de ellas "best-effort". Cualquiera podía fallar sola y la entrega
+// quedaba cobrada sin devolución, o con la devolución a medias, o —peor— con
+// el detalle del cobro borrado a propósito por el reintento del catch.
+//
+// Ahora, si el viaje lo rige Carga v2, es UNA llamada. El servidor decide.
+// Si el viaje NO lo rige, no cambia una sola línea del camino viejo.
+var _chCv2 = {};              // viaje_id -> {aplica, version, hash, aceptada}
+
+function _chCv2De(viajeId) {
+  var c = _chCv2[String(viajeId || '')];
+  return c || null;
+}
+
+// ¿Esta entrega va por la RPC? Sólo si el servidor ya nos dijo que sí para su
+// viaje. Ante la duda, camino viejo: es el que funciona hoy.
+function _chVaPorRpc(e) {
+  var c = _chCv2De(e && e.viaje_id);
+  return !!(c && c.aplica === true);
+}
+
+// Un id de envío por confirmación. Se genera UNA vez y viaja adentro del
+// cuerpo: si el pedido queda en la cola, el reintento manda el mismo id y el
+// servidor devuelve la respuesta ya guardada en vez de volver a escribir.
+function _chReqId(pref, entregaId) {
+  return pref + ':' + String(entregaId || '') + ':' + Date.now() + ':' +
+         Math.random().toString(36).slice(2, 8);
+}
+
+// Los productos, tal como los va a validar el servidor.
+function _chItemsParaRpc(entregaId, devData) {
+  if (!_entItems || !_entItems.length || _entItemsEntregaId !== entregaId) return [];
+  var catLabel = (devData && devData !== 'SIN_CATEGORIA' && devData.motivo) ? devData.motivo : null;
+  return _entItems.map(function (it) {
+    var cargada   = Number(it.pedida) || 0;
+    var entregada = Number(it.bajada) || 0;
+    var vuelve    = Math.max(0, cargada - entregada);
+    return {
+      producto: it.nombre,
+      calibre: it.calibre || '',
+      cargada: cargada,
+      entregada: entregada,
+      vuelve: vuelve,
+      precio_unitario: it.precioUnit || null,
+      motivo: vuelve > 0 ? (it.motivo || 'devolucion') : '',
+      motivo_detalle: (vuelve > 0 && it.motivo === 'devolucion') ? catLabel : null
+    };
+  });
+}
+
+// POST a una RPC con cola offline. Devuelve {estado:'ok'|'pendiente', r}.
+// 'ok'        -> el servidor contestó (r.ok dice si aceptó o rechazó)
+// 'pendiente' -> no había señal; quedó encolado con el MISMO cuerpo, o sea
+//                con el mismo p_request_id
+// lanza       -> el servidor rechazó a nivel HTTP (401/403/5xx)
+async function _chRpcConCola(fn, args, e) {
+  var path = 'rpc/' + fn;
+  try {
+    var r = await sbFetch(path, { method: 'POST', timeoutMs: 20000, body: JSON.stringify(args) });
+    return { estado: 'ok', r: r };
+  } catch (err) {
+    if (!_esErrorDeRed(err)) throw err;
+    await _colaPut({ id: 'rpc_' + fn + '_' + (args.p_request_id || Date.now()),
+                     tipo: 'rest', metodo: 'POST', path: path, body: args,
+                     rpc: fn, entrega_id: args.p_entrega_id || null,
+                     estado_optimista: (args.p_resultado === 'no_entregado' ? 'no_entregado' : 'entregado'),
+                     creado: Date.now(), intentos: 0 });
+    _chEvento('chofer_confirmar_encolado', e, err);
+    _colaFlush().catch(function () {});
+    return { estado: 'pendiente', r: null };
+  }
+}
+
+// La no entrega TOTAL también pasa por la RPC cuando el viaje es del piloto:
+// si no, el trigger del servidor rechaza el UPDATE y el chofer se queda sin
+// poder cerrar la parada. Devuelve la MISMA forma que fn_no_entrega_registrar
+// ({ok, devolucion_id, ...}) para no tocar a los que la llaman.
+async function _chNoEntregaRpc(e, args) {
+  if (!_chVaPorRpc(e)) {
+    return await sbFetch('rpc/fn_no_entrega_registrar', {
+      method: 'POST', timeoutMs: 20000, body: JSON.stringify(args) });
+  }
+  var c = _chCv2De(e.viaje_id) || {};
+  var res = await _chRpcConCola('carga_entrega_registrar', {
+    p_entrega_id: args.p_entrega_id,
+    p_version:    c.version != null ? c.version : null,
+    p_hash:       c.hash != null ? c.hash : null,
+    p_resultado:  'no_entregado',
+    p_items:      [],
+    p_cobros:     {},
+    p_devolucion: null,
+    p_no_entrega: { motivo: args.p_motivo, detalle: args.p_detalle || null,
+                    categoria: args.p_categoria || null, fotos: args.p_fotos || null },
+    p_extra:      {},
+    p_request_id: _chReqId('ne', args.p_entrega_id)
+  }, e);
+  if (res.estado === 'pendiente') {
+    // Sin señal: quedó encolado con su request_id. Se le dice al chofer la
+    // verdad —todavía no entró— y la cola lo sube sola.
+    var err = new Error('SIN_SENAL_ENCOLADO');
+    err.encolado = true;
+    throw err;
+  }
+  return res.r;
+}
+
+// Traduce el error de la RPC a algo que el chofer pueda leer y arreglar.
+function _chMsgRpc(r) {
+  if (!r) return 'La base no contestó.';
+  if (r.message) {
+    if (r.validacion && r.validacion.errores && r.validacion.errores.length) {
+      var lineas = r.validacion.errores.slice(0, 6).map(function (x) {
+        return '• ' + (x.mensaje || x.codigo);
+      }).join('\n');
+      return r.message + '\n\n' + lineas;
+    }
+    return r.message;
+  }
+  return 'La base rechazó la entrega.';
+}
+
 async function _ejecutarConfirmacionEntrega(cobros) {
   const formaPrincipal = Object.keys(cobros).reduce((a,b) => cobros[a] > cobros[b] ? a : b);
   const detalleCobroStr = JSON.stringify(cobros);
@@ -45166,6 +45806,28 @@ async function _ejecutarConfirmacionEntrega(cobros) {
   // detalle_cobro dice 'transferencia'. El INSERT del cheque era correcto
   // (cobros.cheque > 0 en ese instante, 0,5-1 s despues del PATCH de la
   // entrega); lo que quedaba viejo era detalle_cobro.
+  // v14.202.0 — dos guards antes de mandar el detalle:
+  //   1. nunca sale una clave cuenta_corriente, venga de donde venga;
+  //   2. si el detalle quedó vacío pero la entrega se marca cobrada, se frena.
+  //      Ese es el origen de las 385 filas de vw_cobro_rendidas_sin_detalle.
+  try {
+    var _det = JSON.parse(detalleCobroStr || '{}');
+    if (_det && _det.cuenta_corriente !== undefined) {
+      delete _det.cuenta_corriente;
+      console.warn('[v14.202.0] se descartó cuenta_corriente del detalle de cobro');
+    }
+    var _sum = Object.keys(_det).reduce(function (a, k) { return a + (Number(_det[k]) || 0); }, 0);
+    if (_sum <= 0 && (Number(totalCobrado) || 0) > 0) {
+      console.error('[' + DETALLE_COBRO_VACIO + '] total=' + totalCobrado + ' detalle=' + detalleCobroStr);
+      alert('⛔ NO SE GUARDÓ\n\nEl detalle del cobro quedó vacío. Cargá de nuevo cuánto cobraste y con qué.');
+      return;
+    }
+    detalleCobroStr = JSON.stringify(_det);
+  } catch (_eDet) {
+    console.error('[' + DETALLE_COBRO_VACIO + '] detalle ilegible:', detalleCobroStr, _eDet);
+    alert('⛔ NO SE GUARDÓ\n\nHubo un problema con el detalle del cobro. Cargalo de nuevo.');
+    return;
+  }
   payload.detalle_cobro = detalleCobroStr;
 
   // v14.38.0 — guardar la ruta del comprobante de transferencia en la entrega
@@ -45219,12 +45881,89 @@ async function _ejecutarConfirmacionEntrega(cobros) {
     return;   // el modal queda abierto: foto y cobro no se pierden
   }
   _chUltimoPatchPendiente = false;
+  // ── v14.204.0 · CIRCUITO CARGA V2: una sola llamada, o nada ─────────
+  // El try/catch de abajo es EL MISMO de siempre: envuelve las dos ramas, para
+  // que el camino viejo conserve exactamente su manejo de errores.
+  var _eRpc = _entregasCache.find(function (x) { return x.id === _entregaModalId; });
+  _chPilotoActual = _chVaPorRpc(_eRpc);
+  _chGuardadoOk = false;
   try {
+  if (_chPilotoActual) {
+    var _cCtx = _chCv2De(_eRpc.viaje_id) || {};
+    var _itemsRpc = _chItemsParaRpc(_entregaModalId, devDataFinal);
+    var _devRpc = null;
+    if (devDataFinal && devDataFinal !== 'SIN_CATEGORIA') {
+      _devRpc = {
+        categoria:      devDataFinal.categoria,
+        detalle:        devDataFinal.detalle || null,
+        items:          devDataFinal.items || null,
+        items_json:     (devDataFinal.items_json && devDataFinal.items_json.length) ? devDataFinal.items_json : null,
+        monto_devuelto: Math.round(montoDevuelto * 100) / 100,
+        monto_original: Math.round(montoOriginalEntrega * 100) / 100
+      };
+    }
+    var _chequesRpc = (_chequesData || []).filter(function (ch) { return ch && (parseFloat(ch.monto) || 0) > 0; })
+      .map(function (ch) {
+        return { monto: parseFloat(ch.monto) || 0, banco: ch.banco, numero: ch.numero,
+                 emisor: ch.emisor, vencimiento: ch.vencimiento, foto_url: ch.fotoPath || null };
+      });
+    var _extraRpc = { foto_urls: _pathsFotoEnt };
+    if (payload.comprobante_transfer) _extraRpc.comprobante_transfer = payload.comprobante_transfer;
+    if (payload.diferencia_motivo)    _extraRpc.diferencia_motivo    = payload.diferencia_motivo;
+    if (payload.monto_cobrado_real != null) _extraRpc.monto_cobrado_real = payload.monto_cobrado_real;
+    if (_chequesRpc.length) _extraRpc.cheques = _chequesRpc;
+
+    var _resRpc;
+    try {
+      _resRpc = await _chRpcConCola('carga_entrega_registrar', {
+        p_entrega_id: _entregaModalId,
+        p_version:    _cCtx.version != null ? _cCtx.version : null,
+        p_hash:       _cCtx.hash != null ? _cCtx.hash : null,
+        p_resultado:  'entregado',
+        p_items:      _itemsRpc,
+        p_cobros:     JSON.parse(detalleCobroStr || '{}'),
+        p_devolucion: _devRpc,
+        p_no_entrega: null,
+        p_extra:      _extraRpc,
+        p_request_id: _chReqId('ent', _entregaModalId)
+      }, _eRpc);
+    } catch (errRpc) {
+      // 401/403 y cualquier rechazo HTTP: MISMO tratamiento que antes, pero
+      // sin ningún reintento que borre datos.
+      var _stR = _chErrStatus(errRpc);
+      _chEvento('chofer_confirmar_fallo', _eRpc, errRpc);
+      if (_stR === 401 || _stR === 403) {
+        alert('🔒 TU SESIÓN VENCIÓ — LA ENTREGA NO SE GUARDÓ\n\n' +
+              'Tocá \u23FB (arriba a la derecha), salí y volvé a entrar con tu PIN. ' +
+              'Después confirmá esta entrega de nuevo.');
+        return;
+      }
+      alert('\u274C LA ENTREGA NO SE GUARDÓ\n\nNo se guardó ninguna parte: ni el cobro, ni la ' +
+            'devolución, ni los productos.\n\nVolvé a tocar "Confirmar entrega".\n\nDetalle técnico: ' +
+            String(errRpc && errRpc.message || errRpc).slice(0, 120));
+      return;   // modal abierto: no se pierde nada de lo cargado
+    }
+
+    if (_resRpc.estado === 'ok' && (!_resRpc.r || _resRpc.r.ok !== true)) {
+      // El servidor la rechazó. NO se guardó nada: se le dice qué arreglar.
+      _chEvento('chofer_confirmar_rechazada', _eRpc, new Error((_resRpc.r && _resRpc.r.code) || 'RECHAZADA'));
+      alert('\u26D4 NO SE GUARDÓ NADA\n\n' + _chMsgRpc(_resRpc.r) +
+            '\n\nLa entrega sigue pendiente: corregí y volvé a confirmar.');
+      return;   // modal abierto
+    }
+    _chUltimoPatchPendiente = (_resRpc.estado === 'pendiente');
+    _chGuardadoOk = true;
+    // Lo que sigue (Sheet, GPS, cache, cierre del modal) es igual que siempre.
+    // Lo que NO sigue: el INSERT suelto de devoluciones, el de cheques y
+    // fn_entrega_items_confirmar. Los hizo la RPC, adentro de la transacción.
+  } else {
     var _rPatch = await _chPatchEntregaConCola(_entregaModalId, payload, _entregasCache.find(function (x) { return x.id === _entregaModalId; }));
     _chUltimoPatchPendiente = (_rPatch === 'pendiente');
     // v14.187.0 — foto ítem por ítem de lo que bajó (fn_entrega_items_confirmar).
     // Best-effort: la entrega ya está confirmada; si esto falla solo se pierde el detalle.
     try { await _entItemsGuardar(_entregaModalId, devDataFinal); } catch (eEI) { console.warn('[entregas_items]', eEI); }
+    _chGuardadoOk = true;
+  }
     // v14.81.0 — persistir en la cola las fotos que quedaron 'pendientes' (señal débil).
     try {
       var _pendientes = [];
@@ -45260,7 +45999,7 @@ async function _ejecutarConfirmacionEntrega(cobros) {
                     ' capturado=' + _chqCapturado + ' filas=' + _chequesData.length);
       toast('\u26a0\ufe0f Los datos del cheque no coinciden con el importe. No se guardo el cheque.', 'err');
     }
-    if (_chqOk) {
+    if (_chqOk && !_chPilotoActual) {
       try {
         var inserts = _chequesData.map(function(ch) {
           return {
@@ -45324,7 +46063,7 @@ async function _ejecutarConfirmacionEntrega(cobros) {
 
     // ── ESCRITURA DUAL: guardar en tabla devoluciones (para historial estructurado) ──
     // Esto es best-effort: si falla, no afecta la entrega (ya persistida en 'entregas.devolucion')
-    if (devDataFinal && devDataFinal !== 'SIN_CATEGORIA' && e) {
+    if (devDataFinal && devDataFinal !== 'SIN_CATEGORIA' && e && !_chPilotoActual) {
       try {
         const devPayload = {
           pedido_id:        e.pedido_id || null,
@@ -45489,7 +46228,12 @@ async function _ejecutarConfirmacionEntrega(cobros) {
   } catch(err) {
     console.error('❌ Error en _ejecutarConfirmacionEntrega (PATCH entregas):', err);
     console.error('Payload que falló:', payload);
-    if (payload.detalle_cobro) {
+    // v14.204.0 — EN EL PILOTO ESTE REINTENTO NO EXISTE.
+    // Guardar la entrega sin detalle_cobro es exactamente lo que produce una
+    // entrega cobrada sin decir con qué: 385 filas medidas en
+    // vw_cobro_rendidas_sin_detalle. En el circuito nuevo no se guarda nada
+    // a medias, y punto.
+    if (payload.detalle_cobro && !_chPilotoActual) {
       try {
         delete payload.detalle_cobro;
         await sbFetch('entregas?id=eq.'+_entregaModalId, {method:'PATCH',body:JSON.stringify(payload)});
@@ -45514,6 +46258,20 @@ async function _ejecutarConfirmacionEntrega(cobros) {
       return;   // modal abierto: foto y cobro siguen cargados
     }
     var msgErr = (err && err.message ? err.message : String(err)).slice(0, 120);
+    // v14.204.0 — en el piloto la entrega entra ENTERA o no entra. Si ya entró
+    // y lo que falló es algo de después (foto en cola, sync del Sheet), decirle
+    // "no se guardó" es mentira y hace que la vuelva a cargar.
+    if (_chPilotoActual && _chGuardadoOk) {
+      console.warn('[v14.204.0] la entrega ya estaba guardada; falló algo posterior:', err);
+      toast(_chUltimoPatchPendiente
+        ? '\uD83D\uDCF5 Sin señal: la entrega quedó guardada en el celular y se envía sola.'
+        : '\u2705 Entrega registrada (falló algo secundario, ya quedó avisado)', 'ok');
+      cerrarEntregaModal();
+      renderEntregas(_entregasCache);
+      renderResumenChofer(_entregasCache);
+      _entregaModalId = null; _entregaClienteActual = null; _entregaCiudadActual = null; _modoCobroCambio = false;
+      return;
+    }
     alert('\u274C LA ENTREGA NO SE GUARDÓ\n\n' +
           'Volvé a tocar "Confirmar entrega". Si sigue fallando, avisá por WhatsApp con el nombre del cliente.\n\n' +
           'Detalle técnico: ' + msgErr);
@@ -45540,6 +46298,18 @@ function reabrirCobroModal() {
 // ── CAMBIAR FORMA DE COBRO ────────────────────────────────────
 // ── CAMBIAR FORMA DE COBRO ────────────────────────────────────
 function cambiarCobroEntrega(entregaId, clienteNombre, monto) {
+  // v14.204.0 — en el circuito nuevo esto era un PATCH suelto de forma_cobro
+  // que NO tocaba detalle_cobro. Es exactamente lo que dejó 40 entregas cuyo
+  // forma_cobro contradice su propio detalle (v14.179.0 · C0). El servidor lo
+  // rechaza, así que acá se ofrece el camino que sí deja los dos datos
+  // coherentes: deshacer y volver a cargar el cobro completo.
+  var _eCC = _entregasCache.find(function (x) { return x.id === entregaId; });
+  if (_chVaPorRpc(_eCC)) {
+    if (!confirm('Para cambiar el cobro de esta entrega hay que volver a cargarlo completo ' +
+                 '(con cuánto y con qué medio).\n\n¿Deshacemos la entrega para cargarla de nuevo?')) return;
+    deshacerEntrega(entregaId);
+    return;
+  }
   // Reusar el mismo modal de cobro pero en modo "cambio"
   _entregasPedidoActual = entregaId;
   _entregaClienteActual = clienteNombre;
@@ -45563,13 +46333,29 @@ async function deshacerEntrega(entregaId) {
       alert('⛔ NO SE DESHIZO\n\nCámara ya recibió la devolución de esta entrega. Para corregirla, avisá a Administración.');
       return;
     }
-    await sbFetch('entregas?id=eq.' + entregaId, {
-      method: 'PATCH',
-      // v14.199.0: también se limpian los datos de cobro, para que no queden
-      // colgados si la entrega se vuelve a confirmar distinta
-      body: JSON.stringify({ estado: 'pendiente', forma_cobro: null, fecha_entrega: null,
-                             detalle_cobro: null, monto_cobrado_real: null, diferencia_motivo: null })
-    });
+    // v14.204.0 — en el piloto el PATCH directo está cerrado del lado del
+    // servidor: deshacer archiva la devolución y borra el detalle por producto
+    // en la MISMA transacción.
+    var _eDesh = _entregasCache.find(function (x) { return x.id === entregaId; });
+    if (_chVaPorRpc(_eDesh)) {
+      var _rD = await sbFetch('rpc/carga_entrega_deshacer', {
+        method: 'POST', timeoutMs: 20000,
+        body: JSON.stringify({ p_entrega_id: entregaId, p_motivo: 'deshecha por el chofer',
+                               p_request_id: _chReqId('desh', entregaId) })
+      });
+      if (!_rD || _rD.ok !== true) {
+        alert('\u26D4 NO SE DESHIZO\n\n' + _chMsgRpc(_rD));
+        return;
+      }
+    } else {
+      await sbFetch('entregas?id=eq.' + entregaId, {
+        method: 'PATCH',
+        // v14.199.0: también se limpian los datos de cobro, para que no queden
+        // colgados si la entrega se vuelve a confirmar distinta
+        body: JSON.stringify({ estado: 'pendiente', forma_cobro: null, fecha_entrega: null,
+                               detalle_cobro: null, monto_cobrado_real: null, diferencia_motivo: null })
+      });
+    }
     const idx = _entregasCache.findIndex(e => e.id === entregaId);
     if (idx >= 0) {
       _entregasCache[idx].estado      = 'pendiente';
@@ -45581,7 +46367,7 @@ async function deshacerEntrega(entregaId) {
     }
     // v14.199.0 — la devolución anterior se archiva (si no, al volver a
     // confirmar quedaba duplicada)
-    if (_devsP.length) {
+    if (_devsP.length && !_chVaPorRpc(_eDesh)) {
       try {
         var _arch = await sbFetch('devoluciones?entrega_id=eq.' + encodeURIComponent(entregaId) +
           '&tipo=eq.parcial&estado=eq.registrada', {
@@ -45666,7 +46452,7 @@ function _abrirCobroConComprobante(entregaId, metodo) {
   var btns = document.getElementById('entrega-modal-btns');
   if (btns) btns.innerHTML = '<button class="entrega-modal-btn entregar" onclick="confirmarEntregaModal()">✅ Confirmar cobro</button>';
   // Limpiar inputs y pre-cargar el monto total en el método elegido.
-  ['efectivo','transferencia','cheque','cuenta_corriente'].forEach(function(m) {
+  COBRO_METODOS.forEach(function(m) {
     var inp = document.getElementById('cobro-m-' + m + '-val');
     if (inp) inp.value = '';
     var item = document.getElementById('cobro-m-' + m);
@@ -49314,7 +50100,7 @@ function _renderDupModal() {
       });
     });
     var totalUnido = activos.reduce(function(acc, p) {
-      var n = parseInt((p.total || '').replace(/[^\d]/g,'')) || 0;
+      var n = tckMontoAR((p.total || '')) || 0;
       return acc + n;
     }, 0);
     var totalUnidoFmt = '$' + totalUnido.toLocaleString('es-AR');
@@ -50282,7 +51068,7 @@ async function dupUnirPedidos() {
 
   // Total unido = suma aritmética de los totales originales (ya está bien)
   var totalUnido = activos.reduce(function(acc, p) {
-    var n = parseInt((p.total || '').replace(/[^\d]/g,'')) || 0;
+    var n = tckMontoAR((p.total || '')) || 0;
     return acc + n;
   }, 0);
 
@@ -51870,7 +52656,7 @@ function mrCalcHistoricoCliente(c) {
     if (mrNormNombre(p.cliente) !== nomNorm) return;
     var f = fechaPedido(p);
     if (!f || isNaN(f)) return;
-    var total = parseInt((p.total || '').toString().replace(/[^\d]/g, ''), 10) || 0;
+    var total = tckMontoAR((p.total || '').toString()) || 0;
     if (total <= 0) return;
     miosDelCliente.push({
       fecha: f,
@@ -58839,7 +59625,7 @@ function depPollIniciar() {
    TCK_UPD_LOCAL aca Y el archivo version.json del repo.
    ============================================================ */
 (function(){
-  var TCK_UPD_LOCAL = '14.200.0';        /* <-- bump en cada deploy */
+  var TCK_UPD_LOCAL = '14.204.0';        /* <-- bump en cada deploy */
   /* v14.159.0: fuente UNICA de version. La telemetria del shadow la reporta,
      asi que un desfasaje contra version.json se ve solo en el primer pedido
      (paso 4 veces sin que nadie lo notara: 14.109, 14.128, 14.137, 14.147). */
@@ -61011,6 +61797,28 @@ function cv2TickIniciar() {
 cv2TickIniciar();
 
 // Mis Viajes: acceso directo a la recepción (que vive en Entregas)
+// ══════════════════════════════════════════════════════════════════════
+// v14.202.0 — ACÁ ESTABA EL BLOQUE CV2P DE v14.201.0. SE ELIMINÓ ENTERO.
+//
+// Tenía dos botones y los dos estaban mal:
+//
+//  · 'Subir planilla firmada' llamaba a carga_planilla_firmada_subir, que
+//    exige rol de Depósito. El chofer nunca lo tiene: el botón devolvía
+//    ROL_NO_PERMITIDO siempre. Ahora esa planilla la sube Pancho desde el
+//    Admin (13.231.0), a un bucket PRIVADO.
+//
+//  · 'REGRESÉ / FINALICÉ RECORRIDO' contradecía la regla: el chofer no marca
+//    el regreso. Además era código muerto — se inyectaba en una pantalla que
+//    sólo se dibuja en 'preparando'/'carga_cerrada' y el botón exigía
+//    'en_ruta', así que no se renderizaba nunca.
+//    Hoy lo marca el backend: cuando el último pedido del viaje queda con
+//    resultado definitivo, el trigger cv2_fin_recorrido pone
+//    'recorrido finalizado / regresando a depósito' y pasa el viaje a
+//    rendición. La RPC carga_viaje_regrese fue BORRADA del servidor.
+//
+// No agregar acá ningún botón de cierre, finalización o regreso.
+// ══════════════════════════════════════════════════════════════════════
+
 function cv2ChoferAtajoHtml(v) {
   var cerr = v.estado === 'carga_cerrada';
   return '<div class="cv2"><div class="cv2-card"><div class="cv2-h1">' + (cerr ? '📦 CARGA CERRADA POR DEPÓSITO' : '🔧 DEPÓSITO PREPARANDO LA CARGA') + '</div>' +
