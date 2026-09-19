@@ -2,6 +2,34 @@
 <html lang="es">
 <head>
 <!-- ═══════════════════════════════════════════════════════════════════════
+     TCK VENTAS — v14.209.0 — 18/09/2026
+     v14.209.0: LOS PRESUPUESTOS YA NO DEPENDEN DE APPS SCRIPT.
+       (sobre v14.208.5 publicada. Requiere la Edge crear-presupuesto v3.)
+       · EL CASO: a la tarde el Apps Script se queda sin cuota de UrlFetch.
+         Guarda el pedido en la hoja pero no llega a Supabase ni a Xubio.
+         Lisandro no pudo presupuestar SUCESION DE PEÑA (18/09, 4 intentos)
+         y 5 pedidos de Juan y Miguel quedaron con presupuesto y sin
+         pedidos_zona. Paso igual el 08, el 10 y el 17/09.
+       · Crear presupuesto y detectar calibres van a la Edge Function
+         crear-presupuesto de Supabase, con el JWT del login. Son los 4
+         lugares: boton "Crear presupuesto", tomador/check-in, cambio de
+         calibre y la cola offline. La Edge arma las lineas con el MISMO
+         parser de texto del .gs, deja el pedido Confirmado y escribe
+         pedidos_items. Probado contra 364 pedidos reales: en los 343 que
+         el .gs ya habia creado, los items dan identicos.
+       · Un vendedor solo presupuesta SUS pedidos (o los del catalogo sin
+         asignar). Otro vendedor recibe "Este pedido es de X".
+       · El .gs queda de respaldo SOLO si la Edge dice que no puede armar
+         ESE pedido (combos/promos escritos en el detalle, formato viejo
+         del catalogo) o si la sesion vencio. Nunca ante un timeout: la
+         Edge pudo haberlo creado igual.
+       · "Xubio rechazo" y "pedido de otro vendedor" cortan en el acto
+         (antes se esperaban 5 minutos de poll).
+       · NO cambia: guardar el pedido sigue por Apps Script (escribe la hoja
+         Pedidos); anular/desbloquear y el mostrador, tambien.
+       DEPLOY: primero la Edge crear-presupuesto v3; despues este index.html
+       y version.json a 14.209.0.
+     ─────────────────────────────────────────────────────────────────────
      TCK VENTAS — v14.208.5 — 18/09/2026
      v14.208.5: EL IMPORTE TAMBIEN SALE DEL SNAPSHOT CERRADO.
        (sobre v14.208.4 publicada. Solo front.)
@@ -20351,7 +20379,9 @@ function _colaBadgeOcultoGuardar(mapa) {
 //              No se reintenta solo; el vendedor lo revive desde el detalle.
 function _colaClasificarError(code, msg) {
   var ACCION = { 'PRODUCTOS_SIN_MAPEAR':1, 'CLIENTE_SIN_MAPEAR':1, 'FALTA_CLIENTE':1,
-                 'FACTURA_NO_VERIFICABLE':1, 'PEDIDO_NO_ENCONTRADO':0, 'LOCK_OCUPADO':0 };
+                 'FACTURA_NO_VERIFICABLE':1, 'PEDIDO_NO_ENCONTRADO':0, 'LOCK_OCUPADO':0,
+                 // v14.209.0 — codigos de la Edge que un reintento no arregla
+                 'XUBIO_RECHAZO':1, 'PEDIDO_DE_OTRO_VENDEDOR':1, 'SPLIT_INCONSISTENTE':1, 'OMITIDO':1 };
   if (code && ACCION[code] === 1) return 'accion';
   if (/calibre/i.test(msg || '')) return 'accion';
   return 'auto';
@@ -20496,7 +20526,7 @@ async function _colaReintentarPresupuesto(it) {
   // v14.144.0: el chequeo de calibres se hace UNA vez por item (calibresOk),
   // no en cada reintento — antes era un fetch extra cada 90s por item.
   if (!it.calibresOk) {
-    var det = await _colaFetchJson(APPS_SCRIPT_URL + '?accion=detectarCalibres&pedidoId=' + encodeURIComponent(it.id), 25000);
+    var det = await calibresDetectar(it.id, 25000);   // v14.209.0 — Edge (antes ?accion=detectarCalibres)
     if (det && det.status === 'ok' && det.necesitaModal && det.genericos && det.genericos.length) {
       _colaActualizar(it.id, { clase: 'accion', ultimoError: 'Hay que elegir el calibre del pollo — entrá al pedido y tocá "Crear presupuesto"' });
       return;
@@ -20504,10 +20534,10 @@ async function _colaReintentarPresupuesto(it) {
     if (det && det.status === 'ok') _colaActualizar(it.id, { calibresOk: true });
   }
 
-  var params = new URLSearchParams({ accion: 'crearPresupuestoXubio', pedidoId: it.id, xubioClienteId: it.xubioClienteId });
-  if (it.fechaISO) params.set('fechaPresupuesto', it.fechaISO);
+  // v14.209.0 — Edge crear-presupuesto (el .gs solo si la Edge no puede armar el pedido)
   var _t0p = Date.now();  // v14.145.0
-  var data = await _colaFetchJson(APPS_SCRIPT_URL + '?' + params.toString(), 60000);
+  var data = await presupuestoCrear({ pedidoId: it.id, xubioClienteId: it.xubioClienteId,
+                                      fechaISO: it.fechaISO, timeoutMs: 60000 });
 
   if (data && (data.status === 'ok' || data.code === 'YA_TIENE_PRESUPUESTO')) {
     _colaQuitar(it.id);
@@ -20540,6 +20570,97 @@ function _colaFetchJson(url, timeoutMs) {
   return fetch(url, { signal: ctrl.signal })
     .then(function(r){ clearTimeout(tid); return r.json(); })
     .catch(function(e){ clearTimeout(tid); throw e; });
+}
+
+// ════════════════════════════════════════════════════════════════════
+// v14.209.0 — PRESUPUESTOS SIN APPS SCRIPT (Edge crear-presupuesto v3)
+// A la tarde el Apps Script se queda sin cuota de UrlFetch y no crea
+// presupuestos (caso Lisandro / SUCESION DE PEÑA, 18/09). Crear y detectar
+// calibres van a la Edge Function de Supabase con el JWT del login. La Edge
+// arma las lineas con el MISMO parser de texto del .gs y deja el pedido
+// Confirmado con sus pedidos_items.
+// El .gs queda SOLO de respaldo cuando la Edge dice que no puede armar ESE
+// pedido (combos/promos de texto, formato viejo del catalogo) o no hay
+// sesion. NUNCA ante un timeout: la Edge pudo haberlo creado igual y el .gs
+// crearia otro.
+// presupuestoCrear() y calibresDetectar() devuelven el MISMO formato que el
+// .gs ({status, code, message, nroPresupuesto, ...}), asi los llamadores no
+// cambian su manejo de respuestas.
+// ════════════════════════════════════════════════════════════════════
+var _EDGE_PRESUP_AL_GS = { USAR_APPS_SCRIPT: 1, SIN_FUENTE_DE_ITEMS: 1, TOTAL_NO_COINCIDE: 1,
+                           PEDIDO_NO_ENCONTRADO: 1, SIN_SESION: 1, NO_AUTORIZADO: 1, ROL_SIN_PERMISO: 1 };
+
+function _edgePresupFetch(body, timeoutMs) {
+  if (!_JWT) return Promise.resolve({ ok: false, code: 'SIN_SESION' });
+  var ctrl = new AbortController();
+  var tid  = setTimeout(function(){ ctrl.abort(); }, timeoutMs || 60000);
+  return fetch(SUPABASE_URL + '/functions/v1/crear-presupuesto', {
+    method: 'POST', signal: ctrl.signal,
+    headers: { 'Authorization': 'Bearer ' + _JWT, 'apikey': SUPABASE_KEY, 'Content-Type': 'application/json' },
+    body: JSON.stringify(body)
+  }).then(function(r){
+    clearTimeout(tid);
+    return r.json().then(function(j){
+      j = j || {};
+      if (r.status === 401 && !j.code) j.code = 'NO_AUTORIZADO';   // JWT vencido: lo corta el gateway
+      return j;
+    }, function(){ return { ok: false, code: r.status === 401 ? 'NO_AUTORIZADO' : ('HTTP_' + r.status) }; });
+  }).catch(function(e){ clearTimeout(tid); throw e; });
+}
+
+// Respuesta de la Edge → formato del .gs
+function _edgePresupAGs(d) {
+  d = d || {};
+  var OK = { creado: 1, creado_recuperado: 1, ya_tiene_presupuesto: 1, adoptado_espejo: 1, adoptado_xubio: 1 };
+  if (d.ok && OK[d.estado]) {
+    return { status: 'ok', nroPresupuesto: d.presupuesto_nro || '', transaccionid: d.presupuesto_id || '',
+             via: 'edge', estadoEdge: d.estado, post: d.post || null };
+  }
+  if (d.ok && d.estado === 'omitido') {
+    return { status: 'error', code: 'OMITIDO', via: 'edge',
+             message: 'No se creo el presupuesto: ' + ((d.motivos || []).join(', ') || 'omitido') };
+  }
+  var MAPA = { EN_CURSO: 'LOCK_OCUPADO', XUBIO_AMBIGUO: 'ERROR_XUBIO', EXCEPCION: 'EXCEPCION' };
+  return { status: 'error', code: MAPA[d.code] || d.code || 'ERROR_EDGE', faltantes: d.faltantes, via: 'edge',
+           message: d.message || (typeof d.detalle === 'string' ? d.detalle : '') ||
+                    ('No se pudo crear el presupuesto (' + (d.code || 'sin respuesta') + ')') };
+}
+
+// o: { pedidoId, xubioClienteId, calibres, fechaISO, timeoutMs }
+function presupuestoCrear(o) {
+  var body = { pedido_id: o.pedidoId, modo: 'crear', confirmar: true };
+  if (o.xubioClienteId) body.cliente_xubio_id = Number(o.xubioClienteId) || o.xubioClienteId;
+  if (o.calibres && Object.keys(o.calibres).length) body.calibres = o.calibres;
+  if (o.fechaISO) body.fecha = o.fechaISO;
+  return _edgePresupFetch(body, o.timeoutMs || 60000).then(function(d){
+    if (d && !d.ok && _EDGE_PRESUP_AL_GS[d.code]) {
+      console.warn('[presupuesto] ' + o.pedidoId + ': la Edge devolvio ' + d.code + ' -> Apps Script');
+      var p = new URLSearchParams({ accion: 'crearPresupuestoXubio', pedidoId: o.pedidoId,
+                                    xubioClienteId: o.xubioClienteId || '' });
+      if (o.calibres && Object.keys(o.calibres).length) p.set('calibres', JSON.stringify(o.calibres));
+      if (o.fechaISO) p.set('fechaPresupuesto', o.fechaISO);
+      return _colaFetchJson(APPS_SCRIPT_URL + '?' + p.toString(), o.timeoutMs || 60000)
+        .then(function(g){ if (g) g.via = 'gs'; return g; });
+    }
+    return _edgePresupAGs(d);
+  });
+}
+
+// Reemplaza ?accion=detectarCalibres. Mismo formato: {status, necesitaModal, genericos}
+function calibresDetectar(pedidoId, timeoutMs) {
+  return _edgePresupFetch({ pedido_id: pedidoId, modo: 'detectar' }, timeoutMs || 25000).then(function(d){
+    if (d && d.ok) {
+      return { status: 'ok', necesitaModal: !!d.necesitaModal, genericos: d.genericos || [],
+               errores: d.errores || [], via: 'edge' };
+    }
+    if (d && _EDGE_PRESUP_AL_GS[d.code]) {
+      console.warn('[calibres] ' + pedidoId + ': la Edge devolvio ' + d.code + ' -> Apps Script');
+      return _colaFetchJson(APPS_SCRIPT_URL + '?accion=detectarCalibres&pedidoId=' + encodeURIComponent(pedidoId),
+                            timeoutMs || 25000);
+    }
+    return { status: 'error', code: (d && d.code) || 'ERROR_EDGE',
+             message: (d && d.message) || 'No se pudo leer el pedido' };
+  });
 }
 
 // ── Reconciliación con la realidad ───────────────────────────────
@@ -25669,7 +25790,8 @@ const _XUBIO_PROC_LS_KEY = 'tck_ventas_xubio_procesando_v1';
 // excepción/red cortada) se dejan al poll: el server pudo haberlo creado igual.
 const _XUBIO_ERRORES_DEFINITIVOS = ['PRODUCTOS_SIN_MAPEAR', 'SIN_ITEMS', 'FECHA_INVALIDA',
   'FALTA_CLIENTE', 'FALTA_PEDIDO', 'PEDIDO_NO_ENCONTRADO', 'PARSER_ERROR_FATAL',
-  'SPLIT_INCONSISTENTE', 'FACTURA_NO_VERIFICABLE', 'CONDICION_FISCAL_NULL'];
+  'SPLIT_INCONSISTENTE', 'FACTURA_NO_VERIFICABLE', 'CONDICION_FISCAL_NULL',
+  'XUBIO_RECHAZO', 'PEDIDO_DE_OTRO_VENDEDOR', 'OMITIDO'];   // v14.209.0 — Edge
 
 function _xubioProcActivo(pedidoId) { return _xubioProcesando.has(pedidoId); }
 
@@ -31049,8 +31171,7 @@ async function cciCambiarCalibre(pedidoId, transaccionid, nroPresupuesto, btnEl)
     }
 
     // ── PASO 2: detectar calibres. NO destructivo ──────────────────
-    var det = await _cciFetchJson(
-      APPS_SCRIPT_URL + '?accion=detectarCalibres&pedidoId=' + encodeURIComponent(pedidoId), 25000);
+    var det = await calibresDetectar(pedidoId, 25000);   // v14.209.0 — Edge
 
     if (!det || det.status !== 'ok') {
       toast('⚠️ ' + ((det && det.message) || 'No se pudo leer el pedido'), 'err');
@@ -31149,16 +31270,9 @@ async function _cciEjecutar(pedidoId, transaccionid, nroPresupuesto, clienteId, 
 
     // ── Re-presupuestar ────────────────────────────────────────────
     if (btnEl) btnEl.textContent = '⏳ Creando presupuesto nuevo…';
-    var pNuevo = new URLSearchParams({
-      accion:         'crearPresupuestoXubio',
-      pedidoId:       pedidoId,
-      xubioClienteId: clienteId
-    });
-    if (calibres && Object.keys(calibres).length) {
-      pNuevo.set('calibres', JSON.stringify(calibres));
-    }
-
-    var dataB = await _cciFetchJson(APPS_SCRIPT_URL + '?' + pNuevo.toString(), 60000);
+    // v14.209.0 — Edge crear-presupuesto (el .gs solo si la Edge no puede armar el pedido)
+    var dataB = await presupuestoCrear({ pedidoId: pedidoId, xubioClienteId: clienteId,
+                                         calibres: calibres, timeoutMs: 60000 });
 
     if (dataB && dataB.status === 'ok') {
       if (pm) {
@@ -31990,8 +32104,7 @@ function xubioCrearPresupuesto(pedidoId, idBoton, idLegacy) {
   if (btn) { btn.disabled = true; btn.textContent = 'Verificando...'; }
 
   // Paso 1: detectar si el pedido tiene Pollo A/B genérico que requiere calibre
-  fetch(APPS_SCRIPT_URL + '?accion=detectarCalibres&pedidoId=' + encodeURIComponent(pedidoId))
-    .then(function(r) { return r.json(); })
+  calibresDetectar(pedidoId, 25000)   // v14.209.0 — Edge (antes ?accion=detectarCalibres, sin timeout)
     .then(function(data) {
       if (data.status !== 'ok') {
         toast('Error: ' + (data.message || 'No se pudo verificar el pedido'), 'err');
@@ -32316,18 +32429,10 @@ function xubioEjecutarCrearPresupuesto(pedidoId, fila, id, calibres, fechaPresup
   var sel = _xubioSeleccion[pedidoId];
   if (!sel || !sel.clienteId) { _xubioActivo = false; toast('Seleccioná un cliente primero', 'err'); return; }
 
-  var params = new URLSearchParams({
-    accion:         'crearPresupuestoXubio',
-    pedidoId:       pedidoId,
-    xubioClienteId: sel.clienteId
-  });
-  if (calibres && Object.keys(calibres).length) {
-    params.set('calibres', JSON.stringify(calibres));
-  }
-  // v11: fecha del presupuesto (opcional). Si no viene, Apps Script usa hoy.
-  if (fechaPresupuesto) {
-    params.set('fechaPresupuesto', fechaPresupuesto);
-  }
+  // v14.209.0 — va a la Edge crear-presupuesto (ver presupuestoCrear). La
+  // fecha es opcional: si no viene, la Edge usa hoy (igual que el .gs).
+  var _presupOpts = { pedidoId: pedidoId, xubioClienteId: sel.clienteId, calibres: calibres,
+                      fechaISO: fechaPresupuesto || '', timeoutMs: 90000 };
 
   // ── v14.109.0 — DISPARAR Y LIBERAR (no-bloqueante) ──
   // Registramos el pedido "en proceso" (badge ⏳ + poll a la base cada 10s) y
@@ -32342,8 +32447,7 @@ function xubioEjecutarCrearPresupuesto(pedidoId, fila, id, calibres, fechaPresup
   renderPedidos();
   toast('⏳ Creando el presupuesto — ya podés seguir con otro cliente. Se confirma solo.', 'ok');
 
-  fetch(APPS_SCRIPT_URL + '?' + params.toString())
-    .then(function(r) { return r.json(); })
+  presupuestoCrear(_presupOpts)
     .then(function(data) {
       if (!_xubioProcActivo(pedidoId)) return; // el poll ya lo resolvió
       if (data.status === 'ok') {
@@ -32531,7 +32635,7 @@ function _tomadorEjecutarXubio(pedidoId, fila, entregaData, clienteNombre, _rein
   // v14.136.0: iba sin AbortController — si Apps Script no contestaba, esta
   // promesa no resolvía NUNCA y el overlay "generando presupuesto…" quedaba
   // trabado sin fallar ni avisar (captura de Lisandro, 10/08 09:20).
-  _colaFetchJson(APPS_SCRIPT_URL + '?accion=detectarCalibres&pedidoId=' + encodeURIComponent(pedidoId), 25000)
+  calibresDetectar(pedidoId, 25000)   // v14.209.0 — Edge (antes ?accion=detectarCalibres)
     .then(function(data) {
       if (data.status !== 'ok') {
         // v14.41.0: "Pedido no encontrado" casi siempre es propagación eventual
@@ -32618,21 +32722,10 @@ function _tomadorXubioFinalizar(pedidoId, fila, idHtml, calibres, fechaISO, clie
   // Mostrar overlay con progreso (Sheet ✓ / Supabase ✓ / Xubio ⏳)
   _tomadorMostrarProgreso(clienteNombre);
 
-  var params = new URLSearchParams({
-    accion:         'crearPresupuestoXubio',
-    pedidoId:       pedidoId,
-    xubioClienteId: sel.clienteId
-  });
-  if (calibres && Object.keys(calibres).length) {
-    params.set('calibres', JSON.stringify(calibres));
-  }
-  if (fechaISO) {
-    params.set('fechaPresupuesto', fechaISO);
-  }
-
-  // v14.136.0: mismo problema que detectarCalibres — fetch sin timeout.
-  // 60s porque crear el presupuesto en Xubio es genuinamente lento.
-  _colaFetchJson(APPS_SCRIPT_URL + '?' + params.toString(), 60000)
+  // v14.136.0: con timeout (60s: crear el presupuesto en Xubio es lento).
+  // v14.209.0 — va a la Edge crear-presupuesto (ver presupuestoCrear).
+  presupuestoCrear({ pedidoId: pedidoId, xubioClienteId: sel.clienteId, calibres: calibres,
+                     fechaISO: fechaISO || '', timeoutMs: 60000 })
     .then(function(data) {
       _xubioActivo = false;
       _tomadorCerrarProgreso();
@@ -60287,7 +60380,7 @@ function depPollIniciar() {
    TCK_UPD_LOCAL aca Y el archivo version.json del repo.
    ============================================================ */
 (function(){
-  var TCK_UPD_LOCAL = '14.208.5';        /* <-- bump en cada deploy */
+  var TCK_UPD_LOCAL = '14.209.0';        /* <-- bump en cada deploy */
   /* v14.159.0: fuente UNICA de version. La telemetria del shadow la reporta,
      asi que un desfasaje contra version.json se ve solo en el primer pedido
      (paso 4 veces sin que nadie lo notara: 14.109, 14.128, 14.137, 14.147). */
