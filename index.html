@@ -60392,11 +60392,45 @@ function depPollIniciar() {
    TCK_UPD_LOCAL aca Y el archivo version.json del repo.
    ============================================================ */
 (function(){
-  var TCK_UPD_LOCAL = '14.211.0';        /* <-- bump en cada deploy */
+  var TCK_UPD_LOCAL = '14.212.0';        /* <-- bump en cada deploy */
   /* v14.159.0: fuente UNICA de version. La telemetria del shadow la reporta,
      asi que un desfasaje contra version.json se ve solo en el primer pedido
      (paso 4 veces sin que nadie lo notara: 14.109, 14.128, 14.137, 14.147). */
   try { window.TCK_APP_VERSION = TCK_UPD_LOCAL; } catch (eVer) {}
+  /* ════════════════════════════════════════════════════════════════
+     BADGE DE VERSION VISIBLE (Braian 19/09)
+     Hasta ahora la unica forma de saber que version tenia un celular
+     era abrir la consola. Con 7 personas usando la app desde su propio
+     telefono, eso hacia imposible responder "actualizaste?" sin ir a
+     mirar el aparato. El badge lee la MISMA constante que el banner de
+     actualizacion, asi que no puede desfasarse.
+     Arriba a la derecha, chiquito, sin capturar clicks (pointer-events
+     none) para que no pueda tapar ningun boton del header.
+     ════════════════════════════════════════════════════════════════ */
+  function _tckBadgeVersion(){
+    try {
+      if (document.getElementById('tck-ver-badge')) return;
+      var b = document.createElement('div');
+      b.id = 'tck-ver-badge';
+      b.textContent = 'v' + TCK_UPD_LOCAL;
+      b.style.cssText = [
+        'position:fixed', 'top:0', 'right:0', 'z-index:2147483000',
+        'font:600 9px/1.4 ui-monospace,SFMono-Regular,Menlo,monospace',
+        'letter-spacing:.3px', 'padding:2px 6px 3px',
+        'color:rgba(255,255,255,.72)', 'background:rgba(0,0,0,.34)',
+        'border-radius:0 0 0 7px', 'pointer-events:none',
+        'user-select:none', '-webkit-user-select:none'
+      ].join(';');
+      (document.body || document.documentElement).appendChild(b);
+    } catch (e) {}
+  }
+  /* Se pinta apenas hay body y se reasegura por si algo limpia el DOM. */
+  if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', _tckBadgeVersion);
+  } else { _tckBadgeVersion(); }
+  setInterval(_tckBadgeVersion, 5000);
+  try { window.TCK_BADGE_VERSION = _tckBadgeVersion; } catch (eB) {}
+
   var TCK_UPD_INTERVALO = 10 * 60 * 1000;   /* chequeo de fondo: 10 min */
   var _updUltChequeo = 0;
 
