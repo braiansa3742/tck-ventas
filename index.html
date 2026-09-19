@@ -60392,7 +60392,7 @@ function depPollIniciar() {
    TCK_UPD_LOCAL aca Y el archivo version.json del repo.
    ============================================================ */
 (function(){
-  var TCK_UPD_LOCAL = '14.209.1';        /* <-- bump en cada deploy */
+  var TCK_UPD_LOCAL = '14.211.0';        /* <-- bump en cada deploy */
   /* v14.159.0: fuente UNICA de version. La telemetria del shadow la reporta,
      asi que un desfasaje contra version.json se ve solo en el primer pedido
      (paso 4 veces sin que nadie lo notara: 14.109, 14.128, 14.137, 14.147). */
@@ -61290,15 +61290,38 @@ async function recoReintentarPedido(pedidoId) {
    FLAG: CARGA_V2_CFG.modo = 'off' | 'piloto' | 'on'
    ═══════════════════════════════════════════════════════════════════ */
 var CARGA_V2_CFG = {
-  modo: 'piloto',   /* v14.206.0 - piloto zona 2B */
-  piloto: ['Pancho', 'Joan', 'Ian', 'Francisco', 'Chan'],   // Chan: autoriza excepciones del piloto. Nahuel y Cesar: sumar cuando se confirme su situación
+  /* v14.211.0 (Braian 19/09) - PILOTO TERMINADO: modo 'on' para todos.
+     La lista blanca se comio un dia de reparto: Cesar cargo, Pancho cerro,
+     y el celular de Cesar le mostro la pantalla vieja (sin el paso de
+     aceptar) porque su nombre no figuraba aca, mientras el backend le
+     exigia la aceptacion igual. Front y backend decian cosas distintas y
+     el chofer quedaba sin salida. Con 'on' no hay lista que mantener: el
+     alta de un chofer en app_usuarios alcanza.
+     Cada bloque de v2 sigue gateado por contexto (tab Deposito, viaje
+     activo del chofer), asi que un vendedor no ve nada nuevo. */
+  modo: 'on',
+  /* Solo se lee si se vuelve a modo 'piloto' para aislar una prueba
+     puntual. En 'on' no se usa. */
+  piloto: ['Pancho', 'Joan', 'Ian', 'Francisco', 'Chan', 'Cesar', 'Nahuel', 'Comodin', 'Chan Chofer', 'Roman Chofer'],
   pingMs: 8000,
   autoPlanillaMinMs: 15000
 };
 function cv2On() {
   try {
     if (CARGA_V2_CFG.modo === 'on') return true;
-    if (CARGA_V2_CFG.modo === 'piloto') return CARGA_V2_CFG.piloto.indexOf(vendedorActual) !== -1;
+    // v14.210.0 - comparacion normalizada (sin tildes, sin mayusculas, sin
+    // espacios sobrantes). Antes era indexOf() exacto: un nombre cargado en
+    // app_usuarios con tilde o espacio no matcheaba, cv2On() daba false, el
+    // chofer veia la pantalla vieja SIN el paso de aceptar, y el backend lo
+    // rebotaba igual con "El chofer todavia no acepto la carga".
+    if (CARGA_V2_CFG.modo === 'piloto') {
+      var _vn = cv2Norm(String(vendedorActual || '').trim());
+      if (!_vn) return false;
+      for (var _i = 0; _i < CARGA_V2_CFG.piloto.length; _i++) {
+        if (cv2Norm(String(CARGA_V2_CFG.piloto[_i] || '').trim()) === _vn) return true;
+      }
+      return false;
+    }
   } catch (e) {}
   return false;
 }
