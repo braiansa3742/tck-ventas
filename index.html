@@ -2,6 +2,16 @@
 <html lang="es">
 <head>
 <!-- ═══════════════════════════════════════════════════════════════════════
+     TCK VENTAS — v14.209.1 — 18/09/2026
+     v14.209.1: SESION VENCIDA → PRESUPUESTO POR EL CAMINO DE SIEMPRE.
+       (sobre v14.209.0 publicada. Solo front, una linea.)
+       · Con el JWT vencido o invalido, el gateway de Supabase contesta 401
+         con SU PROPIO code (UNAUTHORIZED_LEGACY_JWT, ..._INVALID_JWT_FORMAT).
+         14.209.0 solo caia al .gs ante un 401 SIN code: el presupuesto no
+         salia y el boton esperaba 5 minutos de poll. Ahora todo 401 se
+         trata como NO_AUTORIZADO y cae al .gs, como antes de 14.209.0.
+       DEPLOY: subir como index.html y version.json a 14.209.1.
+     ─────────────────────────────────────────────────────────────────────
      TCK VENTAS — v14.209.0 — 18/09/2026
      v14.209.0: LOS PRESUPUESTOS YA NO DEPENDEN DE APPS SCRIPT.
        (sobre v14.208.5 publicada. Requiere la Edge crear-presupuesto v3.)
@@ -20602,7 +20612,9 @@ function _edgePresupFetch(body, timeoutMs) {
     clearTimeout(tid);
     return r.json().then(function(j){
       j = j || {};
-      if (r.status === 401 && !j.code) j.code = 'NO_AUTORIZADO';   // JWT vencido: lo corta el gateway
+      // v14.209.1 — JWT vencido/invalido: el gateway contesta 401 con SU code
+      // (UNAUTHORIZED_LEGACY_JWT, ...). Todo 401 = sin sesion valida → cae al .gs.
+      if (r.status === 401) { j.gateway_code = j.code || null; j.code = 'NO_AUTORIZADO'; }
       return j;
     }, function(){ return { ok: false, code: r.status === 401 ? 'NO_AUTORIZADO' : ('HTTP_' + r.status) }; });
   }).catch(function(e){ clearTimeout(tid); throw e; });
@@ -60380,7 +60392,7 @@ function depPollIniciar() {
    TCK_UPD_LOCAL aca Y el archivo version.json del repo.
    ============================================================ */
 (function(){
-  var TCK_UPD_LOCAL = '14.209.0';        /* <-- bump en cada deploy */
+  var TCK_UPD_LOCAL = '14.209.1';        /* <-- bump en cada deploy */
   /* v14.159.0: fuente UNICA de version. La telemetria del shadow la reporta,
      asi que un desfasaje contra version.json se ve solo en el primer pedido
      (paso 4 veces sin que nadie lo notara: 14.109, 14.128, 14.137, 14.147). */
