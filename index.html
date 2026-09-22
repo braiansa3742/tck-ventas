@@ -2,43 +2,52 @@
 <html lang="es">
 <head>
 <!-- ═══════════════════════════════════════════════════════════════════════
-     TCK VENTAS — v14.215.0 — 22/09/2026
-     v14.215.0: EL VENDEDOR VE EL ESTADO LOGÍSTICO REAL DEL PEDIDO (v2.2).
-       (sobre v14.212.0 publicada; reemplaza a la 14.214.0 que no se publicó.
-        Solo front. Requiere vw_pedidos_ventas con las columnas logi_* del SQL
-        "pedido-sin-viaje v2.2"; sin ellas la app se comporta como la 14.212.0.)
-       · Caso Sucesión de Peña (TCK-20260918-1841-LIS-WLSL4, $205.000): el
-         21/09 a las 20:52 Lisandro veía "✅ Confirmado · HOY mañana" para un
-         pedido que nunca subió al camión. La fecha se pintaba desde el TEXTO
-         fecha_entrega_txt y la urgencia con el reloj del teléfono.
-       · Ahora la vista calcula en el servidor (hora Argentina) un logi_estado
-         por pedido y la app lo muestra tal cual (pill de la card, caja ENTREGA
-         del expandido y banner arriba de la lista). Cada texto afirma SOLO lo
-         que la base respalda:
-           programado            fecha + estado del camión (en depósito / carga
-                                 cerrada). "HOY" solo si la salida es hoy.
-           en_reparto            camión en_ruta HOY y la entrega del pedido
-                                 está en la planilla (pendiente / en camino).
-           asignacion_pendiente  confirmado hace <20 min y todavía sin camión:
-                                 "asignación pendiente", sin prometer plazo ni
-                                 éxito. Nunca indefinido: pasa a SIN CAMIÓN.
-           sin_viaje             🚫 SIN CAMIÓN (rojo) + banner.
-           reprogramacion_pend.  ⚠️ la fecha prometida no se cumple; el motivo
-                                 sale de la incidencia; Admin define la fecha
-                                 nueva y avisa al cliente. No se inventa fecha.
-           revisar_logistica     🔧 tiene camión pero pedido/viaje/entrega no
-                                 cierran (sin entrega operativa, entrega en
-                                 otro camión, fecha o zona distinta) + banner.
-           entrega_vencida       ⏰ la fecha pasó y el camión NO registra
-                                 salida (sigue en depósito).
-           sin_registro_entrega  ❔ el camión salió/terminó y este pedido no
-                                 tiene registro de entregado ni no entregado.
-           no_entregado          ↩ el chofer marcó no entregado.
-           entregado / cancelado como siempre.
-       · Franjas horarias: TCK no tiene horarios mañana/tarde en la base; la
-         app nunca declara una franja vencida por reloj.
-       · Los campos logi_* entran al hash de render: cuando el cron asigna el
-         camión o cambia el viaje, la card se repinta en el próximo poll (60 s).
+     TCK VENTAS — v14.216.0 — 22/09/2026
+     v14.216.0: PARCHE DE CIERRE (rev5).
+       · CONTRA BOLETA: el cobro se imputa con SUS instrumentos (efectivo / transferencia / cheque van cada
+         uno con su importe). No se elige "el medio de mayor importe" para todo ni se duplica la cobranza.
+       · Se aclara que lo que se ve son las facturas que la app puede demostrar, no el saldo total del cliente.
+       · DEPÓSITO: lo que vuelve dañado o vencido no queda disponible para vender hasta que Administración
+         resuelva el destino de esas unidades.
+       DEPLOY: subir como index.html y version.json a 14.216.0.
+     ─────────────────────────────────────────────────────────────────────
+     TCK VENTAS — v14.215.0 — 21/09/2026
+     v14.215.0: RECEPCIÓN POR CONTEO · CONTRA BOLETA (rev4).
+       (sobre v14.214.0. Requiere en Supabase 02_tck_nc_emision_v3.sql.)
+       · DEPÓSITO: la mercadería que vuelve se recibe por conteo: cantidad y condición por producto,
+         hora real de entrada (separada del registro), lo que llegó y no estaba (producto distinto /
+         sobrante), y "sin foto ahora" explícito (queda evidencia pendiente, no se inventa). Si no
+         coincide, se abre una diferencia que Administración investiga (responsable, evidencia,
+         seguimiento). Antes de registrar algo suelto, se BUSCA si ya hay un retorno registrado.
+         Evidencia pendiente: botón para completarla después.
+       · CHOFER · CONTRA BOLETA (solo clientes autorizados por Braian, empezando por Tiziano): al abrir
+         la entrega ve las facturas pendientes VERIFICADAS del cliente y la de hoy; elige a cuál va el
+         cobro; la factura de hoy queda en cuenta corriente autorizada (no es faltante). El cobro se
+         registra UNA vez (detalle de siempre → rendición del viaje) y se imputa a la factura elegida.
+         Lo que la app no puede demostrar aparece como "saldo en revisión" y no se cobra desde acá; si
+         igual entra plata sin factura clara, queda pendiente de imputación para Administración.
+         El resto de los clientes no cambia nada.
+       · Incidencias con foto pendiente: "Completar evidencia" desde la entrega.
+       DEPLOY: subir como index.html y version.json a 14.215.0.
+     ─────────────────────────────────────────────────────────────────────
+     TCK VENTAS — v14.214.0 — 21/09/2026
+     v14.214.0: EL CHOFER INFORMA INCIDENCIAS DE LA ENTREGA (no comprobantes).
+       (sobre la publicada: cabecera v14.209.1, TCK_UPD_LOCAL 14.212.0, version.json 14.212.0.
+        Requiere 02_tck_nc_emision_v2.sql en Supabase: rpc/nc_entrega_items y rpc/entrega_incidencia_registrar.)
+       · Botón "⚠️ Informar incidencia" en la entrega: faltante (no bajó del camión), producto
+         equivocado (qué se facturó / qué recibió el cliente en su lugar / de qué pedido),
+         contingencia (falla de la app, sin espacio para fotos). Hora del hecho (puede ser
+         anterior) separada de la hora de registro. Foto pendiente explícita: no se inventa
+         evidencia. Se registra con el vehículo detenido (velocidad GPS < 5 km/h o confirmación).
+       · La incidencia NO crea ningún comprobante ni solicitud de NC: Administración la ve en el
+         Centro de Control / pedido / viaje y decide (NC, reposición, ajuste, descarte).
+       · Si el pedido no tiene factura, la app lo dice: se resuelve por el circuito previo a
+         facturación, no con una NC.
+       · Lo que vuelve al camión sigue registrándose como siempre en la entrega ("vuelve N"):
+         eso es la devolución; la incidencia es para lo que la entrega no puede expresar.
+       DEPLOY: subir como index.html y version.json a 14.214.0.
+     ─────────────────────────────────────────────────────────────────────
+     TCK VENTAS — v14.209.1 — 18/09/2026
      v14.209.1: SESION VENCIDA → PRESUPUESTO POR EL CAMINO DE SIEMPRE.
        (sobre v14.209.0 publicada. Solo front, una linea.)
        · Con el JWT vencido o invalido, el gateway de Supabase contesta 401
@@ -8077,20 +8086,6 @@ body {
 .cv23-fecha.urgente { background: #FFEBEE; color: #C62828; }
 .cv23-fecha.entregada { background: #ECEFF1; color: #455A64; }
 .cv23-fecha.sin-fecha { background: #FFF3E0; color: var(--orange); }
-/* v14.215.0 — estados logísticos reales (logi_estado de vw_pedidos_ventas) */
-.cv23-fecha.logi-rojo   { background: #B71C1C; color: #fff; }
-.cv23-fecha.logi-ambar  { background: #FFF3E0; color: #E65100; border: 1px dashed #E65100; }
-.cv23-fecha.logi-ruta   { background: #E8F5E9; color: #1B5E20; }
-.cv23-fecha.logi-gris   { background: #ECEFF1; color: #455A64; }
-.cv23-entrega-box.logi-rojo  { background: linear-gradient(135deg,#FFEBEE,#FFCDD2); border-color: #B71C1C; }
-.cv23-entrega-box.logi-rojo  .cv23-entrega-fecha { color: #7F0000; }
-.cv23-entrega-box.logi-rojo  .cv23-entrega-zona  { color: #8D3A3A; }
-.cv23-entrega-box.logi-ambar { background: #FFF8E1; border-color: #E65100; }
-.cv23-entrega-box.logi-ambar .cv23-entrega-fecha { color: #E65100; }
-.cv23-entrega-box.logi-ambar .cv23-entrega-zona  { color: #8D5A00; }
-.cv23-entrega-box.logi-ruta  { background: #E8F5E9; border-color: #2E7D32; }
-.cv23-entrega-box.logi-ruta  .cv23-entrega-fecha { color: #1B5E20; }
-.cv23-entrega-box.logi-ruta  .cv23-entrega-zona  { color: #2E7D32; }
 
 .cv23-bot {
   display: flex;
@@ -19430,6 +19425,8 @@ body {
                v14.202.0): es el saldo de la factura de hoy que el cliente no
                pago. Por eso esta afuera del bloque de medios, el importe se
                calcula solo y no se puede tipear. -->
+          <!-- v14.215.0 — contra boleta: solo aparece si el cliente está autorizado (contra_boleta_contexto) -->
+          <div id="cb-panel" style="display:none;margin:0 0 8px;padding:10px;border:1.5px solid #1565C0;border-radius:12px;background:#E3F2FD;font-size:13.5px;"></div>
           <div class="ctacte-wrap" id="ctacte-wrap">
             <label class="ctacte-label" for="ctacte-check">
               <input type="checkbox" id="ctacte-check" onchange="ctaCteToggle()">
@@ -26633,16 +26630,6 @@ function _mapVista(r) {
     facturacionEstado: r.facturacion_estado || null,
     coherente:    r.coherente,
     updatedAt:    r.updated_at || null,
-    /* v14.215.0 — estado logístico calculado en el servidor (hora Argentina).
-       undefined/null cuando la vista todavía no tiene las columnas: la app cae
-       al comportamiento anterior. */
-    logiEstado:        r.logi_estado || null,
-    logiViajeEstado:   r.logi_viaje_estado || null,
-    logiViajeFecha:    r.logi_viaje_fecha || null,
-    logiViajeChofer:   r.logi_viaje_chofer || null,
-    logiEntregaEstado: r.logi_entrega_estado || null,
-    logiIncidencia:    r.logi_incidencia || null,
-    logiSalidaRel:     (r.logi_salida_rel === null || r.logi_salida_rel === undefined) ? null : Number(r.logi_salida_rel),
     _productos:   r.productos || []   // para el detector de duplicados, sin parsear texto
   };
 }
@@ -27301,9 +27288,7 @@ function _hashPedido(p) {
     // v14.151.0 — updatedAt del servidor: si cambió cualquier cosa del pedido
     // (aunque el total quede igual), el sello cambia y la card se repinta.
     // Es lo que garantiza el caso Balcarce -> McCain al mismo importe.
-    (p.updatedAt || '') + '|' + (p._recoTs || '') + '|' +
-    // v14.215.0 — si el servidor cambia el estado logístico, la card se repinta.
-    (p.logiEstado || '') + '|' + (p.logiViajeEstado || '') + '|' + (p.logiSalidaRel === null || p.logiSalidaRel === undefined ? '' : p.logiSalidaRel);
+    (p.updatedAt || '') + '|' + (p._recoTs || '');
 }
 
 function _hashLista(lista) {
@@ -27379,7 +27364,7 @@ function renderPedidos(forzar) {
 
   /* v14.174.0 — SIN RUTA va PRIMERO: es el único de los tres que significa
      que el pedido no va a salir en ningún camión. */
-  cont.innerHTML = _bannerSinRuta() + _bannerLogistica() + _bannerSinPresupuesto() + _bannerEsperaAlta()
+  cont.innerHTML = _bannerSinRuta() + _bannerSinPresupuesto() + _bannerEsperaAlta()
     + lista.map(function(p){ return renderCard(p); }).join('');
 
   // Restaurar scroll y cards. Doble rAF para asegurar que el layout terminó.
@@ -27629,10 +27614,6 @@ function _v23FechaPillHtml(p) {
   if (estado === 'Cancelado') {
     return '';
   }
-  var LI = _logiInfo(p);   // v14.215.0 — estado logístico del servidor
-  if (LI) {
-    return '<span class="cv23-fecha ' + LI.pillCls + '" title="' + escapeHtml(String(p.fechaEntrega || '')) + ' · ' + escapeHtml(String(p.turnoEntrega || '')) + ' · ' + escapeHtml(String(p.logiEstado || '')) + '">' + LI.pill + '</span>';
-  }
   if (!p.fechaEntrega) {
     return '<span class="cv23-fecha sin-fecha">📅 Sin fecha</span>';
   }
@@ -27688,21 +27669,6 @@ function _v23EntregaBoxHtml(p) {
       + '<div>'
       +   '<div class="cv23-entrega-fecha">Pedido entregado</div>'
       +   '<div class="cv23-entrega-zona">📍 ' + (p.localidad || '—') + '</div>'
-      + '</div></div>';
-  }
-  var LB = _logiInfo(p);   // v14.215.0 — estado logístico del servidor
-  if (LB) {
-    var lbIcon = LB.boxCls === 'logi-rojo' ? '🚫' : (LB.boxCls === 'logi-ambar' ? '⏳' : (LB.boxCls === 'logi-ruta' ? '🚚' : (p.turnoEntrega === 'Mañana' ? '🌅' : (p.turnoEntrega === 'Tarde' ? '🌆' : '🚚'))));
-    if (p.logiEstado === 'entrega_vencida') lbIcon = '⏰';
-    if (p.logiEstado === 'reprogramacion_pendiente') lbIcon = '⚠️';
-    if (p.logiEstado === 'revisar_logistica') lbIcon = '🔧';
-    if (p.logiEstado === 'sin_registro_entrega') lbIcon = '❔';
-    if (p.logiEstado === 'no_entregado') lbIcon = '↩';
-    return '<div class="cv23-entrega-box ' + LB.boxCls + '">'
-      + '<div class="cv23-entrega-icon">' + lbIcon + '</div>'
-      + '<div>'
-      +   '<div class="cv23-entrega-fecha">' + LB.titulo + '</div>'
-      +   '<div class="cv23-entrega-zona">' + LB.sub + '</div>'
       + '</div></div>';
   }
   var esFechaReal = p.fechaEntrega && /^(Lunes|Martes|Mi|Jueves|Viernes|S|Domingo)/i.test(p.fechaEntrega);
@@ -29636,179 +29602,6 @@ function _bannerEsperaAlta() {
     +   '<div style="font-size:11.5px;color:#1565C0;line-height:1.45;margin-top:6px;">'
     +     'Cuando tengas los datos, dalos de alta en Xubio y creá el presupuesto desde el pedido.'
     +   '</div>'
-    + '</div>';
-}
-
-// ══════════════════════════════════════════════════════════════════════
-//  v14.215.0 — ESTADO LOGÍSTICO REAL (Braian, 21/09 · caso Sucesión de Peña)
-// ──────────────────────────────────────────────────────────────────────
-//  La vista vw_pedidos_ventas trae logi_estado (calculado en Supabase con
-//  hora Argentina), logi_viaje_estado, logi_viaje_chofer, logi_entrega_estado,
-//  logi_incidencia y logi_salida_rel (días hasta la salida; 0 = hoy).
-//  Acá NO se deduce nada con el reloj del teléfono ni con el texto de la
-//  fecha: se muestra lo que el servidor sabe. Si la vista no trae logi_*
-//  (deploy del SQL pendiente), todas estas funciones devuelven null y la app
-//  se comporta como la 14.212.0.
-//  Horarios: TCK no tiene franjas horarias definidas en la base, así que la
-//  app nunca declara "franja vencida" por hora; "vencida" viene del estado
-//  del viaje (rindiendo/cerrado) o de la fecha ya pasada.
-// ══════════════════════════════════════════════════════════════════════
-function _logiViajeTxt(p) {
-  var e = p.logiViajeEstado;
-  if (!e) return '';
-  if (e === 'planificado' || e === 'preparando') return p.logiViajeChofer ? 'en depósito' : 'en depósito · sin chofer';
-  if (e === 'carga_cerrada') return 'carga cerrada' + (p.logiViajeChofer ? ' · ' + p.logiViajeChofer : ' · sin chofer');
-  if (e === 'en_ruta') return 'en reparto' + (p.logiViajeChofer ? ' · ' + p.logiViajeChofer : '');
-  if (e === 'rindiendo' || e === 'cerrado') return 'camión de vuelta';
-  if (e === 'cancelado') return 'viaje cancelado';
-  return e;
-}
-function _logiDiaTxt(p) {
-  var r = p.logiSalidaRel;
-  if (r === null || r === undefined) return p.fechaEntrega || '';
-  if (r === 0) return 'HOY';
-  if (r === 1) return 'MAÑANA';
-  if (r === -1) return 'AYER';
-  if (r < -1) return 'hace ' + (-r) + ' días';
-  return p.fechaEntrega || ('en ' + r + ' días');
-}
-// Devuelve {pill, pillCls, titulo, sub, boxCls, banner} o null si no hay logi_estado.
-function _logiInfo(p) {
-  var L = p.logiEstado;
-  if (!L) return null;
-  var dia = _logiDiaTxt(p), viaje = _logiViajeTxt(p), fe = p.fechaEntrega || '';
-  var turno = p.turnoEntrega ? ' · ' + p.turnoEntrega : '';
-  // motivo legible según la incidencia abierta (viene del servidor)
-  var inc = p.logiIncidencia || '';
-  var motivoRep = inc === 'entrega_incumplida' ? 'el camión de esa fecha ya salió, o la fecha pasó sin camión'
-                : inc === 'pedido_vs_carga_cerrada' ? 'la carga del camión de esa fecha ya estaba cerrada'
-                : inc === 'pedido_desasignado' ? 'lo sacaron del camión de esa fecha'
-                : inc === 'asignacion_requiere_decision' ? 'no hay un camión válido para esa fecha'
-                : 'el camión de esa fecha no lo puede llevar';
-  var motivoRev = inc === 'entrega_no_creada' ? 'tiene camión pero NO tiene entrega operativa: el chofer no lo vería en su lista'
-                : inc === 'entrega_inconsistente' ? 'la entrega operativa apunta a otro camión o está duplicada'
-                : inc === 'pedido_viaje_incoherente' ? 'el pedido dice ' + fe + ' y el camión asignado es de otra fecha o zona'
-                : (p.logiEntregaEstado ? 'el pedido y el camión no coinciden en fecha o zona' : 'tiene camión pero no tiene entrega operativa');
-  switch (L) {
-    case 'sin_viaje':
-      return { pill: '🚫 SIN CAMIÓN', pillCls: 'logi-rojo', boxCls: 'logi-rojo', banner: 'sin_viaje',
-               titulo: 'Sin camión asignado',
-               sub: 'Confirmado para ' + fe + turno + ' · 📍 ' + (p.localidad || '—') +
-                    '<br>No está en ningún viaje: <b>no sale hasta que Administración lo sume a un camión</b>.' };
-    case 'reprogramacion_pendiente':
-      return { pill: '⚠️ REPROGRAMAR', pillCls: 'logi-rojo', boxCls: 'logi-rojo', banner: 'reprogramar',
-               titulo: 'La fecha prometida no se cumple',
-               sub: 'Se prometió ' + fe + turno + ' · 📍 ' + (p.localidad || '—') +
-                    '<br><b>Motivo: ' + motivoRep + '.</b> Administración define la fecha nueva y avisa al cliente. Hasta entonces no hay fecha nueva registrada: no le prometas una.' };
-    case 'revisar_logistica':
-      return { pill: '🔧 REVISAR LOGÍSTICA', pillCls: 'logi-ambar', boxCls: 'logi-ambar', banner: 'revisar',
-               titulo: 'Logística inconsistente',
-               sub: 'Entrega ' + fe + turno + ' · 📍 ' + (p.localidad || '—') + (viaje ? ' · camión ' + viaje : '') +
-                    '<br><b>' + motivoRev + '.</b> Administración lo revisa; no confirmes la fecha al cliente hasta que quede coherente.' };
-    case 'entrega_vencida':
-      return { pill: '⏰ SALIDA VENCIDA', pillCls: 'logi-rojo', boxCls: 'logi-rojo', banner: (p.logiSalidaRel !== null && p.logiSalidaRel >= -7) ? 'vencida' : null,
-               titulo: 'Salida vencida · el camión no salió',
-               sub: 'Salía ' + fe + turno + ' (' + dia + ') · 📍 ' + (p.localidad || '—') +
-                    '<br>El camión de esa fecha sigue ' + (viaje || 'en depósito') + ': <b>no registra salida</b>, así que este pedido no se entregó por el circuito. Administración reprograma y avisa al cliente.' };
-    case 'sin_registro_entrega':
-      return { pill: '❔ SIN REGISTRO DE ENTREGA', pillCls: 'logi-gris', boxCls: 'logi-ambar', banner: null,
-               titulo: 'Sin registro de entrega',
-               sub: 'Salía ' + fe + turno + ' (' + dia + ') · 📍 ' + (p.localidad || '—') +
-                    '<br>El camión' + (p.logiViajeChofer ? ' de ' + p.logiViajeChofer : '') + ' ya salió' + (p.logiViajeEstado === 'en_ruta' ? ' y sigue en ruta' : ' y terminó') + '; este pedido <b>no tiene registro de entregado ni de no entregado</b>. Consultá a Administración antes de responderle al cliente.' };
-    case 'asignacion_pendiente':
-      return { pill: '⏳ ASIGNACIÓN PENDIENTE', pillCls: 'logi-ambar', boxCls: 'logi-ambar', banner: null,
-               titulo: 'Confirmado · todavía sin camión',
-               sub: 'Entrega ' + fe + turno + ' · 📍 ' + (p.localidad || '—') +
-                    '<br>El sistema está intentando sumarlo al camión de su fecha. <b>Todavía no tiene camión asignado.</b> Si en unos minutos no pasa a programado, va a figurar como 🚫 SIN CAMIÓN y hay que avisar a Administración.' };
-    case 'en_reparto':
-      return { pill: '🚚 ' + dia + ' · EN REPARTO', pillCls: 'logi-ruta', boxCls: 'logi-ruta', banner: null,
-               titulo: dia + ' · en reparto' + (p.logiViajeChofer ? ' · ' + p.logiViajeChofer : ''),
-               sub: fe + turno + ' · 📍 ' + (p.localidad || '—') + '<br>El camión salió hoy y este pedido está en su planilla; la entrega figura <b>' + (p.logiEntregaEstado === 'en_camino' ? 'en camino' : 'pendiente') + '</b>.' };
-    case 'no_entregado':
-      return { pill: '↩ NO ENTREGADO', pillCls: 'logi-gris', boxCls: 'entregada', banner: null,
-               titulo: 'No entregado',
-               sub: 'El chofer lo marcó como no entregado (' + fe + turno + ') · 📍 ' + (p.localidad || '—') + '<br>Vuelve a depósito. Coordinar con Administración.' };
-    case 'programado': {
-      var icon = p.turnoEntrega === 'Mañana' ? '🌅' : (p.turnoEntrega === 'Tarde' ? '🌆' : '🚚');
-      var hoy = (p.logiSalidaRel === 0);
-      return { pill: icon + ' ' + (hoy ? 'HOY · ' + viaje : _v23FechaCorta(fe)), pillCls: hoy ? 'urgente' : '', boxCls: hoy ? 'urgente' : '', banner: null,
-               titulo: (hoy ? 'HOY — ' : '') + fe + turno,
-               sub: '📍 ' + (p.localidad || '—') + ' · camión ' + viaje.replace(' · sin chofer', ' · <b>todavía sin chofer</b>') };
-    }
-    default:
-      return null;   // entregado / cancelado / sin_fecha / sin_zona / mostrador / no_confirmado: camino de siempre
-  }
-}
-// "Jueves 21 de mayo" → "Jue 21/05" (extraído de _v23FechaPillHtml para reusarlo)
-function _v23FechaCorta(fecha) {
-  var m = (fecha || '').match(/^(\w{3,})\w*\s+(\d{1,2})\s+de\s+(\w+)/i);
-  if (!m) return fecha || '';
-  var meses = {enero:'01',febrero:'02',marzo:'03',abril:'04',mayo:'05',junio:'06',julio:'07',agosto:'08',septiembre:'09',octubre:'10',noviembre:'11',diciembre:'12'};
-  var mes = meses[m[3].toLowerCase()] || '';
-  return mes ? (m[1].substring(0,3) + ' ' + m[2].padStart(2,'0') + '/' + mes) : fecha;
-}
-function _pedidosLogisticaProblema() {
-  if (!Array.isArray(todosLosPedidos)) return [];
-  return todosLosPedidos.filter(function (p) {
-    var I = _logiInfo(p);
-    if (!I || !I.banner) return false;
-    if (vendedorActual && vendedorActual !== 'ADMIN') {
-      if (!p.vendedor || !p.vendedor.toLowerCase().includes(vendedorActual.toLowerCase())) return false;
-    }
-    return true;
-  });
-}
-function avisarAdminLogistica(pedidoId) {
-  var p = null;
-  if (Array.isArray(todosLosPedidos)) {
-    for (var i = 0; i < todosLosPedidos.length; i++) {
-      if (todosLosPedidos[i].pedidoId === pedidoId) { p = todosLosPedidos[i]; break; }
-    }
-  }
-  if (!p) return;
-  var I = _logiInfo(p) || {};
-  var msg = (I.pill || 'PEDIDO CON PROBLEMA LOGÍSTICO') + '\n'
-    + 'Pedido: ' + p.pedidoId + '\n'
-    + 'Cliente: ' + (p.cliente || '') + ' — ' + (p.localidad || '') + '\n'
-    + 'Total: ' + (p.total || '') + '\n'
-    + 'Entrega prometida: ' + (p.fechaEntrega || '') + (p.turnoEntrega ? ' · ' + p.turnoEntrega : '') + '\n'
-    + 'Estado: ' + (p.logiEstado || '') + (p.logiIncidencia ? ' (' + p.logiIncidencia + ')' : '') + '\n'
-    + 'Resolver en Admin → Centro de Control.';
-  window.open('https://wa.me/' + NUM_ADMIN + '?text=' + encodeURIComponent(msg), '_blank');
-}
-function _bannerLogistica() {
-  var L = _pedidosLogisticaProblema();
-  if (!L.length) return '';
-  var filas = L.slice(0, 8).map(function (p) {
-    var I = _logiInfo(p);
-    return ''
-      + '<div style="display:flex;align-items:center;gap:8px;padding:7px 0;border-top:1px solid rgba(183,28,28,.18);">'
-      +   '<div style="flex:1;min-width:0;">'
-      +     '<div style="font-weight:800;font-size:13px;color:#7F0000;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">'
-      +       _escapeHtml(String(I.pill)) + ' · ' + _escapeHtml(String(p.cliente || p.pedidoId || '')) + '</div>'
-      +     '<div style="font-size:11.5px;color:#8D3A3A;">'
-      +       _escapeHtml(String(p.localidad || '')) + ' · prometido ' + _escapeHtml(String(p.fechaEntrega || '')) + ' · ' + _escapeHtml(String(p.total || ''))
-      +     '</div>'
-      +   '</div>'
-      +   '<button type="button" onclick="avisarAdminLogistica(\'' + p.pedidoId + '\')"'
-      +     ' style="flex:0 0 auto;padding:9px 13px;background:#B71C1C;color:#fff;border:none;border-radius:9px;'
-      +       'font-family:Barlow Condensed,sans-serif;font-size:13px;font-weight:900;cursor:pointer;">📲 AVISAR ADMIN</button>'
-      + '</div>';
-  }).join('');
-  var resto = L.length > 8 ? '<div style="font-size:11.5px;color:#8D3A3A;padding-top:7px;">y ' + (L.length - 8) + ' más…</div>' : '';
-  return ''
-    + '<div style="background:linear-gradient(135deg,#FFEBEE,#FFCDD2);border:2px solid #B71C1C;border-radius:14px;padding:13px 15px;margin:0 0 12px;box-shadow:0 3px 10px rgba(183,28,28,.18);">'
-    +   '<div style="display:flex;align-items:center;gap:9px;">'
-    +     '<span style="font-size:24px;">🚨</span>'
-    +     '<div style="font-family:Barlow Condensed,sans-serif;font-size:17px;font-weight:900;color:#B71C1C;">'
-    +       L.length + (L.length === 1 ? ' PEDIDO QUE NECESITA A ADMINISTRACIÓN' : ' PEDIDOS QUE NECESITAN A ADMINISTRACIÓN')
-    +     '</div>'
-    +   '</div>'
-    +   '<div style="font-size:12.5px;color:#7F0000;line-height:1.5;margin-top:7px;font-weight:600;">'
-    +     'Sin camión, con la fecha prometida caída, con la salida vencida o con la logística inconsistente. <b>Administración resuelve y avisa al cliente.</b> '
-    +     'El aviso se va cuando cada pedido tiene camión y entrega coherentes, o queda reprogramado o cancelado.'
-    +   '</div>'
-    +   filas + resto
     + '</div>';
 }
 
@@ -44625,6 +44418,7 @@ function abrirEntregaModal(entregaId) {
   const e = _entregasCache.find(x => x.id === entregaId);
   if (!e) return;
   _entregaModalId = entregaId;
+  cbCargarContexto(entregaId);   // v14.215.0 — contra boleta (si el cliente está autorizado)
 
   const montoReal = _entMontoVigente(e) || 0;   // v14.208.5 — vigente
   const fmt = n => '$' + Math.round(n).toLocaleString('es-AR');
@@ -44744,6 +44538,11 @@ function abrirEntregaModal(entregaId) {
       '↩ Deshacer</button>';
   }
 
+  // v14.214.0 — incidencia de la entrega (faltante / producto equivocado / contingencia). No es un comprobante.
+  if (e.pedido_id && typeof ncIncidenciaAbrir === 'function') {
+    btnsHtml += '<button class="entrega-modal-btn" style="background:#FFF3E0;color:#E65100;border:1.5px solid #FFB74D;" onclick="ncIncidenciaAbrir()">' +
+      '⚠️ Informar incidencia</button>';
+  }
   btns.innerHTML = btnsHtml;
 
   // ── FIX N42-B (07/05/2026): MOSTRAR NOVEDADES GUARDADAS ───────────
@@ -45364,6 +45163,7 @@ function _cobroSumaMonetaria(cobros) {
 
 // Lo que queda sin pagar de la factura de hoy.
 function _ctaCteSaldo(cobros) {
+  if (_cbAsignaAnterior()) return Math.max(0, Math.round(_cobroTotalEsperado()));   // v14.215.0 — el cobro es de OTRA factura: la de hoy queda entera en cta cte (autorizada)
   return Math.max(0, Math.round(_cobroTotalEsperado() - _cobroSumaMonetaria(cobros)));
 }
 
@@ -45413,6 +45213,7 @@ function ctaCteTodo() {
 // limpian los inputs de cobro: si no, la marca de una entrega se arrastraba a
 // la siguiente.
 function _ctaCteReset() {
+  _cbReset();   // v14.215.0
   _ctaCteMarcada = false;
   var chk = document.getElementById('ctacte-check');
   if (chk) chk.checked = false;
@@ -45434,7 +45235,11 @@ function _ctaCteRender() {
   var f = function (n) { return '$' + Math.round(n).toLocaleString('es-AR'); };
   var h = '<div class="ctacte-linea"><span>Factura actual:</span><b>' + f(total) + '</b></div>' +
           '<div class="ctacte-linea"><span>Cobrado ahora:</span><b>' + f(cobrado) + '</b></div>';
-  if (_ctaCteMarcada) {
+  if (_cbAsignaAnterior()) {
+    h = '<div class="ctacte-linea"><span>Este cobro va a:</span><b>' + _cbSelLabel() + '</b></div>' +
+        '<div class="ctacte-linea"><span>Cobrado ahora:</span><b>' + f(cobrado) + '</b></div>' +
+        '<div class="ctacte-linea ctacte-saldo"><span>Factura de hoy (queda en cta cte autorizada):</span><b>' + f(total) + '</b></div>';
+  } else if (_ctaCteMarcada) {
     h += '<div class="ctacte-linea ctacte-saldo"><span>Queda en cuenta corriente:</span><b>' + f(saldo) + '</b></div>';
   } else if (saldo > 0) {
     h += '<div class="ctacte-linea ctacte-falta"><span>⚠️ Sin cubrir:</span><b>' + f(saldo) + '</b></div>';
@@ -45532,9 +45337,21 @@ async function confirmarEntregaModal() {
   var _totalEsp = _cobroTotalEsperado();
   var _saldoCC  = Math.max(0, Math.round(_totalEsp - totalCobrado));
 
+  // v14.215.0 — contra boleta: el cobro es de una factura ANTERIOR verificada. El tope es el saldo verificado de esa
+  // factura; la de hoy queda entera en cuenta corriente (autorizada, no es faltante). Un cobro, una imputación.
+  if (_cbAsignaAnterior()) {
+    var _cbTope = _cbSelSaldo();
+    if (totalCobrado <= 0) { toast('❌ Indicá cuánto pagó de ' + _cbSelLabel(), 'err'); return; }
+    if (totalCobrado - _cbTope > 0.5) {
+      alert('⛔ NO SE GUARDÓ\n\nEstás cobrando $' + Math.round(totalCobrado).toLocaleString('es-AR') + ' de ' + _cbSelLabel() + ', que tiene un saldo verificado de $' + Math.round(_cbTope).toLocaleString('es-AR') + '.\n\nSi pagó más, el resto va a "la de hoy" o queda a identificar: elegilo arriba.');
+      return;
+    }
+    _ctaCteMarcada = true;   // la factura de hoy queda declarada en cta cte (autorizada)
+    _saldoCC = _totalEsp;
+  }
   // (a) cobro por encima de la factura: no se guarda. Antes esto pasaba por el
   //     factor blando y se confirmaba con un OK; ahora frena.
-  if (_totalEsp > 0 && totalCobrado - _totalEsp > 0.5) {
+  if (!_cbAsignaAnterior() && _totalEsp > 0 && totalCobrado - _totalEsp > 0.5) {
     alert('⛔ NO SE GUARDÓ\n\nEstás cobrando $' + Math.round(totalCobrado).toLocaleString('es-AR') +
           ' y la factura es de $' + Math.round(_totalEsp).toLocaleString('es-AR') + '.\n\n' +
           'Revisá los importes. Si el cliente te pagó de más porque está saldando deuda vieja, ' +
@@ -46974,6 +46791,24 @@ async function _ejecutarConfirmacionEntrega(cobros) {
     }
     _chUltimoPatchPendiente = (_resRpc.estado === 'pendiente');
     _chGuardadoOk = true;
+    // v14.215.0 — contra boleta: el cobro ya quedó en la entrega (rendición de siempre); ahora se dice a qué factura va.
+    // Si no se puede (sin señal), queda pendiente de imputación: Administración lo imputa desde la ficha. Nunca se cobra dos veces.
+    if (_cbCtx && _cbCtx.autorizado && _resRpc.estado === 'ok') {
+      try {
+        var _cbMonet = _cobroSumaMonetaria(cobros);
+        if (_cbMonet > 0) {
+          // v14.216.0 · cada instrumento se imputa por separado y con su importe (efectivo, transferencia, cheque)
+          var _cbDest = _cbSel || 'a_identificar';
+          var _cbImps = ['efectivo', 'transferencia', 'cheque'].map(function (m) { return { factura_transaccion_id: _cbDest, monto: Math.round((parseFloat(cobros[m]) || 0) * 100) / 100, medio: m }; })
+                          .filter(function (x) { return x.monto > 0; });
+          var _cbImp = await sbFetch('rpc/entrega_cobro_imputar', { method: 'POST', timeoutMs: 20000, body: JSON.stringify({ p_entrega_id: _entregaModalId,
+            p_imputaciones: _cbImps, p_request_id: _chReqId('cb', _entregaModalId) }) });
+          if (_cbImp && _cbImp.ok) toast(_cbImp.a_identificar > 0 ? '📒 Cobro registrado; queda pendiente de imputación (saldo en revisión)'
+              : '📒 Cobro imputado a ' + ((_cbImp.imputaciones || [{}])[0].factura || 'la factura elegida') + ' (' + _cbImps.map(function (x) { return x.medio + ' $' + Math.round(x.monto).toLocaleString('es-AR'); }).join(' + ') + ')', 'ok');
+          else toast('📒 Cobro guardado. La imputación quedó pendiente: ' + ((_cbImp && (_cbImp.message || _cbImp.code)) || 'Administración la completa'), 'err');
+        }
+      } catch (_eCb) { toast('📒 Cobro guardado. La imputación queda pendiente para Administración (sin señal).', 'err'); }
+    }
     // Lo que sigue (Sheet, GPS, cache, cierre del modal) es igual que siempre.
     // Lo que NO sigue: el INSERT suelto de devoluciones, el de cheques y
     // fn_entrega_items_confirmar. Los hizo la RPC, adentro de la transacción.
@@ -60646,7 +60481,7 @@ function depPollIniciar() {
    TCK_UPD_LOCAL aca Y el archivo version.json del repo.
    ============================================================ */
 (function(){
-  var TCK_UPD_LOCAL = '14.215.0';        /* <-- bump en cada deploy */
+  var TCK_UPD_LOCAL = '14.216.0';        /* <-- bump en cada deploy */
   /* v14.159.0: fuente UNICA de version. La telemetria del shadow la reporta,
      asi que un desfasaje contra version.json se ve solo en el primer pedido
      (paso 4 veces sin que nadie lo notara: 14.109, 14.128, 14.137, 14.147). */
@@ -61891,6 +61726,8 @@ async function cv2DepRecargar() {
     var r = await cv2Rpc('carga_viajes_listado', {});
     if (r && r.ok) { CV2D.lista = r.viajes || []; CV2D.incidencias = r.incidencias || []; CV2D.retornos = r.retornos || []; CV2D.err = null; }
     else CV2D.err = (r && r.message) || 'No se pudo leer la lista';
+    // v14.215.0 — recepciones registradas sin foto (evidencia pendiente): se completan después, sin inventar
+    try { CV2D.evid = await sbFetch('devoluciones?foto_pendiente=eq.true&recibida_en=not.is.null&select=id,pedido_id,cliente,recibida_en,recepcion_estado&order=recibida_en.desc&limit=20') || []; } catch (eEv) { CV2D.evid = CV2D.evid || []; }
   } catch (e) { CV2D.err = e.red ? 'Sin conexión: mostrando lo último que se cargó.' : e.message; }
   CV2D.cargando = false;
   cv2DepRender();
@@ -61957,6 +61794,10 @@ function cv2DListaHtml() {
   var h = '<div class="cv2-row" style="margin-top:4px;"><div class="cv2-sub">Viajes de hoy y los próximos dos días. Tocá uno para preparar su carga.</div></div>';
   if (CV2D.err) h += '<div class="cv2-alert warn">' + cv2Esc(CV2D.err) + '</div>';
   h += cv2DRetornosHtml(CV2D.retornos);
+  if ((CV2D.evid || []).length && (vendedorActual === 'Pancho' || (typeof rolActual !== 'undefined' && rolActual === 'deposito'))) {   // v14.215.0
+    h += '<div class="cv2-alert warn"><b class="t">📷 EVIDENCIA PENDIENTE (' + CV2D.evid.length + ')</b>Recepciones registradas sin foto. Completala cuando puedas (foto o papel firmado).' +
+         CV2D.evid.map(function (d) { return '<div class="cv2-row" style="margin-top:6px;"><div style="flex:1;">' + cv2Esc(d.pedido_id) + ' · ' + cv2Esc(d.cliente || '') + ' · recibida ' + cv2Esc(String(d.recibida_en).slice(0, 16).replace('T', ' ')) + ' (' + cv2Esc(d.recepcion_estado || '') + ')</div><button class="cv2-btn" onclick="cv2DEvidenciaCompletar(\'' + d.id + '\')">📷 Completar evidencia</button></div>'; }).join('') + '</div>';
+  }
   h += cv2IncidenciasHtml(CV2D.incidencias, 'deposito');
   if (!CV2D.lista) return h + '<div class="cv2-card">Cargando viajes…</div>';
   if (!CV2D.lista.length) return h + '<div class="cv2-card">No hay viajes para preparar.</div>';
@@ -62421,47 +62262,91 @@ async function cv2DRecibirRetiro(retiroId, n, noRecibida) {
 }
 
 // ── Mercadería que vuelve de reparto (no entregada en un viaje de Carga v2) ──
+// v14.215.0 — RECEPCIÓN POR CONTEO: cantidad + condición por producto, hora real de entrada, lo que llegó y no estaba,
+// evidencia pendiente explícita. Si algo no coincide, la base abre una DIFERENCIA para Administración.
 function cv2DRetornosHtml(lista) {
-  if (!lista || !lista.length) return '';
-  var puede = vendedorActual === 'Pancho';
-  var h = '<div class="cv2-alert warn"><b class="t">🔁 MERCADERÍA QUE VUELVE DE REPARTO (' + lista.length + ')</b>' +
-          'Sigue a cargo del chofer hasta que la recibas. Anotá lo que REALMENTE llega (0 si no llegó).';
-  lista.forEach(function (r) {
+  var puede = vendedorActual === 'Pancho' || (typeof rolActual !== 'undefined' && rolActual === 'deposito');
+  if (!puede && (!lista || !lista.length)) return '';
+  var h = '<div class="cv2-alert warn"><b class="t">🔁 MERCADERÍA QUE VUELVE DE REPARTO (' + ((lista || []).length) + ')</b>' +
+          'Sigue a cargo del chofer hasta que la recibas. Contá lo que REALMENTE llega (0 si no llegó) y en qué condición.';
+  // buscar antes de crear: mercadería suelta / sin papel
+  if (puede) h += '<div class="cv2-row" style="margin-top:6px;gap:6px;"><input class="cv2-search" id="cv2-rtn-buscar" data-keep="1" placeholder="Llegó algo suelto? Buscá por pedido, cliente o producto" style="flex:1;">' +
+                  '<button class="cv2-btn" onclick="cv2DBuscarRetorno()">🔍 Buscar</button><button class="cv2-btn" onclick="cv2DNoEsperadoAbrir()">➕ No esperado</button></div><div id="cv2-rtn-buscar-res"></div>';
+  (lista || []).forEach(function (r) {
+    var esp = (r.origen === 'nc' || r.origen === 'admin') && r.nc_transaccion_id;   // retorno esperado por NC (externa o desde la app)
     h += '<div class="cv2-card" style="margin-top:8px;"><b>' + cv2Esc(r.pedido_id) + ' · ' + cv2Esc(r.cliente || '') + '</b>' +
-         (r.tipo === 'parcial' ? ' <span class="cv2-cal">devolución parcial</span>' : ' <span class="cv2-cal">no entregado</span>') +
-         '<div class="cv2-sub">' + cv2Esc(r.viaje || '') + ' · motivo: ' + cv2Esc(r.motivo || '') + (r.motivo_detalle ? ' — ' + cv2Esc(r.motivo_detalle) : '') + '</div>';
+         (esp ? ' <span class="cv2-cal" style="background:#FFF3E0;color:#B45309;">retorno esperado por NC</span>' : r.tipo === 'parcial' ? ' <span class="cv2-cal">devolución parcial</span>' : r.tipo === 'producto_equivocado' ? ' <span class="cv2-cal">producto equivocado</span>' : ' <span class="cv2-cal">no entregado</span>') +
+         '<div class="cv2-sub">' + cv2Esc(r.viaje || '') + ' · motivo: ' + cv2Esc(r.motivo || '') + (r.motivo_detalle ? ' — ' + cv2Esc(r.motivo_detalle) : '') + (r.hecho_at ? ' · hecho ' + cv2Esc(String(r.hecho_at).slice(0, 16).replace('T', ' ')) : '') + '</div>';
     (r.items || []).forEach(function (it, i) {
-      h += '<div class="cv2-row" style="margin-top:4px;"><div style="flex:1;">' + cv2Esc(it.producto) + (it.calibre ? ' ' + cv2Esc(it.calibre) : '') +
-           ' · declarado <b>' + cv2Esc(it.esperado) + '</b></div>' +
-           (puede ? '<input class="cv2-in" id="cv2-rtn-' + r.id + '-' + i + '" data-keep="1" type="text" inputmode="numeric" pattern="[0-9]*" placeholder="recibí">' : '') + '</div>';
+      h += '<div class="cv2-row" style="margin-top:4px;gap:6px;"><div style="flex:1;">' + cv2Esc(it.producto) + (it.calibre ? ' ' + cv2Esc(it.calibre) : '') +
+           ' · esperado <b>' + cv2Esc(it.esperado) + '</b></div>' +
+           (puede ? '<input class="cv2-in" id="cv2-rtn-' + r.id + '-' + i + '" data-keep="1" type="text" inputmode="numeric" pattern="[0-9]*" placeholder="recibí" style="width:64px;">' +
+                    '<select class="cv2-in" id="cv2-rtn-c-' + r.id + '-' + i + '" data-keep="1" style="width:auto;"><option value="buena">buena</option><option value="danada">dañada</option><option value="vencida">vencida</option><option value="otro">otro</option></select>' : '') + '</div>';
     });
-    if (puede) h += '<input class="cv2-search" id="cv2-rtn-nota-' + r.id + '" data-keep="1" style="margin-top:6px;" placeholder="Nota (obligatoria si no llegó nada)">' +
+    if (puede) h += '<div class="cv2-row" style="margin-top:6px;gap:6px;flex-wrap:wrap;"><label style="font-size:13px;">Entró a cámara <input class="cv2-in" type="datetime-local" id="cv2-rtn-h-' + r.id + '" data-keep="1" value="' + cv2DAhoraLocal() + '" style="width:auto;"></label>' +
+                    '<input class="cv2-search" id="cv2-rtn-x-' + r.id + '" data-keep="1" placeholder="Llegó algo que NO estaba? producto × cantidad" style="flex:1;min-width:180px;"></div>' +
+                    '<input class="cv2-search" id="cv2-rtn-nota-' + r.id + '" data-keep="1" style="margin-top:6px;" placeholder="Nota (obligatoria si no llegó nada)">' +
+                    '<label style="display:block;margin-top:6px;font-size:13px;"><input type="checkbox" id="cv2-rtn-f-' + r.id + '" data-keep="1"> Sin foto ahora (queda como evidencia pendiente; se completa después)</label>' +
+                    '<div class="cv2-sub" style="margin-top:4px;">Lo que marques dañado o vencido NO queda disponible para vender: Administración decide el destino de esas unidades.</div>' +
                     '<div class="cv2-row" style="margin-top:6px;"><button class="cv2-btn warn" onclick="cv2DRecibirRetorno(\'' + r.id + '\',' + (r.items || []).length + ',false)">✔ Registrar recepción</button>' +
-                    '<button class="cv2-btn" onclick="cv2DRecibirRetorno(\'' + r.id + '\',0,true)">✖ No recibida</button></div>';
+                    '<button class="cv2-btn" onclick="cv2DRecibirRetorno(\'' + r.id + '\',' + (r.items || []).length + ',true)">✖ No llegó nada</button></div>';
     h += '</div>';
   });
   return h + '</div>';
 }
+function cv2DAhoraLocal() { var d = new Date(); d.setSeconds(0, 0); var p = function (n) { return (n < 10 ? '0' : '') + n; }; return d.getFullYear() + '-' + p(d.getMonth() + 1) + '-' + p(d.getDate()) + 'T' + p(d.getHours()) + ':' + p(d.getMinutes()); }
+async function cv2DBuscarRetorno() {
+  var q = (document.getElementById('cv2-rtn-buscar') || {}).value || ''; var box = document.getElementById('cv2-rtn-buscar-res'); if (!box) return;
+  var r; try { r = await cv2Rpc('retorno_buscar', { p_texto: q, p_viaje_id: null }); } catch (e) { r = null; }
+  if (!Array.isArray(r) || !r.length) { box.innerHTML = '<div class="cv2-sub" style="margin-top:4px;">No hay retornos registrados que coincidan. Si llegó mercadería, registrala como "No esperado".</div>'; return; }
+  box.innerHTML = r.map(function (x) { return '<div class="cv2-sub" style="margin-top:4px;">' + (x.recepcion === 'pendiente' ? '🟠 SIN RECIBIR' : '✅ recibido') + ' · ' + cv2Esc(x.pedido_id) + ' · ' + cv2Esc(x.cliente || '') + ' · ' + cv2Esc((x.items || []).map(function (i) { return i.esperado + '× ' + i.producto; }).join(', ')) + ' · ' + cv2Esc(x.viaje || '') + (x.recepcion === 'pendiente' ? ' → recibilo en su tarjeta (arriba)' : '') + '</div>'; }).join('');
+}
+async function cv2DNoEsperadoAbrir() {
+  var vid = (CV2D.viajeId) || ((CV2D.lista || []).filter(function (v) { return v.estado !== 'carga_cerrada'; })[0] || {}).id;
+  var txt = prompt('Qué llegó (producto × cantidad, uno por línea):'); if (txt === null || !txt.trim()) return;
+  var items = []; var ok = true;
+  txt.split('\n').forEach(function (l) { var m = l.trim().match(/^(.+?)\s*[x×]\s*(\d+)$/i); if (!m) { ok = false; return; } items.push({ producto: m[1].trim(), cantidad: Number(m[2]) }); });
+  if (!ok || !items.length) return cv2Toast('Formato: producto × cantidad', 'err');
+  var ped = prompt('¿De qué pedido creés que es? (TCK-…, o vacío si no sabés)') || null;
+  var nota = prompt('Cómo llegó y de dónde creés que viene (obligatorio, mínimo 15 letras):'); if (nota === null || !cv2NotaValida(nota)) return cv2Toast('Contá cómo llegó (mínimo 15 letras)', 'err');
+  var r; try { r = await cv2Rpc('retorno_no_esperado_registrar', { p_viaje_id: vid || null, p_items: items, p_hecho_en: null, p_nota: nota, p_pedido_id: ped && ped.trim() ? ped.trim() : null, p_forzar: false, p_request_id: cv2Rid() }); } catch (e) { r = { ok: false, message: e.message }; }
+  if (r && r.code === 'HAY_RETORNOS_REGISTRADOS') {
+    var lst = (r.candidatos || []).map(function (c) { return '• ' + c.pedido_id + ' · ' + (c.cliente || '') + ' · ' + (c.items || []).map(function (i) { return i.esperado + '× ' + i.producto; }).join(', '); }).join('\n');
+    if (!confirm(r.message + '\n\n' + lst + '\n\n¿Igual registrarlo como NO esperado?')) return cv2Toast('Recibilo en la tarjeta del retorno registrado', 'ok');
+    try { r = await cv2Rpc('retorno_no_esperado_registrar', { p_viaje_id: vid || null, p_items: items, p_hecho_en: null, p_nota: nota, p_pedido_id: ped && ped.trim() ? ped.trim() : null, p_forzar: true, p_request_id: cv2Rid() }); } catch (e2) { r = { ok: false, message: e2.message }; }
+  }
+  if (r && r.ok) { cv2Toast('✔ ' + (r.message || 'Registrado'), 'ok'); cv2DepRecargar(); } else { cv2Beep(); cv2Toast('⛔ ' + cv2LimpiarMsg((r && r.message) || 'No se pudo registrar'), 'err'); }
+}
 async function cv2DRecibirRetorno(id, n, noRecibida) {
-  var cant = [];
+  var items = [];
   var notaEl = document.getElementById('cv2-rtn-nota-' + id);
   var nota = notaEl ? notaEl.value : '';
-  if (!noRecibida) {
-    for (var i = 0; i < n; i++) {
-      var inp = document.getElementById('cv2-rtn-' + id + '-' + i);
-      var t = inp ? String(inp.value).trim() : '';
-      if (!/^\d+$/.test(t)) { cv2Toast('Escribí cuánto recibiste de cada producto (0 si no llegó)', 'err'); if (inp) inp.focus(); return; }
-      cant.push(Number(t));
-    }
-  } else if (!cv2NotaValida(nota)) { cv2Toast('Contá qué pasó (mínimo 15 letras)', 'err'); if (notaEl) notaEl.focus(); return; }
+  for (var i = 0; i < n; i++) {
+    var inp = document.getElementById('cv2-rtn-' + id + '-' + i);
+    var t = noRecibida ? '0' : (inp ? String(inp.value).trim() : '');
+    if (!/^\d+$/.test(t)) { cv2Toast('Escribí cuánto recibiste de cada producto (0 si no llegó)', 'err'); if (inp) inp.focus(); return; }
+    var sel = document.getElementById('cv2-rtn-c-' + id + '-' + i);
+    items.push({ recibido: Number(t), condicion: (sel && sel.value) || 'buena' });
+  }
+  if (noRecibida && !cv2NotaValida(nota)) { cv2Toast('Contá qué pasó (mínimo 15 letras)', 'err'); if (notaEl) notaEl.focus(); return; }
+  var extra = []; var xEl = document.getElementById('cv2-rtn-x-' + id); var xt = xEl ? String(xEl.value).trim() : '';
+  if (xt) { var m = xt.match(/^(.+?)\s*[x×]\s*(\d+)$/i); if (!m) { cv2Toast('Lo que llegó de más: producto × cantidad', 'err'); xEl.focus(); return; } extra.push({ producto: m[1].trim(), cantidad: Number(m[2]), condicion: 'buena' }); }
+  var hEl = document.getElementById('cv2-rtn-h-' + id); var hecho = hEl && hEl.value ? new Date(hEl.value).toISOString() : null;
+  var fEl = document.getElementById('cv2-rtn-f-' + id); var fotoPend = !!(fEl && fEl.checked);
   var r;
-  try { r = await cv2Rpc('carga_retorno_recibir', { p_id: id, p_recibidos: noRecibida ? null : cant, p_no_recibido: !!noRecibida, p_nota: nota, p_request_id: cv2Rid() }); }
+  try { r = await cv2Rpc('carga_retorno_recibir_conteo', { p_id: id, p_items: items, p_extra: extra, p_hecho_en: hecho, p_nota: nota, p_foto_pendiente: fotoPend, p_fotos: null, p_request_id: cv2Rid() }); }
   catch (err) { r = { ok: false, message: err.red ? 'Sin conexión: la recepción necesita señal.' : err.message }; }
   if (r && r.ok) {
-    cv2Toast(r.estado === 'completo' ? '✔ Recepción completa registrada' : '⚠ Registrado: ' + r.estado.replace('_', ' ') + ' — Administración resuelve la diferencia', r.estado === 'completo' ? 'ok' : 'err');
+    cv2Toast(r.diferencias ? '⚠ Registrado con ' + r.diferencias + ' diferencia(s) — Administración investiga (responsable, evidencia)' : '✔ Recepción completa y coincidente', r.diferencias ? 'err' : 'ok');
     try { if (typeof cv2xAvisar === 'function') cv2xAvisar(); } catch (x) {}
     cv2DepRecargar();
   } else { cv2Beep(); cv2Toast('⛔ ' + cv2LimpiarMsg((r && r.message) || 'No se pudo registrar'), 'err'); }
+}
+// evidencia pendiente de una recepción ya registrada (Depósito la completa después)
+async function cv2DEvidenciaCompletar(devId) {
+  var ref = prompt('Referencia de la evidencia (foto subida / papel firmado / quién lo vio):'); if (ref === null || !ref.trim()) return;
+  var r; try { r = await cv2Rpc('devolucion_evidencia_completar', { p_id: devId, p_fotos: [ref.trim()], p_nota: null }); } catch (e) { r = { ok: false, message: e.message }; }
+  if (r && r.ok) { cv2Toast('✔ Evidencia completada', 'ok'); cv2DepRecargar(); } else cv2Toast('⛔ ' + cv2LimpiarMsg((r && r.message) || ''), 'err');
 }
 function cv2DPdfFinal(modo) {
   var e = CV2D.est; if (!e) return;
@@ -63287,6 +63172,165 @@ function cv2xPedirAnulacion(viajeId, lineas, motivos, alTerminar) {
     if (r && r.ok) { cv2xCerrar(); if (CV2X.toast) CV2X.toast('Pedido de anulación N° ' + r.excepcion_id + ' enviado a Chan', 'ok'); if (alTerminar) alTerminar(); }
     else if (CV2X.toast) CV2X.toast('⛔ ' + ((r && r.message) || 'No se pudo'), 'err');
   };
+}
+
+// ═══ v14.214.0 — INCIDENCIAS DE LA ENTREGA (chofer) ═════════════════════════════
+// El chofer informa lo que pasó: faltante, producto equivocado, contingencia. NO decide imputaciones
+// ni emite NC. rpc/nc_entrega_items (productos del pedido y del viaje) + rpc/entrega_incidencia_registrar.
+var _ncInc = null;
+function ncIncEsc(x) { return String(x == null ? '' : x).replace(/[&<>"']/g, function (c) { return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]; }); }
+function ncIncCerrar() { var el = document.getElementById('ncinc-bk'); if (el) el.remove(); _ncInc = null; }
+function ncIncAhoraLocal() { var d = new Date(); d.setSeconds(0, 0); var p = function (n) { return (n < 10 ? '0' : '') + n; }; return d.getFullYear() + '-' + p(d.getMonth() + 1) + '-' + p(d.getDate()) + 'T' + p(d.getHours()) + ':' + p(d.getMinutes()); }
+// vehículo detenido: velocidad GPS < 5 km/h (o sin lectura → se pide confirmación explícita)
+function ncIncVelocidad() {
+  return new Promise(function (res) {
+    if (!navigator.geolocation) return res(null);
+    var done = false; var t = setTimeout(function () { if (!done) { done = true; res(null); } }, 4000);
+    navigator.geolocation.getCurrentPosition(function (p) { if (done) return; done = true; clearTimeout(t); res(p.coords.speed == null ? null : p.coords.speed * 3.6); },
+      function () { if (done) return; done = true; clearTimeout(t); res(null); }, { enableHighAccuracy: true, maximumAge: 5000, timeout: 3500 });
+  });
+}
+window.ncIncidenciaAbrir = async function () {
+  var e = _entregasCache.find(function (x) { return x.id === _entregaModalId; });
+  if (!e) return;
+  ncIncCerrar();
+  var bk = document.createElement('div'); bk.id = 'ncinc-bk';
+  bk.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,.55);z-index:10050;display:flex;align-items:flex-end;justify-content:center;';
+  bk.innerHTML = '<div id="ncinc-sheet" style="background:#fff;width:100%;max-width:560px;max-height:92vh;overflow:auto;border-radius:16px 16px 0 0;padding:16px;box-sizing:border-box;font-family:inherit;">' +
+    '<div style="font-family:Barlow Condensed,sans-serif;font-size:20px;font-weight:900;color:#1A0800;">⚠️ Informar incidencia</div>' +
+    '<div style="font-size:13px;color:#8a6f5f;margin-bottom:8px;">' + ncIncEsc(e.cliente || '') + ' · ' + ncIncEsc(e.ciudad || '') + '</div>' +
+    '<div id="ncinc-body" style="font-size:14px;color:#8a6f5f;">Cargando los productos…</div></div>';
+  bk.addEventListener('click', function (ev) { if (ev.target === bk) ncIncCerrar(); });
+  document.body.appendChild(bk);
+  var r = await sbFetch('rpc/nc_entrega_items', { method: 'POST', body: JSON.stringify({ p_entrega_id: e.id }) }).catch(function (err) { return { ok: false, message: err && err.message }; });
+  var body = document.getElementById('ncinc-body'); if (!body) return;
+  if (!r || r.ok !== true) {
+    body.innerHTML = '<div style="color:#B71C1C;">⛔ ' + ncIncEsc((r && (r.message || r.code)) || 'No se pudo cargar') + '</div>' +
+      '<button onclick="ncIncCerrar()" style="margin-top:12px;width:100%;border:0;border-radius:10px;padding:12px;background:#eee;font-weight:700;">Cerrar</button>';
+    return;
+  }
+  _ncInc = { entregaId: e.id, data: r, cant: {}, tipo: 'faltante' };
+  var h = '';
+  if (r.aviso) h += '<div style="background:#FFF8E1;border:1.5px solid #FFC107;border-radius:10px;padding:10px;margin-bottom:10px;font-size:13px;">' + ncIncEsc(r.aviso) + ' Se registra igual, como aviso.</div>';
+  if ((r.incidencias_abiertas || []).length) h += '<div style="background:#F3E5F5;border:1.5px solid #CE93D8;border-radius:10px;padding:10px;margin-bottom:10px;font-size:13px;">Ya informaste ' + r.incidencias_abiertas.length + ' incidencia(s) en esta entrega. Administración las está viendo.</div>';
+  h += '<div style="display:flex;gap:6px;margin-bottom:10px;flex-wrap:wrap;">' +
+    '<button id="ncinc-t-faltante" onclick="ncIncTipo(\'faltante\')" style="flex:1;min-width:120px;border:2px solid #E65100;border-radius:10px;padding:10px;background:#FFF3E0;font-weight:800;color:#E65100;">🚫 Faltó (no bajó del camión)</button>' +
+    '<button id="ncinc-t-producto_equivocado" onclick="ncIncTipo(\'producto_equivocado\')" style="flex:1;min-width:120px;border:2px solid #E8DCC8;border-radius:10px;padding:10px;background:#fff;font-weight:800;color:#8a6f5f;">🔀 Producto equivocado</button>' +
+    '<button id="ncinc-t-contingencia" onclick="ncIncTipo(\'contingencia\')" style="flex:1;min-width:120px;border:2px solid #E8DCC8;border-radius:10px;padding:10px;background:#fff;font-weight:800;color:#8a6f5f;">📵 Falla app / sin fotos</button></div>';
+  h += '<div id="ncinc-items"><div style="font-size:12px;color:#8a6f5f;margin-bottom:6px;">Qué producto facturado está afectado y cuántas unidades.</div>';
+  (r.items || []).forEach(function (it, k) {
+    var max = it.cantidad_acreditable == null ? Number(it.cantidad_factura) || 0 : Number(it.cantidad_acreditable) || 0;
+    h += '<div style="display:flex;align-items:center;gap:8px;padding:8px 0;border-bottom:1px solid #F1E9DC;">' +
+      '<div style="flex:1;font-size:14px;font-weight:600;color:#1A0800;">' + ncIncEsc(it.nombre) + '<div style="font-size:11px;color:#8a6f5f;font-weight:400;">facturadas ' + it.cantidad_factura + (it.cantidad_acreditable != null ? ' · acreditables ' + max : '') + '</div></div>' +
+      '<button ' + (max <= 0 ? 'disabled' : '') + ' onclick="ncIncQty(' + k + ',-1)" style="width:38px;height:38px;border-radius:10px;border:1.5px solid #E8DCC8;background:#fff;font-size:18px;">−</button>' +
+      '<div id="ncinc-q-' + k + '" style="width:34px;text-align:center;font-weight:900;font-size:16px;">0</div>' +
+      '<button ' + (max <= 0 ? 'disabled' : '') + ' onclick="ncIncQty(' + k + ',1)" style="width:38px;height:38px;border-radius:10px;border:1.5px solid #E8DCC8;background:#fff;font-size:18px;">+</button></div>';
+  });
+  h += '</div>';
+  // producto equivocado: qué recibió el cliente en su lugar
+  var opts = (r.productos_viaje || []).map(function (p) { return '<option value="' + ncIncEsc(p.producto_xubio_id || '') + '|' + ncIncEsc(p.nombre) + '">' + ncIncEsc(p.nombre) + '</option>'; }).join('');
+  h += '<div id="ncinc-equiv" style="display:none;background:#FFF8F0;border:1.5px solid #FFB74D;border-radius:10px;padding:10px;margin-top:10px;">' +
+    '<div style="font-size:13px;font-weight:800;color:#E65100;">¿Qué recibió el cliente en su lugar?</div>' +
+    '<select id="ncinc-eq-prod" style="width:100%;margin-top:6px;padding:10px;border:1.5px solid #E8DCC8;border-radius:10px;font-size:14px;"><option value="">— Producto que iba en el camión —</option>' + opts + '<option value="|otro">Otro (lo escribo abajo)</option></select>' +
+    '<input id="ncinc-eq-otro" placeholder="Producto (si no está en la lista)" style="width:100%;box-sizing:border-box;margin-top:6px;padding:10px;border:1.5px solid #E8DCC8;border-radius:10px;font-size:14px;">' +
+    '<div style="display:flex;gap:8px;margin-top:6px;"><input id="ncinc-eq-cant" type="number" min="1" step="1" value="1" style="width:90px;padding:10px;border:1.5px solid #E8DCC8;border-radius:10px;font-size:14px;">' +
+    '<input id="ncinc-eq-ped" placeholder="¿De qué pedido era? (TCK-…, si lo sabés)" style="flex:1;padding:10px;border:1.5px solid #E8DCC8;border-radius:10px;font-size:14px;"></div>' +
+    '<div style="font-size:11px;color:#8a6f5f;margin-top:6px;">Lo facturado que no quedó en el cliente tiene que volver a cámara: registralo también como "vuelve" en la entrega.</div></div>';
+  h += '<div style="margin-top:10px;font-size:13px;"><label>Hora del hecho <input id="ncinc-hecho" type="datetime-local" value="' + ncIncAhoraLocal() + '" max="' + ncIncAhoraLocal() + '" style="padding:8px;border:1.5px solid #E8DCC8;border-radius:10px;font-size:14px;"></label>' +
+    '<div style="font-size:11px;color:#8a6f5f;">Si pasó antes (p. ej. anoche), corregí la hora: el registro queda con la hora de ahora aparte.</div></div>';
+  h += '<textarea id="ncinc-nota" rows="2" placeholder="Qué pasó" style="width:100%;box-sizing:border-box;margin-top:10px;padding:10px;border:1.5px solid #E8DCC8;border-radius:10px;font-size:14px;"></textarea>' +
+    '<label style="display:flex;align-items:center;gap:8px;margin-top:8px;font-size:13px;"><input id="ncinc-fotopend" type="checkbox"> No pude sacar/subir fotos (queda pendiente, no se inventa evidencia)</label>' +
+    '<div style="display:flex;gap:8px;margin-top:12px;"><button id="ncinc-ok" onclick="ncIncEnviar(this)" style="flex:1;border:0;border-radius:12px;padding:14px;background:#E65100;color:#fff;font-weight:900;font-size:15px;">Registrar incidencia</button>' +
+    '<button onclick="ncIncCerrar()" style="border:0;border-radius:12px;padding:14px 16px;background:#eee;font-weight:700;">Cerrar</button></div>' +
+    '<div style="font-size:11px;color:#8a6f5f;margin-top:8px;">Esto es un aviso: no genera nota de crédito ni cambia la factura. Administración lo resuelve.</div>';
+  body.innerHTML = h;
+};
+window.ncIncTipo = function (m) {
+  if (!_ncInc) return; _ncInc.tipo = m;
+  ['faltante', 'producto_equivocado', 'contingencia'].forEach(function (x) {
+    var b = document.getElementById('ncinc-t-' + x); if (!b) return;
+    var on = x === m; b.style.borderColor = on ? '#E65100' : '#E8DCC8'; b.style.background = on ? '#FFF3E0' : '#fff'; b.style.color = on ? '#E65100' : '#8a6f5f';
+  });
+  var eq = document.getElementById('ncinc-equiv'); if (eq) eq.style.display = m === 'producto_equivocado' ? '' : 'none';
+  var it = document.getElementById('ncinc-items'); if (it) it.style.display = m === 'contingencia' ? 'none' : '';
+};
+window.ncIncQty = function (k, d) {
+  if (!_ncInc) return; var it = _ncInc.data.items[k]; var max = it.cantidad_acreditable == null ? Number(it.cantidad_factura) || 0 : Number(it.cantidad_acreditable) || 0;
+  var v = Math.max(0, Math.min(max, (_ncInc.cant[k] || 0) + d)); _ncInc.cant[k] = v;
+  var el = document.getElementById('ncinc-q-' + k); if (el) el.textContent = v;
+};
+window.ncIncEnviar = async function (btn) {
+  if (!_ncInc) return;
+  var tipo = _ncInc.tipo; var items = []; var entregado = null;
+  if (tipo !== 'contingencia') {
+    Object.keys(_ncInc.cant).forEach(function (k) { var v = _ncInc.cant[k]; if (v > 0) { var it = _ncInc.data.items[k]; items.push({ producto_xubio_id: it.producto_xubio_id ? Number(it.producto_xubio_id) : null, producto: it.nombre, cantidad: v }); } });
+    if (!items.length) return toast('Marcá al menos una unidad', 'err');
+  }
+  if (tipo === 'producto_equivocado') {
+    var sel = (document.getElementById('ncinc-eq-prod').value || ''); var parts = sel.split('|'); var nombre = parts[1] === 'otro' ? (document.getElementById('ncinc-eq-otro').value || '').trim() : parts[1];
+    if (!nombre) return toast('Decí qué producto recibió el cliente', 'err');
+    entregado = [{ producto_xubio_id: parts[0] ? Number(parts[0]) : null, producto: nombre, cantidad: Number(document.getElementById('ncinc-eq-cant').value) || 1, pedido_origen: (document.getElementById('ncinc-eq-ped').value || '').trim() || null }];
+  }
+  var nota = (document.getElementById('ncinc-nota').value || '').trim();
+  if (tipo === 'contingencia' && !nota) return toast('Contá qué falló', 'err');
+  var hecho = document.getElementById('ncinc-hecho').value; var hechoIso = hecho ? new Date(hecho).toISOString() : null;
+  btn.disabled = true; btn.textContent = 'Comprobando que estés detenido…';
+  var vel = await ncIncVelocidad();
+  var detenido = vel == null ? null : vel < 5;
+  if (detenido === false) { btn.disabled = false; btn.textContent = 'Registrar incidencia'; return alert('⛔ El vehículo se está moviendo (' + Math.round(vel) + ' km/h). Registrá la incidencia detenido.'); }
+  if (detenido === null && !confirm('No pude leer la velocidad del GPS. ¿Confirmás que el vehículo está detenido?')) { btn.disabled = false; btn.textContent = 'Registrar incidencia'; return; }
+  btn.textContent = 'Registrando…';
+  var reqId = 'chofer:inc:' + _ncInc.entregaId + ':' + Date.now();
+  var r = await sbFetch('rpc/entrega_incidencia_registrar', { method: 'POST', body: JSON.stringify({ p_entrega_id: _ncInc.entregaId, p_tipo: tipo, p_items: items, p_entregado: entregado, p_hecho_at: hechoIso, p_nota: nota || null,
+      p_fotos: null, p_foto_pendiente: !!document.getElementById('ncinc-fotopend').checked, p_contingencia: tipo === 'contingencia' ? 'falla_app' : (document.getElementById('ncinc-fotopend').checked ? 'sin_espacio' : null),
+      p_vehiculo_detenido: detenido === null ? true : detenido, p_request_id: reqId }) })
+    .catch(function (err) { return { ok: false, message: err && err.message }; });
+  if (!r || r.ok !== true) { btn.disabled = false; btn.textContent = 'Registrar incidencia'; return alert('⛔ NO SE REGISTRÓ\n\n' + ((r && (r.message || r.code)) || 'Error')); }
+  ncIncCerrar();
+  toast('✅ Incidencia registrada. Administración la revisa.', 'ok');
+};
+
+// ═══ v14.215.0 — CONTRA BOLETA (chofer) ═══════════════════════════════════════════════
+// Solo clientes autorizados (clientes_cta_cte_autorizada, modalidad contra_boleta). El chofer ve las facturas
+// pendientes VERIFICADAS y la de hoy, elige a cuál va el cobro y lo registra UNA vez. Lo no demostrable = "saldo en revisión".
+var _cbCtx = null; var _cbSel = null;   // _cbSel: transaccion_id de la factura elegida | 'a_identificar' | null (= la de hoy)
+function _cbReset() { _cbCtx = null; _cbSel = null; var p = document.getElementById('cb-panel'); if (p) { p.style.display = 'none'; p.innerHTML = ''; } }
+function _cbAsignaAnterior() { return !!(_cbCtx && _cbCtx.autorizado && _cbSel && (!_cbCtx.hoy || String(_cbSel) !== String(_cbCtx.hoy.transaccion_id))); }
+function _cbSelFactura() { return ((_cbCtx && _cbCtx.pendientes_verificadas) || []).find(function (f) { return String(f.transaccion_id) === String(_cbSel); }) || null; }
+function _cbSelLabel() { if (_cbSel === 'a_identificar') return 'a identificar (saldo en revisión)'; var f = _cbSelFactura(); return f ? f.numero + ' (anterior)' : (_cbCtx && _cbCtx.hoy ? _cbCtx.hoy.numero + ' (hoy)' : 'la de hoy'); }
+function _cbSelSaldo() { if (_cbSel === 'a_identificar') return 1e12; var f = _cbSelFactura(); return f ? Number(f.saldo_verificado) || 0 : (_cbCtx && _cbCtx.hoy ? Number(_cbCtx.hoy.importe) || 0 : 0); }
+async function cbCargarContexto(entregaId) {
+  _cbCtx = null; _cbSel = null;
+  var p = document.getElementById('cb-panel'); if (!p) return;
+  p.style.display = 'none'; p.innerHTML = '';
+  var e = _entregasCache.find(function (x) { return x.id === entregaId; }); if (!e || e.estado === 'entregado' || e.estado === 'no_entregado') return;
+  var r; try { r = await sbFetch('rpc/contra_boleta_contexto', { method: 'POST', timeoutMs: 15000, body: JSON.stringify({ p_entrega_id: entregaId }) }); } catch (err) { return; }   // sin señal: la pantalla sigue como siempre
+  if (!r || !r.ok || !r.autorizado || _entregaModalId !== entregaId) return;
+  _cbCtx = r; _cbSel = r.hoy ? r.hoy.transaccion_id : null;
+  cbRender();
+}
+function cbRender() {
+  var p = document.getElementById('cb-panel'); if (!p || !_cbCtx) return;
+  var f = function (n) { return '$' + Math.round(Number(n) || 0).toLocaleString('es-AR'); };
+  var esc = function (x) { return String(x == null ? '' : x).replace(/[&<>"']/g, function (c) { return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]; }); };
+  var h = '<div style="font-family:\'Barlow Condensed\',sans-serif;font-size:15px;font-weight:900;color:#0D47A1;">📒 Cliente autorizado · contra boleta</div>' +
+          '<div style="font-size:12.5px;color:#0D47A1;margin-bottom:6px;">Elegí de qué factura es el cobro. La factura de hoy puede quedar pendiente (autorizado: no es faltante).<br>' +
+          'Lo de abajo es el saldo <b>de estas facturas</b>, no el saldo total del cliente.</div>';
+  (_cbCtx.pendientes_verificadas || []).forEach(function (x) {
+    h += '<label style="display:block;padding:6px;border:1.5px solid ' + (String(_cbSel) === String(x.transaccion_id) ? '#0D47A1' : '#BBDEFB') + ';border-radius:8px;margin-top:4px;background:#fff;"><input type="radio" name="cb-sel" value="' + esc(x.transaccion_id) + '"' + (String(_cbSel) === String(x.transaccion_id) ? ' checked' : '') + ' onchange="cbElegir(this.value)"> <b>' + esc(x.numero) + '</b> · ' + esc(x.fecha) + ' · pendiente verificado <b>' + f(x.saldo_verificado) + '</b> <span style="color:#2E7D32;">✔ ' + esc(x.verificacion || 'verificada') + '</span></label>';
+  });
+  if (_cbCtx.hoy) h += '<label style="display:block;padding:6px;border:1.5px solid ' + (String(_cbSel) === String(_cbCtx.hoy.transaccion_id) ? '#0D47A1' : '#BBDEFB') + ';border-radius:8px;margin-top:4px;background:#fff;"><input type="radio" name="cb-sel" value="' + esc(_cbCtx.hoy.transaccion_id) + '"' + (String(_cbSel) === String(_cbCtx.hoy.transaccion_id) ? ' checked' : '') + ' onchange="cbElegir(this.value)"> <b>' + esc(_cbCtx.hoy.numero) + '</b> · la de hoy · ' + f(_cbCtx.hoy.importe) + '</label>';
+  h += '<label style="display:block;padding:6px;border:1.5px solid ' + (_cbSel === 'a_identificar' ? '#0D47A1' : '#BBDEFB') + ';border-radius:8px;margin-top:4px;background:#fff;"><input type="radio" name="cb-sel" value="a_identificar"' + (_cbSel === 'a_identificar' ? ' checked' : '') + ' onchange="cbElegir(this.value)"> Paga algo que no sé a qué factura va (queda <b>a identificar</b>; Administración lo imputa)</label>';
+  if ((_cbCtx.en_revision || []).length) h += '<div style="margin-top:6px;font-size:12.5px;color:#B45309;"><b>Saldo en revisión</b> (no se cobra desde acá; Administración lo verifica en Xubio): ' + _cbCtx.en_revision.map(function (x) { return esc(x.numero) + ' ' + f(x.residual); }).join(', ') + '</div>';
+  h += '<div style="margin-top:6px;font-size:12px;color:#546E7A;">' + esc(_cbCtx.aviso || '') + '</div>';
+  p.innerHTML = h; p.style.display = '';
+}
+function cbElegir(v) { _cbSel = (v === 'a_identificar') ? 'a_identificar' : Number(v); cbRender(); try { cobroMultipleActualizar(); } catch (e) {} }
+// incidencias con foto pendiente: completar evidencia después
+async function ncIncEvidenciaCompletar(incId) {
+  var ref = prompt('Referencia de la evidencia (foto subida / papel / quién lo vio):'); if (ref === null || !ref.trim()) return;
+  var r; try { r = await sbFetch('rpc/entrega_incidencia_fotos', { method: 'POST', timeoutMs: 15000, body: JSON.stringify({ p_id: incId, p_fotos: [ref.trim()], p_nota: null }) }); } catch (e) { r = { ok: false, message: e.message }; }
+  if (r && r.ok) toast('✔ Evidencia completada', 'ok'); else toast('⛔ ' + ((r && (r.message || r.code)) || 'No se pudo'), 'err');
 }
 
 </script>
