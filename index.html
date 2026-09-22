@@ -2,7 +2,43 @@
 <html lang="es">
 <head>
 <!-- ═══════════════════════════════════════════════════════════════════════
-     TCK VENTAS — v14.209.1 — 18/09/2026
+     TCK VENTAS — v14.215.0 — 22/09/2026
+     v14.215.0: EL VENDEDOR VE EL ESTADO LOGÍSTICO REAL DEL PEDIDO (v2.2).
+       (sobre v14.212.0 publicada; reemplaza a la 14.214.0 que no se publicó.
+        Solo front. Requiere vw_pedidos_ventas con las columnas logi_* del SQL
+        "pedido-sin-viaje v2.2"; sin ellas la app se comporta como la 14.212.0.)
+       · Caso Sucesión de Peña (TCK-20260918-1841-LIS-WLSL4, $205.000): el
+         21/09 a las 20:52 Lisandro veía "✅ Confirmado · HOY mañana" para un
+         pedido que nunca subió al camión. La fecha se pintaba desde el TEXTO
+         fecha_entrega_txt y la urgencia con el reloj del teléfono.
+       · Ahora la vista calcula en el servidor (hora Argentina) un logi_estado
+         por pedido y la app lo muestra tal cual (pill de la card, caja ENTREGA
+         del expandido y banner arriba de la lista). Cada texto afirma SOLO lo
+         que la base respalda:
+           programado            fecha + estado del camión (en depósito / carga
+                                 cerrada). "HOY" solo si la salida es hoy.
+           en_reparto            camión en_ruta HOY y la entrega del pedido
+                                 está en la planilla (pendiente / en camino).
+           asignacion_pendiente  confirmado hace <20 min y todavía sin camión:
+                                 "asignación pendiente", sin prometer plazo ni
+                                 éxito. Nunca indefinido: pasa a SIN CAMIÓN.
+           sin_viaje             🚫 SIN CAMIÓN (rojo) + banner.
+           reprogramacion_pend.  ⚠️ la fecha prometida no se cumple; el motivo
+                                 sale de la incidencia; Admin define la fecha
+                                 nueva y avisa al cliente. No se inventa fecha.
+           revisar_logistica     🔧 tiene camión pero pedido/viaje/entrega no
+                                 cierran (sin entrega operativa, entrega en
+                                 otro camión, fecha o zona distinta) + banner.
+           entrega_vencida       ⏰ la fecha pasó y el camión NO registra
+                                 salida (sigue en depósito).
+           sin_registro_entrega  ❔ el camión salió/terminó y este pedido no
+                                 tiene registro de entregado ni no entregado.
+           no_entregado          ↩ el chofer marcó no entregado.
+           entregado / cancelado como siempre.
+       · Franjas horarias: TCK no tiene horarios mañana/tarde en la base; la
+         app nunca declara una franja vencida por reloj.
+       · Los campos logi_* entran al hash de render: cuando el cron asigna el
+         camión o cambia el viaje, la card se repinta en el próximo poll (60 s).
      v14.209.1: SESION VENCIDA → PRESUPUESTO POR EL CAMINO DE SIEMPRE.
        (sobre v14.209.0 publicada. Solo front, una linea.)
        · Con el JWT vencido o invalido, el gateway de Supabase contesta 401
@@ -8041,6 +8077,20 @@ body {
 .cv23-fecha.urgente { background: #FFEBEE; color: #C62828; }
 .cv23-fecha.entregada { background: #ECEFF1; color: #455A64; }
 .cv23-fecha.sin-fecha { background: #FFF3E0; color: var(--orange); }
+/* v14.215.0 — estados logísticos reales (logi_estado de vw_pedidos_ventas) */
+.cv23-fecha.logi-rojo   { background: #B71C1C; color: #fff; }
+.cv23-fecha.logi-ambar  { background: #FFF3E0; color: #E65100; border: 1px dashed #E65100; }
+.cv23-fecha.logi-ruta   { background: #E8F5E9; color: #1B5E20; }
+.cv23-fecha.logi-gris   { background: #ECEFF1; color: #455A64; }
+.cv23-entrega-box.logi-rojo  { background: linear-gradient(135deg,#FFEBEE,#FFCDD2); border-color: #B71C1C; }
+.cv23-entrega-box.logi-rojo  .cv23-entrega-fecha { color: #7F0000; }
+.cv23-entrega-box.logi-rojo  .cv23-entrega-zona  { color: #8D3A3A; }
+.cv23-entrega-box.logi-ambar { background: #FFF8E1; border-color: #E65100; }
+.cv23-entrega-box.logi-ambar .cv23-entrega-fecha { color: #E65100; }
+.cv23-entrega-box.logi-ambar .cv23-entrega-zona  { color: #8D5A00; }
+.cv23-entrega-box.logi-ruta  { background: #E8F5E9; border-color: #2E7D32; }
+.cv23-entrega-box.logi-ruta  .cv23-entrega-fecha { color: #1B5E20; }
+.cv23-entrega-box.logi-ruta  .cv23-entrega-zona  { color: #2E7D32; }
 
 .cv23-bot {
   display: flex;
@@ -26583,6 +26633,16 @@ function _mapVista(r) {
     facturacionEstado: r.facturacion_estado || null,
     coherente:    r.coherente,
     updatedAt:    r.updated_at || null,
+    /* v14.215.0 — estado logístico calculado en el servidor (hora Argentina).
+       undefined/null cuando la vista todavía no tiene las columnas: la app cae
+       al comportamiento anterior. */
+    logiEstado:        r.logi_estado || null,
+    logiViajeEstado:   r.logi_viaje_estado || null,
+    logiViajeFecha:    r.logi_viaje_fecha || null,
+    logiViajeChofer:   r.logi_viaje_chofer || null,
+    logiEntregaEstado: r.logi_entrega_estado || null,
+    logiIncidencia:    r.logi_incidencia || null,
+    logiSalidaRel:     (r.logi_salida_rel === null || r.logi_salida_rel === undefined) ? null : Number(r.logi_salida_rel),
     _productos:   r.productos || []   // para el detector de duplicados, sin parsear texto
   };
 }
@@ -27241,7 +27301,9 @@ function _hashPedido(p) {
     // v14.151.0 — updatedAt del servidor: si cambió cualquier cosa del pedido
     // (aunque el total quede igual), el sello cambia y la card se repinta.
     // Es lo que garantiza el caso Balcarce -> McCain al mismo importe.
-    (p.updatedAt || '') + '|' + (p._recoTs || '');
+    (p.updatedAt || '') + '|' + (p._recoTs || '') + '|' +
+    // v14.215.0 — si el servidor cambia el estado logístico, la card se repinta.
+    (p.logiEstado || '') + '|' + (p.logiViajeEstado || '') + '|' + (p.logiSalidaRel === null || p.logiSalidaRel === undefined ? '' : p.logiSalidaRel);
 }
 
 function _hashLista(lista) {
@@ -27317,7 +27379,7 @@ function renderPedidos(forzar) {
 
   /* v14.174.0 — SIN RUTA va PRIMERO: es el único de los tres que significa
      que el pedido no va a salir en ningún camión. */
-  cont.innerHTML = _bannerSinRuta() + _bannerSinPresupuesto() + _bannerEsperaAlta()
+  cont.innerHTML = _bannerSinRuta() + _bannerLogistica() + _bannerSinPresupuesto() + _bannerEsperaAlta()
     + lista.map(function(p){ return renderCard(p); }).join('');
 
   // Restaurar scroll y cards. Doble rAF para asegurar que el layout terminó.
@@ -27567,6 +27629,10 @@ function _v23FechaPillHtml(p) {
   if (estado === 'Cancelado') {
     return '';
   }
+  var LI = _logiInfo(p);   // v14.215.0 — estado logístico del servidor
+  if (LI) {
+    return '<span class="cv23-fecha ' + LI.pillCls + '" title="' + escapeHtml(String(p.fechaEntrega || '')) + ' · ' + escapeHtml(String(p.turnoEntrega || '')) + ' · ' + escapeHtml(String(p.logiEstado || '')) + '">' + LI.pill + '</span>';
+  }
   if (!p.fechaEntrega) {
     return '<span class="cv23-fecha sin-fecha">📅 Sin fecha</span>';
   }
@@ -27622,6 +27688,21 @@ function _v23EntregaBoxHtml(p) {
       + '<div>'
       +   '<div class="cv23-entrega-fecha">Pedido entregado</div>'
       +   '<div class="cv23-entrega-zona">📍 ' + (p.localidad || '—') + '</div>'
+      + '</div></div>';
+  }
+  var LB = _logiInfo(p);   // v14.215.0 — estado logístico del servidor
+  if (LB) {
+    var lbIcon = LB.boxCls === 'logi-rojo' ? '🚫' : (LB.boxCls === 'logi-ambar' ? '⏳' : (LB.boxCls === 'logi-ruta' ? '🚚' : (p.turnoEntrega === 'Mañana' ? '🌅' : (p.turnoEntrega === 'Tarde' ? '🌆' : '🚚'))));
+    if (p.logiEstado === 'entrega_vencida') lbIcon = '⏰';
+    if (p.logiEstado === 'reprogramacion_pendiente') lbIcon = '⚠️';
+    if (p.logiEstado === 'revisar_logistica') lbIcon = '🔧';
+    if (p.logiEstado === 'sin_registro_entrega') lbIcon = '❔';
+    if (p.logiEstado === 'no_entregado') lbIcon = '↩';
+    return '<div class="cv23-entrega-box ' + LB.boxCls + '">'
+      + '<div class="cv23-entrega-icon">' + lbIcon + '</div>'
+      + '<div>'
+      +   '<div class="cv23-entrega-fecha">' + LB.titulo + '</div>'
+      +   '<div class="cv23-entrega-zona">' + LB.sub + '</div>'
       + '</div></div>';
   }
   var esFechaReal = p.fechaEntrega && /^(Lunes|Martes|Mi|Jueves|Viernes|S|Domingo)/i.test(p.fechaEntrega);
@@ -29555,6 +29636,179 @@ function _bannerEsperaAlta() {
     +   '<div style="font-size:11.5px;color:#1565C0;line-height:1.45;margin-top:6px;">'
     +     'Cuando tengas los datos, dalos de alta en Xubio y creá el presupuesto desde el pedido.'
     +   '</div>'
+    + '</div>';
+}
+
+// ══════════════════════════════════════════════════════════════════════
+//  v14.215.0 — ESTADO LOGÍSTICO REAL (Braian, 21/09 · caso Sucesión de Peña)
+// ──────────────────────────────────────────────────────────────────────
+//  La vista vw_pedidos_ventas trae logi_estado (calculado en Supabase con
+//  hora Argentina), logi_viaje_estado, logi_viaje_chofer, logi_entrega_estado,
+//  logi_incidencia y logi_salida_rel (días hasta la salida; 0 = hoy).
+//  Acá NO se deduce nada con el reloj del teléfono ni con el texto de la
+//  fecha: se muestra lo que el servidor sabe. Si la vista no trae logi_*
+//  (deploy del SQL pendiente), todas estas funciones devuelven null y la app
+//  se comporta como la 14.212.0.
+//  Horarios: TCK no tiene franjas horarias definidas en la base, así que la
+//  app nunca declara "franja vencida" por hora; "vencida" viene del estado
+//  del viaje (rindiendo/cerrado) o de la fecha ya pasada.
+// ══════════════════════════════════════════════════════════════════════
+function _logiViajeTxt(p) {
+  var e = p.logiViajeEstado;
+  if (!e) return '';
+  if (e === 'planificado' || e === 'preparando') return p.logiViajeChofer ? 'en depósito' : 'en depósito · sin chofer';
+  if (e === 'carga_cerrada') return 'carga cerrada' + (p.logiViajeChofer ? ' · ' + p.logiViajeChofer : ' · sin chofer');
+  if (e === 'en_ruta') return 'en reparto' + (p.logiViajeChofer ? ' · ' + p.logiViajeChofer : '');
+  if (e === 'rindiendo' || e === 'cerrado') return 'camión de vuelta';
+  if (e === 'cancelado') return 'viaje cancelado';
+  return e;
+}
+function _logiDiaTxt(p) {
+  var r = p.logiSalidaRel;
+  if (r === null || r === undefined) return p.fechaEntrega || '';
+  if (r === 0) return 'HOY';
+  if (r === 1) return 'MAÑANA';
+  if (r === -1) return 'AYER';
+  if (r < -1) return 'hace ' + (-r) + ' días';
+  return p.fechaEntrega || ('en ' + r + ' días');
+}
+// Devuelve {pill, pillCls, titulo, sub, boxCls, banner} o null si no hay logi_estado.
+function _logiInfo(p) {
+  var L = p.logiEstado;
+  if (!L) return null;
+  var dia = _logiDiaTxt(p), viaje = _logiViajeTxt(p), fe = p.fechaEntrega || '';
+  var turno = p.turnoEntrega ? ' · ' + p.turnoEntrega : '';
+  // motivo legible según la incidencia abierta (viene del servidor)
+  var inc = p.logiIncidencia || '';
+  var motivoRep = inc === 'entrega_incumplida' ? 'el camión de esa fecha ya salió, o la fecha pasó sin camión'
+                : inc === 'pedido_vs_carga_cerrada' ? 'la carga del camión de esa fecha ya estaba cerrada'
+                : inc === 'pedido_desasignado' ? 'lo sacaron del camión de esa fecha'
+                : inc === 'asignacion_requiere_decision' ? 'no hay un camión válido para esa fecha'
+                : 'el camión de esa fecha no lo puede llevar';
+  var motivoRev = inc === 'entrega_no_creada' ? 'tiene camión pero NO tiene entrega operativa: el chofer no lo vería en su lista'
+                : inc === 'entrega_inconsistente' ? 'la entrega operativa apunta a otro camión o está duplicada'
+                : inc === 'pedido_viaje_incoherente' ? 'el pedido dice ' + fe + ' y el camión asignado es de otra fecha o zona'
+                : (p.logiEntregaEstado ? 'el pedido y el camión no coinciden en fecha o zona' : 'tiene camión pero no tiene entrega operativa');
+  switch (L) {
+    case 'sin_viaje':
+      return { pill: '🚫 SIN CAMIÓN', pillCls: 'logi-rojo', boxCls: 'logi-rojo', banner: 'sin_viaje',
+               titulo: 'Sin camión asignado',
+               sub: 'Confirmado para ' + fe + turno + ' · 📍 ' + (p.localidad || '—') +
+                    '<br>No está en ningún viaje: <b>no sale hasta que Administración lo sume a un camión</b>.' };
+    case 'reprogramacion_pendiente':
+      return { pill: '⚠️ REPROGRAMAR', pillCls: 'logi-rojo', boxCls: 'logi-rojo', banner: 'reprogramar',
+               titulo: 'La fecha prometida no se cumple',
+               sub: 'Se prometió ' + fe + turno + ' · 📍 ' + (p.localidad || '—') +
+                    '<br><b>Motivo: ' + motivoRep + '.</b> Administración define la fecha nueva y avisa al cliente. Hasta entonces no hay fecha nueva registrada: no le prometas una.' };
+    case 'revisar_logistica':
+      return { pill: '🔧 REVISAR LOGÍSTICA', pillCls: 'logi-ambar', boxCls: 'logi-ambar', banner: 'revisar',
+               titulo: 'Logística inconsistente',
+               sub: 'Entrega ' + fe + turno + ' · 📍 ' + (p.localidad || '—') + (viaje ? ' · camión ' + viaje : '') +
+                    '<br><b>' + motivoRev + '.</b> Administración lo revisa; no confirmes la fecha al cliente hasta que quede coherente.' };
+    case 'entrega_vencida':
+      return { pill: '⏰ SALIDA VENCIDA', pillCls: 'logi-rojo', boxCls: 'logi-rojo', banner: (p.logiSalidaRel !== null && p.logiSalidaRel >= -7) ? 'vencida' : null,
+               titulo: 'Salida vencida · el camión no salió',
+               sub: 'Salía ' + fe + turno + ' (' + dia + ') · 📍 ' + (p.localidad || '—') +
+                    '<br>El camión de esa fecha sigue ' + (viaje || 'en depósito') + ': <b>no registra salida</b>, así que este pedido no se entregó por el circuito. Administración reprograma y avisa al cliente.' };
+    case 'sin_registro_entrega':
+      return { pill: '❔ SIN REGISTRO DE ENTREGA', pillCls: 'logi-gris', boxCls: 'logi-ambar', banner: null,
+               titulo: 'Sin registro de entrega',
+               sub: 'Salía ' + fe + turno + ' (' + dia + ') · 📍 ' + (p.localidad || '—') +
+                    '<br>El camión' + (p.logiViajeChofer ? ' de ' + p.logiViajeChofer : '') + ' ya salió' + (p.logiViajeEstado === 'en_ruta' ? ' y sigue en ruta' : ' y terminó') + '; este pedido <b>no tiene registro de entregado ni de no entregado</b>. Consultá a Administración antes de responderle al cliente.' };
+    case 'asignacion_pendiente':
+      return { pill: '⏳ ASIGNACIÓN PENDIENTE', pillCls: 'logi-ambar', boxCls: 'logi-ambar', banner: null,
+               titulo: 'Confirmado · todavía sin camión',
+               sub: 'Entrega ' + fe + turno + ' · 📍 ' + (p.localidad || '—') +
+                    '<br>El sistema está intentando sumarlo al camión de su fecha. <b>Todavía no tiene camión asignado.</b> Si en unos minutos no pasa a programado, va a figurar como 🚫 SIN CAMIÓN y hay que avisar a Administración.' };
+    case 'en_reparto':
+      return { pill: '🚚 ' + dia + ' · EN REPARTO', pillCls: 'logi-ruta', boxCls: 'logi-ruta', banner: null,
+               titulo: dia + ' · en reparto' + (p.logiViajeChofer ? ' · ' + p.logiViajeChofer : ''),
+               sub: fe + turno + ' · 📍 ' + (p.localidad || '—') + '<br>El camión salió hoy y este pedido está en su planilla; la entrega figura <b>' + (p.logiEntregaEstado === 'en_camino' ? 'en camino' : 'pendiente') + '</b>.' };
+    case 'no_entregado':
+      return { pill: '↩ NO ENTREGADO', pillCls: 'logi-gris', boxCls: 'entregada', banner: null,
+               titulo: 'No entregado',
+               sub: 'El chofer lo marcó como no entregado (' + fe + turno + ') · 📍 ' + (p.localidad || '—') + '<br>Vuelve a depósito. Coordinar con Administración.' };
+    case 'programado': {
+      var icon = p.turnoEntrega === 'Mañana' ? '🌅' : (p.turnoEntrega === 'Tarde' ? '🌆' : '🚚');
+      var hoy = (p.logiSalidaRel === 0);
+      return { pill: icon + ' ' + (hoy ? 'HOY · ' + viaje : _v23FechaCorta(fe)), pillCls: hoy ? 'urgente' : '', boxCls: hoy ? 'urgente' : '', banner: null,
+               titulo: (hoy ? 'HOY — ' : '') + fe + turno,
+               sub: '📍 ' + (p.localidad || '—') + ' · camión ' + viaje.replace(' · sin chofer', ' · <b>todavía sin chofer</b>') };
+    }
+    default:
+      return null;   // entregado / cancelado / sin_fecha / sin_zona / mostrador / no_confirmado: camino de siempre
+  }
+}
+// "Jueves 21 de mayo" → "Jue 21/05" (extraído de _v23FechaPillHtml para reusarlo)
+function _v23FechaCorta(fecha) {
+  var m = (fecha || '').match(/^(\w{3,})\w*\s+(\d{1,2})\s+de\s+(\w+)/i);
+  if (!m) return fecha || '';
+  var meses = {enero:'01',febrero:'02',marzo:'03',abril:'04',mayo:'05',junio:'06',julio:'07',agosto:'08',septiembre:'09',octubre:'10',noviembre:'11',diciembre:'12'};
+  var mes = meses[m[3].toLowerCase()] || '';
+  return mes ? (m[1].substring(0,3) + ' ' + m[2].padStart(2,'0') + '/' + mes) : fecha;
+}
+function _pedidosLogisticaProblema() {
+  if (!Array.isArray(todosLosPedidos)) return [];
+  return todosLosPedidos.filter(function (p) {
+    var I = _logiInfo(p);
+    if (!I || !I.banner) return false;
+    if (vendedorActual && vendedorActual !== 'ADMIN') {
+      if (!p.vendedor || !p.vendedor.toLowerCase().includes(vendedorActual.toLowerCase())) return false;
+    }
+    return true;
+  });
+}
+function avisarAdminLogistica(pedidoId) {
+  var p = null;
+  if (Array.isArray(todosLosPedidos)) {
+    for (var i = 0; i < todosLosPedidos.length; i++) {
+      if (todosLosPedidos[i].pedidoId === pedidoId) { p = todosLosPedidos[i]; break; }
+    }
+  }
+  if (!p) return;
+  var I = _logiInfo(p) || {};
+  var msg = (I.pill || 'PEDIDO CON PROBLEMA LOGÍSTICO') + '\n'
+    + 'Pedido: ' + p.pedidoId + '\n'
+    + 'Cliente: ' + (p.cliente || '') + ' — ' + (p.localidad || '') + '\n'
+    + 'Total: ' + (p.total || '') + '\n'
+    + 'Entrega prometida: ' + (p.fechaEntrega || '') + (p.turnoEntrega ? ' · ' + p.turnoEntrega : '') + '\n'
+    + 'Estado: ' + (p.logiEstado || '') + (p.logiIncidencia ? ' (' + p.logiIncidencia + ')' : '') + '\n'
+    + 'Resolver en Admin → Centro de Control.';
+  window.open('https://wa.me/' + NUM_ADMIN + '?text=' + encodeURIComponent(msg), '_blank');
+}
+function _bannerLogistica() {
+  var L = _pedidosLogisticaProblema();
+  if (!L.length) return '';
+  var filas = L.slice(0, 8).map(function (p) {
+    var I = _logiInfo(p);
+    return ''
+      + '<div style="display:flex;align-items:center;gap:8px;padding:7px 0;border-top:1px solid rgba(183,28,28,.18);">'
+      +   '<div style="flex:1;min-width:0;">'
+      +     '<div style="font-weight:800;font-size:13px;color:#7F0000;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">'
+      +       _escapeHtml(String(I.pill)) + ' · ' + _escapeHtml(String(p.cliente || p.pedidoId || '')) + '</div>'
+      +     '<div style="font-size:11.5px;color:#8D3A3A;">'
+      +       _escapeHtml(String(p.localidad || '')) + ' · prometido ' + _escapeHtml(String(p.fechaEntrega || '')) + ' · ' + _escapeHtml(String(p.total || ''))
+      +     '</div>'
+      +   '</div>'
+      +   '<button type="button" onclick="avisarAdminLogistica(\'' + p.pedidoId + '\')"'
+      +     ' style="flex:0 0 auto;padding:9px 13px;background:#B71C1C;color:#fff;border:none;border-radius:9px;'
+      +       'font-family:Barlow Condensed,sans-serif;font-size:13px;font-weight:900;cursor:pointer;">📲 AVISAR ADMIN</button>'
+      + '</div>';
+  }).join('');
+  var resto = L.length > 8 ? '<div style="font-size:11.5px;color:#8D3A3A;padding-top:7px;">y ' + (L.length - 8) + ' más…</div>' : '';
+  return ''
+    + '<div style="background:linear-gradient(135deg,#FFEBEE,#FFCDD2);border:2px solid #B71C1C;border-radius:14px;padding:13px 15px;margin:0 0 12px;box-shadow:0 3px 10px rgba(183,28,28,.18);">'
+    +   '<div style="display:flex;align-items:center;gap:9px;">'
+    +     '<span style="font-size:24px;">🚨</span>'
+    +     '<div style="font-family:Barlow Condensed,sans-serif;font-size:17px;font-weight:900;color:#B71C1C;">'
+    +       L.length + (L.length === 1 ? ' PEDIDO QUE NECESITA A ADMINISTRACIÓN' : ' PEDIDOS QUE NECESITAN A ADMINISTRACIÓN')
+    +     '</div>'
+    +   '</div>'
+    +   '<div style="font-size:12.5px;color:#7F0000;line-height:1.5;margin-top:7px;font-weight:600;">'
+    +     'Sin camión, con la fecha prometida caída, con la salida vencida o con la logística inconsistente. <b>Administración resuelve y avisa al cliente.</b> '
+    +     'El aviso se va cuando cada pedido tiene camión y entrega coherentes, o queda reprogramado o cancelado.'
+    +   '</div>'
+    +   filas + resto
     + '</div>';
 }
 
@@ -60392,7 +60646,7 @@ function depPollIniciar() {
    TCK_UPD_LOCAL aca Y el archivo version.json del repo.
    ============================================================ */
 (function(){
-  var TCK_UPD_LOCAL = '14.212.0';        /* <-- bump en cada deploy */
+  var TCK_UPD_LOCAL = '14.215.0';        /* <-- bump en cada deploy */
   /* v14.159.0: fuente UNICA de version. La telemetria del shadow la reporta,
      asi que un desfasaje contra version.json se ve solo en el primer pedido
      (paso 4 veces sin que nadie lo notara: 14.109, 14.128, 14.137, 14.147). */
