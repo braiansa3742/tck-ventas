@@ -2,6 +2,17 @@
 <html lang="es">
 <head>
 <!-- ═══════════════════════════════════════════════════════════════════════
+     TCK VENTAS — v14.218.0 — 23/09/2026
+     v14.218.0: CIRCUITO POST-ENTREGA (paquete cierre-viajes-v1). NO desplegar sin el SQL previo (ver DESPLIEGUE.md).
+       (sobre v14.217.0 publicada. REQUIERE en Supabase 12_A, 30_C y 50_E antes (ver DESPLIEGUE.md del paquete
+        cierre-viajes-v1). Después de que Pancho actualice: 31_C.)
+       · DEPÓSITO: la solapa "Devol." recibe por CONTEO (mismo circuito que "Cargas"): cantidad y condición por
+         producto, hora real de entrada, lo que llegó y no estaba, destino físico. Una diferencia abre seguimiento.
+         Doble toque o reintento no duplica.
+       · CHOFER: "Cerrar viaje y rendir" deja el viaje en RENDICIÓN (el chofer no cierra). Arrancar sólo se frena
+         por entregas sin resultado del viaje anterior (dice cuál y cómo resolverla); lo administrativo no frena.
+         Si el viaje es de un día anterior, puede declarar la hora real de salida (se guarda aparte; no se inventa).
+     ─────────────────────────────────────────────────────────────────────
      TCK VENTAS — v14.217.0 — 23/09/2026
      v14.217.0: ALTAS BemBrasil (Braian 23/09) + precio del Bastón.
        ALTAS (TOMADOR_CAT + IMGMAP), sección PAPAS CONGELADAS:
@@ -41297,7 +41308,9 @@ function _chBannerViajesSinCerrarHtml() {
     var pendTxt = (pend == null) ? '' : (pend > 0 ? ' · <b>' + pend + ' sin definir</b>' : ' · todas definidas, falta cerrar y rendir');
     h += '<div style="margin:8px 12px;padding:10px 12px;border-radius:12px;background:#FFF3E0;border:1.5px solid #FB8C00;font-family:\'Barlow Condensed\',sans-serif;">' +
       '<div style="font-size:14px;font-weight:800;color:#E65100;">\u26A0\uFE0F Viaje sin cerrar: ' + _escapeHtmlBasic(_mvZonaLabel(v.zona)) + ' · ' + _escapeHtmlBasic(_mvFechaCorta(v.fecha_salida)) + pendTxt + '</div>' +
-      '<div style="font-size:12px;color:#8D4B00;margin:2px 0 8px;">Cada pedido tiene que quedar entregado (con cobro) o no entregado (con motivo). Después cerrás el viaje y rendís. No vas a poder arrancar otro viaje hasta cerrarlo.</div>' +
+      '<div style="font-size:12px;color:#8D4B00;margin:2px 0 8px;">' + (pend === 0   // FIX E
+        ? 'Tu parte está hecha: todas las entregas tienen resultado. Lo que falta (efectivo, recepción, NC) es de Administración y NO te frena para arrancar el próximo viaje.'
+        : 'Cada pedido tiene que quedar entregado (con cobro) o no entregado (con motivo). Mientras quede alguna entrega sin resultado no vas a poder arrancar otro viaje.') + '</div>' +
       '<button type="button" onclick="chIrADefinir(\'' + v.id + '\')" style="width:100%;padding:11px;background:#E65100;color:#fff;border:none;border-radius:10px;font-family:\'Barlow Condensed\',sans-serif;font-size:14px;font-weight:800;cursor:pointer;touch-action:manipulation;">' +
       (pend > 0 ? '\uD83D\uDCDD Definir ahora' : '\u2705 Cerrar viaje y rendir') + '</button>' +
       '</div>';
@@ -41322,14 +41335,82 @@ async function chIrADefinir(viajeId) {
   }
 }
 
-// ¿Hay otro viaje en_ruta sin cerrar? Devuelve el más viejo con su conteo.
+// FIX E — ¿El chofer tiene entregas SIN RESULTADO en otro viaje
+// en_ruta? Sólo eso bloquea el arranque: es lo que él puede y debe resolver desde
+// el celular. Un viaje en_ruta con todo definido (esperando que Depósito reciba lo
+// que volvió) o uno 'rindiendo' (efectivo, NC, conciliación) NO bloquea: eso es de
+// Administración. La regla vive en el servidor (rpc/chofer_recorrido_pendiente y
+// el trigger e_viajes_transicion); si la RPC no responde se aplica el mismo
+// criterio con los datos locales. Antes bastaba con que hubiera OTRO viaje en_ruta.
 async function _chViajeAnteriorSinCerrar(excluirId) {
+  try {
+    var rs = await sbFetch('rpc/chofer_recorrido_pendiente', { method: 'POST',
+      body: JSON.stringify({ p_viaje_id: excluirId }), timeoutMs: VIAJE_TIMEOUT_MS });
+    if (rs && rs.ok === true) {
+      if (!rs.bloquea || !rs.pendiente) return null;
+      var det = rs.pendiente.detalle || [];
+      var v0 = det[0] || {};
+      return { viaje: { id: v0.viaje_id, zona: v0.zona, fecha_salida: v0.fecha_salida },
+               pendientes: det.filter(function (x) { return x && x.viaje_id === v0.viaje_id; }).length,
+               total: Number(rs.pendiente.viajes) || 1, entregas: det, mensaje: rs.message || '' };
+    }
+  } catch (_eRpc) {}
   try { await cargarViajeActivo(); } catch (_e) {}
   var otros = (_viajesActivos || []).filter(function (v) { return v && v.estado === 'en_ruta' && v.id !== excluirId; });
   if (!otros.length) return null;
   try { await _chCargarPendPorViaje(otros); } catch (_e2) {}
+  // sin dato (no se pudo contar) se bloquea igual: mejor pedir que revise que dejar pasar
+  otros = otros.filter(function (v) { var p = _chPendPorViaje[v.id]; return p == null || p > 0; });
+  if (!otros.length) return null;
   otros.sort(function (a, b) { return String(a.fecha_salida || '').localeCompare(String(b.fecha_salida || '')); });
-  return { viaje: otros[0], pendientes: _chPendPorViaje[otros[0].id] || 0, total: otros.length };
+  return { viaje: otros[0], pendientes: _chPendPorViaje[otros[0].id], total: otros.length, entregas: [], mensaje: '' };
+}
+
+// FIX E — hora REAL declarada por el chofer cuando registra tarde.
+// Nunca corrige la hora de registro: se guarda aparte (rpc/carga_hora_declarar).
+// E:parse-hora-inicio
+function _eParseHoraDeclarada(txt, fechaSalidaISO, ahora) {
+  var t = String(txt == null ? '' : txt).trim().replace(/\s+/g, ' ');
+  if (!t) return { ok: false, error: 'vacío' };
+  var fs = /^(\d{4})-(\d{2})-(\d{2})$/.exec(String(fechaSalidaISO || ''));
+  if (!fs) return { ok: false, error: 'viaje sin fecha' };
+  var y = +fs[1], mo = +fs[2], d = +fs[3];
+  var m = /^(?:(\d{1,2})\/(\d{1,2})\s+)?(\d{1,2})(?:[:.h](\d{2}))?\s*(?:hs?)?$/i.exec(t);
+  if (!m) return { ok: false, error: 'formato (usá 18:30 o 22/09 18:30)' };
+  if (m[1]) { d = +m[1]; mo = +m[2]; }
+  var hh = +m[3], mi = m[4] != null ? +m[4] : 0;
+  if (mo < 1 || mo > 12 || d < 1 || d > 31 || hh > 23 || mi > 59) return { ok: false, error: 'fecha u hora inválida' };
+  var p2 = function (n) { return (n < 10 ? '0' : '') + n; };
+  var iso = y + '-' + p2(mo) + '-' + p2(d) + 'T' + p2(hh) + ':' + p2(mi) + ':00-03:00';   // hora de Argentina
+  var ms = Date.parse(iso);
+  if (isNaN(ms)) return { ok: false, error: 'fecha inválida' };
+  var chk = new Date(ms - 3 * 3600000);   // la fecha tiene que existir (31/02 no)
+  if (chk.getUTCDate() !== d || chk.getUTCMonth() + 1 !== mo) return { ok: false, error: 'fecha inválida' };
+  var ref = (ahora instanceof Date) ? ahora.getTime() : Date.now();
+  if (ms > ref) return { ok: false, error: 'esa hora todavía no pasó' };
+  return { ok: true, iso: iso };
+}
+// E:parse-hora-fin
+
+async function _eOfrecerHoraReal(viajeId, hecho, entregaId, fechaSalidaISO) {
+  var txt = prompt('Estás registrando ' + (hecho === 'arranque' ? 'la SALIDA' : 'esto') + ' del viaje del ' +
+    _mvFechaCorta(fechaSalidaISO) + ' recién ahora.\n\n' +
+    'Si el camión salió antes, escribí la hora REAL (ej: 18:30, o 22/09 18:30).\n' +
+    'Queda guardada como hora DECLARADA por vos; la hora de registro no cambia.\n\n' +
+    'Si salió recién, dejalo vacío.', '');
+  if (txt == null || !String(txt).trim()) return;
+  var h = _eParseHoraDeclarada(txt, fechaSalidaISO, new Date());
+  if (!h.ok) { alert('No entendí la hora (' + h.error + '). No se guardó nada.'); return; }
+  var args = { p_viaje_id: viajeId, p_hecho: hecho, p_hora: h.iso, p_entrega_id: entregaId || null,
+               p_nota: 'declarada desde el celular al registrar tarde',
+               p_request_id: (typeof cv2Rid === 'function') ? cv2Rid() : ('e' + Date.now()) };
+  var r = null;
+  try {
+    r = (typeof cv2Rpc === 'function') ? await cv2Rpc('carga_hora_declarar', args)
+      : await sbFetch('rpc/carga_hora_declarar', { method: 'POST', body: JSON.stringify(args), timeoutMs: VIAJE_TIMEOUT_MS });
+  } catch (e) { r = { ok: false, message: (e && e.message) || String(e) }; }
+  if (r && r.ok) { if (typeof toast === 'function') toast('\uD83D\uDD52 Hora real guardada como DECLARADA.', 'ok'); }
+  else alert('\u26D4 No se guardó la hora real.\n\n' + ((r && r.message) || 'Error desconocido'));
 }
 
 // ── Repartos de Trenque sin chofer ─────────────────────────────
@@ -41700,11 +41781,13 @@ async function mvArrancarViaje(viajeId) {
   if (_ant) {
     _chEvento('chofer_arranque_bloqueado', { pedido_id: null, cliente: _mvZonaLabel(_ant.viaje.zona) + ' ' + (_ant.viaje.fecha_salida || ''), monto: _ant.pendientes }, null);
     var _txtAnt = '\u26D4 NO PODÉS ARRANCAR ESTE VIAJE\n\n' +
-      'Tenés el viaje ' + _mvZonaLabel(_ant.viaje.zona) + ' del ' + _mvFechaCorta(_ant.viaje.fecha_salida) +
-      ' todavía abierto' + (_ant.pendientes > 0 ? ' con ' + _ant.pendientes + ' entrega(s) sin definir' : '') +
-      (_ant.total > 1 ? ' (y ' + (_ant.total - 1) + ' viaje(s) más)' : '') + '.\n\n' +
-      'Primero definí cada pedido (entregado con cobro, o no entregado con motivo) y cerrá el viaje con la rendición.';
-    if (confirm(_txtAnt + '\n\n¿Ir a definirlo ahora?')) { chIrADefinir(_ant.viaje.id); }
+      (_ant.mensaje ? _ant.mensaje :   // FIX E: el texto lo arma el servidor (qué entrega y cómo)
+      ('Tenés ' + (_ant.pendientes != null ? _ant.pendientes + ' entrega(s) sin resultado' : 'entregas sin resultado') +
+      ' en el viaje ' + _mvZonaLabel(_ant.viaje.zona) + ' del ' + _mvFechaCorta(_ant.viaje.fecha_salida) +
+      (_ant.total > 1 ? ' (y en ' + (_ant.total - 1) + ' viaje(s) más)' : '') + '.\n\n' +
+      'Desde el celular: Entregas → ese viaje → en cada pedido marcá Entregado (con el cobro) o No entregado (con el motivo). ' +
+      'Lo que queda de Administración (efectivo, NC, recepción) no te frena.'));
+    if (confirm(_txtAnt + '\n\n¿Ir a resolverlas ahora?')) { chIrADefinir(_ant.viaje.id); }
     return;
   }
   if (!confirm('¿EL CAMIÓN ESTÁ SALIENDO FÍSICAMENTE DEL DEPÓSITO?\n\n' +
@@ -41746,6 +41829,15 @@ async function mvArrancarViaje(viajeId) {
       _mvViajeActivo = _viajeActivo;
       mvRenderViajeActivo();
       await cargarEntregas();
+      // FIX E — el arranque se registra con la hora del servidor. Si el
+      // viaje es de un día anterior, el chofer puede declarar a qué hora salió de
+      // verdad; queda aparte y marcada como DECLARADA.
+      try {
+        var _eV = (_viajesActivos || []).find(function (x) { return x && x.id === viajeId; }) || _viajeActivo;
+        if (!r.ya_estaba && !r.repetido && _eV && _eV.fecha_salida && String(_eV.fecha_salida) < _chHoyISO()) {
+          await _eOfrecerHoraReal(viajeId, 'arranque', null, String(_eV.fecha_salida));
+        }
+      } catch (_eHr) { console.warn('[E hora real]', _eHr); }
     } else {
       // Mensaje REAL del backend (C2 es la autoridad). Sigue carga_cerrada.
       try { if (typeof cv2ArranqueFallido === 'function') cv2ArranqueFallido(viajeId, r && r.message); } catch (_eF) {}   // v14.198.0
@@ -42483,7 +42575,7 @@ async function mvCerrarViajeYRendir() {
   if (cta > 0) resumen += 'A cuenta corriente (no se cobra hoy): ' + fmt(cta) + '\n';
   if (_mm.devuelto > 0) resumen += 'Devuelto / faltante / diferencia: ' + fmt(_mm.devuelto) + '\n';
   resumen += 'Total entregado (cobrado + cta. cte.): ' + fmt(_hayCache ? _mm.entregado : _cobradoTot) + '\n\n';
-  resumen += 'El viaje se cierra y queda esperando confirmación del admin.';
+  resumen += 'Terminás tu parte y el viaje pasa a RENDICIÓN (el chofer no cierra el viaje).';
 
   if (!confirm(resumen)) return;
 
@@ -42560,7 +42652,7 @@ async function mvCerrarViajeYRendir() {
     const resp = await fetch(url);
     const data = await resp.json();
     if (data.status === 'ok') {
-      toast('✅ Viaje cerrado. Esperando confirmación del admin.', 'ok');
+      toast(data.sin_rendicion ? '✅ Recorrido terminado: no había efectivo ni cheques para rendir.' : '✅ Recorrido rendido. El viaje queda en rendición hasta que Administración lo cierre.', 'ok');
       _viajeActivo = null;
       _mvViajeActivo = null;
       _viajeSeleccionadoId = null;   // v14.180.0
@@ -57627,7 +57719,8 @@ async function depositoRecargar() {
     var desde = new Date(Date.now() - DEP_DIAS_VENTANA * 86400000).toISOString();
     var sel = 'id,pedido_id,entrega_id,cliente,comercio,ciudad,chofer,items,motivo,motivo_categoria,' +
               'monto_devuelto,fecha_devolucion,estado,recibida_en,recibida_por,recibido_json,' +
-              'recepcion_diferencia,recepcion_nota';
+              'recepcion_diferencia,recepcion_nota,' +
+              'viaje_id,items_json,recepcion_estado,recepcion_items,recepcion_condicion,foto_pendiente';   // v14.217 · FIX C
     _depRows = await sbFetch('devoluciones?select=' + sel +
       '&fecha_devolucion=gte.' + encodeURIComponent(desde) +
       '&order=fecha_devolucion.desc&limit=400') || [];
@@ -57684,7 +57777,7 @@ function _depBadgeTab() {
   // v14.114.0: el badge cuenta solo lo que ESTE usuario ve (_depSecciones)
   var secs = _depSecciones();
   var n = 0;
-  if (secs.indexOf('devoluciones') !== -1) n += _depRows.filter(function(r) { return r.estado === 'registrada'; }).length;
+  if (secs.indexOf('devoluciones') !== -1) n += _depRows.filter(_depEsPend).length;   // v14.217 · FIX C
   if (secs.indexOf('retiros') !== -1) n += _depRetiros.filter(function(r) { return r.estado === 'pendiente'; }).length;
   if (secs.indexOf('cargas') !== -1) n += _depCargasPendientes(); // v14.74.0: incluir viajes sin conformar
   n += _depVencAlertaN();   // vencidos + por vencer (lo ven todos los roles de depósito)
@@ -57705,7 +57798,7 @@ function depositoRender() {
   if (secs.indexOf(_depSeccion) === -1) _depSeccion = secs[0];
 
   var nCargas  = _depCargasPendientes();
-  var nDevol   = _depRows.filter(function(r) { return r.estado === 'registrada'; }).length;
+  var nDevol   = _depRows.filter(_depEsPend).length;   // v14.217 · FIX C
   var nRetiros = _depRetiros.filter(function(r) { return r.estado === 'pendiente'; }).length;
   var nVenc    = _depVencAlertaN();
 
@@ -57767,8 +57860,8 @@ function _depDiaKey(iso) {
   catch (e) { return 's/fecha'; }
 }
 function _depDevolucionesHtml() {
-  var pend = _depRows.filter(function(r) { return r.estado === 'registrada'; });
-  var hechas = _depRows.filter(function(r) { return r.estado === 'recibida_deposito' || r.estado === 'nc_emitida'; });
+  var pend = _depRows.filter(_depEsPend);   // v14.217 · FIX C
+  var hechas = _depRows.filter(function(r) { return !_depEsPend(r) && r.estado !== 'archivada'; });
   var h = '<div style="font-size:12px;color:#8A7E72;margin:0 2px 8px;">Devoluciones de los últimos ' + DEP_DIAS_VENTANA + ' días, agrupadas por chofer y día. Recibí el camión completo.</div>';
 
   h += '<div class="dep-sec-title">⏳ Por recibir (' + pend.length + ')</div>';
@@ -57810,6 +57903,9 @@ function _depCardHtml(r, esPend) {
   } else {
     badge = '<span class="dep-badge dep-badge-pend">⏳ Por recibir</span>';
   }
+  // v14.217 · FIX C — recepción por conteo: 'no_recibido' deja estado 'registrada'; 'revisada' = conciliada
+  if (!esPend && r.recepcion_estado === 'no_recibido') badge = '<span class="dep-badge dep-badge-dif">⛔ No llegó — en investigación</span>';
+  else if (!esPend && r.estado === 'revisada') badge = '<span class="dep-badge dep-badge-ok">✅ Conciliada</span>';
   var abierta = _depExpandida === r.id;
   var h = '<div class="dep-card' + (esPend ? ' dep-pend' : '') + '" id="dep-card-' + _depEsc(r.id) + '">';
   h += '<div class="dep-card-hdr" onclick="depToggleCard(\'' + _depEsc(r.id) + '\')">';
@@ -57827,10 +57923,9 @@ function _depCardHtml(r, esPend) {
 function _depBodyRecepcionHtml(r) {
   var ed = _depEdit[r.id];
   if (!ed) {
-    var its = _depParseItems(r.items).map(function(it) {
-      return { nombre: it.nombre, declarado: it.qty, recibido: it.qty };
-    });
-    ed = _depEdit[r.id] = { items: its, nota: '', condicion: 'buena', fotos: [] };
+    // v14.217 · FIX C — los renglones salen de lo MISMO que valida la base (_cv2_dev_items):
+    // producto, calibre y esperado. Cada renglón lleva su condición (buena / dañada / vencida / otro).
+    ed = _depEdit[r.id] = { items: _depItemsConteo(r), nota: '', fotos: [], extra: '', hecho: _depAhoraLocal(), sinFoto: false, rid: null, enviando: false };
   }
   var cat = _DEP_CATS[r.motivo_categoria] || r.motivo_categoria || '—';
   var h = '';
@@ -57838,7 +57933,8 @@ function _depBodyRecepcionHtml(r) {
        (r.motivo ? ' — ' + _depEsc(r.motivo) : '') +
        (r.pedido_id ? '<br><span style="font-size:11px;color:#8A7E72;">Pedido ' + _depEsc(r.pedido_id) + '</span>' : '') + '</div>';
   if (!ed.items.length) {
-    h += '<div class="dep-empty" style="padding:14px;">El chofer no detalló productos.<br>Confirmá la recepción igual y anotá lo que entró en la nota.</div>';
+    // v14.217 · FIX C — sin detalle por producto no hay conteo posible: no se registra "a ojo"
+    return h + '<div class="dep-empty" style="padding:14px;">El chofer no detalló los productos de esta devolución, así que no se puede registrar por conteo.<br>Avisá a Administración para que la complete o la resuelva.</div>';
   } else {
     h += '<div style="font-size:11px;color:#8A7E72;margin-bottom:6px;text-transform:uppercase;letter-spacing:.6px;font-weight:800;">¿Cuánto entró físicamente?</div>';
     ed.items.forEach(function(it, i) {
@@ -57849,24 +57945,31 @@ function _depBodyRecepcionHtml(r) {
       h += '  <div class="dep-qty-num' + (dif ? ' dif' : '') + '">' + it.recibido + '</div>';
       h += '  <button class="dep-qty-btn" onclick="depQty(\'' + _depEsc(r.id) + '\',' + i + ',1)">+</button>';
       h += '</div>';
+      // v14.217 · FIX C — condición por renglón = destino físico (buena → cámara; el resto → cuarentena)
+      h += '<div style="display:flex;align-items:center;gap:6px;margin:-2px 0 8px 10px;font-size:12px;color:#5C4A38;">Llegó ' +
+           '<select onchange="depItemCond(\'' + _depEsc(r.id) + '\',' + i + ',this.value)" style="padding:6px;border:1.5px solid #E8DFD5;border-radius:8px;font-size:13px;">' +
+           [['buena','buena'],['danada','dañada'],['vencida','vencida'],['otro','otro']].map(function(c){ return '<option value="' + c[0] + '"' + ((it.condicion || 'buena') === c[0] ? ' selected' : '') + '>' + c[1] + '</option>'; }).join('') +
+           '</select><span style="color:' + ((it.condicion || 'buena') === 'buena' ? '#2E7D32' : '#C62828') + ';font-weight:700;">' +
+           ((it.condicion || 'buena') === 'buena' ? '→ cámara' : '→ cuarentena (no se vende)') + '</span></div>';
     });
   }
-  var hayDif = ed.items.some(function(it) { return it.recibido !== it.declarado; });
+  var hayDif = _depHayDif(ed);   // v14.217 · FIX C: cantidad, condición o algo que llegó de más
   h += '<div class="dep-dif-aviso" id="dep-dif-' + _depEsc(r.id) + '" style="display:' + (hayDif ? 'block' : 'none') + ';">⚠️ Lo recibido NO coincide con lo que declaró el chofer. Quedará marcado para administración y el chofer.</div>';
-  // v14.83 — condición de la mercadería recibida (Pancho)
-  var _conds = [['buena','✅ Buena',''],['danada','⚠️ Dañada','cond-danio'],['vencida','⛔ Vencida','cond-venc']];
-  h += '<div class="dep-cond-lbl">¿En qué estado llegó la mercadería?</div><div class="dep-cond">';
-  _conds.forEach(function(c){ h += '<button class="dep-cond-btn ' + c[2] + ((ed.condicion||'buena') === c[0] ? ' sel' : '') + '" onclick="depCondicion(\'' + _depEsc(r.id) + '\',\'' + c[0] + '\')">' + c[1] + '</button>'; });
-  h += '</div>';
+  // v14.217 · FIX C — la condición va por renglón (arriba). Acá: hora real de entrada y lo que llegó de más.
+  h += '<div class="dep-cond-lbl">Lo marcado dañado, vencido u otro NO queda disponible para vender: Administración decide el destino.</div>';
+  h += '<div class="dep-cond-lbl">Hora real en que entró a cámara</div>' +
+       '<input type="datetime-local" class="dep-nota" style="margin-top:0;" value="' + _depEsc(ed.hecho || '') + '" oninput="depCampo(\'' + _depEsc(r.id) + '\',\'hecho\',this.value)">';
+  h += '<textarea class="dep-nota" rows="1" placeholder="¿Llegó algo que NO estaba? producto × cantidad (uno por línea)" onchange="depCampo(\'' + _depEsc(r.id) + '\',\'extra\',this.value,true)">' + _depEsc(ed.extra || '') + '</textarea>';
   h += '<textarea class="dep-nota" id="dep-nota-' + _depEsc(r.id) + '" rows="2" placeholder="Nota de recepción (opcional — obligatoria si hay diferencia)" oninput="depNota(\'' + _depEsc(r.id) + '\', this.value)">' + _depEsc(ed.nota) + '</textarea>';
   // v14.84 — foto de cómo se recibió la mercadería
   ed.fotos = ed.fotos || [];
-  h += '<div class="dep-foto-lbl">📷 Foto de cómo llegó (OBLIGATORIA)</div><div class="dep-foto-wrap">';
+  h += '<div class="dep-foto-lbl">📷 Foto de cómo llegó (obligatoria, o marcá "sin foto ahora")</div><div class="dep-foto-wrap">';
   ed.fotos.forEach(function(ft, fi){
     h += '<div class="dep-foto-thumb">' + (ft.previewUrl ? '<img src="' + ft.previewUrl + '">' : '') + (ft.subiendo ? '<span class="dep-foto-spin">⏳</span>' : '') + '<button class="dep-foto-x" onclick="depQuitarFoto(\'' + _depEsc(r.id) + '\',' + fi + ')">×</button></div>';
   });
   h += '<label class="dep-foto-add">📷<input type="file" accept="image/*" style="display:none" onchange="depFotoSel(\'' + _depEsc(r.id) + '\',this)"></label>';
   h += '</div>';
+  h += '<label style="display:block;margin:2px 2px 6px;font-size:12px;color:#5C4A38;"><input type="checkbox"' + (ed.sinFoto ? ' checked' : '') + ' onchange="depCampo(\'' + _depEsc(r.id) + '\',\'sinFoto\',this.checked,true)"> Sin foto ahora (queda como evidencia pendiente; se completa después)</label>';   // v14.217 · FIX C
   h += '<div class="dep-recibir-err" id="dep-recibir-err-' + _depEsc(r.id) + '"></div>';
   h += '<button class="dep-btn-recibir' + (hayDif ? ' dif' : '') + '" id="dep-btn-' + _depEsc(r.id) + '" onclick="depRecibir(\'' + _depEsc(r.id) + '\')">' + (hayDif ? '✅ Recibir CON diferencia' : '✅ RECIBIDO EN DEPÓSITO') + '</button>';
   return h;
@@ -57880,9 +57983,12 @@ function _depBodyDetalleHtml(r) {
   if (typeof rec === 'string') { try { rec = JSON.parse(rec); } catch(_) { rec = null; } }
   if (Array.isArray(rec) && rec.length) {
     rec.forEach(function(it) {
-      var dif = it.recibido !== it.declarado;
+      // v14.217 · FIX C — sirve para el formato viejo (nombre/declarado) y el del conteo (producto/esperado/condicion)
+      var _decl = (it.declarado != null) ? it.declarado : it.esperado;
+      var _cond = it.condicion && it.condicion !== 'buena' ? ' · <b style="color:#C62828;">' + _depEsc(it.condicion) + ' → cuarentena</b>' : '';
+      var dif = Number(it.recibido) !== Number(_decl);
       h += '<div class="dep-item-row" style="background:#fff;">';
-      h += '  <div class="dep-item-nombre">' + _depEsc(it.nombre) + '<div class="dep-item-decl">Declarado: ' + it.declarado + '</div></div>';
+      h += '  <div class="dep-item-nombre">' + _depEsc(it.nombre || ((it.producto || '') + (it.calibre ? ' ' + it.calibre : ''))) + '<div class="dep-item-decl">Declarado: ' + _depEsc(_decl) + _cond + '</div></div>';
       h += '  <div class="dep-qty-num' + (dif ? ' dif' : '') + '">' + it.recibido + '</div>';
       h += '</div>';
     });
@@ -57891,6 +57997,9 @@ function _depBodyDetalleHtml(r) {
   }
   if (r.recepcion_nota) h += '<div style="font-size:12px;color:#8A7E72;margin-top:4px;">📝 ' + _depEsc(r.recepcion_nota) + '</div>';
   h += '<div style="font-size:11px;color:#9A8F85;margin-top:8px;">Recibida por ' + _depEsc(r.recibida_por || '—') + ' · ' + _depFmtFecha(r.recibida_en) + '</div>';
+  // v14.217 · FIX C — las recepciones anteriores al conteo se muestran como tales (no se reinterpretan)
+  if (r.recibida_en && !r.recepcion_estado) h += '<div style="font-size:11px;color:#9A8F85;">Registro anterior al conteo por producto (sin diferencias registradas en la base).</div>';
+  if (r.recepcion_estado === 'no_recibido') h += '<div style="font-size:11px;color:#C62828;font-weight:700;">No llegó nada: Administración investiga la diferencia.</div>';
   return h;
 }
 
@@ -57940,63 +58049,150 @@ function depNota(id, val) {
   if (ed) ed.nota = val;
 }
 
-async function depRecibir(id) {
+// ═══ v14.217 · FIX C — RECEPCIÓN POR CONTEO desde la solapa "📦 Devol." ═══════════
+// Antes (v14.53–v14.216): PATCH directo a devoluciones (estado, recibida_en, recibido_json…):
+// sin recepcion_estado, sin retorno_diferencias, sin hora real, sin condición por producto.
+// Ahora: rpc/carga_retorno_recibir_conteo, la MISMA que usa "🚚 Cargas" y Administración.
+// Si algo no coincide (cantidad, condición, algo de más) la base abre la diferencia para
+// Administración. Idempotente: el mismo request_id en cada reintento de esta recepción.
+function _depEsPend(r) {
+  return r.estado === 'registrada' && !r.recibida_en && (!r.recepcion_estado || r.recepcion_estado === 'pendiente');
+}
+function _depAhoraLocal() {
+  var d = new Date(); d.setSeconds(0, 0);
+  var p = function (n) { return (n < 10 ? '0' : '') + n; };
+  return d.getFullYear() + '-' + p(d.getMonth() + 1) + '-' + p(d.getDate()) + 'T' + p(d.getHours()) + ':' + p(d.getMinutes());
+}
+// Mismo armado que _cv2_dev_items (servidor): recepcion_items, o items_json con cantidad > 0, en ese orden.
+function _depItemsConteo(r) {
+  var base = r.recepcion_items;
+  if (typeof base === 'string') { try { base = JSON.parse(base); } catch (e) { base = null; } }
+  if (!Array.isArray(base)) {
+    var ij = r.items_json;
+    if (typeof ij === 'string') { try { ij = JSON.parse(ij); } catch (e) { ij = null; } }
+    base = (Array.isArray(ij) ? ij : []).filter(function (i) { return i && Number(i.cantidad || 0) > 0; })
+      .map(function (i) { return { producto: i.producto, calibre: i.calibre || null, esperado: Number(i.cantidad) }; });
+  }
+  return base.map(function (b) {
+    var esp = Number(b.esperado || 0);
+    return { nombre: (b.producto || '?') + (b.calibre ? ' ' + b.calibre : ''), producto: b.producto, declarado: esp, recibido: esp, condicion: 'buena' };
+  });
+}
+function _depExtraParse(txt) {
+  var out = [], ok = true;
+  String(txt || '').split(/[\n;]/).forEach(function (l) {
+    l = l.trim(); if (!l) return;
+    var m = l.match(/^(.+?)\s*[x×]\s*(\d+)$/i);
+    if (!m || Number(m[2]) <= 0) { ok = false; return; }
+    out.push({ producto: m[1].trim(), cantidad: Number(m[2]), condicion: 'buena' });
+  });
+  return ok ? out : null;
+}
+function _depHayDif(ed) {
+  return ed.items.some(function (it) { return it.recibido !== it.declarado || (it.condicion || 'buena') !== 'buena'; }) ||
+         !!String(ed.extra || '').trim();
+}
+// Misma regla que _cv2_nota_valida del servidor: 15 caracteres y al menos 2 palabras de 3 letras
+function _depNotaValida(t) {
+  t = String(t == null ? '' : t).trim();
+  return t.length >= 15 && (t.match(/[A-Za-zÁÉÍÓÚÜÑáéíóúüñ]{3,}/g) || []).length >= 2;
+}
+function depItemCond(id, idx, val) {
+  var ed = _depEdit[id];
+  if (!ed || !ed.items[idx]) return;
+  ed.items[idx].condicion = val;
+  depositoRender();
+}
+function depCampo(id, k, v, repintar) {
   var ed = _depEdit[id];
   if (!ed) return;
-  // v14.95.0 — los motivos por los que no puede confirmar se muestran FIJOS en
-  // una caja al lado del botón (antes eran toast que se iban solos y Pancho no
-  // llegaba a leer por qué no avanzaba).
+  ed[k] = v;
+  if (repintar) depositoRender();
+}
+async function depRecibir(id) {
+  var ed = _depEdit[id];
+  if (!ed || ed.enviando) return;
   var _errBox = document.getElementById('dep-recibir-err-' + id);
   function _depErr(msg) {
     if (_errBox) { _errBox.textContent = msg; _errBox.style.display = 'block'; }
     else if (typeof toast === 'function') { toast(msg, 'err'); }
   }
   function _depErrLimpiar() { if (_errBox) { _errBox.textContent = ''; _errBox.style.display = 'none'; } }
-  if (!ed.fotos || !ed.fotos.length) {
-    _depErr('📷 Falta la foto. Sacá al menos una de cómo llegó la mercadería antes de confirmar.');
+  if (!ed.items.length) { _depErr('Esta devolución no tiene el detalle por producto: no se puede registrar por conteo. Avisá a Administración.'); return; }
+  if ((ed.fotos || []).some(function (f) { return f.subiendo; })) { _depErr('⏳ Esperá a que termine de cargarse la foto.'); return; }
+  var fotos = (ed.fotos || []).map(function (f) { return f.path; });
+  if (!fotos.length && !ed.sinFoto) {
+    _depErr('📷 Falta la foto. Sacá al menos una de cómo llegó la mercadería, o marcá "Sin foto ahora" (queda pendiente).');
     return;
   }
-  // v14.94.0 — Pancho PUEDE recibir con diferencia: queda MARCADA para que
-  // administración y el chofer la concilien (decisión Braian 25/06).
-  var hayDif = ed.items.some(function(it) { return it.recibido !== it.declarado; });
+  var extra = _depExtraParse(ed.extra);
+  if (extra === null) { _depErr('Lo que llegó de más va como: producto × cantidad (uno por línea).'); return; }
+  var hayDif = _depHayDif(ed);
   var nota = (ed.nota || '').trim();
+  var totRec = ed.items.reduce(function (s, it) { return s + (Number(it.recibido) || 0); }, 0);
+  if (totRec === 0 && !extra.length && !_depNotaValida(nota)) {
+    _depErr('⚠️ No llegó nada: contá en la nota qué pasó (mínimo 15 letras) y volvé a tocar el botón.');
+    return;
+  }
+  // v14.94.0 — Pancho PUEDE recibir con diferencia: queda para Administración (ahora como diferencia en la base).
   if (hayDif && !nota) {
-    _depErr('⚠️ Hay diferencia con lo que declaró el chofer. Escribí en la nota qué pasó (qué faltó o sobró) y volvé a tocar el botón.');
+    _depErr('⚠️ Hay diferencia con lo que declaró el chofer (cantidad, condición o algo de más). Escribí en la nota qué pasó y volvé a tocar el botón.');
     var ta = document.getElementById('dep-nota-' + id);
     if (ta) ta.focus();
     return;
   }
-  _depErrLimpiar();
-  var btn = document.getElementById('dep-btn-' + id);
-  if (btn) { btn.disabled = true; btn.textContent = 'Guardando…'; }
-  try {
-    var payload = {
-      estado: 'recibida_deposito',
-      recibida_en: new Date().toISOString(),
-      recibida_por: vendedorActual || 'Pancho',
-      recibido_json: ed.items,
-      recepcion_diferencia: hayDif,
-      recepcion_nota: nota || null,
-      recepcion_condicion: ed.condicion || 'buena',
-      recepcion_foto: (ed.fotos && ed.fotos.length) ? JSON.stringify(ed.fotos.map(function(f){ return f.path; })) : null
-    };
-    // Patrón anti-RLS-silencioso: pedir la fila de vuelta y validar
-    var rows = await sbFetch('devoluciones?id=eq.' + encodeURIComponent(id), {
-      method: 'PATCH',
-      headers: { 'Prefer': 'return=representation' },
-      body: JSON.stringify(payload)
-    });
-    if (!rows || !rows.length) throw new Error('PATCH devolvió vacío (¿RLS?)');
-    if (typeof toast === 'function') toast(hayDif ? '⚠️ Recibida CON diferencia — quedó marcada' : '✅ Devolución recibida conforme', hayDif ? 'err' : 'ok');
-    delete _depEdit[id];
-    _depExpandida = null;
-    await depositoRecargar();
-  } catch(e) {
-    console.error('[depósito] recibir:', e);
-    if (typeof toast === 'function') toast('❌ No se pudo guardar — reintentá (avisar a Braian si sigue)', 'err');
-    if (btn) { btn.disabled = false; btn.textContent = '✅ RECIBIDO EN DEPÓSITO'; }
+  var hecho = null;
+  if (ed.hecho) {
+    var hd = new Date(ed.hecho);
+    if (isNaN(hd.getTime())) { _depErr('La hora de entrada a cámara no es válida.'); return; }
+    if (hd.getTime() > Date.now() + 5 * 60000) { _depErr('La hora de entrada a cámara no puede ser futura.'); return; }
+    hecho = hd.toISOString();
   }
+  _depErrLimpiar();
+  // mismo request_id en cada reintento de ESTA recepción: la base no la registra dos veces
+  if (!ed.rid) ed.rid = 'dep:' + id + ':' + Date.now().toString(36) + Math.random().toString(36).slice(2, 8);
+  var btn = document.getElementById('dep-btn-' + id);
+  var btnTxt = btn ? btn.textContent : '';
+  if (btn) { btn.disabled = true; btn.textContent = 'Guardando…'; }
+  ed.enviando = true;
+  var args = {
+    p_id: id,
+    p_items: ed.items.map(function (it) { return { recibido: Number(it.recibido) || 0, condicion: it.condicion || 'buena' }; }),
+    p_extra: extra,
+    p_hecho_en: hecho,
+    p_nota: nota || null,
+    p_foto_pendiente: !fotos.length,
+    p_fotos: fotos.length ? fotos : null,
+    p_request_id: ed.rid
+  };
+  var r;
+  try {
+    r = await sbFetch('rpc/carga_retorno_recibir_conteo', { method: 'POST', body: JSON.stringify(args), timeoutMs: 20000 });
+  } catch (e) {
+    console.error('[depósito] recibir (conteo):', e);
+    ed.enviando = false;
+    if (btn) { btn.disabled = false; btn.textContent = btnTxt || '✅ RECIBIDO EN DEPÓSITO'; }
+    _depErr('📶 No se pudo confirmar con la base (sin señal o tardó demasiado). Tocá el botón de nuevo: si ya había quedado registrada, no se duplica.');
+    return;
+  }
+  ed.enviando = false;
+  if (r && r.ok) {
+    var nDif = Number(r.diferencias || 0);
+    var conDif = nDif > 0 || (r.estado && r.estado !== 'completo');
+    if (typeof toast === 'function') toast(conDif ? '⚠️ Recibida con ' + (nDif || 'una') + ' diferencia(s) — Administración investiga' : '✅ Devolución recibida conforme', conDif ? 'err' : 'ok');
+  } else if (r && r.code === 'YA_RECIBIDA') {
+    if (typeof toast === 'function') toast('Esa devolución ya estaba recibida: se actualizó la lista.', 'ok');
+  } else {
+    if (btn) { btn.disabled = false; btn.textContent = btnTxt || '✅ RECIBIDO EN DEPÓSITO'; }
+    _depErr('⛔ ' + ((r && r.message) || 'No se pudo registrar. Reintentá (avisar a Braian si sigue).'));
+    return;
+  }
+  delete _depEdit[id];
+  _depExpandida = null;
+  await depositoRecargar();
+  try { if (typeof cv2On === 'function' && cv2On() && typeof cv2DepRecargar === 'function') cv2DepRecargar(); } catch (eCv) {}
 }
+
 // ═══ v14.114.0 — RECEPCIÓN DE MERCADERÍA + VENCIMIENTOS ═════════════
 // Lotes que entran del proveedor con su fecha de vencimiento (tabla
 // compras_recepciones). Pancho ve todo el depósito; Chan (perfil nuevo,
@@ -60500,7 +60696,7 @@ function depPollIniciar() {
    TCK_UPD_LOCAL aca Y el archivo version.json del repo.
    ============================================================ */
 (function(){
-  var TCK_UPD_LOCAL = '14.217.0';        /* <-- bump en cada deploy */
+  var TCK_UPD_LOCAL = '14.218.0';        /* <-- bump en cada deploy */
   /* v14.159.0: fuente UNICA de version. La telemetria del shadow la reporta,
      asi que un desfasaje contra version.json se ve solo en el primer pedido
      (paso 4 veces sin que nadie lo notara: 14.109, 14.128, 14.137, 14.147). */
