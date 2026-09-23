@@ -2,7 +2,8 @@
 <html lang="es">
 <head>
 <!-- ═══════════════════════════════════════════════════════════════════════
-     TCK VENTAS — v14.218.0 — 23/09/2026
+     TCK VENTAS — v14.219.0 — 23/09/2026
+     v14.219.0: el auto-refresh de entregas ya no tira al chofer arriba de todo (reporte Joan 23/09).
      v14.218.0: CIRCUITO POST-ENTREGA (paquete cierre-viajes-v1). NO desplegar sin el SQL previo (ver DESPLIEGUE.md).
        (sobre v14.217.0 publicada. REQUIERE en Supabase 12_A, 30_C y 50_E antes (ver DESPLIEGUE.md del paquete
         cierre-viajes-v1). Después de que Pancho actualice: 31_C.)
@@ -43722,8 +43723,39 @@ function renderEntregas(entregas) {
            '</div>' + html;
   }
 
+  // ═══ v14.219.0 — NO TIRAR AL CHOFER ARRIBA DE TODO ═══════════════════
+  // El auto-refresh de 45 s (v14.124.0) repinta la lista entera, y el innerHTML
+  // resetea el scroll: Joan reportó el 23/09 que "hace scroll para abajo y lo
+  // sube solo". Con 41 paradas sin definir de 52 (quedaron así por la caída de
+  // la base de esa tarde) la lista es larguísima y se vuelve inusable.
+  // Mismo patrón que ya usa la lista del vendedor desde v14.5.0 (FIX 3): el
+  // scroll real puede estar en el contenedor, en un ancestro o en window, así
+  // que se detecta; y se restaura con doble rAF, cuando el layout terminó.
+  var _scEl = el, _scAntes = el.scrollTop;
+  if (_scAntes === 0 && el.scrollHeight <= el.clientHeight) {
+    var _scP = el.parentElement;
+    while (_scP && _scP !== document.body) {
+      if (_scP.scrollHeight > _scP.clientHeight) { _scEl = _scP; _scAntes = _scP.scrollTop; break; }
+      _scP = _scP.parentElement;
+    }
+    if (_scAntes === 0) { _scEl = window; _scAntes = window.scrollY || document.documentElement.scrollTop; }
+  }
+
   // v14.0: prepend del header de viaje activo
   el.innerHTML = headerHtml + chipsHtml + html;
+
+  // Si estaba arriba de todo no hay nada que restaurar (entrar al tab, primera
+  // carga): se evita el trabajo y el parpadeo.
+  if (_scAntes > 0) {
+    requestAnimationFrame(function () {
+      requestAnimationFrame(function () {
+        try {
+          if (_scEl === window) window.scrollTo(0, _scAntes);
+          else _scEl.scrollTop = _scAntes;
+        } catch (e) { /* si el nodo ya no está, no pasa nada */ }
+      });
+    });
+  }
 }
 
 // v14.0: toggle de sección "Completadas hoy"
@@ -60696,7 +60728,7 @@ function depPollIniciar() {
    TCK_UPD_LOCAL aca Y el archivo version.json del repo.
    ============================================================ */
 (function(){
-  var TCK_UPD_LOCAL = '14.218.0';        /* <-- bump en cada deploy */
+  var TCK_UPD_LOCAL = '14.219.0';        /* <-- bump en cada deploy */
   /* v14.159.0: fuente UNICA de version. La telemetria del shadow la reporta,
      asi que un desfasaje contra version.json se ve solo en el primer pedido
      (paso 4 veces sin que nadie lo notara: 14.109, 14.128, 14.137, 14.147). */
