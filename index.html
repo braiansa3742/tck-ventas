@@ -2,7 +2,14 @@
 <html lang="es">
 <head>
 <!-- ═══════════════════════════════════════════════════════════════════════
-     TCK VENTAS — v14.221.0 — 24/09/2026
+     TCK VENTAS — v14.223.0 — 24/09/2026
+     v14.223.0: CAMARA DENTRO DE LA APP. Sin capture (14.220.0) los Android nuevos abren directo la
+       galeria, sin camara ("quiero sacar la foto y me abre la galeria", choferes 24/09). Con capture,
+       Android mataba la pestana al volver de la camara (14.87.0 / Joan 23/09). Ahora el boton Camara
+       (foto de entrega, comprobante, cheque y la foto de recepcion de Deposito) abre la camara ADENTRO
+       de la pagina con getUserMedia: el navegador no sale a segundo plano. La foto entra por el mismo
+       onchange del input. Sin permiso o sin soporte: cae a la camara del sistema (ultimo recurso).
+       Numero 14.223.0 y no 14.222.0: ese lo uso la reversion del paquete de choferes (no publicada).
      v14.221.0 (PUBLICADA): el paquete ventas-14.221.0-choferes (sesion claude/nifty-cray-9qzmc5, armado
        sobre la 14.219.0) + el arreglo de la camara que ya estaba publicado como 14.220.0 el 24/09 00:55
        (1c0b260): SIN el atributo capture en los inputs -cam de foto de entrega, comprobante y cheque,
@@ -46235,20 +46242,156 @@ function _renderComprobanteTransferEstado() {
   if (!subiendoAlguno) {
     if (N === 0) {
       html += '<div style="display:flex;gap:8px;">' +
-        '<button type="button" onclick="document.getElementById(\'compTransfer-cam\').click()" style="flex:1;padding:13px 8px;background:#2E7D32;color:#fff;border:none;border-radius:10px;font-family:\'Barlow Condensed\',sans-serif;font-size:14px;font-weight:800;cursor:pointer;touch-action:manipulation;">📷 Tomar foto</button>' +
+        '<button type="button" onclick="tckCamara(\'compTransfer-cam\')" style="flex:1;padding:13px 8px;background:#2E7D32;color:#fff;border:none;border-radius:10px;font-family:\'Barlow Condensed\',sans-serif;font-size:14px;font-weight:800;cursor:pointer;touch-action:manipulation;">📷 Tomar foto</button>' +
         '<button type="button" onclick="document.getElementById(\'compTransfer-gal\').click()" style="flex:1;padding:13px 8px;background:#fff;color:#2E7D32;border:1.5px solid #2E7D32;border-radius:10px;font-family:\'Barlow Condensed\',sans-serif;font-size:14px;font-weight:800;cursor:pointer;touch-action:manipulation;">🖼️ Subir foto</button>' +
       '</div>';
     } else {
       html += '<div style="margin-top:2px;">' +
         '<div style="font-size:11px;font-weight:700;color:#2E7D32;margin-bottom:6px;">¿El cliente pagó con otra billetera? Agregá ese comprobante también:</div>' +
         '<div style="display:flex;gap:8px;">' +
-          '<button type="button" onclick="document.getElementById(\'compTransfer-cam\').click()" style="flex:1;padding:10px 6px;background:#fff;color:#2E7D32;border:1.5px dashed #2E7D32;border-radius:10px;font-family:\'Barlow Condensed\',sans-serif;font-size:13px;font-weight:800;cursor:pointer;touch-action:manipulation;">➕📷 Otra foto</button>' +
+          '<button type="button" onclick="tckCamara(\'compTransfer-cam\')" style="flex:1;padding:10px 6px;background:#fff;color:#2E7D32;border:1.5px dashed #2E7D32;border-radius:10px;font-family:\'Barlow Condensed\',sans-serif;font-size:13px;font-weight:800;cursor:pointer;touch-action:manipulation;">➕📷 Otra foto</button>' +
           '<button type="button" onclick="document.getElementById(\'compTransfer-gal\').click()" style="flex:1;padding:10px 6px;background:#fff;color:#2E7D32;border:1.5px dashed #2E7D32;border-radius:10px;font-family:\'Barlow Condensed\',sans-serif;font-size:13px;font-weight:800;cursor:pointer;touch-action:manipulation;">➕🖼️ Otra captura</button>' +
         '</div>' +
       '</div>';
     }
   }
   lista.innerHTML = html;
+}
+
+// ═══ v14.223.0 — CÁMARA DENTRO DE LA APP ═══════════════════════════════════════
+// Dos problemas que se venían turnando desde la v14.87.0:
+//   · con capture="environment" el input abre la cámara del sistema a pantalla completa, el
+//     navegador queda en segundo plano y Android, con poca memoria, MATA la pestaña: al volver
+//     se pierde la foto, el modal y el cobro ("se sale la app", Joan 23/09);
+//   · sin capture, los Android nuevos (selector de fotos del sistema) abren DIRECTO la galería,
+//     sin opción de cámara ("quiero sacar la foto y me abre la galería", 24/09).
+// Ahora el botón "Cámara" abre la cámara ADENTRO de la página (getUserMedia): el navegador no
+// sale a segundo plano, así que Android no la mata, y es la cámara de verdad. La foto entra por
+// el MISMO handler del input (onchange), igual que si viniera del selector.
+// Si el celular no deja (sin permiso, sin cámara, navegador viejo), se cae a la cámara del
+// sistema como último recurso. "Elegir de la galería" sigue estando.
+var _tckCam = null;   // { input, stream, ov }
+
+function tckCamara(inputOrId) {
+  var input = (typeof inputOrId === 'string') ? document.getElementById(inputOrId) : inputOrId;
+  if (!input) return;
+  var md = navigator.mediaDevices;
+  if (!md || typeof md.getUserMedia !== 'function' || window.isSecureContext === false) { _tckCamaraNativa(input); return; }
+  _tckCamaraAbrir(input);
+}
+
+// Para un <label> que envuelve al input (Depósito): el toque en el label abre la cámara de la
+// app; el click que llega DESDE el input (galería / último recurso) pasa normal.
+function tckCamaraLabel(ev, label) {
+  if (ev && ev.target && ev.target.tagName === 'INPUT') return true;
+  if (ev) ev.preventDefault();
+  var input = label && label.querySelector('input[type=file]');
+  if (input) tckCamara(input);
+  return false;
+}
+
+// Último recurso: la cámara del sistema (en celulares con poca memoria puede reiniciar la pestaña).
+function _tckCamaraNativa(input) {
+  try { input.setAttribute('capture', 'environment'); } catch (e) {}
+  input.click();
+  setTimeout(function () { try { input.removeAttribute('capture'); } catch (e) {} }, 1500);
+}
+
+async function _tckCamaraAbrir(input) {
+  _tckCamaraCerrar();
+  var ov = document.createElement('div');
+  ov.id = 'tck-camara';
+  ov.style.cssText = 'position:fixed;inset:0;z-index:100000;background:#000;display:flex;flex-direction:column;';
+  ov.innerHTML =
+    '<video id="tck-camara-video" autoplay playsinline muted style="flex:1;min-height:0;width:100%;object-fit:contain;background:#000;"></video>' +
+    '<div id="tck-camara-msg" style="position:absolute;top:16px;left:12px;right:12px;text-align:center;color:#fff;' +
+      'font-family:\'Barlow\',sans-serif;font-size:15px;text-shadow:0 1px 3px #000;">Abriendo la cámara…</div>' +
+    '<div style="display:flex;gap:10px;padding:14px 16px 8px;background:#000;">' +
+      '<button type="button" onclick="_tckCamaraCerrar()" style="flex:1;padding:14px 8px;background:#333;color:#fff;border:none;' +
+        'border-radius:12px;font-family:\'Barlow Condensed\',sans-serif;font-size:17px;font-weight:700;touch-action:manipulation;">Cancelar</button>' +
+      '<button type="button" id="tck-camara-disparar" onclick="_tckCamaraDisparar()" style="flex:2;padding:14px 8px;background:#8B0000;color:#fff;' +
+        'border:none;border-radius:12px;font-family:\'Barlow Condensed\',sans-serif;font-size:19px;font-weight:900;touch-action:manipulation;">📷 Sacar foto</button>' +
+    '</div>' +
+    '<div style="text-align:center;padding:4px 0 calc(14px + env(safe-area-inset-bottom));background:#000;">' +
+      '<span onclick="_tckCamaraGaleria()" style="color:#ccc;text-decoration:underline;font-family:\'Barlow\',sans-serif;font-size:14px;' +
+        'cursor:pointer;touch-action:manipulation;">🖼️ Elegir de la galería</span></div>';
+  document.body.appendChild(ov);
+  var yo = { input: input, stream: null, ov: ov };
+  _tckCam = yo;
+  try {
+    var stream = await navigator.mediaDevices.getUserMedia({
+      video: { facingMode: { ideal: 'environment' }, width: { ideal: 1920 }, height: { ideal: 1080 } },
+      audio: false
+    });
+    if (_tckCam !== yo) { stream.getTracks().forEach(function (t) { try { t.stop(); } catch (e) {} }); return; }  // canceló mientras pedía permiso
+    yo.stream = stream;
+    var v = document.getElementById('tck-camara-video');
+    v.srcObject = stream;
+    try { await v.play(); } catch (e) {}
+    var msg = document.getElementById('tck-camara-msg');
+    if (msg) msg.textContent = '';
+  } catch (err) {
+    if (_tckCam !== yo) return;
+    _tckCamaraCerrar();
+    var nom = (err && err.name) || 'error';
+    toast(nom === 'NotAllowedError'
+      ? '📷 El celular no dio permiso para la cámara. Abro la cámara del teléfono.'
+      : '📷 No pude abrir la cámara dentro de la app. Abro la del teléfono.', 'err');
+    _tckCamaraNativa(input);
+  }
+}
+
+function _tckCamaraCerrar() {
+  var c = _tckCam;
+  _tckCam = null;
+  if (!c) return;
+  if (c.stream) c.stream.getTracks().forEach(function (t) { try { t.stop(); } catch (e) {} });
+  if (c.ov && c.ov.parentNode) c.ov.parentNode.removeChild(c.ov);
+}
+
+function _tckCamaraGaleria() {
+  var c = _tckCam;
+  if (!c) return;
+  var gal = (c.input.id && c.input.id.indexOf('-cam') >= 0) ? document.getElementById(c.input.id.replace('-cam', '-gal')) : null;
+  _tckCamaraCerrar();
+  (gal || c.input).click();
+}
+
+function _tckCamaraDisparar() {
+  var c = _tckCam;
+  if (!c || !c.stream) return;
+  var v = document.getElementById('tck-camara-video');
+  var w = v && v.videoWidth, h = v && v.videoHeight;
+  if (!w || !h) { toast('📷 La cámara todavía no arrancó. Probá de nuevo en un segundo.', 'err'); return; }
+  var canvas = document.createElement('canvas');
+  canvas.width = w; canvas.height = h;
+  canvas.getContext('2d').drawImage(v, 0, 0, w, h);
+  var input = c.input;
+  canvas.toBlob(function (blob) {
+    _tckCamaraCerrar();
+    if (!blob) { toast('📷 No se pudo sacar la foto. Probá de nuevo.', 'err'); return; }
+    var file;
+    try { file = new File([blob], 'foto_' + Date.now() + '.jpg', { type: 'image/jpeg' }); } catch (e) { file = blob; }
+    _tckCamaraEntregar(input, file);
+  }, 'image/jpeg', 0.9);
+}
+
+// La foto entra por el MISMO onchange del input, como si viniera del selector del sistema.
+function _tckCamaraEntregar(input, file) {
+  try {
+    var dt = new DataTransfer();
+    dt.items.add(file);
+    input.files = dt.files;
+    input.dispatchEvent(new Event('change', { bubbles: true }));
+    return;
+  } catch (e) { /* navegador sin DataTransfer: se llama al handler con un input equivalente */ }
+  try {
+    var oc = input.getAttribute('onchange') || '';
+    (new Function(oc)).call({ files: [file], value: '' });
+  } catch (e2) {
+    console.error('[cámara] no pude entregar la foto:', e2);
+    toast('📷 No se pudo cargar la foto. Usá "Galería".', 'err');
+  }
 }
 
 async function _comprobanteTransferSeleccionada(input) {
@@ -46366,14 +46509,14 @@ function _renderFotoEntregaEstado() {
   if (!subiendoAlguno) {
     if (N === 0) {
       html += '<div style="display:flex;gap:8px;">' +
-        '<button type="button" onclick="document.getElementById(\'fotoEntrega-cam\').click()" style="flex:1;padding:13px 8px;background:#1565C0;color:#fff;border:none;border-radius:10px;font-family:\'Barlow Condensed\',sans-serif;font-size:14px;font-weight:800;cursor:pointer;touch-action:manipulation;">📷 Tomar foto</button>' +
+        '<button type="button" onclick="tckCamara(\'fotoEntrega-cam\')" style="flex:1;padding:13px 8px;background:#1565C0;color:#fff;border:none;border-radius:10px;font-family:\'Barlow Condensed\',sans-serif;font-size:14px;font-weight:800;cursor:pointer;touch-action:manipulation;">📷 Tomar foto</button>' +
         '<button type="button" onclick="document.getElementById(\'fotoEntrega-gal\').click()" style="flex:1;padding:13px 8px;background:#fff;color:#1565C0;border:1.5px solid #1565C0;border-radius:10px;font-family:\'Barlow Condensed\',sans-serif;font-size:14px;font-weight:800;cursor:pointer;touch-action:manipulation;">🖼️ Subir foto</button>' +
       '</div>';
     } else {
       html += '<div style="margin-top:2px;">' +
         '<div style="font-size:11px;font-weight:700;color:#1565C0;margin-bottom:6px;">¿Es mucha mercadería? Agregá las fotos que necesites:</div>' +
         '<div style="display:flex;gap:8px;">' +
-          '<button type="button" onclick="document.getElementById(\'fotoEntrega-cam\').click()" style="flex:1;padding:10px 6px;background:#fff;color:#1565C0;border:1.5px dashed #1565C0;border-radius:10px;font-family:\'Barlow Condensed\',sans-serif;font-size:13px;font-weight:800;cursor:pointer;touch-action:manipulation;">➕📷 Otra foto</button>' +
+          '<button type="button" onclick="tckCamara(\'fotoEntrega-cam\')" style="flex:1;padding:10px 6px;background:#fff;color:#1565C0;border:1.5px dashed #1565C0;border-radius:10px;font-family:\'Barlow Condensed\',sans-serif;font-size:13px;font-weight:800;cursor:pointer;touch-action:manipulation;">➕📷 Otra foto</button>' +
           '<button type="button" onclick="document.getElementById(\'fotoEntrega-gal\').click()" style="flex:1;padding:10px 6px;background:#fff;color:#1565C0;border:1.5px dashed #1565C0;border-radius:10px;font-family:\'Barlow Condensed\',sans-serif;font-size:13px;font-weight:800;cursor:pointer;touch-action:manipulation;">➕🖼️ Otra captura</button>' +
         '</div>' +
       '</div>';
@@ -46977,7 +47120,7 @@ function _chequeFotoHTML(ch, idx) {
   }
   return '<div>' + header +
     '<div style="display:flex;gap:8px;">' +
-      '<button type="button" onclick="document.getElementById(\'cheque-cam-' + idx + '\').click()" style="flex:1;padding:11px 6px;background:#1A237E;color:#fff;border:none;border-radius:10px;font-family:\'Barlow Condensed\',sans-serif;font-size:13px;font-weight:800;cursor:pointer;touch-action:manipulation;">📷 Tomar foto</button>' +
+      '<button type="button" onclick="tckCamara(\'cheque-cam-' + idx + '\')" style="flex:1;padding:11px 6px;background:#1A237E;color:#fff;border:none;border-radius:10px;font-family:\'Barlow Condensed\',sans-serif;font-size:13px;font-weight:800;cursor:pointer;touch-action:manipulation;">📷 Tomar foto</button>' +
       '<button type="button" onclick="document.getElementById(\'cheque-gal-' + idx + '\').click()" style="flex:1;padding:11px 6px;background:#fff;color:#1A237E;border:1.5px solid #1A237E;border-radius:10px;font-family:\'Barlow Condensed\',sans-serif;font-size:13px;font-weight:800;cursor:pointer;touch-action:manipulation;">🖼️ Subir foto</button>' +
     '</div>' + inputs + '</div>';
 }
@@ -58676,7 +58819,7 @@ function _depBodyRecepcionHtml(r) {
   ed.fotos.forEach(function(ft, fi){
     h += '<div class="dep-foto-thumb">' + (ft.previewUrl ? '<img src="' + ft.previewUrl + '">' : '') + (ft.subiendo ? '<span class="dep-foto-spin">⏳</span>' : '') + '<button class="dep-foto-x" onclick="depQuitarFoto(\'' + _depEsc(r.id) + '\',' + fi + ')">×</button></div>';
   });
-  h += '<label class="dep-foto-add">📷<input type="file" accept="image/*" style="display:none" onchange="depFotoSel(\'' + _depEsc(r.id) + '\',this)"></label>';
+  h += '<label class="dep-foto-add" onclick="return tckCamaraLabel(event,this)">📷<input type="file" accept="image/*" style="display:none" onchange="depFotoSel(\'' + _depEsc(r.id) + '\',this)"></label>';
   h += '</div>';
   h += '<label style="display:block;margin:2px 2px 6px;font-size:12px;color:#5C4A38;"><input type="checkbox"' + (ed.sinFoto ? ' checked' : '') + ' onchange="depCampo(\'' + _depEsc(r.id) + '\',\'sinFoto\',this.checked,true)"> Sin foto ahora (queda como evidencia pendiente; se completa después)</label>';   // v14.217 · FIX C
   h += '<div class="dep-recibir-err" id="dep-recibir-err-' + _depEsc(r.id) + '"></div>';
@@ -61405,7 +61548,7 @@ function depPollIniciar() {
    TCK_UPD_LOCAL aca Y el archivo version.json del repo.
    ============================================================ */
 (function(){
-  var TCK_UPD_LOCAL = '14.221.0';        /* <-- bump en cada deploy */
+  var TCK_UPD_LOCAL = '14.223.0';        /* <-- bump en cada deploy */
   /* v14.159.0: fuente UNICA de version. La telemetria del shadow la reporta,
      asi que un desfasaje contra version.json se ve solo en el primer pedido
      (paso 4 veces sin que nadie lo notara: 14.109, 14.128, 14.137, 14.147). */
