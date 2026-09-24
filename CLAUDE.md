@@ -33,12 +33,12 @@ Principio guía: *"si requiere que Braian tenga terminal y Node instalado, NO va
 
 ## 3. Equipo (PINs y roles)
 
-- **Francisco** — Admin operativo · PIN `3050` · usa `tckadmin.lat`
-- **Miguel** — Vendedor · PIN `3356` · WA 5492392449725 · 48% de ventas
-- **Juan** — Vendedor · PIN `4256` · WA 5492392458941
-- **Lisandro** — Vendedor · PIN `8020` · WA 5492392548046
-- **Joan** — Chofer · PIN `9060`
-- **Luis** — Chofer · PIN `7040`
+- **Francisco** — Admin operativo · PIN: se gestiona en app_usuarios (no se escribe acá) · usa `tckadmin.lat`
+- **Miguel** — Vendedor · PIN: se gestiona en app_usuarios (no se escribe acá) · WA: ver planilla interna · 48% de ventas
+- **Juan** — Vendedor · PIN: se gestiona en app_usuarios (no se escribe acá) · WA: ver planilla interna
+- **Lisandro** — Vendedor · PIN: se gestiona en app_usuarios (no se escribe acá) · WA: ver planilla interna
+- **Joan** — Chofer · PIN: se gestiona en app_usuarios (no se escribe acá)
+- **Luis** — Chofer · PIN: se gestiona en app_usuarios (no se escribe acá)
 
 Joan y Luis son intercambiables entre vehículos (Iveco Daily AG308YN, 2 Iveco Tector AG495LU/AF979ZU).
 

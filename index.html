@@ -2,7 +2,12 @@
 <html lang="es">
 <head>
 <!-- ═══════════════════════════════════════════════════════════════════════
-     TCK VENTAS — v14.223.0 — 24/09/2026
+     TCK VENTAS — v14.224.0 — 24/09/2026
+     v14.224.0: (1) HOTFIX del modal (el 14.221.1 de la sesion RENDICIONES, 93f7608): despues de
+       «Confirmar entrega» el modal no se cerraba aunque la entrega SI quedaba guardada (desde la 14.221.0).
+       (2) INCIDENTE PIN: sin PIN en CLAUDE.md ni en clasificar.html (que ahora valida con login_vendedor),
+       misma transformacion que supabase/deploy/incidente_pin/tck-ventas/retirar_pins.py. El historial del
+       repo los sigue teniendo: la rotacion de PIN va aparte. Sobre la 14.223.0 publicada (camara en la app).
      v14.223.0: CAMARA DENTRO DE LA APP. Sin capture (14.220.0) los Android nuevos abren directo la
        galeria, sin camara ("quiero sacar la foto y me abre la galeria", choferes 24/09). Con capture,
        Android mataba la pestana al volver de la camara (14.87.0 / Joan 23/09). Ahora el boton Camara
@@ -47997,13 +48002,18 @@ async function _ejecutarConfirmacionEntregaOp(cobros, _op) {
     }
 
     // v14.0: animación flash verde + colapso ANTES de re-renderizar
+    // v14.224.0 (hotfix 14.221.1 de la sesión RENDICIONES, 93f7608) — se decide AHORA si el modal abierto es el de
+    // esta entrega: al final de esta función _entregaModalId pasa a null (sincrónico) y el cierre de abajo corre
+    // 850 ms después, así que la comparación con _opId daba siempre falso y el modal quedaba abierto con la entrega
+    // ya guardada. Si en esos 850 ms el chofer abrió OTRA entrega, esa no se cierra.
+    const _cerrarEste = (_entregaModalId === _opId);
     const itemEl = document.getElementById('entrega-item-' + _opId);
     if (itemEl) {
       itemEl.classList.add('acaba-entregada');
       setTimeout(function() {
         itemEl.classList.add('colapsando');
         setTimeout(function() {
-          if (_entregaModalId === _opId) cerrarEntregaModal();
+          if (_cerrarEste && (_entregaModalId === _opId || _entregaModalId === null)) cerrarEntregaModal();
           renderEntregas(_entregasCache);
           renderResumenChofer(_entregasCache);
           // FIX N42-A: si veníamos del modal de "Definir pendientes",
@@ -61548,7 +61558,7 @@ function depPollIniciar() {
    TCK_UPD_LOCAL aca Y el archivo version.json del repo.
    ============================================================ */
 (function(){
-  var TCK_UPD_LOCAL = '14.223.0';        /* <-- bump en cada deploy */
+  var TCK_UPD_LOCAL = '14.224.0';        /* <-- bump en cada deploy */
   /* v14.159.0: fuente UNICA de version. La telemetria del shadow la reporta,
      asi que un desfasaje contra version.json se ve solo en el primer pedido
      (paso 4 veces sin que nadie lo notara: 14.109, 14.128, 14.137, 14.147). */
