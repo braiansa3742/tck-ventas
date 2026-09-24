@@ -2,15 +2,18 @@
 <html lang="es">
 <head>
 <!-- ═══════════════════════════════════════════════════════════════════════
-     TCK VENTAS — v14.220.0 — 24/09/2026
-     v14.220.0: FOTO SIN QUE SE SALGA LA APP (regresion de la v14.87.0). Joan 23/09: "cuando saco
-       la foto se sale". El atributo capture habia VUELTO a los inputs -cam de entrega,
-       comprobante de transferencia y cheque: abre la camara nativa a pantalla completa, Android
-       mata la pestana para liberar memoria y al volver la recarga desde cero (se pierde la foto,
-       el modal y el cobro, y el chofer paga otra vez 850 KB + la cadena de entregas). Se saca
-       de nuevo: los dos botones abren el selector del sistema, que ofrece la camara y no mata
-       la pestana. NO VOLVER A AGREGAR el atributo capture en ningun input de esta app.
-     v14.219.0 — 23/09/2026
+     TCK VENTAS — v14.221.0 — 24/09/2026
+     v14.221.0 (PUBLICADA): el paquete ventas-14.221.0-choferes (sesion claude/nifty-cray-9qzmc5, armado
+       sobre la 14.219.0) + el arreglo de la camara que ya estaba publicado como 14.220.0 el 24/09 00:55
+       (1c0b260): SIN el atributo capture en los inputs -cam de foto de entrega, comprobante y cheque,
+       porque Android mataba la pestana al abrir la camara (regresion de la v14.87.0). La 14.220.0 de
+       abajo es la del paquete (confirmacion, caso Fabiana): hubo DOS 14.220.0 distintas esa noche.
+       OJO con la reversion 14.222.0 del paquete: esta armada sobre la 14.219.0 y vuelve a poner capture.
+     v14.221.0: choferes — el refresco automático de entregas por fin corre al abrir con sesión guardada; la lista
+       es siempre la del viaje elegido (consultas viejas descartadas, carga cerrada aplicada a la lista nueva); un solo
+       Confirmar por vez; la cola offline no descarta confirmaciones por un 5xx ni por un rechazo (quedan a la vista).
+     v14.220.0: confirmar entrega — la respuesta se aplica a la entrega que se confirmó (no a la tarjeta abierta),
+       se relee del servidor al terminar y ENTREGA_YA_RESUELTA se contrasta con lo guardado (caso Fabiana 23/09).
      v14.219.0: el auto-refresh de entregas ya no tira al chofer arriba de todo (reporte Joan 23/09).
      v14.218.0: CIRCUITO POST-ENTREGA (paquete cierre-viajes-v1). NO desplegar sin el SQL previo (ver DESPLIEGUE.md).
        (sobre v14.217.0 publicada. REQUIERE en Supabase 12_A, 30_C y 50_E antes (ver DESPLIEGUE.md del paquete
@@ -21687,6 +21690,8 @@ function _iniciarPollingProductosCanonicos() {
 
   _prodCanonPollingTimer = setInterval(function() {
     if (document.hidden) return; // pausa si la pestaña está en background
+    // v14.221.0 — el chofer no vende: el catálogo y el stock de venta no se re-consultan cada 30 s
+    if (typeof esNombreChofer === 'function' && esNombreChofer(vendedorActual)) return;
     _refrescarProductosCanonicosBg();
     cargarSinStockEfectivoVentas();
   }, _PROD_CANON_POLL_MS);
@@ -21695,6 +21700,7 @@ function _iniciarPollingProductosCanonicos() {
   // inmediatamente (no esperar 30s) para minimizar latencia.
   document.addEventListener('visibilitychange', function() {
     if (!document.hidden) {
+      if (typeof esNombreChofer === 'function' && esNombreChofer(vendedorActual)) return;   // v14.221.0
       _refrescarProductosCanonicosBg();
       cargarSinStockEfectivoVentas();
     }
@@ -25713,10 +25719,21 @@ var _modoCampo = new URLSearchParams(window.location.search).get('modo') === 'ca
       limpiarSesion();
       try { toast('🔒 Iniciá sesión con tu PIN para continuar.', 'err'); } catch(e) {}
     } else {
-      login(sesion);
-      if (_modoCampo) {
-        setTimeout(function() { cambiarTab('gps'); }, 300);
-      }
+      // v14.221.0 — el login corre cuando terminó de cargar TODO el script. Antes corría en
+      // medio: más abajo `var _tabActual = 'pedidos'` y `var _entregasRefreshTimer = null`
+      // pisaban lo que acababa de dejar y el refresco de entregas del chofer nunca corría.
+      var _goLogin = function () {
+        login(sesion);
+        if (_modoCampo) {
+          setTimeout(function() { cambiarTab('gps'); }, 300);
+        }
+        // v14.221.0 — diagnóstico del chofer: abrir tckventas.com/?diag=1
+        if (/[?&]diag=1\b/.test(location.search)) {
+          setTimeout(function () { try { chDiagnostico(); } catch (_eD) {} }, 3000);
+        }
+      };
+      if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', _goLogin);
+      else setTimeout(_goLogin, 0);
     }
   }
 })();
@@ -26488,6 +26505,13 @@ function salir() {
   _entregasUltimoOk  = null;
   _entregasCache     = [];
   _viajeActivo = null; _viajesActivos = []; _viajeSeleccionadoId = null; _viajeActivoError = null;
+  // v14.221.0 — lo del chofer anterior no se mezcla con el siguiente (las operaciones de la
+  // cola NO se borran: quedan guardadas con su usuario y se envían cuando ese usuario entre)
+  _entregasGen++;
+  _chAutoScrollViaje = null; _chUltimaFirmaPintada = null;
+  try { _chRefrescos = { n: 0, ultimo: null }; } catch (_eS0) {}
+  try { _chParadasMap = {}; _chCv2 = {}; _chCargaCerradaInfo = null; _chCargaCerradaAviso = ''; } catch (_eS1) {}
+  try { _chConfirmadasRecientesMap = {}; _chConfirmando = {}; _chOpReintento = {}; _coordsPedidas = {}; } catch (_eS2) {}
   _cercaniaAutoPedida = false; _jorPosPedida = false;   // v14.185.2: otro usuario en el mismo teléfono
   const bienvenidaEl = document.querySelector('.bienvenida');
   if (bienvenidaEl) bienvenidaEl.style.display = '';
@@ -29437,6 +29461,10 @@ function mostrarTabs() {
     document.body.scrollTop = 0;
     cargarEntregas();
     entregasIniciarRefresh(); // v14.124.0 — enterarse si Fran le movió el viaje
+    // v14.221.0 — lo que quedó en la cola de este usuario sale apenas entra (antes esperaba al minuto)
+    try { _colaFlush().catch(function () {}); } catch (_eCF) {}
+    // v14.221.0 — que el navegador no borre la cola por falta de espacio
+    try { if (navigator.storage && navigator.storage.persist) navigator.storage.persist().catch(function () {}); } catch (_ePS) {}
     return;
   }
 
@@ -40800,29 +40828,40 @@ var _chCargaCerradaInfo = null;
 async function _chFiltrarPorCargaCerrada(viajeId) {
   var r = await sbFetch('rpc/chofer_entregas_del_viaje',
     { method: 'POST', body: JSON.stringify({ p_viaje_id: viajeId }), timeoutMs: VIAJE_TIMEOUT_MS });
-  _chCargaCerradaInfo = r || null;
-  if (!r || r.ok !== true || r.aplica !== true) return;      // viaje fuera de Carga v2
-  if (r.carga_cerrada !== true) return;                       // todavía sin cierre
-
+  _chCargaCerradaInfo = r ? Object.assign({ _viaje: String(viajeId) }, r) : null;
+  // v14.221.0 — el contexto de Carga v2 (va por RPC, versión, hash) también sale de acá.
+  // Antes solo lo cargaban las paradas: si esa consulta fallaba, la confirmación caía al
+  // PATCH viejo, que el servidor rechaza en los viajes de Carga v2.
+  if (r && r.ok === true && r.aplica === true) {
+    var prev = _chCv2[String(viajeId)] || {};
+    _chCv2[String(viajeId)] = {
+      aplica: true,
+      version: (r.version != null ? r.version : prev.version != null ? prev.version : null),
+      hash: (r.hash != null ? r.hash : prev.hash != null ? prev.hash : null),
+      aceptada: (prev.aceptada === true)
+    };
+  }
+}
+var _chCargaCerradaAviso = '';
+// v14.221.0 — deja en la lista solo los pedidos de la carga cerrada y aceptada de ESTE viaje.
+function _chAplicarCargaCerrada(lista, viajeId) {
+  var r = _chCargaCerradaInfo;
+  if (!Array.isArray(lista) || !r || r._viaje !== String(viajeId)) return lista;
+  if (r.ok !== true || r.aplica !== true || r.carga_cerrada !== true) return lista;
   var permitidos = {};
   (r.en_la_carga || []).forEach(function (p) { permitidos[String(p)] = true; });
-
-  var antes = _entregasCache.length;
-  var fuera = _entregasCache.filter(function (e) { return !permitidos[String(e.pedido_id)]; });
-  if (fuera.length) {
-    _entregasCache = _entregasCache.filter(function (e) { return permitidos[String(e.pedido_id)]; });
-    console.warn('[v14.202.0] ' + fuera.length + ' pedido(s) fuera de la carga cerrada v' + r.version);
+  var fuera = lista.filter(function (e) { return !permitidos[String(e.pedido_id)]; });
+  if (!fuera.length) { _chCargaCerradaAviso = ''; return lista; }
+  var firma = String(viajeId) + '|' + fuera.map(function (e) { return e.pedido_id; }).sort().join(',');
+  if (firma !== _chCargaCerradaAviso) {        // se avisa una vez por cambio, no cada 45 s
+    _chCargaCerradaAviso = firma;
+    console.warn('[v14.221.0] ' + fuera.length + ' pedido(s) fuera de la carga cerrada v' + r.version);
     _chEvento('chofer_pedidos_fuera_de_carga', {
-      pedido_id: fuera.map(function (e) { return e.pedido_id; }).join(','),
-      cliente: 'v' + r.version, monto: null
-    }, null);
+      pedido_id: fuera.map(function (e) { return e.pedido_id; }).join(','), cliente: 'v' + r.version, monto: null }, null);
     toast('⚠️ ' + fuera.length + ' pedido(s) no están en la carga que aceptaste (v' + r.version +
           '). No los repartas: avisá a Depósito.', 'err');
   }
-  if ((r.faltantes || []).length) {
-    console.warn('[v14.202.0] faltan entregas de ' + r.faltantes.length + ' pedido(s) de la planilla');
-  }
-  if (antes !== _entregasCache.length) renderResumenChofer(_entregasCache);
+  return lista.filter(function (e) { return permitidos[String(e.pedido_id)]; });
 }
 
 // ══════════════════════════════════════════════════════════════════════
@@ -41186,6 +41225,12 @@ async function seleccionarViaje(viajeId) {
   if (!v) return;
   _viajeSeleccionadoId = viajeId;
   _viajeActivo = v;
+  // v14.221.0 — la lista del viaje anterior no se queda en pantalla mientras llega la nueva,
+  // y cualquier carga en curso del anterior queda descartada.
+  _entregasGen++;
+  _entregasCache = []; _entregasFirmaPrev = null; _chParadasMap = {}; _entregasPintadoOk = false;
+  var _elSel = document.getElementById('entregas-lista');
+  if (_elSel) _elSel.innerHTML = '<div style="text-align:center;padding:40px;color:var(--text3);">Cargando el viaje…</div>';
   // v14.180.0 — C3 · el contexto de Mis Viajes viaja con la seleccion.
   // Sin esto el cierre podia salir con el id del viaje anterior.
   _mvViajeActivo = v;
@@ -41207,6 +41252,128 @@ var _chPendPorViaje = {};            // viaje_id -> entregas pendiente/en_camino
 var _chUltimoPatchPendiente = false; // el último PATCH de confirmación quedó en cola
 var _chPilotoActual = false;         // v14.204.0: la entrega en curso va por RPC
 var _chGuardadoOk = false;           // v14.204.0: el servidor ya confirmó esta entrega
+// ═══ v14.220.0 — CONFIRMACIÓN DEL CHOFER: la respuesta es de la entrega que se confirmó ═══
+// Caso Fabiana (Joan, 23/09 19:57): el servidor guardó entrega y cobro (ok:true, un solo
+// registro) y la tarjeta siguió "Pendiente". La respuesta se aplicaba a la tarjeta que
+// estuviera abierta en ese momento (_entregaModalId), y nunca se releía del servidor.
+var _entregasUltimaCargaOk = null;    // null en curso · true pintó datos del servidor · false falló
+var _chConfirmando = {};              // entrega_id -> true mientras se guarda (sin envíos repetidos)
+var _chConfirmadasRecientesMap = {};  // entrega_id -> {at, campos}: aceptadas por el servidor
+var _chOpReintento = {};              // entrega_id -> {firma, requestId}: reintento de un envío dudoso
+
+function _chEstadoDefinitivo(est) { return est === 'entregado' || est === 'no_entregado'; }
+
+function _chConfirmadaReciente(id, campos) {
+  _chConfirmadasRecientesMap[id] = { at: Date.now(), campos: campos };
+}
+
+// Una consulta que SALIÓ antes de que el servidor aceptara la confirmación no puede
+// pintar esa entrega como pendiente, aunque su respuesta llegue después. Una consulta
+// que salió después manda: si el servidor ya la muestra resuelta (o la deshicieron
+// desde Administración), se usa lo del servidor.
+function _chAplicarConfirmadasRecientes(lista, t0) {
+  if (!Array.isArray(lista)) return lista;
+  return lista.map(function (e) {
+    var c = e && _chConfirmadasRecientesMap[e.id];
+    if (!c) return e;
+    if (_chEstadoDefinitivo(e.estado)) { delete _chConfirmadasRecientesMap[e.id]; return e; }
+    if (c.at > t0) return Object.assign({}, e, c.campos, { _confirmadaLocal: true });
+    delete _chConfirmadasRecientesMap[e.id];
+    return e;
+  });
+}
+
+// Después de confirmar: tarjeta, listado y resumen del viaje desde el servidor.
+async function _chRefrescarTrasConfirmar(id) {
+  try { await cargarEntregas(); } catch (_e) { _entregasUltimaCargaOk = false; }
+  if (_entregasUltimaCargaOk !== true || _viajeActivoError) {
+    toast('✅ Entrega guardada; falta actualizar la pantalla. Tocá el aviso de arriba o esperá el próximo refresco.', 'err');
+    return false;
+  }
+  return true;
+}
+
+function _chCobrosNorm(o) {
+  var r = {};
+  Object.keys(o || {}).forEach(function (k) {
+    var v = Math.round((parseFloat(o[k]) || 0) * 100) / 100;
+    if (v) r[k] = v;
+  });
+  return r;
+}
+function _chCobrosIguales(a, b) {
+  a = _chCobrosNorm(a); b = _chCobrosNorm(b);
+  var ka = Object.keys(a).sort(), kb = Object.keys(b).sort();
+  if (ka.join('|') !== kb.join('|')) return false;
+  return ka.every(function (k) { return Math.abs(a[k] - b[k]) < 0.01; });
+}
+function _chCobrosTxt(o) {
+  o = _chCobrosNorm(o);
+  var k = Object.keys(o);
+  if (!k.length) return 'sin cobro';
+  return k.map(function (m) { return m.replace('_', ' ') + ' $' + Math.round(o[m]).toLocaleString('es-AR'); }).join(' + ');
+}
+
+// Reintento de un envío cuyo resultado no se sabe (5xx): con los MISMOS datos va el
+// MISMO request_id, y el servidor devuelve lo ya guardado en vez de escribir otra vez.
+function _chOpFirma(op) {
+  return JSON.stringify({ c: _chCobrosNorm(op.cobros), i: op.items || null, d: op.dev || null,
+    f: (op.fotos || []).map(function (f) { return f && f.path; }) });
+}
+function _chOpReintentoRequestId(id, op) {
+  var r = _chOpReintento[id];
+  return (r && r.firma === _chOpFirma(op)) ? r.requestId : null;
+}
+function _chOpReintentoGuardar(id, op) { _chOpReintento[id] = { firma: _chOpFirma(op), requestId: op.requestId }; }
+function _chOpReintentoBorrar(id) { delete _chOpReintento[id]; }
+
+// ENTREGA_YA_RESUELTA: no es un éxito automático. Se relee lo guardado y se compara con
+// lo que se intentó. La pantalla muestra lo de la base; nunca se pisa ni se invita a
+// deshacer y cargar de nuevo.
+async function _chYaResueltaReleer(id, intento) {
+  var row = null;
+  try {
+    var rows = await sbFetch('entregas?id=eq.' + encodeURIComponent(id) +
+      '&select=id,pedido_id,cliente,estado,forma_cobro,detalle_cobro,monto_cobrado_real,fecha_entrega,viaje_id',
+      { timeoutMs: VIAJE_TIMEOUT_MS });
+    row = (rows && rows[0]) || null;
+  } catch (_eL) { row = null; }
+  if (_entregaModalId === id) cerrarEntregaModal();
+  if (!row) {
+    alert('ℹ️ ESTA ENTREGA YA FIGURA COMO RESUELTA\n\n' +
+          'No pude leer todavía cómo quedó guardada. No la cargues de nuevo ni la deshagas: ' +
+          'cuando se actualice la lista vas a ver lo registrado. Si tenés dudas, avisá a Administración.');
+    _chRefrescarTrasConfirmar(id);
+    return { coincide: null, guardado: null };
+  }
+  var guardado = {};
+  try { guardado = row.detalle_cobro ? JSON.parse(row.detalle_cobro) : {}; } catch (_eJ) { guardado = {}; }
+  var coincide = row.estado === intento.resultado && _chCobrosIguales(guardado, intento.cobros);
+  var ix = _entregasCache.findIndex(function (x) { return x.id === id; });
+  if (ix >= 0) {
+    Object.assign(_entregasCache[ix], { estado: row.estado, forma_cobro: row.forma_cobro,
+      detalle_cobro: row.detalle_cobro, monto_cobrado_real: row.monto_cobrado_real, fecha_entrega: row.fecha_entrega });
+  }
+  renderEntregas(_entregasCache);
+  renderResumenChofer(_entregasCache);
+  var hora = row.fecha_entrega
+    ? new Date(row.fecha_entrega).toLocaleTimeString('es-AR', { hour: '2-digit', minute: '2-digit' }) : '?';
+  if (coincide) {
+    alert('✅ ESTA ENTREGA YA ESTABA REGISTRADA\n\n' + (row.cliente || '') + ' · ' + row.estado + ' a las ' + hora +
+          '\nCobro guardado: ' + _chCobrosTxt(guardado) +
+          '\n\nEs lo mismo que intentaste cargar. No hace falta hacer nada más: no se cobró dos veces.');
+  } else {
+    alert('⚠️ ESTA ENTREGA YA ESTABA REGISTRADA, CON OTROS DATOS\n\n' + (row.cliente || '') +
+          '\nGuardado (' + hora + '): ' + row.estado + ' · ' + _chCobrosTxt(guardado) +
+          '\nLo que intentaste ahora: ' + intento.resultado + ' · ' + _chCobrosTxt(intento.cobros) +
+          '\n\nNo se cambió nada: quedó lo guardado. No la deshagas ni la cargues de nuevo. ' +
+          'Avisá a Administración con estos datos para que lo revisen.');
+  }
+  _chEvento(coincide ? 'chofer_confirmar_ya_resuelta_igual' : 'chofer_confirmar_ya_resuelta_distinta',
+            _entregasCache[ix] || { pedido_id: row.pedido_id, cliente: row.cliente }, null);
+  _chRefrescarTrasConfirmar(id);
+  return { coincide: coincide, guardado: row };
+}
 
 function _chPad2(x) { return (x < 10 ? '0' : '') + x; }
 function _chFechaISO(offsetDias) {
@@ -41250,7 +41417,8 @@ async function _chPatchEntregaConCola(entregaId, payload, e) {
   } catch (err) {
     if (!_esErrorDeRed(err)) throw err;
     var qid = 'rest_entregas_' + entregaId + '_' + Date.now();
-    await _colaPut({ id: qid, tipo: 'rest', metodo: 'PATCH', path: path, body: payload, creado: Date.now(), intentos: 0 });
+    await _colaPut({ id: qid, tipo: 'rest', metodo: 'PATCH', path: path, body: payload, creado: Date.now(), intentos: 0,
+                     usuario: vendedorActual || null, entrega_id: entregaId });   // v14.221.0
     _chEvento('chofer_confirmar_encolado', e, err);
     _colaFlush().catch(function () {});
     return 'pendiente';
@@ -41267,6 +41435,8 @@ async function _chAplicarColaEntregas(lista) {
   var map = {};
   (items || []).forEach(function (it) {
     if (!it || it.tipo !== 'rest') return;
+    if (it.estado_cola === 'rechazada' || it.estado_cola === 'conflicto') return;   // v14.221.0: no entró
+    if (it.usuario && vendedorActual && it.usuario !== vendedorActual) return;      // v14.221.0: de otro usuario
     // v14.204.0 — la confirmación del piloto viaja como RPC, no como PATCH.
     // Sin esto la entrega se ve 'pendiente' con el pedido ya entregado: es el
     // mismo síntoma que reportó Joan y que arregló la 14.188.0 para el PATCH.
@@ -42749,8 +42919,30 @@ function entregasIniciarRefresh() {
     if (document.hidden) return;
     if (typeof _tabActual !== 'undefined' && _tabActual !== 'entregas') return;
     if (typeof hayAlgoAbierto === 'function' && hayAlgoAbierto()) return;
+    if (_chModalAbierto()) return;   // v14.221.0: no repintar mientras carga cantidades, cobro o fotos
     cargarEntregas(true).catch(function (e) { console.warn('[entregas] refresh', e); });
   }, ENTREGAS_REFRESH_MS);
+  // v14.221.0 — al volver a la app (de WhatsApp, de la cámara) se relee si pasó un rato
+  if (!_entregasVisListener) {
+    _entregasVisListener = true;
+    document.addEventListener('visibilitychange', function () {
+      if (document.hidden || !_entregasRefreshTimer) return;
+      if (typeof _tabActual !== 'undefined' && _tabActual !== 'entregas') return;
+      if (_chModalAbierto()) return;
+      if (_entregasUltimoOk && (Date.now() - _entregasUltimoOk.getTime()) < 20000) return;
+      cargarEntregas(true).catch(function () {});
+    });
+  }
+}
+var _entregasVisListener = false;
+// v14.221.0 — ¿el chofer está cargando algo (entrega, cobro, cheque)?
+function _chModalAbierto() {
+  var ids = ['entrega-modal', 'cheque-modal', 'cobro-modal'];
+  for (var i = 0; i < ids.length; i++) {
+    var m = document.getElementById(ids[i]);
+    if (m && !m.classList.contains('hidden')) return true;
+  }
+  return false;
 }
 
 function entregasFrenarRefresh() {
@@ -42799,8 +42991,48 @@ async function cargarEntregas(esRefresh) {
   finally { if (_entregasEnVuelo === p) _entregasEnVuelo = null; }
 }
 
+// v14.221.0 — cada carga tiene número. Si mientras tanto cambió el viaje elegido, el
+// usuario o empezó otra carga, lo que devuelve ésta se descarta: nunca pinta la lista
+// de otro viaje ni pisa una más nueva.
+var _entregasGen = 0;
+var _chAutoScrollViaje = null;      // v14.221.0: viaje al que ya se le hizo el salto inicial
+var _chUltimaFirmaPintada = null;   // v14.221.0: lo que muestra la pantalla ahora
+var _chUltimoToque = 0;             // v14.221.0: último toque/deslizamiento del chofer
+// v14.221.0 — con el dedo apoyado (toque o deslizamiento en curso) la lista no se repinta: si las
+// tarjetas se reemplazan entre que el dedo baja y sube, el toque se pierde y hay que tocar de nuevo.
+var _chDedoAbajo = false;
+try {
+  window.addEventListener('pointerdown', function () { _chDedoAbajo = true; }, { passive: true, capture: true });
+  ['pointerup', 'pointercancel'].forEach(function (t) {
+    window.addEventListener(t, function () { setTimeout(function () { _chDedoAbajo = false; }, 60); }, { passive: true, capture: true });
+  });
+} catch (_eDA) {}
+function _chEsperarDedo(maxMs) {
+  return new Promise(function (res) {
+    var t0 = Date.now();
+    (function w() { if (!_chDedoAbajo || Date.now() - t0 > maxMs) return res(); setTimeout(w, 50); })();
+  });
+}
+try { ['touchstart', 'wheel', 'mousedown', 'keydown'].forEach(function (t) {
+  window.addEventListener(t, function () { _chUltimoToque = Date.now(); }, { passive: true, capture: true }); }); } catch (_eUT) {}
+function _chFirmaPantalla(lista) {
+  return JSON.stringify([lista, _chParadasMap, _viajeActivo,
+    (typeof _ordenCercania !== 'undefined' ? _ordenCercania : null),
+    Object.keys(typeof _coordsCache !== 'undefined' ? _coordsCache : {}).length,
+    (_viajesActivos || []).map(function (v) { return v.id + ':' + v.estado; })]);
+}
+function _chSelKey() { return String(vendedorActual || '') + '|' + String(_viajeSeleccionadoId || ''); }
+function _chCargaVieja(gen, sel) {
+  if (gen !== _entregasGen || sel !== _chSelKey()) {
+    console.warn('[v14.221.0] carga de entregas descartada (cambió el viaje, el usuario o hay otra más nueva)');
+    return true;
+  }
+  return false;
+}
 async function _cargarEntregasInterno(esRefresh) {
   const el = document.getElementById('entregas-lista');
+  var _gen = ++_entregasGen;
+  _entregasUltimaCargaOk = null;   // v14.220.0: null = en curso · true = pintó datos del servidor · false = falló
   // Solo blanqueamos si no hay nada bueno para mostrar (primera carga).
   if (el && !_entregasPintadoOk) {
     el.innerHTML = '<div style="text-align:center;padding:40px;color:var(--text3);">Cargando entregas...</div>';
@@ -42809,6 +43041,8 @@ async function _cargarEntregasInterno(esRefresh) {
   try {
     // v14.0: Primero cargar el viaje activo del chofer
     await cargarViajeActivo();
+    if (_gen !== _entregasGen) return;                    // v14.221.0: hay una carga más nueva
+    var _sel = _chSelKey();                                // la selección que vale para esta carga
 
     // v14.152.0 — si la consulta de viajes falló no sabemos si tiene viaje o
     // no. Decirle "No tenés viaje activo" al que salió con el camión cargado
@@ -42824,7 +43058,7 @@ async function _cargarEntregasInterno(esRefresh) {
     // v14.202.0 — decisión 10.4: la app muestra SOLO los pedidos de la versión
     // cerrada y aceptada. El filtro lo resuelve el servidor, no el celular.
     if (_viajeActivo && _viajeActivo.estado === 'en_ruta') {
-      try { await _chFiltrarPorCargaCerrada(_viajeActivo.id); } catch (_eF) {
+      try { await _chFiltrarPorCargaCerrada(_viajeActivo.id); if (_chCargaVieja(_gen, _sel)) return; } catch (_eF) {
         console.warn('[v14.202.0] no pude filtrar por la carga cerrada:', _eF && _eF.message);
       }
     }
@@ -42865,6 +43099,9 @@ async function _cargarEntregasInterno(esRefresh) {
     // PATCH/POST/DELETE de la app siguen apuntando a `entregas`.
     var _fuenteEntregas = REPARTO_TEL_ON ? 'vw_entregas_chofer' : 'entregas';
     let entregas;
+    // v14.220.0 — cuándo SALIÓ esta consulta: una confirmación que el servidor aceptó
+    // después no puede quedar tapada por esta respuesta, aunque llegue más tarde.
+    var _t0Consulta = Date.now();
     try {
       entregas = await sbFetch(
         _fuenteEntregas + '?viaje_id=eq.' + encodeURIComponent(_viajeActivo.id) +
@@ -42905,7 +43142,10 @@ async function _cargarEntregasInterno(esRefresh) {
 
     // v14.188.0 — lo que está en la cola offline manda sobre lo que dice el
     // server: una confirmación encolada no puede volver a verse 'pendiente'.
+    if (_chCargaVieja(_gen, _sel)) return;                // v14.221.0
     try { entregas = await _chAplicarColaEntregas(entregas); } catch (_eCola) {}
+    if (_chCargaVieja(_gen, _sel)) return;
+    try { entregas = _chAplicarConfirmadasRecientes(entregas, _t0Consulta); } catch (_eConf) {}
 
     // Mantener filtro por estado (mismo que antes):
     // - pendiente / en_camino / no_encontrado → siempre visibles
@@ -42982,6 +43222,9 @@ async function _cargarEntregasInterno(esRefresh) {
       entregas = Object.values(mejorPorPedido);
     }
 
+    // v14.221.0 — la carga cerrada filtra la lista QUE ACABA DE LLEGAR (antes filtraba la
+    // anterior y la nueva entraba entera: un pedido fuera de la carga aparecía y desaparecía)
+    try { entregas = _chAplicarCargaCerrada(entregas, _viajeActivo && _viajeActivo.id); } catch (_eCC) {}
     _entregasCache = entregas || [];
 
     // v14.124.0 — ¿le movieron pedidos del viaje desde el admin? Avisamos con
@@ -43007,14 +43250,22 @@ async function _cargarEntregasInterno(esRefresh) {
     // que sobrevive al refresco de 45 s sin que aparezca ni desaparezca nada.
     try { await _chCargarParadas(_viajeActivo && _viajeActivo.id); }
     catch (_eP) { console.warn('[v14.203.0] paradas:', _eP && _eP.message); }
+    if (_chCargaVieja(_gen, _sel)) return;
 
     // v14.8: Cargar rutas (orden) y coordenadas GPS en paralelo
     await Promise.all([
       cargarCoordsClientes(_entregasCache),
       cargarRutasOrden()
     ]);
-    renderEntregas(_entregasCache);
-    renderResumenChofer(_entregasCache);
+    if (_chCargaVieja(_gen, _sel)) return;
+    // v14.221.0 — el refresco espera a que el chofer levante el dedo (máx. 3 s) para repintar
+    if (esRefresh && _chDedoAbajo) { await _chEsperarDedo(3000); if (_chCargaVieja(_gen, _sel)) return; }
+    // v14.221.0 — si nada de lo que se ve cambió, el refresco no repinta: repintar reemplaza
+    // todas las tarjetas y un toque que cae justo en ese momento se pierde.
+    if (!(esRefresh && _chFirmaPantalla(_entregasCache) === _chUltimaFirmaPintada)) {
+      renderEntregas(_entregasCache);
+      renderResumenChofer(_entregasCache);
+    }
     // v14.185.0: cercanía ENCENDIDA sola la primera vez que se carga un viaje
     // en ruta (antes había que tocar el botón y nadie lo tocaba). El botón
     // sigue permitiendo apagarla.
@@ -43027,11 +43278,21 @@ async function _cargarEntregasInterno(esRefresh) {
     }
     _entregasPintadoOk = true;          // v14.152.0
     _entregasUltimoOk  = new Date();
+    _entregasUltimaCargaOk = true;      // v14.220.0
+    _chRefrescos.n++; _chRefrescos.ultimo = Date.now();   // v14.221.0 (diagnóstico)
 
-    // v14.8: auto-scroll a la próxima ciudad pendiente
-    setTimeout(scrollAProximaCiudad, 100);
+    // v14.8: auto-scroll a la próxima ciudad pendiente — v14.221.0: sólo la primera vez que se
+    // pinta cada viaje. En cada refresco movía la lista mientras el chofer la estaba mirando.
+    // Si el chofer ya tocó o deslizó la pantalla, tampoco: se queda donde él la dejó.
+    if (_chAutoScrollViaje !== (_viajeActivo && _viajeActivo.id)) {
+      _chAutoScrollViaje = _viajeActivo && _viajeActivo.id;
+      var _asT0 = Date.now();
+      setTimeout(function () { if (_chUltimoToque >= _asT0) return; scrollAProximaCiudad(); }, 100);
+    }
 
   } catch(e) {
+    if (_gen !== _entregasGen) return;   // v14.221.0: el error de una carga vieja no pinta nada
+    _entregasUltimaCargaOk = false;   // v14.220.0
     console.error('cargarEntregas:', e);
     // v14.152.0 — si ya hay una lista buena en pantalla NO la borramos: el
     // chofer sigue trabajando con lo último bueno y ve de cuándo es.
@@ -43346,10 +43607,14 @@ function repartoOrdenarItems(items) {
 // Cache de coordenadas: cliente → {lat, lng}
 let _coordsCache = {};
 
+var _coordsPedidas = {};   // v14.221.0: cliente -> cuándo se pidió (con o sin resultado)
 async function cargarCoordsClientes(entregas) {
-  // Obtener lista única de clientes
-  const nombres = [...new Set(entregas.map(e => e.cliente).filter(Boolean))];
+  // v14.221.0 — sólo los clientes que no se pidieron en los últimos 10 min
+  const _ahoraC = Date.now();
+  const nombres = [...new Set(entregas.map(e => e.cliente).filter(Boolean))]
+    .filter(n => !_coordsPedidas[n] || (_ahoraC - _coordsPedidas[n]) > 600000);
   if (!nombres.length) return;
+  nombres.forEach(n => { _coordsPedidas[n] = _ahoraC; });
   try {
     // Buscar coordenadas en clientes_ubicaciones
     const rows = await sbFetch(
@@ -43394,6 +43659,7 @@ function abrirMapsCliente(cliente, comercio, ciudad, entregaId) {
 
 function renderEntregas(entregas) {
   const el = document.getElementById('entregas-lista');
+  try { _chUltimaFirmaPintada = _chFirmaPantalla(entregas); } catch (_eFP) { _chUltimaFirmaPintada = null; }   // v14.221.0
 
   // v14.0: prepend del header de viaje activo
   const headerHtml = renderViajeHeader();
@@ -43751,6 +44017,10 @@ function renderEntregas(entregas) {
 
   // v14.0: prepend del header de viaje activo
   el.innerHTML = headerHtml + chipsHtml + html;
+  try { _chColaAvisoPintar(); } catch (_eAv) {}   // v14.221.0
+  try { el.insertAdjacentHTML('beforeend', '<div id="ch-diag-link" onclick="chDiagnostico()" style="margin:18px 14px 28px;' +
+    'text-align:center;font-size:12px;color:#888;text-decoration:underline;cursor:pointer;touch-action:manipulation;">v' +
+    (window.TCK_APP_VERSION || '?') + ' · Diagnóstico</div>'); } catch (_eDL) {}   // v14.221.0
 
   // Si estaba arriba de todo no hay nada que restaurar (entrar al tab, primera
   // carga): se evita el trabajo y el parpadeo.
@@ -45436,7 +45706,33 @@ function cobroMultipleActualizar() {
   _ctaCteRender();   // v14.208.2 — el saldo se recalcula con cada tecla
 }
 
+// v14.221.0 — UN SOLO CONFIRMAR POR VEZ. En producción (23/09, 14:38 y 22:21 UTC) una
+// segunda ejecución arrancó mientras la primera esperaba la validación; cuando llegó a
+// guardar, la tarjeta ya se había cerrado y mandó PATCH entregas?id=eq.null (dos veces,
+// 400) y el aviso "LA ENTREGA NO SE GUARDÓ", con la entrega ya guardada.
+var _chConfirmandoUI = null;
+async function _chConConfirmacionUnica(fn, btnId) {
+  if (_chConfirmandoUI) { toast('\u23F3 Se está guardando la entrega. Esperá la respuesta.', 'err'); return; }
+  _chConfirmandoUI = _entregaModalId || true;
+  var btn = btnId ? document.getElementById(btnId) : null;
+  var prevHtml = btn ? btn.innerHTML : null;
+  if (btn) { btn.disabled = true; btn.style.opacity = '0.6'; btn.innerHTML = '\u23F3 Guardando…'; }
+  try { return await fn(); }
+  finally {
+    _chConfirmandoUI = null;
+    if (btn && btn.isConnected && btn.innerHTML === '\u23F3 Guardando…') { btn.innerHTML = prevHtml; }
+    if (btn && btn.isConnected) { btn.disabled = false; btn.style.opacity = ''; }
+  }
+}
 async function confirmarEntregaModal() {
+  if (!_entregaModalId) return;
+  return _chConConfirmacionUnica(confirmarEntregaModalInterno, 'entrega-btn-confirmar');
+}
+async function confirmarChequeModal() {
+  if (!_entregaModalId) return;
+  return _chConConfirmacionUnica(confirmarChequeModalInterno, null);
+}
+async function confirmarEntregaModalInterno() {
   if (!_entregaModalId) return;
   // v14.199.0 — una entrega ya resuelta no se vuelve a confirmar desde acá
   var _eCM = _entregasCache.find(function(x) { return x.id === _entregaModalId; });
@@ -45697,7 +45993,7 @@ async function confirmarEntregaModal() {
       // con los montos actuales (puede haber cambiado efectivo o ctacte)
       // y llamar a confirmarChequeModal directamente.
       _cobrosPendientes = cobros;
-      await confirmarChequeModal();
+      await confirmarChequeModalInterno();
       return;
     }
 
@@ -46222,7 +46518,8 @@ async function _restOPendiente(metodo, path, body) {
   } catch(e) {
     if (_esErrorDeRed(e)) {
       var id = 'rest_' + String(path).replace(/[^a-z0-9]/gi, '') + '_' + Date.now() + '_' + Math.random().toString(36).slice(2, 7);
-      await _colaPut({ id: id, tipo: 'rest', metodo: metodo, path: path, body: body, creado: Date.now(), intentos: 0 });
+      await _colaPut({ id: id, tipo: 'rest', metodo: metodo, path: path, body: body, creado: Date.now(), intentos: 0,
+                       usuario: vendedorActual || null });   // v14.221.0: nunca se envía con otra identidad
       _colaFlush().catch(function(){});
       return 'pendiente';
     }
@@ -46316,18 +46613,25 @@ async function _colaFlush() {
         if (it.tipo === 'storage') {
           await _subirABucket(it.bucket, it.ruta, it.blob);
         } else if (it.tipo === 'rest') {
+          // v14.221.0 — retenidas (no debería haber en esta base): no se reenvían solas
+          if (it.estado_cola) continue;
+          // v14.221.0 — la que falló por un error transitorio espera su turno; las demás siguen
+          if (it.proximo_intento && it.proximo_intento > Date.now()) continue;
+          // v14.221.0 — nunca se envía con la identidad de otro usuario (ni sin usuario)
+          if (it.usuario && it.usuario !== vendedorActual) continue;
+          if (!it.usuario) {   // guardada por una versión anterior: sólo si la entrega es de este usuario
+            var _du = await _chColaDuenio(it);
+            if (_du !== 'mio') continue;
+            it.usuario = vendedorActual; await _colaPut(it);
+          }
           var _rc = await sbFetch(it.path, { method: it.metodo, body: JSON.stringify(it.body) });
           // v14.204.0 — una RPC contesta 200 aunque rechace. Si se descarta en
           // silencio, la entrega queda sin confirmar y nadie se entera.
           if (it.rpc && _rc && _rc.ok !== true) {
-            console.error('[cola] ' + it.rpc + ' rechazada:', _rc && _rc.code, _rc && _rc.message);
-            try { _chEvento('chofer_cola_rechazada',
-                    { pedido_id: String(it.entrega_id || '').slice(0, 60), cliente: null, monto: null },
-                    new Error((_rc && _rc.code) || 'RECHAZADA')); } catch (_eT2) {}
-            if (typeof toast === 'function') {
-              toast('\u26D4 Una entrega guardada sin señal fue rechazada: ' +
-                    ((_rc && _rc.message) || 'revisala'), 'err');
-            }
+            // v14.221.0 — no se descarta: ENTREGA_YA_RESUELTA se relee y compara con lo enviado;
+            // el resto queda guardado como 'rechazada' y a la vista hasta que el chofer lo revise.
+            await _chColaNoEntro(it, _rc);
+            continue;
           } else if (it.rpc && _rc && _rc.ok === true && it.entrega_id) {
             var _ce = _entregasCache && _entregasCache.find(function (x) { return x.id === it.entrega_id; });
             if (_ce) { _ce.estado = _rc.resultado || 'entregado'; _ce._sinSync = false; }
@@ -46336,10 +46640,16 @@ async function _colaFlush() {
         await _colaBorrar(it.id);
       } catch(e) {
         if (_esErrorDeRed(e)) { break; }             // sin señal: cortar, reintentar después
+        // v14.221.0 — 5xx/408/429: esa operación espera su turno (con tope) y la cola sigue
+        if (_chEsTransitorio(e)) { if (it.tipo === 'rest') { await _chColaPostergar(it, e); continue; } break; }
         // v14.188.0 — 401/403 = sesión vencida, no un rechazo del dato: se
         // espera el re-login en vez de tirar una confirmación de entrega.
         if (/Supabase error:\s*40[13]\b/.test(String(e && e.message || ''))) { break; }
         if (it.tipo === 'rest') { try { _chEvento('chofer_cola_descartada', { pedido_id: String(it.path || '').slice(0, 60), cliente: null, monto: null }, e); } catch (_eT) {} }
+        if (it.tipo === 'rest') {                     // v14.221.0: una operación del chofer no se tira nunca
+          await _chColaNoEntro(it, { ok: false, code: 'HTTP', message: String(e && e.message || e).slice(0, 200) });
+          continue;
+        }
         console.warn('[cola] item rechazado por server, lo descarto:', it.id, e && e.message);
         await _colaBorrar(it.id);                    // server lo rechaza -> no trabar la cola
       }
@@ -46347,6 +46657,294 @@ async function _colaFlush() {
   } finally {
     _colaFlushing = false;
   }
+}
+
+// ═══ v14.221.0 — LA COLA NO TIRA CONFIRMACIONES ════════════════════════════════
+// Antes: un 5xx al reenviar (caída de la base, gateway) o un rechazo (ok:false) borraba la
+// confirmación de la cola; sólo quedaba un toast. Ahora cada operación termina en uno de
+// tres destinos, sin reintentos infinitos y sin trabar a las demás:
+//   · YA GUARDADA  → la respuesta guardada (mismo request_id) o ENTREGA_YA_RESUELTA con los
+//                    mismos datos: se da por hecha y sale de la cola.
+//   · TRANSITORIO  → 5xx / 408 / 429: esa operación espera (30 s, 1, 2, 4… hasta 30 min) y la
+//                    cola sigue con las demás. A los 12 intentos pasa a «atascada».
+//   · DEFINITIVO   → rechazo del servidor, o ENTREGA_YA_RESUELTA con OTROS datos: «rechazada»
+//                    o «conflicto».
+// Las rechazadas, en conflicto o atascadas se MUEVEN (se guardan primero, después salen de la
+// cola) a otra base del teléfono, 'tckColaRetenidas', que no se reenvía sola y que ninguna
+// versión anterior de la app lee: volver a 14.219.0 no puede reenviarlas ni borrarlas. Se
+// muestran arriba de la lista hasta que el chofer marque que avisó; nunca se borran.
+var _RET_DB = 'tckColaRetenidas', _RET_STORE = 'retenidas', _retDbPromise = null;
+var _COLA_MAX_INTENTOS = 12;
+function _retAbrir() {
+  if (_retDbPromise) return _retDbPromise;
+  _retDbPromise = new Promise(function (resolve, reject) {
+    var listo = false;
+    var timer = setTimeout(function () { if (!listo) { listo = true; reject(new Error('IndexedDB (retenidas) no respondió')); } }, 4000);
+    try {
+      var req = indexedDB.open(_RET_DB, 1);
+      req.onupgradeneeded = function (ev) {
+        var db = ev.target.result;
+        if (!db.objectStoreNames.contains(_RET_STORE)) db.createObjectStore(_RET_STORE, { keyPath: 'id' });
+      };
+      req.onsuccess = function (ev) { if (!listo) { listo = true; clearTimeout(timer); resolve(ev.target.result); } };
+      req.onerror = function () { if (!listo) { listo = true; clearTimeout(timer); reject(req.error); } };
+      req.onblocked = function () { if (!listo) { listo = true; clearTimeout(timer); reject(new Error('IndexedDB (retenidas) bloqueada')); } };
+    } catch (e) { if (!listo) { listo = true; clearTimeout(timer); reject(e); } }
+  });
+  _retDbPromise.catch(function () { _retDbPromise = null; });
+  return _retDbPromise;
+}
+function _retPut(item) {
+  return _retAbrir().then(function (db) {
+    return new Promise(function (resolve, reject) {
+      var tx = db.transaction(_RET_STORE, 'readwrite');
+      tx.objectStore(_RET_STORE).put(item);
+      tx.oncomplete = function () { resolve(true); };
+      tx.onerror = function () { reject(tx.error); };
+    });
+  });
+}
+function _retBorrar(id) {
+  return _retAbrir().then(function (db) {
+    return new Promise(function (resolve) {
+      var tx = db.transaction(_RET_STORE, 'readwrite');
+      tx.objectStore(_RET_STORE).delete(id);
+      tx.oncomplete = function () { resolve(true); };
+      tx.onerror = function () { resolve(false); };
+    });
+  });
+}
+function _retTodos() {
+  return _retAbrir().then(function (db) {
+    return new Promise(function (resolve) {
+      var tx = db.transaction(_RET_STORE, 'readonly');
+      var req = tx.objectStore(_RET_STORE).getAll();
+      req.onsuccess = function () { resolve(req.result || []); };
+      req.onerror = function () { resolve([]); };
+    });
+  }).catch(function () { return []; });
+}
+// Mover a retenidas: primero se guarda allá; sólo si eso anduvo, sale de la cola.
+async function _chColaRetener(it, estado) {
+  it.estado_cola = estado;
+  it.retenida_at = Date.now();
+  await _retPut(it);
+  await _colaBorrar(it.id);
+}
+
+function _chEsTransitorio(err) {
+  var st = err && err.httpStatus;
+  if (!st) {
+    var m = /Supabase error:\s*(\d{3})/.exec(String(err && err.message || ''));
+    if (m) st = Number(m[1]);
+  }
+  if (!st) return false;
+  return st === 408 || st === 425 || st === 429 || st >= 500;
+}
+// Error transitorio de UNA operación: espera sola y la cola sigue con las demás.
+async function _chColaPostergar(it, err) {
+  it.intentos = (it.intentos || 0) + 1;
+  it.ultimo_error = String(err && err.message || err || '').slice(0, 200);
+  if (it.intentos >= _COLA_MAX_INTENTOS) {
+    await _chColaRetener(it, 'atascada');
+    toast('⚠️ ' + (it.cliente || 'Una entrega') + ' guardada en el celular no pudo enviarse después de ' +
+          it.intentos + ' intentos. Mirá el aviso arriba de la lista.', 'err');
+    _chColaAvisoPintar();
+    return;
+  }
+  it.proximo_intento = Date.now() + Math.min(30 * 60000, 30000 * Math.pow(2, it.intentos - 1));
+  await _colaPut(it);
+}
+// ¿De quién es esta operación? Las que guardó una versión anterior no tienen usuario:
+// se envían sólo si la entrega es de un viaje del usuario que está usando el teléfono.
+// Las de vendedores (visitas) llevan vendedor_id en el cuerpo: se comparan con el del usuario actual.
+// Si no se puede saber de quién es, queda guardada y no se envía (se ve en el diagnóstico).
+async function _chColaDuenio(it) {
+  if (!vendedorActual) return 'sin_usuario';
+  var id = it.entrega_id;
+  if (!id && typeof it.path === 'string' && it.path.indexOf('entregas?id=eq.') === 0) id = it.path.slice('entregas?id=eq.'.length).split('&')[0];
+  if (!id) {
+    var vid = it.body && it.body.vendedor_id;
+    if (vid && typeof gpsObtenerVendedorId === 'function') {
+      var mio = await gpsObtenerVendedorId();
+      return (mio && String(mio) === String(vid)) ? 'mio' : 'otro';
+    }
+    return 'sin_duenio';
+  }
+  var rows = await sbFetch('entregas?id=eq.' + encodeURIComponent(id) + '&select=chofer', { timeoutMs: VIAJE_TIMEOUT_MS });
+  var ch = rows && rows[0] && rows[0].chofer;
+  return (ch && vendedorActual && ch === vendedorActual) ? 'mio' : 'otro';
+}
+async function _chColaNoEntro(it, rc) {
+  var code = (rc && rc.code) || 'RECHAZADA';
+  var b = it.body || {};
+  if (code === 'ENTREGA_YA_RESUELTA' && it.entrega_id) {
+    var row = null;
+    try {
+      var rows = await sbFetch('entregas?id=eq.' + encodeURIComponent(it.entrega_id) +
+        '&select=id,cliente,estado,detalle_cobro,fecha_entrega', { timeoutMs: VIAJE_TIMEOUT_MS });
+      row = (rows && rows[0]) || null;
+    } catch (_eR) { row = null; }
+    if (!row) { await _chColaPostergar(it, new Error('no se pudo releer la entrega')); return; }
+    var guardado = {};
+    try { guardado = row.detalle_cobro ? JSON.parse(row.detalle_cobro) : {}; } catch (_eJ) { guardado = {}; }
+    if (row.estado === b.p_resultado && _chCobrosIguales(guardado, b.p_cobros || {})) {
+      await _colaBorrar(it.id);   // ya estaba registrada exactamente así: nada más que enviar
+      var ce = _entregasCache.find(function (x) { return x.id === it.entrega_id; });
+      if (ce) { ce.estado = row.estado; ce.detalle_cobro = row.detalle_cobro; ce._sinSync = false; }
+      toast('✅ ' + (row.cliente || it.cliente || 'La entrega') + ': ya estaba registrada así. No se cobró dos veces.', 'ok');
+      return;
+    }
+    it.guardado = { estado: row.estado, detalle_cobro: row.detalle_cobro, fecha_entrega: row.fecha_entrega };
+    it.cliente = it.cliente || row.cliente || null;
+    it.rechazo = { code: code, message: (rc && rc.message) || null, at: Date.now() };
+    await _chColaRetener(it, 'conflicto');
+  } else {
+    it.rechazo = { code: code, message: (rc && rc.message) || null, at: Date.now() };
+    await _chColaRetener(it, 'rechazada');
+  }
+  try { _chEvento('chofer_cola_no_entro', { pedido_id: String(b.p_entrega_id || it.entrega_id || '').slice(0, 60),
+        cliente: it.cliente || null, monto: null }, new Error(code)); } catch (_eT) {}
+  toast('⛔ ' + (it.cliente || 'Una entrega') + ' cargada en este celular NO entró. Mirá el aviso arriba de la lista.', 'err');
+  _chColaAvisoPintar();
+}
+async function _chColaNoEntraron() {
+  var items = await _retTodos();
+  return (items || []).filter(function (it) {
+    return it && !it.revisado && (!it.usuario || !vendedorActual || it.usuario === vendedorActual);
+  });
+}
+async function _chColaAvisoPintar() {
+  var el = document.getElementById('entregas-lista');
+  if (!el) return;
+  var lista = await _chColaNoEntraron();
+  var prev = document.getElementById('cola-no-entro');
+  if (prev) prev.parentNode.removeChild(prev);
+  if (!lista.length) return;
+  var fmt = function (o) { try { return _chCobrosTxt(typeof o === 'string' ? JSON.parse(o) : o); } catch (_e) { return '—'; } };
+  var hayAtascadas = lista.some(function (it) { return it.estado_cola === 'atascada'; });
+  var filas = lista.map(function (it) {
+    var b = it.body || {};
+    var txt = '• <b>' + _escapeHtmlBasic(it.cliente || String(it.entrega_id || '').slice(0, 8)) + '</b>: ' +
+      _escapeHtmlBasic((b.p_resultado || 'entrega') + ' · ' + fmt(b.p_cobros || {}));
+    if (it.estado_cola === 'conflicto' && it.guardado) {
+      txt += ' — <b>en la base quedó</b> ' + _escapeHtmlBasic(it.guardado.estado + ' · ' + fmt(it.guardado.detalle_cobro || '{}'));
+    } else if (it.estado_cola === 'atascada') {
+      txt += ' — no se pudo enviar (' + (it.intentos || 0) + ' intentos)';
+    } else if (it.rechazo) {
+      txt += ' — ' + _escapeHtmlBasic(String(it.rechazo.message || it.rechazo.code || 'rechazada').slice(0, 140));
+    }
+    return txt;
+  }).join('<br>');
+  el.insertAdjacentHTML('afterbegin',
+    '<div id="cola-no-entro" style="margin:8px 14px;padding:10px 12px;border-radius:10px;background:#FFEBEE;' +
+    'border:1.5px solid #C62828;font-size:13px;color:#8E1B1B;line-height:1.35;">' +
+    '<div style="font-family:\'Barlow Condensed\',sans-serif;font-size:15px;font-weight:900;margin-bottom:4px;">' +
+    '⛔ ' + lista.length + ' operación(es) de este celular NO entraron</div>' + filas +
+    '<div style="margin-top:6px;">No las cargues de nuevo sin revisar: avisá a Administración con estos datos. Quedan guardadas en el celular.</div>' +
+    (hayAtascadas ? '<div onclick="_chColaReintentarAtascadas()" style="margin-top:8px;text-align:center;padding:8px;border-radius:8px;background:#fff;' +
+      'border:1.5px solid #C62828;color:#C62828;font-weight:800;cursor:pointer;touch-action:manipulation;">Reintentar las que no se pudieron enviar</div>' : '') +
+    '<div onclick="_chColaMarcarRevisado()" style="margin-top:8px;text-align:center;padding:8px;border-radius:8px;background:#C62828;' +
+    'color:#fff;font-weight:800;cursor:pointer;touch-action:manipulation;">Ya lo avisé</div></div>');
+}
+async function _chColaMarcarRevisado() {
+  var lista = await _chColaNoEntraron();
+  for (var i = 0; i < lista.length; i++) { lista[i].revisado = Date.now(); try { await _retPut(lista[i]); } catch (_e) {} }
+  _chColaAvisoPintar();
+}
+// Las atascadas (sólo errores transitorios) vuelven a la cola, con el MISMO request_id.
+async function _chColaReintentarAtascadas() {
+  var lista = (await _chColaNoEntraron()).filter(function (it) { return it.estado_cola === 'atascada'; });
+  for (var i = 0; i < lista.length; i++) {
+    var it = lista[i];
+    delete it.estado_cola; delete it.retenida_at; it.intentos = 0; it.proximo_intento = 0;
+    await _colaPut(it);          // primero vuelve a la cola…
+    await _retBorrar(it.id);     // …después sale de retenidas
+  }
+  _chColaAvisoPintar();
+  _colaFlush().catch(function () {});
+}
+
+// ═══ v14.221.0 — DIAGNÓSTICO DEL CHOFER (tckventas.com/?diag=1) ══════════════
+// Para comprobar en el teléfono de cada chofer, sin borrar nada ni cargar nada:
+// versión del teléfono y publicada, viaje elegido contra el servidor, si la lista es la
+// del servidor, si el refresco corre, qué hay en la cola y si el almacenamiento persiste.
+var _chRefrescos = { n: 0, ultimo: null };
+var _DIAG_DB = 'tckDiagnostico';
+function _diagMarca(accion) {
+  // una marca propia (no toca la cola): prueba que el almacenamiento del teléfono persiste
+  return new Promise(function (resolve) {
+    try {
+      var req = indexedDB.open(_DIAG_DB, 1);
+      req.onupgradeneeded = function (ev) { var db = ev.target.result; if (!db.objectStoreNames.contains('m')) db.createObjectStore('m', { keyPath: 'k' }); };
+      req.onerror = function () { resolve(null); };
+      req.onsuccess = function (ev) {
+        var db = ev.target.result, tx = db.transaction('m', 'readwrite'), st = tx.objectStore('m');
+        var g = st.get('primera');
+        g.onsuccess = function () {
+          var previa = g.result || null;
+          if (!previa) st.put({ k: 'primera', ts: Date.now(), version: window.TCK_APP_VERSION || null });
+          st.put({ k: 'ultima', ts: Date.now(), version: window.TCK_APP_VERSION || null });
+          tx.oncomplete = function () { resolve(previa); };
+        };
+        g.onerror = function () { resolve(null); };
+      };
+    } catch (e) { resolve(null); }
+  });
+}
+async function chDiagnostico() {
+  var filas = [];
+  var ok = function (b) { return b ? '✅' : '⚠️'; };
+  var hhmm = function (t) { return t ? new Date(t).toLocaleTimeString('es-AR', { hour: '2-digit', minute: '2-digit', second: '2-digit' }) : '—'; };
+  var local = window.TCK_APP_VERSION || '?', pub = null;
+  try { var rv = await fetch('version.json?t=' + Date.now(), { cache: 'no-store' }); pub = (await rv.json()).version; } catch (e) { pub = null; }
+  filas.push(ok(pub && pub === local) + ' Versión en el teléfono: <b>' + local + '</b> · publicada: <b>' + (pub || 'sin señal') + '</b>');
+  filas.push('Usuario: <b>' + _escapeHtmlBasic(vendedorActual || '—') + '</b>');
+  var sel = _viajeActivo;
+  var srvViajes = null;
+  try {
+    srvViajes = await sbFetch('viajes?select=id,zona,fecha_salida,estado&chofer=eq.' + encodeURIComponent(vendedorActual || '') +
+      '&estado=in.(planificado,preparando,carga_cerrada,en_ruta)&order=fecha_salida.desc&limit=20', { timeoutMs: VIAJE_TIMEOUT_MS });
+  } catch (e) { srvViajes = null; }
+  var selEnSrv = !!(sel && srvViajes && srvViajes.some(function (v) { return v.id === sel.id; }));
+  filas.push(ok(selEnSrv) + ' Viaje elegido: <b>' + (sel ? _escapeHtmlBasic((sel.zona || '') + ' ' + (sel.fecha_salida || '') + ' · ' + String(sel.id).slice(0, 8)) : '—') +
+    '</b> · viajes abiertos según el servidor: ' + (srvViajes ? srvViajes.length : 'sin señal'));
+  if (sel) {
+    try {
+      var srvEnt = await sbFetch('entregas?viaje_id=eq.' + encodeURIComponent(sel.id) + '&select=id,estado', { timeoutMs: VIAJE_TIMEOUT_MS }) || [];
+      var mapa = {}; srvEnt.forEach(function (x) { mapa[x.id] = x.estado; });
+      var ajenas = _entregasCache.filter(function (x) { return x.viaje_id !== sel.id || !(x.id in mapa); }).length;
+      var distintas = _entregasCache.filter(function (x) { return (x.id in mapa) && mapa[x.id] !== x.estado && !x._sinSync; }).length;
+      filas.push(ok(ajenas === 0) + ' En pantalla: ' + _entregasCache.length + ' entregas · de otro viaje o que el servidor no tiene: <b>' + ajenas + '</b>');
+      filas.push(ok(distintas === 0) + ' Con estado distinto al del servidor (sin contar las por sincronizar): <b>' + distintas + '</b>');
+    } catch (e) { filas.push('⚠️ No pude comparar la lista con el servidor (sin señal)'); }
+  }
+  var refrescoOk = !!_entregasRefreshTimer && _chRefrescos.ultimo && (Date.now() - _chRefrescos.ultimo) < 120000;
+  filas.push(ok(refrescoOk) + ' Refresco automático: ' + (_entregasRefreshTimer ? 'activo' : '<b>NO activo</b>') +
+    ' · lecturas desde que abrió: ' + _chRefrescos.n + ' · última: ' + hhmm(_chRefrescos.ultimo));
+  var cola = []; try { cola = await _colaTodos(); } catch (e) {}
+  var ops = cola.filter(function (i) { return i && i.tipo === 'rest'; });
+  var fotos = cola.filter(function (i) { return i && i.tipo === 'storage'; });
+  var ret = await _retTodos();
+  filas.push('Cola del teléfono: <b>' + ops.length + '</b> operación(es) pendiente(s)' +
+    (ops.length ? ' (más vieja: ' + hhmm(Math.min.apply(null, ops.map(function (i) { return i.creado || Date.now(); }))) + ')' : '') +
+    ' · fotos pendientes: ' + fotos.length + ' · retenidas: ' + ret.length);
+  var persist = null; try { persist = navigator.storage && navigator.storage.persisted ? await navigator.storage.persisted() : null; } catch (e) {}
+  var marca = await _diagMarca();
+  filas.push(ok(!!marca) + ' Almacenamiento: ' + (marca ? 'la marca del ' + new Date(marca.ts).toLocaleString('es-AR') + ' (v' + (marca.version || '?') + ') sigue guardada' :
+    'primera marca guardada ahora: cerrá la app, volvé a abrir este diagnóstico y tiene que decir «sigue guardada»') +
+    ' · persistente: ' + (persist === true ? 'sí' : persist === false ? 'no (el navegador podría borrarlo si falta espacio)' : '—'));
+  var d = document.getElementById('ch-diag');
+  if (d) d.parentNode.removeChild(d);
+  document.body.insertAdjacentHTML('beforeend',
+    '<div id="ch-diag" style="position:fixed;inset:0;z-index:2147483600;background:rgba(0,0,0,.55);display:flex;align-items:flex-end;">' +
+    '<div style="background:#fff;width:100%;max-height:85vh;overflow:auto;border-radius:16px 16px 0 0;padding:16px;font-size:14px;line-height:1.45;color:#222;">' +
+    '<div style="font-weight:900;font-size:17px;margin-bottom:8px;">🔍 Diagnóstico del chofer · ' + new Date().toLocaleString('es-AR') + '</div>' +
+    filas.join('<br>') +
+    '<div style="margin-top:10px;font-size:12px;color:#666;">Sacale una captura y mandala. No borra ni carga nada.</div>' +
+    '<div onclick="var d=document.getElementById(\'ch-diag\');d&&d.parentNode.removeChild(d);" style="margin-top:12px;text-align:center;padding:10px;border-radius:10px;background:#8B0000;color:#fff;font-weight:800;cursor:pointer;">Cerrar</div>' +
+    '</div></div>');
+  return filas;
 }
 
 // Disparadores: al reconectar, cada minuto, y al cargar (items de sesiones previas).
@@ -46533,7 +47131,7 @@ function recalcularChequeResumen() {
   }
 }
 
-async function confirmarChequeModal() {
+async function confirmarChequeModalInterno() {
   const errEl = document.getElementById('cheque-err');
   errEl.textContent = '';
   if (!_chequesData || _chequesData.length === 0) {
@@ -46636,8 +47234,11 @@ function _chVaPorRpc(e) {
 // cuerpo: si el pedido queda en la cola, el reintento manda el mismo id y el
 // servidor devuelve la respuesta ya guardada en vez de volver a escribir.
 function _chReqId(pref, entregaId) {
+  // v14.221.0 — al final va la versión de la app: en carga_evento.request_id se ve qué
+  // versión tenía el teléfono de cada chofer en cada operación (la telemetría del chofer
+  // no llega: tomador_eventos sólo acepta los pasos del vendedor).
   return pref + ':' + String(entregaId || '') + ':' + Date.now() + ':' +
-         Math.random().toString(36).slice(2, 8);
+         Math.random().toString(36).slice(2, 8) + ':v' + String(window.TCK_APP_VERSION || '?');
 }
 
 // Los productos, tal como los va a validar el servidor.
@@ -46688,15 +47289,19 @@ async function _chRpcConCola(fn, args, e) {
     var r = await sbFetch(path, { method: 'POST', timeoutMs: 20000, body: JSON.stringify(args) });
     return { estado: 'ok', r: r };
   } catch (err) {
-    if (!_esErrorDeRed(err)) throw err;
+    // v14.221.0 — un 5xx (o 408/429) no dice si la base guardó: va a la cola con el MISMO
+    // request_id; el servidor devuelve lo ya guardado si había entrado. Sólo un 4xx es rechazo.
+    var _incierto = !_esErrorDeRed(err) && _chEsTransitorio(err);
+    if (!_esErrorDeRed(err) && !_incierto) throw err;
     await _colaPut({ id: 'rpc_' + fn + '_' + (args.p_request_id || Date.now()),
                      tipo: 'rest', metodo: 'POST', path: path, body: args,
                      rpc: fn, entrega_id: args.p_entrega_id || null,
+                     usuario: vendedorActual || null, cliente: (e && e.cliente) || null,
                      estado_optimista: (args.p_resultado === 'no_entregado' ? 'no_entregado' : 'entregado'),
                      creado: Date.now(), intentos: 0 });
-    _chEvento('chofer_confirmar_encolado', e, err);
+    _chEvento(_incierto ? 'chofer_confirmar_incierto' : 'chofer_confirmar_encolado', e, err);
     _colaFlush().catch(function () {});
-    return { estado: 'pendiente', r: null };
+    return { estado: 'pendiente', r: null, incierto: _incierto };
   }
 }
 
@@ -46748,7 +47353,42 @@ function _chMsgRpc(r) {
   return 'La base rechazó la entrega.';
 }
 
+// v14.220.0 — la operación fija su identidad al empezar: entrega, viaje, request_id y lo
+// que se manda. Cerrar o cambiar de tarjeta mientras se guarda ya no cambia a qué
+// entrega se aplica la respuesta, ni pierde fotos/cheques de la original.
 async function _ejecutarConfirmacionEntrega(cobros) {
+  var id = _entregaModalId;
+  if (!id) {   // v14.221.0: sin entrega no se manda nada (antes: PATCH entregas?id=eq.null)
+    console.warn('[v14.221.0] confirmación sin entrega abierta: no se envía nada');
+    return;
+  }
+  if (_chConfirmando[id]) { toast('⏳ Esta entrega se está guardando. Esperá la respuesta.', 'err'); return; }
+  var e0 = _entregasCache.find(function (x) { return x.id === id; }) || {};
+  var dev = _getDevolucionData();
+  var op = {
+    entregaId: id,
+    viajeId: e0.viaje_id || null,
+    pedidoId: e0.pedido_id || null,
+    cobros: JSON.parse(JSON.stringify(cobros || {})),
+    dev: dev,
+    items: _chItemsParaRpc(id, dev),
+    fotos: (_fotosEntrega || []).slice(),
+    comprobantes: (_comprobantesTransfer || []).slice(),
+    cheques: (_chequesData || []).slice(),
+    cbCtx: _cbCtx, cbSel: _cbSel,
+    requestId: null
+  };
+  op.requestId = _chOpReintentoRequestId(id, op) || _chReqId('ent', id);
+  _chConfirmando[id] = true;
+  try { return await _ejecutarConfirmacionEntregaOp(cobros, op); }
+  finally { delete _chConfirmando[id]; }
+}
+
+async function _ejecutarConfirmacionEntregaOp(cobros, _op) {
+  // v14.220.0 — todo lo de abajo usa _opId: la entrega que se confirmó, no la
+  // tarjeta que esté abierta cuando vuelve la respuesta.
+  var _opId = _op.entregaId;
+  var _chPilotoActual = false, _chGuardadoOk = false, _chUltimoPatchPendiente = false;
   const formaPrincipal = Object.keys(cobros).reduce((a,b) => cobros[a] > cobros[b] ? a : b);
   // v14.207.0 — era const y la linea de abajo (guard de v14.202.0) la reasigna:
   // "TypeError: Assignment to constant variable", adentro del try, y salia el
@@ -46824,7 +47464,7 @@ async function _ejecutarConfirmacionEntrega(cobros) {
   // se guardan en la misma columna text, separados por '\n'.
   // Con un solo comprobante el valor queda idéntico al formato viejo.
   if ((cobros.transferencia || 0) > 0) {
-    var _pathsComp = _comprobantesTransfer
+    var _pathsComp = _op.comprobantes
       .map(function(c) { return c.path; })
       .filter(function(p) { return !!p; });
     if (_pathsComp.length > 0) {
@@ -46834,7 +47474,7 @@ async function _ejecutarConfirmacionEntrega(cobros) {
 
   // v14.0: si el chofer cobró menos y justificó, guardar el motivo y monto real
   // v14.80.0 — guardar las rutas de las fotos de entrega (jsonb array).
-  var _pathsFotoEnt = _fotosEntrega.map(function(f){ return f.path; }).filter(function(p){ return !!p; });
+  var _pathsFotoEnt = _op.fotos.map(function(f){ return f.path; }).filter(function(p){ return !!p; });
   payload.foto_urls = _pathsFotoEnt;
 
   if (window._cobroMenosMotivo) {
@@ -46863,7 +47503,7 @@ async function _ejecutarConfirmacionEntrega(cobros) {
   // v14.188.0 — sesión vencida: el PATCH caería a anon → 401 y la entrega se
   // perdía en silencio (la foto ya había subido: el bucket acepta anon).
   if (typeof jwtVigente === 'function' && !jwtVigente()) {
-    _chEvento('chofer_confirmar_sesion_vencida', _entregasCache.find(function (x) { return x.id === _entregaModalId; }), null);
+    _chEvento('chofer_confirmar_sesion_vencida', _entregasCache.find(function (x) { return x.id === _opId; }), null);
     alert('\uD83D\uDD12 TU SESIÓN VENCIÓ — LA ENTREGA NO SE GUARDÓ\n\n' +
           'Tocá \u23FB (arriba a la derecha), salí y volvé a entrar con tu PIN. ' +
           'Después confirmá esta entrega de nuevo.');
@@ -46873,13 +47513,13 @@ async function _ejecutarConfirmacionEntrega(cobros) {
   // ── v14.204.0 · CIRCUITO CARGA V2: una sola llamada, o nada ─────────
   // El try/catch de abajo es EL MISMO de siempre: envuelve las dos ramas, para
   // que el camino viejo conserve exactamente su manejo de errores.
-  var _eRpc = _entregasCache.find(function (x) { return x.id === _entregaModalId; });
+  var _eRpc = _entregasCache.find(function (x) { return x.id === _opId; });
   _chPilotoActual = _chVaPorRpc(_eRpc);
   _chGuardadoOk = false;
   try {
   if (_chPilotoActual) {
     var _cCtx = _chCv2De(_eRpc.viaje_id) || {};
-    var _itemsRpc = _chItemsParaRpc(_entregaModalId, devDataFinal);
+    var _itemsRpc = _chItemsParaRpc(_opId, devDataFinal);
     var _devRpc = null;
     if (devDataFinal && devDataFinal !== 'SIN_CATEGORIA') {
       _devRpc = {
@@ -46891,7 +47531,7 @@ async function _ejecutarConfirmacionEntrega(cobros) {
         monto_original: Math.round(montoOriginalEntrega * 100) / 100
       };
     }
-    var _chequesRpc = (_chequesData || []).filter(function (ch) { return ch && (parseFloat(ch.monto) || 0) > 0; })
+    var _chequesRpc = (_op.cheques || []).filter(function (ch) { return ch && (parseFloat(ch.monto) || 0) > 0; })
       .map(function (ch) {
         return { monto: parseFloat(ch.monto) || 0, banco: ch.banco, numero: ch.numero,
                  emisor: ch.emisor, vencimiento: ch.vencimiento, foto_url: ch.fotoPath || null };
@@ -46905,7 +47545,7 @@ async function _ejecutarConfirmacionEntrega(cobros) {
     var _resRpc;
     try {
       _resRpc = await _chRpcConCola('carga_entrega_registrar', {
-        p_entrega_id: _entregaModalId,
+        p_entrega_id: _opId,
         p_version:    _cCtx.version != null ? _cCtx.version : null,
         p_hash:       _cCtx.hash != null ? _cCtx.hash : null,
         p_resultado:  'entregado',
@@ -46914,7 +47554,7 @@ async function _ejecutarConfirmacionEntrega(cobros) {
         p_devolucion: _devRpc,
         p_no_entrega: null,
         p_extra:      _extraRpc,
-        p_request_id: _chReqId('ent', _entregaModalId)
+        p_request_id: _op.requestId
       }, _eRpc);
     } catch (errRpc) {
       // 401/403 y cualquier rechazo HTTP: MISMO tratamiento que antes, pero
@@ -46927,12 +47567,23 @@ async function _ejecutarConfirmacionEntrega(cobros) {
               'Después confirmá esta entrega de nuevo.');
         return;
       }
-      alert('\u274C LA ENTREGA NO SE GUARDÓ\n\nNo se guardó ninguna parte: ni el cobro, ni la ' +
-            'devolución, ni los productos.\n\nVolvé a tocar "Confirmar entrega".\n\nDetalle técnico: ' +
-            String(errRpc && errRpc.message || errRpc).slice(0, 120));
+      // v14.220.0 — un 5xx no dice si la base guardó o no (el 23/09 hubo un 500 y a los 3 s
+      // un 200). Se reintenta con el MISMO request_id: si ya había entrado, el servidor
+      // devuelve lo guardado y no escribe de nuevo.
+      _chOpReintentoGuardar(_opId, _op);
+      // v14.221.0 — acá sólo llega un 4xx: la base rechazó la operación y no guardó nada
+      // (el 5xx de resultado incierto ya quedó en la cola, arriba).
+      alert('\u26D4 LA BASE RECHAZÓ LA ENTREGA — NO SE GUARDÓ\n\nNo entró ninguna parte: ni el cobro, ni la ' +
+            'devolución, ni los productos. Revisá y volvé a tocar "Confirmar entrega" (va la misma operación, no se duplica).' +
+            '\n\nDetalle técnico: ' + String(errRpc && errRpc.message || errRpc).slice(0, 120));
       return;   // modal abierto: no se pierde nada de lo cargado
     }
 
+    if (_resRpc.estado === 'ok' && _resRpc.r && _resRpc.r.ok !== true && _resRpc.r.code === 'ENTREGA_YA_RESUELTA') {
+      _chOpReintentoBorrar(_opId);
+      await _chYaResueltaReleer(_opId, { resultado: 'entregado', cobros: JSON.parse(detalleCobroStr || '{}') });
+      return;
+    }
     if (_resRpc.estado === 'ok' && (!_resRpc.r || _resRpc.r.ok !== true)) {
       // El servidor la rechazó. NO se guardó nada: se le dice qué arreglar.
       _chEvento('chofer_confirmar_rechazada', _eRpc, new Error((_resRpc.r && _resRpc.r.code) || 'RECHAZADA'));
@@ -46942,18 +47593,23 @@ async function _ejecutarConfirmacionEntrega(cobros) {
     }
     _chUltimoPatchPendiente = (_resRpc.estado === 'pendiente');
     _chGuardadoOk = true;
+    _chOpReintentoBorrar(_opId);
+    if (_resRpc.estado === 'ok') {
+      _chConfirmadaReciente(_opId, { estado: 'entregado', forma_cobro: formaPrincipal,
+        detalle_cobro: detalleCobroStr, fecha_entrega: (_resRpc.r && _resRpc.r.server_ts) || payload.fecha_entrega });
+    }
     // v14.215.0 — contra boleta: el cobro ya quedó en la entrega (rendición de siempre); ahora se dice a qué factura va.
     // Si no se puede (sin señal), queda pendiente de imputación: Administración lo imputa desde la ficha. Nunca se cobra dos veces.
-    if (_cbCtx && _cbCtx.autorizado && _resRpc.estado === 'ok') {
+    if (_op.cbCtx && _op.cbCtx.autorizado && _resRpc.estado === 'ok') {
       try {
         var _cbMonet = _cobroSumaMonetaria(cobros);
         if (_cbMonet > 0) {
           // v14.216.0 · cada instrumento se imputa por separado y con su importe (efectivo, transferencia, cheque)
-          var _cbDest = _cbSel || 'a_identificar';
+          var _cbDest = _op.cbSel || 'a_identificar';
           var _cbImps = ['efectivo', 'transferencia', 'cheque'].map(function (m) { return { factura_transaccion_id: _cbDest, monto: Math.round((parseFloat(cobros[m]) || 0) * 100) / 100, medio: m }; })
                           .filter(function (x) { return x.monto > 0; });
-          var _cbImp = await sbFetch('rpc/entrega_cobro_imputar', { method: 'POST', timeoutMs: 20000, body: JSON.stringify({ p_entrega_id: _entregaModalId,
-            p_imputaciones: _cbImps, p_request_id: _chReqId('cb', _entregaModalId) }) });
+          var _cbImp = await sbFetch('rpc/entrega_cobro_imputar', { method: 'POST', timeoutMs: 20000, body: JSON.stringify({ p_entrega_id: _opId,
+            p_imputaciones: _cbImps, p_request_id: _chReqId('cb', _opId) }) });
           if (_cbImp && _cbImp.ok) toast(_cbImp.a_identificar > 0 ? '📒 Cobro registrado; queda pendiente de imputación (saldo en revisión)'
               : '📒 Cobro imputado a ' + ((_cbImp.imputaciones || [{}])[0].factura || 'la factura elegida') + ' (' + _cbImps.map(function (x) { return x.medio + ' $' + Math.round(x.monto).toLocaleString('es-AR'); }).join(' + ') + ')', 'ok');
           else toast('📒 Cobro guardado. La imputación quedó pendiente: ' + ((_cbImp && (_cbImp.message || _cbImp.code)) || 'Administración la completa'), 'err');
@@ -46964,25 +47620,25 @@ async function _ejecutarConfirmacionEntrega(cobros) {
     // Lo que NO sigue: el INSERT suelto de devoluciones, el de cheques y
     // fn_entrega_items_confirmar. Los hizo la RPC, adentro de la transacción.
   } else {
-    var _rPatch = await _chPatchEntregaConCola(_entregaModalId, payload, _entregasCache.find(function (x) { return x.id === _entregaModalId; }));
+    var _rPatch = await _chPatchEntregaConCola(_opId, payload, _entregasCache.find(function (x) { return x.id === _opId; }));
     _chUltimoPatchPendiente = (_rPatch === 'pendiente');
     // v14.187.0 — foto ítem por ítem de lo que bajó (fn_entrega_items_confirmar).
     // Best-effort: la entrega ya está confirmada; si esto falla solo se pierde el detalle.
-    try { await _entItemsGuardar(_entregaModalId, devDataFinal); } catch (eEI) { console.warn('[entregas_items]', eEI); }
+    try { await _entItemsGuardar(_opId, devDataFinal); } catch (eEI) { console.warn('[entregas_items]', eEI); }
     _chGuardadoOk = true;
   }
     // v14.81.0 — persistir en la cola las fotos que quedaron 'pendientes' (señal débil).
     try {
       var _pendientes = [];
-      _fotosEntrega.forEach(function(f){ if (f.pendiente && f.blob && f.path) _pendientes.push(['entregas-fotos', f.path, f.blob]); });
-      _comprobantesTransfer.forEach(function(c){ if (c.pendiente && c.blob && c.path) _pendientes.push(['comprobantes', c.path, c.blob]); });
-      (_chequesData || []).forEach(function(ch){ if (ch && ch.fotoPendiente && ch.fotoBlob && ch.fotoPath) _pendientes.push(['comprobantes', ch.fotoPath, ch.fotoBlob]); });
+      _op.fotos.forEach(function(f){ if (f.pendiente && f.blob && f.path) _pendientes.push(['entregas-fotos', f.path, f.blob]); });
+      _op.comprobantes.forEach(function(c){ if (c.pendiente && c.blob && c.path) _pendientes.push(['comprobantes', c.path, c.blob]); });
+      (_op.cheques || []).forEach(function(ch){ if (ch && ch.fotoPendiente && ch.fotoBlob && ch.fotoPath) _pendientes.push(['comprobantes', ch.fotoPath, ch.fotoBlob]); });
       for (var _pi = 0; _pi < _pendientes.length; _pi++) {
         await _colaPut({ id: _pendientes[_pi][1], tipo: 'storage', bucket: _pendientes[_pi][0], ruta: _pendientes[_pi][1], blob: _pendientes[_pi][2], creado: Date.now(), intentos: 0 });
       }
       if (_pendientes.length > 0) { _colaFlush().catch(function(){}); }
     } catch(_eCola) { console.warn('[cola] no se pudo encolar foto pendiente:', _eCola); }
-    const e = _entregasCache.find(x => x.id === _entregaModalId);
+    const e = _entregasCache.find(x => x.id === _opId);
 
     // v14.16.2 — Insertar cheques en BD acá (movido desde
     // confirmarChequeModal). Esto asegura que los cheques solo se
@@ -46996,19 +47652,19 @@ async function _ejecutarConfirmacionEntrega(cobros) {
     // desincronizacion futura entre _chequesData y el reparto final.
     // Tolerancia 0,5 por el redondeo a entero de cheques_recibidos.monto.
     var _chqDeclarado = parseFloat(cobros.cheque) || 0;
-    var _chqCapturado = (_chequesData || []).reduce(function(a, ch) {
+    var _chqCapturado = (_op.cheques || []).reduce(function(a, ch) {
       return a + (parseFloat(ch.monto) || 0); }, 0);
     var _chqOk = _chqDeclarado > 0 &&
-                 (_chequesData || []).length > 0 &&
+                 (_op.cheques || []).length > 0 &&
                  Math.abs(_chqDeclarado - _chqCapturado) < 0.5;
-    if (!_chqOk && (_chequesData || []).length > 0) {
+    if (!_chqOk && (_op.cheques || []).length > 0) {
       console.error('[cheques] INSERT bloqueado - declarado=' + _chqDeclarado +
-                    ' capturado=' + _chqCapturado + ' filas=' + _chequesData.length);
+                    ' capturado=' + _chqCapturado + ' filas=' + _op.cheques.length);
       toast('\u26a0\ufe0f Los datos del cheque no coinciden con el importe. No se guardo el cheque.', 'err');
     }
     if (_chqOk && !_chPilotoActual) {
       try {
-        var inserts = _chequesData.map(function(ch) {
+        var inserts = _op.cheques.map(function(ch) {
           return {
             pedido_id: e ? e.pedido_id : null,
             chofer:    vendedorActual,
@@ -47046,7 +47702,10 @@ async function _ejecutarConfirmacionEntrega(cobros) {
     // - La entrega ya está persistida en Supabase (línea anterior).
     // - El Sheet queda desfasado solo si Apps Script muere — visible
     //   en consola para que se reintente o se sincronice manualmente.
-    if (e && e.pedido_id) {
+    // v14.221.0 — sólo con la entrega confirmada por el servidor. Si quedó en la cola o el
+    // resultado es incierto, marcar la planilla "Entregado" (y avisar "Entrega guardada" si
+    // falla) afirmaba algo que todavía no se sabe.
+    if (e && e.pedido_id && !_chUltimoPatchPendiente) {
       (async function() {
         try {
           const params = new URLSearchParams({
@@ -47186,7 +47845,7 @@ async function _ejecutarConfirmacionEntrega(cobros) {
         maximumAge: 0               // v14.184.0: lectura fresca (la de hasta 1 min podía ser la parada anterior)
       });
     }
-    const idx = _entregasCache.findIndex(x => x.id === _entregaModalId);
+    const idx = _entregasCache.findIndex(x => x.id === _opId);
     if (idx >= 0) {
       _entregasCache[idx].estado = 'entregado';
       _entregasCache[idx].forma_cobro = formaPrincipal;
@@ -47195,13 +47854,13 @@ async function _ejecutarConfirmacionEntrega(cobros) {
     }
 
     // v14.0: animación flash verde + colapso ANTES de re-renderizar
-    const itemEl = document.getElementById('entrega-item-' + _entregaModalId);
+    const itemEl = document.getElementById('entrega-item-' + _opId);
     if (itemEl) {
       itemEl.classList.add('acaba-entregada');
       setTimeout(function() {
         itemEl.classList.add('colapsando');
         setTimeout(function() {
-          cerrarEntregaModal();
+          if (_entregaModalId === _opId) cerrarEntregaModal();
           renderEntregas(_entregasCache);
           renderResumenChofer(_entregasCache);
           // FIX N42-A: si veníamos del modal de "Definir pendientes",
@@ -47217,7 +47876,7 @@ async function _ejecutarConfirmacionEntrega(cobros) {
         }, 350);
       }, 500);
     } else {
-      cerrarEntregaModal();
+      if (_entregaModalId === _opId) cerrarEntregaModal();
       renderEntregas(_entregasCache);
       renderResumenChofer(_entregasCache);
       if (window._defPendientesPendienteRetomar) {
@@ -47230,8 +47889,12 @@ async function _ejecutarConfirmacionEntrega(cobros) {
       }
     }
     toast(_chUltimoPatchPendiente
-      ? '\uD83D\uDCF5 Sin señal: entrega guardada en el celular. Se envía sola cuando vuelva la señal.'
+      ? ((_resRpc && _resRpc.incierto)
+          ? '\u23F3 No pude confirmar si entró: quedó guardada en el celular y se reintenta sola, sin duplicar. No la cargues de nuevo.'
+          : '\uD83D\uDCF5 Sin señal: entrega guardada en el celular. Se envía sola cuando vuelva la señal.')
       : '✅ Entrega registrada', 'ok');
+    // v14.220.0 — releer del servidor: tarjeta, listado y resumen del viaje.
+    if (!_chUltimoPatchPendiente) _chRefrescarTrasConfirmar(_opId);
   } catch(err) {
     console.error('❌ Error en _ejecutarConfirmacionEntrega (PATCH entregas):', err);
     console.error('Payload que falló:', payload);
@@ -47243,10 +47906,10 @@ async function _ejecutarConfirmacionEntrega(cobros) {
     if (payload.detalle_cobro && !_chPilotoActual) {
       try {
         delete payload.detalle_cobro;
-        await sbFetch('entregas?id=eq.'+_entregaModalId, {method:'PATCH',body:JSON.stringify(payload)});
-        const idx = _entregasCache.findIndex(x=>x.id===_entregaModalId);
+        await sbFetch('entregas?id=eq.'+_opId, {method:'PATCH',body:JSON.stringify(payload)});
+        const idx = _entregasCache.findIndex(x=>x.id===_opId);
         if (idx>=0) { _entregasCache[idx].estado='entregado'; _entregasCache[idx].forma_cobro=formaPrincipal; }
-        cerrarEntregaModal(); renderEntregas(_entregasCache); renderResumenChofer(_entregasCache);
+        if (_entregaModalId === _opId) cerrarEntregaModal(); renderEntregas(_entregasCache); renderResumenChofer(_entregasCache);
         toast('✅ Entrega registrada','ok'); return;
       } catch(err2) {
         console.error('❌ Retry sin detalle_cobro también falló:', err2);
@@ -47255,7 +47918,7 @@ async function _ejecutarConfirmacionEntrega(cobros) {
     }
     // v14.188.0 — decir QUÉ pasó y dejar rastro. Antes: 120 chars de JSON
     // crudo en un toast, nada grabado, y el chofer creía que había cargado.
-    var _eCtx = _entregasCache.find(function (x) { return x.id === _entregaModalId; });
+    var _eCtx = _entregasCache.find(function (x) { return x.id === _opId; });
     var _st = _chErrStatus(err);
     _chEvento('chofer_confirmar_fallo', _eCtx, err);
     if (_st === 401 || _st === 403) {
@@ -47273,18 +47936,24 @@ async function _ejecutarConfirmacionEntrega(cobros) {
       toast(_chUltimoPatchPendiente
         ? '\uD83D\uDCF5 Sin señal: la entrega quedó guardada en el celular y se envía sola.'
         : '\u2705 Entrega registrada (falló algo secundario, ya quedó avisado)', 'ok');
-      cerrarEntregaModal();
+      if (_entregaModalId === _opId) {
+        cerrarEntregaModal();
+        _entregaModalId = null; _entregaClienteActual = null; _entregaCiudadActual = null; _modoCobroCambio = false;
+      }
       renderEntregas(_entregasCache);
       renderResumenChofer(_entregasCache);
-      _entregaModalId = null; _entregaClienteActual = null; _entregaCiudadActual = null; _modoCobroCambio = false;
+      _chRefrescarTrasConfirmar(_opId);
       return;
     }
+    if (_chPilotoActual) _chOpReintentoGuardar(_opId, _op);   // v14.220.0: mismo request_id si reintenta
     alert('\u274C LA ENTREGA NO SE GUARDÓ\n\n' +
           'Volvé a tocar "Confirmar entrega". Si sigue fallando, avisá por WhatsApp con el nombre del cliente.\n\n' +
           'Detalle técnico: ' + msgErr);
     return;   // modal abierto
   }
-  _entregaModalId = null; _entregaClienteActual = null; _entregaCiudadActual = null; _modoCobroCambio = false;
+  if (_entregaModalId === _opId || _entregaModalId === null) {
+    _entregaModalId = null; _entregaClienteActual = null; _entregaCiudadActual = null; _modoCobroCambio = false;
+  }
 }
 
 async function deshacerEntregaModal() {
@@ -60736,7 +61405,7 @@ function depPollIniciar() {
    TCK_UPD_LOCAL aca Y el archivo version.json del repo.
    ============================================================ */
 (function(){
-  var TCK_UPD_LOCAL = '14.220.0';        /* <-- bump en cada deploy */
+  var TCK_UPD_LOCAL = '14.221.0';        /* <-- bump en cada deploy */
   /* v14.159.0: fuente UNICA de version. La telemetria del shadow la reporta,
      asi que un desfasaje contra version.json se ve solo en el primer pedido
      (paso 4 veces sin que nadie lo notara: 14.109, 14.128, 14.137, 14.147). */
