@@ -2,7 +2,15 @@
 <html lang="es">
 <head>
 <!-- ═══════════════════════════════════════════════════════════════════════
-     TCK VENTAS — v14.224.0 — 24/09/2026
+     TCK VENTAS — v14.225.0 — 25/09/2026
+     v14.225.0: RED DE SEGURIDAD DEL GUARDADO. Con el Apps Script sin cuota (24/09 desde las 20:05) el
+       pedido quedaba en la hoja y NO en la base: no aparecia, no se podia presupuestar y el vendedor lo
+       cargaba de nuevo (Lisandro, 7 veces). Ahora, despues del ok del Apps Script (WhatsApp y tomador de
+       campo), la app verifica que el pedido este en pedidos_zona y, si no esta, lo registra ella misma con
+       rpc/pedido_registrar_respaldo (tools/pedido_registrar_respaldo_2509.sql). Si hay uno igual, no crea
+       otro; si no puede, avisa "NO lo cargues de nuevo". Ademas: no se puede EDITAR un pedido que ya
+       tiene presupuesto (se mira en la base al abrir y al guardar): Dupuy 23/09 se edito 43 s despues de
+       presupuestar y quedaron distintos ($313.500 vs $209.000).
      v14.224.0: (1) HOTFIX del modal (el 14.221.1 de la sesion RENDICIONES, 93f7608): despues de
        «Confirmar entrega» el modal no se cerraba aunque la entrega SI quedaba guardada (desde la 14.221.0).
        (2) INCIDENTE PIN: sin PIN en CLAUDE.md ni en clasificar.html (que ahora valida con login_vendedor),
@@ -24158,6 +24166,95 @@ function _tckPedidoV2Param(d, cab) {
 //      shadow tambien registra cuando la sesion del vendedor esta vencida.
 //  La identidad no se pierde: `vendedor` ya viaja dentro del payload v2.
 // ============================================================================
+// ═══ v14.225.0 — RED DE SEGURIDAD DEL GUARDADO ════════════════════════════════
+// Cuando el Apps Script se queda sin cuota diaria de llamadas (24/09 desde las 20:05, y 4 veces
+// antes en septiembre), guardarPedido contesta "ok" y escribe la HOJA, pero NO llega a la base:
+// el pedido no aparece en la lista, el presupuesto no se puede crear (la Edge lee la base) y el
+// vendedor lo vuelve a cargar (Lisandro: 7 veces la misma noche). Acá, después del "ok":
+//   · se verifica que el pedido esté en pedidos_zona (dos lecturas, 2 s aparte);
+//   · si NO está, lo registra la app con rpc/pedido_registrar_respaldo (mismos datos, sin Google);
+//   · si hay uno igual ya registrado, no se crea otro y se avisa;
+//   · si no se pudo registrar, se dice con todas las letras "NO lo cargues de nuevo".
+// Sin señal para verificar ('desconocido') se sigue como antes: no se inventa un error.
+async function _tckAsegurarPedidoEnBase(pedidoId, payload, entrega, cliente) {
+  var _esta = async function () {
+    var r = await sbFetch('pedidos_zona?pedido_id=eq.' + encodeURIComponent(pedidoId) + '&select=pedido_id',
+                          { timeoutMs: 8000 });
+    return Array.isArray(r) && r.length > 0;
+  };
+  try {
+    if (await _esta()) return 'ok';
+    await new Promise(function (res) { setTimeout(res, 2000); });
+    if (await _esta()) return 'ok';
+  } catch (eVer) {
+    console.warn('[respaldo] no se pudo verificar ' + pedidoId + ' (se sigue como antes):', eVer && eVer.message);
+    return 'desconocido';
+  }
+  var turno = String((entrega && entrega.turno) || '').toLowerCase();
+  var res = null, errMsg = '';
+  try {
+    res = await sbFetch('rpc/pedido_registrar_respaldo', {
+      method: 'POST',
+      timeoutMs: 20000,
+      body: JSON.stringify({
+        p_pedido_id:    pedidoId,
+        p_payload:      payload || null,
+        p_fecha_salida: (entrega && entrega.fechaISO) || null,
+        p_turno:        (turno === 'mañana' || turno === 'tarde') ? turno : null,
+        p_fecha_txt:    (entrega && entrega.dia) || null,
+        p_turno_txt:    (entrega && entrega.turno) || null
+      })
+    });
+  } catch (eRpc) {
+    errMsg = (eRpc && eRpc.message) || String(eRpc);
+  }
+  var cod = (res && res.code) || '';
+  try {
+    _telemetriaTomadorRegistrar({
+      paso:                (res && res.ok) ? 'respaldo_registrado' : (cod === 'DUPLICADO_PROBABLE' ? 'respaldo_duplicado' : 'respaldo_fallo'),
+      pedido_id_intentado: pedidoId,
+      pedido_id_existente: (res && res.existente) || null,
+      cliente:             cliente,
+      vendedor:            vendedorActual,
+      total:               (payload && Number(payload.total)) || 0,
+      fingerprint:         '',
+      error_msg:           (cod || errMsg || '').slice(0, 200)
+    });
+  } catch (eTel) {}
+  if (res && res.ok) {
+    console.warn('[respaldo] ' + pedidoId + ' registrado por la app (' + (res.zona || '?') + ')');
+    return 'registrado';
+  }
+  if (cod === 'DUPLICADO_PROBABLE') {
+    alert('⚠️ YA HABÍA UN PEDIDO IGUAL\n\n' + cliente + ' ya tiene el pedido ' + (res.existente || '') +
+          ' con el mismo total.\n\nEste no se agregó al sistema. Si era un cambio del pedido anterior, pedile a ' +
+          'Administración que lo corrija. NO lo cargues de nuevo.');
+    return 'duplicado';
+  }
+  alert('⚠️ EL PEDIDO QUEDÓ EN LA PLANILLA PERO NO ENTRÓ AL SISTEMA\n\nNúmero: ' + pedidoId + '\nCliente: ' + cliente +
+        '\n\nNO lo cargues de nuevo. Mandale este número a Administración para que lo registre.' +
+        ((res && res.message) ? '\n\nDetalle: ' + res.message : (errMsg ? '\n\nDetalle: ' + errMsg.slice(0, 120) : '')));
+  return 'fallo';
+}
+
+// v14.225.0 — ¿el pedido ya tiene presupuesto en Xubio? Se mira en la base AHORA (la tarjeta puede
+// estar vieja: Dupuy 23/09 se editó 43 s después de crear el presupuesto y quedaron distintos).
+// Devuelve el número de presupuesto, o null (sin presupuesto o sin poder verificar).
+async function _tckPresupuestoActual(pedidoId) {
+  try {
+    var r = await sbFetch('pedidos_zona?pedido_id=eq.' + encodeURIComponent(pedidoId) + '&select=xubio_presupuesto_nro',
+                          { timeoutMs: 8000 });
+    var f = Array.isArray(r) && r[0];
+    var n = f && f.xubio_presupuesto_nro;
+    return (n && String(n).trim()) ? String(n).trim() : null;
+  } catch (e) { return null; }
+}
+function _tckAvisoTienePresupuesto(nro) {
+  alert('🔒 ESTE PEDIDO YA TIENE PRESUPUESTO EN XUBIO (N° ' + nro + ')\n\n' +
+        'Si lo cambiás ahora, el pedido queda distinto del presupuesto y se factura lo viejo.\n\n' +
+        'Para cambiarlo, pedile a Administración que anule el presupuesto: después lo editás y se vuelve a presupuestar.');
+}
+
 function _tckShadowV2Enviar(v2Str, canal, pedidoId, urlLen) {
   try {
     if (!v2Str || !pedidoId) return;
@@ -40076,6 +40173,7 @@ async function tomadorConfirmarConEntrega(entregaData) {
     total += tpPromos.total;
   }
 
+  var _v2ItemsTom = [];   // v14.225.0
   items.forEach(function(nombre) {
     var qty  = _tomadorQtys[nombre];
     var item = null;
@@ -40096,6 +40194,12 @@ async function tomadorConfirmarConEntrega(entregaData) {
     total += subtotal;
     var _nombreLinea = nombre + ((POLLOS_CON_CALIBRE[nombre] && _tomadorCalibres[nombre]) ? ' ' + _tomadorCalibres[nombre] : '');
     lineas.push(qty + 'x ' + _nombreLinea + ' (' + item.p + ')' + (dto ? ' ' + _dtoTag(dto.pct, dto.motivo) : '') + ' → $' + subtotal.toLocaleString('es-AR'));  // v14.142.0 motivo en el tag
+    // v14.225.0 — el mismo renglón, estructurado, para la red de seguridad del guardado.
+    var _varTom = (POLLOS_CON_CALIBRE[nombre] && _tomadorCalibres[nombre]) ? String(_tomadorCalibres[nombre]) : null;
+    _v2ItemsTom.push({ tipo: 'producto', nombre_canonico: nombre, variante: _varTom,
+      calibre: _varTom ? _varTom.split(' ')[0] : null, cantidad: qty, precio_unitario: precioDef,
+      precio_lista: tckPrecioFinal(item, qty, 0, 'tomador'), subtotal: subtotal, presentacion: item.p,
+      descuento: dto ? { pct: dto.pct } : null });
   });
 
   // Agregar datos de competencia si hay
@@ -40346,6 +40450,17 @@ async function tomadorConfirmarConEntrega(entregaData) {
       dur_ms:               _durGuardar,
       gs:                   _gsGuardar
     });
+
+    // v14.225.0 — RED DE SEGURIDAD (_tckAsegurarPedidoEnBase): antes del presupuesto, que lee la base.
+    var _asegTom = await _tckAsegurarPedidoEnBase(pedidoId, {
+      v: 2, pedido_id: pedidoId, cliente: cliente, localidad: localidadCheckin, vendedor: vendedor,
+      total: total, origen: 'campo', canal: 'campo', items: _v2ItemsTom, en_revision: !!tieneDescuento
+    }, entregaData, cliente);
+    if (_asegTom === 'duplicado' || _asegTom === 'fallo') {
+      _tomadorCerrarProgreso();
+      tomadorCerrar();
+      return;
+    }
 
     // v14.54.0 PEDIDO VIVO: el vendedor eligió REEMPLAZA → cancelar el pedido
     // viejo ahora que el nuevo quedó guardado OK (fire-and-forget; si falla,
@@ -48568,13 +48683,16 @@ function _editarSepararCalibre(nombre) {
   } catch (e) { return null; }
 }
 
-function editarPedidoBtn(btn, event) {
+async function editarPedidoBtn(btn, event) {
   event.stopPropagation();
   const pedidoId = btn.getAttribute('data-pid');
   const cliente  = btn.getAttribute('data-cliente');
   const detalle  = decodeURIComponent(btn.getAttribute('data-detalle') || '');
   const p        = todosLosPedidos.find(x => x.pedidoId === pedidoId);
   if (!p) return;
+  // v14.225.0 — la tarjeta puede estar vieja: se mira en la base si ya tiene presupuesto.
+  var _nroPres = await _tckPresupuestoActual(pedidoId);
+  if (_nroPres) { p.xubioNroPresupuesto = _nroPres; _tckAvisoTienePresupuesto(_nroPres); return; }
   abrirEditarPedido(p, detalle);
 }
 
@@ -49204,6 +49322,9 @@ function editarQuitarDescuento(nombre) {
 
 async function editarConfirmar() {
   if (!_editarPedidoId) return;
+  // v14.225.0 — y otra vez al guardar: el presupuesto pudo crearse con el editor abierto (Dupuy 23/09).
+  var _nroPresEd = await _tckPresupuestoActual(_editarPedidoId);
+  if (_nroPresEd) { _tckAvisoTienePresupuesto(_nroPresEd); return; }
 
   // v14.176.0 — con la carga cerrada, guardar exige decirlo con todas las letras.
   if (_editarViajeCerrado) {
@@ -50711,6 +50832,13 @@ async function manualWAGuardar(cliente, localidad, entrega, sucursal) {
       return;
     }
     try { _tlEntAvisoRespuesta(dataGuardar); } catch (_eTlWA) {}   // v14.193.0
+    // v14.225.0 — RED DE SEGURIDAD: el "ok" del Apps Script no garantiza que el pedido esté en la base
+    // (sin cuota escribe la hoja y no Supabase). Se verifica y, si falta, lo registra la app.
+    var _v2ObjWA = null;
+    try { _v2ObjWA = _v2WA ? JSON.parse(_v2WA) : null; } catch (_eV2P) { _v2ObjWA = null; }
+    if (_v2ObjWA && tieneDesWA) _v2ObjWA.en_revision = true;
+    var _asegWA = await _tckAsegurarPedidoEnBase(pedidoId, _v2ObjWA, entrega, cliente);
+    if (_asegWA === 'duplicado' || _asegWA === 'fallo') { cerrarCargaManualWA(); return; }
   } catch(errFetch) {
     console.error('[F9 manualWAGuardar] Error fetch:', errFetch);
     // v14.177.0 — MISMA RED DE SEGURIDAD QUE EL TOMADOR DE CAMPO (v14.136.0).
@@ -61558,7 +61686,7 @@ function depPollIniciar() {
    TCK_UPD_LOCAL aca Y el archivo version.json del repo.
    ============================================================ */
 (function(){
-  var TCK_UPD_LOCAL = '14.224.0';        /* <-- bump en cada deploy */
+  var TCK_UPD_LOCAL = '14.225.0';        /* <-- bump en cada deploy */
   /* v14.159.0: fuente UNICA de version. La telemetria del shadow la reporta,
      asi que un desfasaje contra version.json se ve solo en el primer pedido
      (paso 4 veces sin que nadie lo notara: 14.109, 14.128, 14.137, 14.147). */
