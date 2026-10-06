@@ -2,7 +2,12 @@
 <html lang="es">
 <head>
 <!-- ═══════════════════════════════════════════════════════════════════════
-     TCK VENTAS — v14.225.0 — 25/09/2026
+     TCK VENTAS — v14.226.0 — 06/10/2026
+     v14.226.0: alta de "Juan Chofer" (app_usuarios id 69, rol chofer). Juan reparte ademas de vender:
+       usuario aparte, igual que Chan Chofer / Roman Chofer; su usuario "Juan" de vendedor queda intacto.
+       Tocado: boton de login, esNombreChofer(), lista piloto de CARGA_V2_CFG.
+       DEPLOY: subir como index.html y version.json a 14.226.0.
+     v14.225.0 — 25/09/2026
      v14.225.0: RED DE SEGURIDAD DEL GUARDADO. Con el Apps Script sin cuota (24/09 desde las 20:05) el
        pedido quedaba en la hoja y NO en la base: no aparecia, no se podia presupuestar y el vendedor lo
        cargaba de nuevo (Lisandro, 7 veces). Ahora, despues del ok del Apps Script (WhatsApp y tomador de
@@ -18621,6 +18626,10 @@ body {
         <div class="login-av" style="background:#1565C0;">R</div>
         <div class="login-btn-name">Román<div class="login-btn-role">Chofer / Logística</div></div>
       </button>
+      <button class="login-btn" id="login-btn-juanchofer" onclick="seleccionarVendedor('Juan Chofer','J','#1565C0')">
+        <div class="login-av" style="background:#1565C0;">J</div>
+        <div class="login-btn-name">Juan<div class="login-btn-role">Chofer / Logística</div></div>
+      </button>
       <button class="login-btn" id="login-btn-franciscochofer" style="display:none;" onclick="seleccionarVendedor('Francisco','F','#1565C0')">
         <div class="login-av" style="background:#1565C0;">F</div>
         <div class="login-btn-name">Francisco<div class="login-btn-role">Reparto (solo con viaje asignado)</div></div>
@@ -26190,7 +26199,7 @@ function _tckFranciscoRepartoHoy() {
 }
 function esNombreChofer(n) {
   return ['Joan', 'Ian', 'Nahuel', 'Cesar', 'Comodin',
-          'Chan Chofer', 'Roman Chofer', 'Luis', 'Alfredo'].indexOf(n) !== -1
+          'Chan Chofer', 'Roman Chofer', 'Juan Chofer', 'Luis', 'Alfredo'].indexOf(n) !== -1
       || (n === 'Francisco' && _tckFranciscoRepartoHoy());   // v14.198.0: solo con un viaje a su nombre
 }
 try { window.esNombreChofer = esNombreChofer; } catch (_eCh) {}
@@ -61686,7 +61695,7 @@ function depPollIniciar() {
    TCK_UPD_LOCAL aca Y el archivo version.json del repo.
    ============================================================ */
 (function(){
-  var TCK_UPD_LOCAL = '14.225.0';        /* <-- bump en cada deploy */
+  var TCK_UPD_LOCAL = '14.226.0';        /* <-- bump en cada deploy */
   /* v14.159.0: fuente UNICA de version. La telemetria del shadow la reporta,
      asi que un desfasaje contra version.json se ve solo en el primer pedido
      (paso 4 veces sin que nadie lo notara: 14.109, 14.128, 14.137, 14.147). */
@@ -62630,7 +62639,7 @@ var CARGA_V2_CFG = {
   modo: 'on',
   /* Solo se lee si se vuelve a modo 'piloto' para aislar una prueba
      puntual. En 'on' no se usa. */
-  piloto: ['Pancho', 'Joan', 'Ian', 'Francisco', 'Chan', 'Cesar', 'Nahuel', 'Comodin', 'Chan Chofer', 'Roman Chofer'],
+  piloto: ['Pancho', 'Joan', 'Ian', 'Francisco', 'Chan', 'Cesar', 'Nahuel', 'Comodin', 'Chan Chofer', 'Roman Chofer', 'Juan Chofer'],
   pingMs: 8000,
   autoPlanillaMinMs: 15000
 };
